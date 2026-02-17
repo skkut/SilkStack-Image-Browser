@@ -2,7 +2,7 @@ import { IndexedImage } from '../types';
 import cacheManager from './cacheManager';
 import { useImageStore } from '../store/useImageStore';
 
-const MAX_THUMBNAIL_EDGE = 320;
+const MAX_THUMBNAIL_EDGE = 512;
 const MAX_CONCURRENT_THUMBNAILS = 8; // Increased from 3: with Intersection Observer, only visible images load
 
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.mov', '.avi']);
@@ -120,7 +120,7 @@ async function generateThumbnailBlob(file: File): Promise<Blob | null> {
     bitmap.close();
 
     const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/webp', 0.82)
+      canvas.toBlob(resolve, 'image/webp', 0.90)
     );
 
     return blob;

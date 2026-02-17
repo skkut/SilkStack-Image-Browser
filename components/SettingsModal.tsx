@@ -175,14 +175,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
       '🗑️ DATA:\n' +
       '  • Delete all indexed image metadata (IndexedDB)\n' +
       '  • Remove all loaded directories\n' +
-      '  • Clear all search filters and selections\n\n' +
+      '  • Clear all search filters and selections\n' +
+      '  • Delete existing thumbnails (will be regenerated at higher quality)\n\n' +
       '⚙️ SETTINGS:\n' +
       '  • Reset cache location to default\n' +
       '  • Reset auto-update preference\n' +
       '  • Clear all localStorage preferences\n\n' +
       '📁 YOUR FILES ARE SAFE:\n' +
       '  • Image files will NOT be deleted\n' +
-      '  • You will need to re-add directories\n\n' +
+      '  • You will need to re-add directories to start fresh indexing\n\n' +
       '🔄 The app will reload automatically after clearing.\n\n' +
       'This action CANNOT be undone. Continue?'
     );
