@@ -207,7 +207,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
             ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg shadow-blue-500/20 translate-y-[-2px]' 
             : 'hover:shadow-2xl hover:shadow-black/50 hover:border-gray-600 hover:translate-y-[-4px]'
         } ${
-          isFocused ? 'outline outline-2 outline-dashed outline-blue-400 outline-offset-2 z-10' : ''
+          isFocused ? 'outline-2 outline-dashed outline-blue-400 outline-offset-2 z-10' : ''
         }`}
         style={{ width: '100%', height: `${baseWidth * 1.2}px`, flexShrink: 0 }}
         onClick={(e) => {
@@ -1191,8 +1191,16 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
           >
             <AutoSizer>
               {({ height, width }) => {
-                const columnCount = Math.floor(width / (imageSize + GAP_SIZE));
+                // Calculate columns based on preferred image size (treated as minimum)
+                const minColumnWidth = imageSize + GAP_SIZE;
+                const columnCount = Math.floor(width / minColumnWidth);
                 const safeColumnCount = columnCount > 0 ? columnCount : 1;
+
+                // Expand columns to fill remaining space
+                // Use Math.floor to avoid sub-pixel rendering causing horizontal scrollbars
+                const dynamicColumnWidth = Math.floor(width / safeColumnCount);
+                const dynamicImageSize = dynamicColumnWidth - GAP_SIZE;
+
                 const rowCount = Math.ceil(itemsToRender.length / safeColumnCount);
                 
                 const cellData: CellData = {
@@ -1202,7 +1210,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                     onStackClick: handleStackClick,
                     selectedImages,
                     focusedImageIndex,
-                    imageSize,
+                    imageSize: dynamicImageSize, // Pass dynamic size to card
                     handleImageLoad,
                     handleContextMenu,
                     comparisonFirstImage,
@@ -1218,10 +1226,10 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                 return (
                   <Grid
                     columnCount={safeColumnCount}
-                    columnWidth={imageSize + GAP_SIZE}
+                    columnWidth={dynamicColumnWidth}
                     height={height}
                     rowCount={rowCount}
-                    rowHeight={(imageSize * 1.2) + GAP_SIZE}
+                    rowHeight={(dynamicImageSize * 1.2) + GAP_SIZE}
                     width={width}
                     outerRef={gridRef}
                     className="no-scrollbar-if-needed"
@@ -1258,9 +1266,10 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
   return (
     <div className="flex flex-col h-full w-full">
+
       <div
         ref={gridRef}
-        className="flex-1 p-4 outline-none overflow-auto"
+        className="flex-1 p-4 outline-none overflow-y-auto overflow-x-hidden"
         style={{ minWidth: 0, minHeight: 0, position: 'relative', userSelect: isSelecting ? 'none' : 'auto' }}
         data-area="grid"
         tabIndex={0}
@@ -1269,82 +1278,119 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
       >
-        <div
-          className="flex flex-wrap gap-4"
-          style={{
-            alignContent: 'flex-start',
-          }}
-          data-grid-background
-        >
-          {itemsToRender.map((item, index) => {
-            if (isImageStack(item)) {
-               const isSensitive = enableSafeMode &&
-                sensitiveTagSet && sensitiveTagSet.size > 0 &&
-                !!item.coverImage.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-                
-                return (
+        <AutoSizer disableHeight>
+          {({ width }) => {
+             // Calculate columns based on preferred image size (treated as minimum)
+             const minColumnWidth = imageSize + GAP_SIZE;
+             const columnCount = Math.floor((width - 32) / minColumnWidth); // -32 for padding (p-4 * 2)
+             const safeColumnCount = columnCount > 0 ? columnCount : 1;
+             
+             // AutoSizer gives us the width available INSIDE the parent padding.
+             // So we don't need to subtract padding again.
+             // We add a small safety buffer (2px) to prevent sub-pixel rounding issues causing wrap.
+             const availableWidth = width;
+             
+             // Calculate dynamic size
+             // available = (cols * size) + ((cols - 1) * gap)
+             // available - ((cols - 1) * gap) = cols * size
+             // size = (available - ((cols - 1) * gap)) / cols
+             const dynamicImageSize = Math.floor((availableWidth - ((safeColumnCount - 1) * GAP_SIZE) - 2) / safeColumnCount);
+
+             return (
+              <div
+                className="flex flex-row flex-wrap gap-4"
+                style={{ 
+                    width: width,
+                    alignContent: 'flex-start' 
+                }}
+                data-grid-background
+              >
+                {itemsToRender.map((item, index) => {
+                  if (isImageStack(item)) {
+                    const isSensitive = enableSafeMode &&
+                      sensitiveTagSet && sensitiveTagSet.size > 0 &&
+                      !!item.coverImage.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
+                      
+                      return (
+                          <div 
+                              key={item.id}
+                              className="relative group cursor-pointer"
+                              style={{ 
+                                width: dynamicImageSize, 
+                                height: dynamicImageSize * 1.2,
+                                flexGrow: 0,
+                                flexShrink: 0
+                              }}
+                              onClick={() => handleStackClick(item)}
+                          >
+                              {/* Back cards effect */}
+                              <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
+                              <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
+                              
+                              <div className="relative z-10 w-full h-full">
+                                  <ImageCard
+                                      image={item.coverImage}
+                                      onImageClick={() => handleStackClick(item)}
+                                      isSelected={selectedImages.has(item.coverImage.id)}
+                                      isFocused={false}
+                                      onImageLoad={handleImageLoad}
+                                      onContextMenu={(img, e) => handleContextMenu(img, e)}
+                                      baseWidth={dynamicImageSize}
+                                      isComparisonFirst={false}
+                                      cardRef={createCardRef(item.id)}
+                                      isMarkedBest={markedBestIds?.has(item.coverImage.id)}
+                                      isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
+                                      isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                                  />
+                                  {/* Low prominence Stack Badge */}
+                                  <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-20 border border-blue-400">
+                                      +{item.count}
+                                  </div>
+                                  <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">
+                                      Stack
+                                  </div>
+                              </div>
+                          </div>
+                      );
+                  }
+
+                  const image = item;
+                  const isFocused = focusedImageIndex === index;
+                  const isSensitive = enableSafeMode &&
+                    sensitiveTagSet.size > 0 &&
+                    !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
+
+                  return (
                     <div 
-                        key={item.id}
-                        className="relative group cursor-pointer"
-                        style={{ width: imageSize, height: imageSize * 1.2 }}
-                        onClick={() => handleStackClick(item)}
+                      key={image.id}
+                      style={{ 
+                        width: dynamicImageSize, 
+                        height: dynamicImageSize * 1.2,
+                        flexGrow: 0,
+                        flexShrink: 0
+                      }}
                     >
-                        {/* Back cards effect */}
-                        <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
-                        <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
-                        
-                        <div className="relative z-10 w-full h-full">
-                            <ImageCard
-                                image={item.coverImage}
-                                onImageClick={() => handleStackClick(item)}
-                                isSelected={selectedImages.has(item.coverImage.id)}
-                                isFocused={false}
-                                onImageLoad={handleImageLoad}
-                                onContextMenu={(img, e) => handleContextMenu(img, e)}
-                                baseWidth={imageSize}
-                                isComparisonFirst={false}
-                                cardRef={createCardRef(item.id)}
-                                isMarkedBest={markedBestIds?.has(item.coverImage.id)}
-                                isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
-                                isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-                            />
-                            {/* Low prominence Stack Badge */}
-                            <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-20 border border-blue-400">
-                                +{item.count}
-                            </div>
-                            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">
-                                Stack
-                            </div>
-                        </div>
+                      <ImageCard
+                        image={image}
+                        onImageClick={onImageClick}
+                        isSelected={selectedImages.has(image.id)}
+                        isFocused={isFocused}
+                        onImageLoad={handleImageLoad}
+                        onContextMenu={handleContextMenu}
+                        baseWidth={dynamicImageSize}
+                        isComparisonFirst={comparisonFirstImage?.id === image.id}
+                        cardRef={createCardRef(image.id)}
+                        isMarkedBest={markedBestIds?.has(image.id)}
+                        isMarkedArchived={markedArchivedIds?.has(image.id)}
+                        isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                      />
                     </div>
-                );
-            }
-
-            const image = item;
-            const isFocused = focusedImageIndex === index;
-            const isSensitive = enableSafeMode &&
-              sensitiveTagSet.size > 0 &&
-              !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-
-            return (
-              <ImageCard
-                key={image.id}
-                image={image}
-                onImageClick={onImageClick}
-                isSelected={selectedImages.has(image.id)}
-                isFocused={isFocused}
-                onImageLoad={handleImageLoad}
-                onContextMenu={handleContextMenu}
-                baseWidth={imageSize}
-                isComparisonFirst={comparisonFirstImage?.id === image.id}
-                cardRef={createCardRef(image.id)}
-                isMarkedBest={markedBestIds?.has(image.id)}
-                isMarkedArchived={markedArchivedIds?.has(image.id)}
-                isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-              />
-            );
-          })}
-        </div>
+                  );
+                })}
+              </div>
+          );
+        }}
+        </AutoSizer>
 
         {/* Selection box visual */}
         {isSelecting && selectionStart && selectionEnd && (
