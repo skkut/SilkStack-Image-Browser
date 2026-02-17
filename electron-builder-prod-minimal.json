@@ -1,0 +1,21 @@
+{
+  "appId": "com.skkut.ai-images-browser",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron.mjs",
+    "preload.js",
+    "services/**/*",
+    "public/icon.ico",
+    "public/logo1.png"
+  ],
+  "win": {
+    "target": "dir"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

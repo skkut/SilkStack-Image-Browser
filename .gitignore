@@ -21,6 +21,12 @@ dist
 dist-electron
 dist-ssr
 *.local
+$target/
+
+# Build outputs
+dist/
+out/
+release/
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
@@ -63,3 +69,15 @@ services/parsers/comfyui/workflows/pikachu.json
 IMPLEMENTATION_NOTES.md
 nul
 image-metahub.code-workspace
+
+# Electron & System Caches
+.electron-cache/
+.eslintcache
+.stylelintcache
+
+Thumbs.db
+.DS_Store
+
+# Environment variables (Sensitive info)
+.env
+.env.local
