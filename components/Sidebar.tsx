@@ -67,9 +67,9 @@ const Sidebar: React.FC<SidebarProps> = ({
 }) => {
 
   const [expandedSections, setExpandedSections] = useState({
-    models: true,
-    loras: true,
-    schedulers: true,
+    models: false,
+    loras: false,
+    schedulers: false,
   });
 
   const toggleSection = (section: keyof typeof expandedSections) => {
