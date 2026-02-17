@@ -1,4 +1,4 @@
-import React, { useEffect, useState, FC, useCallback } from "react";
+import React, { useEffect, useState, FC, useCallback, useRef } from "react";
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
 import { FileOperations } from "../services/fileOperations";
 import { copyImageToClipboard, showInExplorer } from "../utils/imageUtils";
@@ -90,6 +90,8 @@ interface ImageModalProps {
   onNavigatePrevious?: () => void;
   directoryPath?: string;
   isIndexing?: boolean;
+  nextImage?: IndexedImage | null;
+  previousImage?: IndexedImage | null;
 }
 
 // Helper function to format LoRA with weight
@@ -491,13 +493,171 @@ const ImageModal: React.FC<ImageModalProps> = ({
   onNavigatePrevious,
   directoryPath,
   isIndexing = false,
+  nextImage,
+  previousImage,
 }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  // Cache for preloaded images: imageId -> objectUrl
+  const [imageCache, setImageCache] = useState<Map<string, string>>(new Map());
+
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(
     image.name.replace(/\.(png|jpg|jpeg|webp|mp4|webm|mkv|mov|avi)$/i, ""),
   );
   const [showRawMetadata, setShowRawMetadata] = useState(false);
+
+  // ... (rest of the component state)
+
+  // Helper function to load a single image
+  const loadImageToUrl = useCallback(async (img: IndexedImage, dirPath: string): Promise<string | null> => {
+    try {
+      const primaryHandle = img.handle;
+      const fallbackHandle = img.thumbnailHandle;
+      const fileHandle =
+        primaryHandle && typeof primaryHandle.getFile === "function"
+          ? primaryHandle
+          : fallbackHandle && typeof fallbackHandle.getFile === "function"
+            ? fallbackHandle
+            : null;
+
+      if (fileHandle) {
+        const file = await fileHandle.getFile();
+        return URL.createObjectURL(file);
+      }
+      
+      // Fallback to Electron API
+      if (window.electronAPI) {
+        const pathResult = await window.electronAPI.joinPaths(dirPath, img.name);
+        if (pathResult.success && pathResult.path) {
+          const fileResult = await window.electronAPI.readFile(pathResult.path);
+          if (fileResult.success && fileResult.data) {
+            const { url } = createImageUrlFromFileData(fileResult.data, img.name);
+            return url;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to preload image ${img.name}:`, error);
+    }
+    return null;
+  }, []);
+
+  const imageFromStore = useImageStore(
+    (state) =>
+      state.images.find((img) => img.id === image.id) ||
+      state.filteredImages.find((img) => img.id === image.id),
+  );
+  const isVideo = isVideoFileName(image.name, image.fileType);
+  const preferredThumbnailUrl =
+    imageFromStore?.thumbnailUrl ?? image.thumbnailUrl;
+
+  useEffect(() => {
+    let isMounted = true;
+    let currentUrl: string | null = null;
+    const hasPreview = Boolean(preferredThumbnailUrl);
+    
+    // Check if we have the image in cache
+    if (imageCache.has(image.id)) {
+      setImageUrl(imageCache.get(image.id)!);
+    } else {
+      // If not in cache, show thumbnail first (existing behavior)
+      setImageUrl(isVideo ? null : (preferredThumbnailUrl ?? null));
+    }
+
+    const loadAndPreload = async () => {
+      if (!directoryPath) return;
+
+      // 1. Load current image if not cached
+      if (!imageCache.has(image.id)) {
+        const url = await loadImageToUrl(image, directoryPath);
+        if (isMounted && url) {
+           setImageUrl(url);
+           currentUrl = url;
+           setImageCache(prev => {
+             const newCache = new Map(prev);
+             newCache.set(image.id, url);
+             return newCache;
+           });
+        }
+      } else {
+        currentUrl = imageCache.get(image.id)!;
+      }
+
+      // 2. Preload adjacent images
+      const imagesToPreload = [nextImage, previousImage].filter(Boolean) as IndexedImage[];
+      
+      for (const img of imagesToPreload) {
+        if (!imageCache.has(img.id) && !isVideoFileName(img.name, img.fileType)) {
+          // Add a small delay/yield to let the UI breathe if needed, 
+          // but async nature helps.
+          const url = await loadImageToUrl(img, directoryPath);
+          if (isMounted && url) {
+            setImageCache(prev => {
+              const newCache = new Map(prev);
+              newCache.set(img.id, url);
+              return newCache;
+            });
+          }
+        }
+      }
+      
+      // 3. Cleanup cache (keep only current, next, previous)
+      setImageCache(prev => {
+        const keepIds = new Set([image.id, nextImage?.id, previousImage?.id].filter(Boolean));
+        if (prev.size > keepIds.size + 2) { // Allow a tiny buffer
+            const newCache = new Map();
+            prev.forEach((url, id) => {
+                if (keepIds.has(id as string)) {
+                    newCache.set(id, url);
+                } else {
+                    URL.revokeObjectURL(url);
+                }
+            });
+            return newCache;
+        }
+        return prev;
+      });
+    };
+
+    loadAndPreload();
+
+    return () => {
+      isMounted = false;
+      // We don't revoke currentUrl here because it might be in the cache for next render
+      // Cleanup happens in the cache trimming logic or component unmount
+    };
+  }, [
+    image.id,
+    directoryPath,
+    preferredThumbnailUrl,
+    isVideo,
+    nextImage, 
+    previousImage,
+    loadImageToUrl
+  ]);
+
+  // Global cleanup when component unmounts entirely
+  useEffect(() => {
+      return () => {
+          // This effect runs once on mount, and the cleanup runs on unmount
+          // We can't access the *latest* imageCache here in the cleanup unless we include it in deps,
+          // but if we include it in deps, it runs every time cache changes.
+          // Instead, since React 18, we can use a ref to track the cache for cleanup.
+      };
+  }, []); 
+
+  // Use a ref to track cache for cleanup on unmount
+  const cacheRef = useRef(imageCache);
+  useEffect(() => {
+      cacheRef.current = imageCache;
+  }, [imageCache]);
+
+  useEffect(() => {
+      return () => {
+          cacheRef.current.forEach(url => URL.revokeObjectURL(url));
+      };
+  }, []);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -568,18 +728,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [showOriginal, setShowOriginal] = useState(false);
 
   // Get live tags and favorite status from store instead of props
-  const imageFromStore = useImageStore(
-    (state) =>
-      state.images.find((img) => img.id === image.id) ||
-      state.filteredImages.find((img) => img.id === image.id),
-  );
-  const isVideo = isVideoFileName(image.name, image.fileType);
+  // imageFromStore, isVideo, and preferredThumbnailUrl are defined above
+
   const currentTags = imageFromStore?.tags || image.tags || [];
   const currentAutoTags = imageFromStore?.autoTags || image.autoTags || [];
   const currentIsFavorite =
     imageFromStore?.isFavorite ?? image.isFavorite ?? false;
-  const preferredThumbnailUrl =
-    imageFromStore?.thumbnailUrl ?? image.thumbnailUrl;
+
   const tagSuggestions = buildTagSuggestions(
     recentTags,
     availableTags,
@@ -951,128 +1106,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setPan({ x: 0, y: 0 });
   };
 
-  useEffect(() => {
-    let isMounted = true;
-    let createdUrl: string | null = null;
-    const hasPreview = Boolean(preferredThumbnailUrl);
+  // Old useEffect removed. Logic moved to the main loading/preloading effect.
+  // Kept Empty for diff cleanliness, correct implementation is above.
 
-    setImageUrl(isVideo ? null : (preferredThumbnailUrl ?? null));
-
-    const loadImage = async () => {
-      if (!isMounted) return;
-
-      // Validate directoryPath before attempting to load (prevents recursion)
-      if (!directoryPath && window.electronAPI) {
-        console.error("Cannot load image: directoryPath is undefined");
-        if (isMounted && !hasPreview) {
-          setImageUrl(null);
-          alert("Failed to load image: Directory path is not available.");
-        }
-        return;
-      }
-
-      const setResolvedUrl = (url: string, revoke: boolean) => {
-        if (!isMounted) return;
-        if (createdUrl) {
-          URL.revokeObjectURL(createdUrl);
-          createdUrl = null;
-        }
-        if (revoke) {
-          createdUrl = url;
-        }
-        setImageUrl(url);
-      };
-
-      try {
-        const primaryHandle = image.handle;
-        const fallbackHandle = image.thumbnailHandle;
-        const fileHandle =
-          primaryHandle && typeof primaryHandle.getFile === "function"
-            ? primaryHandle
-            : fallbackHandle && typeof fallbackHandle.getFile === "function"
-              ? fallbackHandle
-              : null;
-
-        if (fileHandle) {
-          const file = await fileHandle.getFile();
-          if (isMounted) {
-            const url = URL.createObjectURL(file);
-            setResolvedUrl(url, true);
-          }
-          return; // Success, no need for fallback
-        }
-        throw new Error("Image handle is not a valid FileSystemFileHandle.");
-      } catch (handleError) {
-        const message =
-          handleError instanceof Error
-            ? handleError.message
-            : String(handleError);
-        console.warn(
-          `Could not load image with FileSystemFileHandle: ${message}. Attempting Electron fallback.`,
-        );
-        if (isMounted && window.electronAPI && directoryPath) {
-          try {
-            const pathResult = await window.electronAPI.joinPaths(
-              directoryPath,
-              image.name,
-            );
-            if (!pathResult.success || !pathResult.path) {
-              throw new Error(
-                pathResult.error || "Failed to construct image path.",
-              );
-            }
-            const fileResult = await window.electronAPI.readFile(
-              pathResult.path,
-            );
-            if (fileResult.success && fileResult.data && isMounted) {
-              const { url, revoke } = createImageUrlFromFileData(
-                fileResult.data,
-                image.name,
-              );
-              setResolvedUrl(url, revoke);
-            } else {
-              throw new Error(
-                fileResult.error || "Failed to read file via Electron API.",
-              );
-            }
-          } catch (electronError) {
-            console.error("Electron fallback failed:", electronError);
-            if (isMounted && !hasPreview) {
-              setImageUrl(null); // Explicitly set to null on failure
-              const errorMessage =
-                electronError instanceof Error
-                  ? electronError.message
-                  : String(electronError);
-              alert(`Failed to load image: ${errorMessage}`);
-            }
-          }
-        } else if (isMounted && !hasPreview) {
-          // If no fallback is available
-          setImageUrl(null);
-          alert(
-            "Failed to load image: No valid file handle and not in a compatible Electron environment.",
-          );
-        }
-      }
-    };
-
-    loadImage();
-
-    return () => {
-      isMounted = false;
-      if (createdUrl) {
-        URL.revokeObjectURL(createdUrl);
-      }
-    };
-  }, [
-    image.id,
-    image.handle,
-    image.thumbnailHandle,
-    image.name,
-    directoryPath,
-    preferredThumbnailUrl,
-    isVideo,
-  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

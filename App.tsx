@@ -938,6 +938,8 @@ export default function App() {
             onNavigatePrevious={handleImageModalNavigatePrevious}
             directoryPath={directoryPath}
             isIndexing={progress && progress.total > 0 && progress.current < progress.total}
+            nextImage={safeFilteredImages[(getCurrentImageIndex() + 1) % safeFilteredImages.length]}
+            previousImage={safeFilteredImages[(getCurrentImageIndex() - 1 + safeFilteredImages.length) % safeFilteredImages.length]}
           />
         )}
 
