@@ -202,14 +202,14 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
       {showToast && <Toast message="Prompt copied to clipboard!" onDismiss={() => setShowToast(false)} />}
       <div
         ref={mergedRef}
-        className={`relative group flex items-center justify-center bg-gray-800 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 ease-out border border-gray-700/50 ${
+        className={`relative group flex items-center justify-center bg-gray-800 rounded-lg overflow-hidden cursor-pointer transition-all duration-300 ease-out border border-gray-700/50 ${
           isSelected 
             ? 'ring-4 ring-blue-500 ring-opacity-75 shadow-lg shadow-blue-500/20 translate-y-[-2px]' 
             : 'hover:shadow-2xl hover:shadow-black/50 hover:border-gray-600 hover:translate-y-[-4px]'
         } ${
           isFocused ? 'outline-2 outline-dashed outline-blue-400 outline-offset-2 z-10' : ''
         }`}
-        style={{ width: '100%', height: `${baseWidth * 1.2}px`, flexShrink: 0 }}
+        style={{ width: '100%', height: `${baseWidth * ITEM_HEIGHT_RATIO}px`, flexShrink: 0 }}
         onClick={(e) => {
           if (doubleClickToOpen) {
             if (e.ctrlKey || e.metaKey) {
@@ -313,7 +313,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           <img
             src={imageUrl}
             alt={image.name}
-            className={`max-w-full max-h-full object-contain transition-all duration-200 ${
+            className={`w-full h-full object-contain transition-all duration-200 ${
               isBlurred ? 'filter blur-xl scale-110 opacity-80' : ''
             }`}
             loading="lazy"
@@ -380,8 +380,8 @@ function isImageStack(item: IndexedImage | ImageStack): item is ImageStack {
   return (item as ImageStack).coverImage !== undefined;
 }
 
-const GAP_SIZE = 16;
-const ITEM_HEIGHT_RATIO = 1.0; // Square images for now
+const GAP_SIZE = 8;
+const ITEM_HEIGHT_RATIO = 1.2; // Normal aspect ratio (rectangular)
 
 // --- Virtualized Cell Component ---
 interface CellData {
@@ -1229,7 +1229,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                     columnWidth={dynamicColumnWidth}
                     height={height}
                     rowCount={rowCount}
-                    rowHeight={(dynamicImageSize * 1.2) + GAP_SIZE}
+                    rowHeight={(dynamicImageSize * ITEM_HEIGHT_RATIO) + GAP_SIZE}
                     width={width}
                     outerRef={gridRef}
                     className="no-scrollbar-if-needed"
@@ -1269,7 +1269,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
       <div
         ref={gridRef}
-        className="flex-1 p-4 outline-none overflow-y-auto overflow-x-hidden"
+        className="flex-1 p-2 outline-none overflow-y-auto overflow-x-hidden"
         style={{ minWidth: 0, minHeight: 0, position: 'relative', userSelect: isSelecting ? 'none' : 'auto' }}
         data-area="grid"
         tabIndex={0}
@@ -1282,7 +1282,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
           {({ width }) => {
              // Calculate columns based on preferred image size (treated as minimum)
              const minColumnWidth = imageSize + GAP_SIZE;
-             const columnCount = Math.floor((width - 32) / minColumnWidth); // -32 for padding (p-4 * 2)
+             const columnCount = Math.floor((width - 16) / minColumnWidth); // -16 for padding (p-2 * 2)
              const safeColumnCount = columnCount > 0 ? columnCount : 1;
              
              // AutoSizer gives us the width available INSIDE the parent padding.
@@ -1298,7 +1298,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
              return (
               <div
-                className="flex flex-row flex-wrap gap-4"
+                className="flex flex-row flex-wrap gap-2"
                 style={{ 
                     width: width,
                     alignContent: 'flex-start' 
@@ -1317,7 +1317,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                               className="relative group cursor-pointer"
                               style={{ 
                                 width: dynamicImageSize, 
-                                height: dynamicImageSize * 1.2,
+                                height: dynamicImageSize * ITEM_HEIGHT_RATIO,
                                 flexGrow: 0,
                                 flexShrink: 0
                               }}
@@ -1365,7 +1365,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                       key={image.id}
                       style={{ 
                         width: dynamicImageSize, 
-                        height: dynamicImageSize * 1.2,
+                        height: dynamicImageSize * ITEM_HEIGHT_RATIO,
                         flexGrow: 0,
                         flexShrink: 0
                       }}
