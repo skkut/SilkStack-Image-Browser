@@ -1,7 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { copyFileSync } from 'fs'
+import { copyFileSync, readFileSync } from 'fs'
 import { resolve } from 'path'
+
+// Read package.json to get version
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'))
 
 // Ensure the license secret is baked into the renderer bundle.
 // If only IMH_LICENSE_SECRET is set, we mirror it to VITE_IMH_LICENSE_SECRET here.
@@ -39,6 +42,7 @@ export default defineConfig({
   base: './',
   define: {
     'import.meta.env.VITE_IMH_LICENSE_SECRET': JSON.stringify(licenseSecret),
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
   },
   server: {
     host: true, // Expose server to the network

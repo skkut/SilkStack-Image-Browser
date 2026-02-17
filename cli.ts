@@ -9,10 +9,18 @@ import { parseImageFile } from './services/metadataEngine';
 
 const program = new Command();
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
+
 program
   .name('imagemetahub-cli')
   .description('Image MetaHub CLI - Parse AI-generated image metadata')
-  .version('0.2.0');
+  .version(pkg.version);
 
 type ParseOptions = { json: boolean; pretty: boolean; raw?: boolean; quiet?: boolean };
 type IndexOptions = { out: string; recursive: boolean; raw?: boolean; quiet?: boolean; concurrency?: string };

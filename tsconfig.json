@@ -27,6 +27,9 @@
     "noEmit": true
   },
   "exclude": [
-    "__tests__/**/*"
+    "__tests__/**/*",
+    "release/**/*",
+    "dist/**/*",
+    "dist-electron/**/*"
   ]
 }

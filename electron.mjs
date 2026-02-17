@@ -20,7 +20,10 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import * as fileWatcher from "./services/fileWatcher.mjs";
 import archiver from "archiver";
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
+const pkg = require('./package.json');
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -1282,7 +1285,7 @@ function setupFileOperationHandlers() {
 
     // Simulate update info
     const mockUpdateInfo = {
-      version: "0.2.0",
+      version: pkg.version,
       releaseNotes: `## [0.13.0] - Release
 
 ### Major Performance Improvements
