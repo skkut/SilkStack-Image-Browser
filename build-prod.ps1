@@ -37,9 +37,14 @@ Copy-Item -Path "dist" -Destination $appDir -Recurse
 Copy-Item -Path "services" -Destination $appDir -Recurse
 Copy-Item -Path "public" -Destination $appDir -Recurse
 
-Write-Host "Manual Packaging: Copying dependencies (this may take a moment)..."
-# Exclude electron and vite to save some space, though node_modules cleanup is best done via npm prune
-Copy-Item -Path "node_modules" -Destination $appDir -Recurse -Force
+Write-Host "Manual Packaging: Installing production dependencies..."
+Push-Location $appDir
+try {
+    npm install --omit=dev
+}
+finally {
+    Pop-Location
+}
 
 Write-Host "Compressing release..."
 $zipPath = "release\AI-Images-Browser-Release.zip"
