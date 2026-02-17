@@ -27,6 +27,8 @@ $target/
 dist/
 out/
 release/
+release-builds/
+dist-packager/
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
