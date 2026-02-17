@@ -1499,10 +1499,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                 existingWorker.terminate();
             }
 
-            // Get clustering limits from license store directly (can't use hooks in Zustand actions)
-            const licenseStore = useLicenseStore.getState();
-            const isPro = licenseStore.licenseStatus === 'pro' || licenseStore.licenseStatus === 'lifetime';
-            const isTrialActive = licenseStore.licenseStatus === 'trial';
+            // Force Pro status for clustering
+            // const licenseStore = useLicenseStore.getState();
+            const isPro = true;
+            const isTrialActive = false;
 
             // Filter images with prompts
             const imagesWithPrompts = images.filter(img => img.prompt && img.prompt.trim().length > 0);

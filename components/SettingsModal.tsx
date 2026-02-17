@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLicenseStore } from '../store/useLicenseStore';
-import { X, Wrench, Keyboard, Palette, Check, Crown, Eye } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 
@@ -23,14 +24,14 @@ const themeOptions = [
   { id: 'ocean', name: 'Ocean', colors: ['#0f172a', '#38bdf8', '#e2e8f0'] },
 ];
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab = 'general', focusSection = null }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab = 'general' }) => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
   const theme = useSettingsStore((state) => state.theme);
   const setTheme = useSettingsStore((state) => state.setTheme);
   const cachePath = useSettingsStore((state) => state.cachePath);
-  const autoUpdate = useSettingsStore((state) => state.autoUpdate);
+
   const setCachePath = useSettingsStore((state) => state.setCachePath);
-  const toggleAutoUpdate = useSettingsStore((state) => state.toggleAutoUpdate);
+
   const indexingConcurrency = useSettingsStore((state) => state.indexingConcurrency);
   const setIndexingConcurrency = useSettingsStore((state) => state.setIndexingConcurrency);
   const showFilenames = useSettingsStore((state) => state.showFilenames);
@@ -57,7 +58,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   // ComfyUI Integration settings
   const comfyUIServerUrl = useSettingsStore((state) => state.comfyUIServerUrl);
   const comfyUILastConnectionStatus = useSettingsStore((state) => state.comfyUILastConnectionStatus);
+  const comfyUIDesktopPath = useSettingsStore((state) => state.comfyUIDesktopPath);
   const setComfyUIServerUrl = useSettingsStore((state) => state.setComfyUIServerUrl);
+  const setComfyUIDesktopPath = useSettingsStore((state) => state.setComfyUIDesktopPath);
   const setComfyUIConnectionStatus = useSettingsStore((state) => state.setComfyUIConnectionStatus);
 
   const [currentCachePath, setCurrentCachePath] = useState('');
@@ -69,17 +72,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
     : null;
   const maxConcurrency = hardwareConcurrency ? Math.max(1, Math.min(16, Math.floor(hardwareConcurrency))) : 16;
 
-  // License state
-  const licenseStatus = useLicenseStore((state) => state.licenseStatus);
-  const licenseEmail = useLicenseStore((state) => state.licenseEmail);
-  const licenseKey = useLicenseStore((state) => state.licenseKey);
-  const activateLicense = useLicenseStore((state) => state.activateLicense);
-
-  const [licenseEmailInput, setLicenseEmailInput] = useState(licenseEmail ?? '');
-  const [licenseKeyInput, setLicenseKeyInput] = useState(licenseKey ?? '');
-  const [isActivatingLicense, setIsActivatingLicense] = useState(false);
-  const [licenseMessage, setLicenseMessage] = useState<string | null>(null);
-  const licenseSectionRef = useRef<HTMLDivElement | null>(null);
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
 
   useEffect(() => {
@@ -100,14 +92,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
     setSensitiveTagsInput((sensitiveTags ?? []).join(', '));
   }, [sensitiveTags]);
 
-  useEffect(() => {
-    if (isOpen && focusSection === 'license') {
-      setActiveTab('general');
-      requestAnimationFrame(() => {
-        licenseSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    }
-  }, [focusSection, isOpen]);
+
 
   const handleSelectCacheDirectory = async () => {
     const result = await window.electronAPI?.showDirectoryDialog();
@@ -218,28 +203,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
     }
   };
 
-  const handleActivateLicense = async () => {
-    setLicenseMessage(null);
-    const email = licenseEmailInput.trim();
-    const key = licenseKeyInput.trim();
 
-    if (!email || !key) {
-      setLicenseMessage('Please enter both email and license key.');
-      return;
-    }
-
-    try {
-      setIsActivatingLicense(true);
-      const success = await activateLicense(key, email);
-      if (success) {
-        setLicenseMessage('✅ License activated. Thank you for supporting the project!');
-      } else {
-        setLicenseMessage('Invalid license for this email. Please double-check both fields.');
-      }
-    } finally {
-      setIsActivatingLicense(false);
-    }
-  };
 
   if (!isOpen) {
     return null;
@@ -353,27 +317,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             </p>
           </div>
 
-          {/* Auto-update Setting */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">Automatic Updates</h3>
-            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
-              <div>
-                <p className="text-sm">Check for updates on startup</p>
-                <p className="text-xs text-gray-400">
-                  When disabled, the app will not check for new versions online.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={autoUpdate}
-                  onChange={toggleAutoUpdate}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-          </div>
+
 
           {/* Auto-watch Setting */}
           <div>
@@ -455,116 +399,147 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             </div>
           </div>
 
-          {/* A1111 Integration */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">Automatic1111 Integration</h3>
-            <p className="text-sm text-gray-400 mb-3">
-              Configure connection to your local Automatic1111 instance. Make sure A1111 is running with the --api flag.
-            </p>
+            {/* A1111 Integration */}
+            <div>
+              <h3 className="text-lg font-semibold mb-2">Automatic1111 Integration</h3>
+              <p className="text-sm text-gray-400 mb-3">
+                Configure connection to your local Automatic1111 instance. Make sure A1111 is running with the --api flag.
+              </p>
 
-            {/* Server URL Input */}
-            <div className="space-y-2 mb-3">
-              <label className="text-sm text-gray-300">Server URL</label>
-              <input
-                type="text"
-                value={a1111ServerUrl}
-                onChange={(e) => setA1111ServerUrl(e.target.value)}
-                placeholder="http://127.0.0.1:7860"
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm"
-              />
-            </div>
-
-            {/* Test Connection Button */}
-            <div className="flex items-center space-x-2 mb-3">
-              <button
-                onClick={handleTestConnection}
-                disabled={isTestingConnection}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium"
-              >
-                {isTestingConnection ? 'Testing...' : 'Test Connection'}
-              </button>
-              {a1111LastConnectionStatus === 'connected' && (
-                <span className="text-green-400 text-sm">✓ Connected</span>
-              )}
-              {a1111LastConnectionStatus === 'error' && (
-                <span className="text-red-400 text-sm">✗ Connection failed</span>
-              )}
-            </div>
-
-            {/* Auto-start Toggle */}
-            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
-              <div>
-                <p className="text-sm">Auto-start generation</p>
-                <p className="text-xs text-gray-400">
-                  Automatically start generating when sending parameters to A1111
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer">
+              {/* Server URL Input */}
+              <div className="space-y-2 mb-3">
+                <label className="text-sm text-gray-300">Server URL</label>
                 <input
-                  type="checkbox"
-                  checked={a1111AutoStart}
-                  onChange={toggleA1111AutoStart}
-                  className="sr-only peer"
+                  type="text"
+                  value={a1111ServerUrl}
+                  onChange={(e) => setA1111ServerUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:7860"
+                  className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm"
                 />
-                <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
-            </div>
-          </div>
+              </div>
 
-          {/* ComfyUI Integration */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">ComfyUI Integration</h3>
-            <p className="text-sm text-gray-400 mb-3">
-              Configure connection to your local ComfyUI instance.
-              <br />
-              <span className="text-xs text-yellow-400">
-                Requires MetaHub Save Node installed in ComfyUI.
-              </span>
-            </p>
+              {/* Test Connection Button */}
+              <div className="flex items-center space-x-2 mb-3">
+                <button
+                  onClick={handleTestConnection}
+                  disabled={isTestingConnection}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  {isTestingConnection ? 'Testing...' : 'Test Connection'}
+                </button>
+                {a1111LastConnectionStatus === 'connected' && (
+                  <span className="text-green-400 text-sm">✓ Connected</span>
+                )}
+                {a1111LastConnectionStatus === 'error' && (
+                  <span className="text-red-400 text-sm">✗ Connection failed</span>
+                )}
+              </div>
 
-            {/* Server URL Input */}
-            <div className="space-y-2 mb-3">
-              <label className="text-sm text-gray-300">Server URL</label>
-              <input
-                type="text"
-                value={comfyUIServerUrl}
-                onChange={(e) => setComfyUIServerUrl(e.target.value)}
-                placeholder="http://127.0.0.1:8188"
-                className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-sm"
-              />
-            </div>
-
-            {/* Test Connection Button */}
-            <div className="flex items-center space-x-2 mb-3">
-              <button
-                onClick={handleTestComfyUIConnection}
-                disabled={isTestingComfyUIConnection}
-                className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium"
-              >
-                {isTestingComfyUIConnection ? 'Testing...' : 'Test Connection'}
-              </button>
-              {comfyUILastConnectionStatus === 'connected' && (
-                <span className="text-green-400 text-sm">✓ Connected</span>
-              )}
-              {comfyUILastConnectionStatus === 'error' && (
-                <span className="text-red-400 text-sm">✗ Connection failed</span>
-              )}
+              {/* Auto-start Toggle */}
+              <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
+                <div>
+                  <p className="text-sm">Auto-start generation</p>
+                  <p className="text-xs text-gray-400">
+                    Automatically start generating when sending parameters to A1111
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={a1111AutoStart}
+                    onChange={toggleA1111AutoStart}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
             </div>
 
-            {/* Info Box */}
-            <div className="bg-blue-900/20 border border-blue-700 rounded p-3 text-xs text-blue-200">
-              <strong>Installation:</strong> Install the MetaHub Save Node in ComfyUI from:
-              <br />
-              <a
-                href="https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                github.com/LuqP2/ImageMetaHub-ComfyUI-Save
-              </a>
+            {/* ComfyUI Integration */}
+            <div>
+              <h3 className="text-lg font-semibold mb-2">ComfyUI Integration</h3>
+              <p className="text-sm text-gray-400 mb-3">
+                Configure connection to your local ComfyUI instance.
+                <br />
+                <span className="text-xs text-yellow-400">
+                  Requires MetaHub Save Node installed in ComfyUI.
+                </span>
+              </p>
+
+              <div className="space-y-4 mb-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    ComfyUI Server URL
+                  </label>
+                  <input
+                    type="text"
+                    value={comfyUIServerUrl}
+                    onChange={(e) => setComfyUIServerUrl(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+                    placeholder="http://127.0.0.1:8188"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    ComfyUI Desktop Path (Optional)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={comfyUIDesktopPath || ''}
+                      onChange={(e) => setComfyUIDesktopPath(e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
+                      placeholder="C:\Path\To\ComfyUI\ComfyUI.exe"
+                    />
+                      <button
+                        onClick={async () => {
+                          const result = await window.electronAPI.selectPath(false);
+                          if (result.success && result.path) {
+                            setComfyUIDesktopPath(result.path);
+                          }
+                        }}
+                        className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-gray-200 transition-colors"
+                      >
+                        <FolderOpen size={18} />
+                      </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    If set, "Send to ComfyUI" will try to launch this executable.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 mb-3">
+                <button
+                  onClick={handleTestComfyUIConnection}
+                  disabled={isTestingComfyUIConnection}
+                  className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium"
+                >
+                  {isTestingComfyUIConnection ? 'Testing...' : 'Test Connection'}
+                </button>
+                {comfyUILastConnectionStatus === 'connected' && (
+                  <span className="text-green-400 text-sm">✓ Connected</span>
+                )}
+                {comfyUILastConnectionStatus === 'error' && (
+                  <span className="text-red-400 text-sm">✗ Connection failed</span>
+                )}
+              </div>
+
+              {/* Info Box */}
+              <div className="bg-blue-900/20 border border-blue-700 rounded p-3 text-xs text-blue-200">
+                <strong>Installation:</strong> Install the MetaHub Save Node in ComfyUI from:
+                <br />
+                <a
+                  href="https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  github.com/LuqP2/ImageMetaHub-ComfyUI-Save
+                </a>
+              </div>
             </div>
-          </div>
 
           {/* Indexing Concurrency */}
           <div>
@@ -611,98 +586,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             </p>
           </div>
 
-          {/* License / Pro Activation */}
-          <div ref={licenseSectionRef}>
-            <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-              <Crown className="w-4 h-4 text-yellow-400" />
-              License / Pro
-            </h3>
-            <div className="bg-gray-900 p-3 rounded-md space-y-3 border border-gray-800">
-              <p className="text-sm text-gray-300">
-                Support the project and unlock Pro features with a simple offline license key. No online checks, no account system.
-              </p>
-              <p className="text-xs text-gray-500">
-                Buy a license on Gumroad, then paste the email you used at checkout and the license key you received.
-              </p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-300">License email</label>
-                  <input
-                    type="email"
-                    value={licenseEmailInput}
-                    onChange={(event) => setLicenseEmailInput(event.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm text-gray-300">License key</label>
-                  <input
-                    type="text"
-                    value={licenseKeyInput}
-                    onChange={(event) => setLicenseKeyInput(event.target.value)}
-                    placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between mt-2">
-                <button
-                  onClick={handleActivateLicense}
-                  disabled={isActivatingLicense}
-                  className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-700 disabled:cursor-not-allowed px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2"
-                >
-                  {isActivatingLicense ? 'Activating...' : 'Activate'}
-                </button>
-                <div className="text-xs text-gray-400 text-right">
-                  <div>
-                    Status:{' '}
-                    <span
-                      className={
-                        licenseStatus === 'pro' || licenseStatus === 'lifetime'
-                          ? 'text-green-400'
-                          : licenseStatus === 'expired'
-                          ? 'text-red-400'
-                          : 'text-yellow-300'
-                      }
-                    >
-                      {licenseStatus === 'pro' && 'Pro'}
-                      {licenseStatus === 'lifetime' && 'Lifetime'}
-                      {licenseStatus === 'trial' && 'Trial'}
-                      {licenseStatus === 'expired' && 'Trial expired'}
-                    </span>
-                  </div>
-                  {licenseEmail && (
-                    <div className="mt-1">
-                      Activated for:{' '}
-                      <span className="text-gray-200">{licenseEmail}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {licenseMessage && (
-                <p className="text-xs mt-2 text-gray-300">
-                  {licenseMessage}
-                </p>
-              )}
-
-              <div className="mt-2 flex justify-end">
-                <a
-                  href="https://lucasphere4660.gumroad.com/l/qmjima"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300 underline inline-flex items-center gap-1"
-                >
-                  <Crown className="w-3 h-3" />
-                  Get Pro license
-                </a>
-              </div>
-            </div>
           </div>
-        </div>
         )}
 
         {activeTab === 'hotkeys' && (

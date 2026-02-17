@@ -32,15 +32,30 @@ export function useCopyToComfyUI() {
     setCopyStatus(null);
 
     try {
-      // Format metadata to ComfyUI workflow JSON
-      const workflowJSON = formatMetadataForComfyUI(metadata);
+      // 1. Try to get raw workflow/prompt from root metadata first (Highest fidelity)
+      // ComfyUI metadata often has 'workflow' or 'prompt' at the root
+      let workflowJSON = '';
+      
+      const rawMetadata = image.metadata as any;
+      
+      if (rawMetadata.workflow) {
+        workflowJSON = JSON.stringify(rawMetadata.workflow, null, 2);
+      } else if (rawMetadata.prompt) {
+        workflowJSON = JSON.stringify(rawMetadata.prompt, null, 2);
+      } else if (metadata.workflow) {
+        // Fallback to normalized metadata if it somehow stuck there
+        workflowJSON = JSON.stringify(metadata.workflow, null, 2);
+      } else {
+        // 2. Fallback: Reconstruct workflow from metadata (Lower fidelity)
+        workflowJSON = formatMetadataForComfyUI(metadata);
+      }
 
       // Copy to clipboard
       await navigator.clipboard.writeText(workflowJSON);
 
       setCopyStatus({
         success: true,
-        message: 'Workflow JSON copied! Use "Load" in ComfyUI to import.',
+        message: 'Workflow copied! Switch to ComfyUI and press Ctrl+V to paste.',
       });
 
       // Clear status after 5 seconds

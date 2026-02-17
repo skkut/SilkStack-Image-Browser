@@ -31,6 +31,9 @@ export interface ElectronAPI {
   exportBatchToFolder: (args: { files: { directoryPath: string; relativePath: string }[]; destDir: string; exportId?: string }) => Promise<{ success: boolean; exportedCount: number; failedCount: number; error?: string }>;
   exportBatchToZip: (args: { files: { directoryPath: string; relativePath: string }[]; destZipPath: string; exportId?: string }) => Promise<{ success: boolean; exportedCount: number; failedCount: number; error?: string }>;
   deleteFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  selectDirectory: () => Promise<{ success: boolean; path?: string }>;
+  selectPath: (isDirectory?: boolean) => Promise<{ success: boolean; path?: string }>;
+  openDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
   getUserDataPath: () => Promise<string>;
   getSettings: () => Promise<any>;
@@ -76,6 +79,10 @@ export interface ElectronAPI {
   getWatcherStatus: (args: { directoryId: string }) => Promise<{ success: boolean; active: boolean }>;
   onNewImagesDetected: (callback: (data: { directoryId: string; files: Array<{ name: string; path: string; lastModified: number; size: number; type: string }> }) => void) => () => void;
   onWatcherDebug: (callback: (data: { message: string }) => void) => () => void;
+  
+  // External Apps
+  launchApp: (path: string, args?: string[]) => Promise<{ success: boolean; error?: string }>;
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {

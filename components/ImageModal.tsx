@@ -14,6 +14,7 @@ import { ComfyUIGenerateModal, type GenerationParams as ComfyUIGenerationParams 
 import ProBadge from './ProBadge';
 import hotkeyManager from '../services/hotkeyManager';
 import { useImageStore } from '../store/useImageStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
 import { useShadowMetadata } from '../hooks/useShadowMetadata';
@@ -1611,6 +1612,64 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {nMeta && !isVideo && (
             <div className="mt-3 pt-3 border-t border-gray-700">
               <h4 className="text-xs text-gray-400 uppercase tracking-wider mb-2">ComfyUI</h4>
+
+              {/* Send to ComfyUI (Copy + Open) */}
+              <button
+                onClick={() => {
+                   if (!canUseComfyUI) {
+                    showProModal('comfyui');
+                    return;
+                   }
+                   // 1. Copy workflow
+                   copyToComfyUI(image);
+                   
+                   // 2. Open ComfyUI (Desktop App or Web)
+                   const settings = useSettingsStore.getState();
+                   const desktopPath = settings.comfyUIDesktopPath;
+                   const comfyUrl = settings.comfyUIServerUrl || 'http://127.0.0.1:8188';
+
+                   if (desktopPath && window.electronAPI?.launchApp) {
+                     (() => {
+                        // Resolve absolute path from image.id (directoryId::relativePath)
+                        const [directoryId, relativePath] = image.id.split('::');
+                        const { directories } = useImageStore.getState();
+                        const directory = directories.find(d => d.id === (image.directoryId || directoryId));
+                        
+                        const launchComfy = (finalPath: string) => {
+                          window.electronAPI.launchApp(desktopPath, [finalPath]).then(result => {
+                            if (!result.success) {
+                              console.warn('Failed to launch ComfyUI Desktop, falling back to URL:', result.error);
+                              window.open(comfyUrl, '_blank');
+                            }
+                          });
+                        };
+
+                        if (directory && relativePath && window.electronAPI?.joinPaths) {
+                          window.electronAPI.joinPaths(directory.path, relativePath).then(res => {
+                            launchComfy(res.success && res.path ? res.path : image.id);
+                          });
+                        } else {
+                          // Fallback to image.id if resolution fails (though it likely has ::)
+                          launchComfy(image.id);
+                        }
+                     })();
+                   } else {
+                     window.open(comfyUrl, '_blank');
+                   }
+                }}
+                className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-4 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all duration-200 shadow-lg shadow-purple-900/20 mb-2 group"
+              >
+                  <div className="bg-white/20 p-1 rounded-md">
+                    <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                      <polyline points="15 3 21 3 21 9"></polyline>
+                      <line x1="10" y1="14" x2="21" y2="3"></line>
+                    </svg>
+                  </div>
+                  <span>Send to ComfyUI</span>
+                  {!canUseComfyUI && initialized && <ProBadge size="sm" />}
+              </button>
+
 
               {/* Generate Button */}
               <button

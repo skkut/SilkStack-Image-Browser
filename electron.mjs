@@ -1,26 +1,46 @@
-import electron from 'electron';
-const { app, BrowserWindow, shell, dialog, ipcMain, nativeTheme, Menu, nativeImage } = electron;
+import electron from "electron";
+const {
+  app,
+  BrowserWindow,
+  shell,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  Menu,
+  nativeImage,
+} = electron;
 // console.log('📦 Loaded electron module');
 
-import electronUpdater from 'electron-updater';
-const { autoUpdater } = electronUpdater;
-// console.log('📦 Loaded electron-updater module, autoUpdater available:', !!autoUpdater);
-
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs/promises';
-import fsSync from 'fs';
-import crypto from 'crypto';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import * as fileWatcher from './services/fileWatcher.mjs';
-import archiver from 'archiver';
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs/promises";
+import fsSync from "fs";
+import crypto from "crypto";
+import { execFile, spawn } from "child_process";
+import { promisify } from "util";
+import * as fileWatcher from "./services/fileWatcher.mjs";
+import archiver from "archiver";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Simple development check
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const isDev =
+  process.env.NODE_ENV === "development" ||
+  !app.isPackaged ||
+  process.argv.includes("--dev");
+console.log(
+  `[DEBUG] isDev=${isDev}, NODE_ENV=${process.env.NODE_ENV}, isPackaged=${app.isPackaged}`,
+);
+
+// Separate user data for development to prevent conflicts
+if (isDev) {
+  const userDataPath = app.getPath("userData");
+  app.setPath("userData", `${userDataPath} (Dev)`);
+  console.log(
+    `🔧 Development mode: User data path set to "${app.getPath("userData")}"`,
+  );
+}
 
 // Parser version - increment when parser logic changes
 // This ensures cache is invalidated when parsing rules change
@@ -28,36 +48,36 @@ const PARSER_VERSION = 4; // v4: Added Eff. Loader SDXL, DF_Text_Box, and Unpack
 
 // Get platform-specific icon
 function getIconPath() {
-  if (process.platform === 'win32') {
-    return path.join(__dirname, 'public', 'icon.ico');
+  if (process.platform === "win32") {
+    return path.join(__dirname, "public", "icon.ico");
   } else {
     // macOS and Linux prefer PNG
-    return path.join(__dirname, 'public', 'logo1.png');
+    return path.join(__dirname, "public", "logo1.png");
   }
 }
 
 const execFileAsync = promisify(execFile);
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mkv', '.mov', '.avi']);
+const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mkv", ".mov", ".avi"]);
 
 const getMimeTypeFromName = (name) => {
   const lower = name.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.webp')) return 'image/webp';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.mp4')) return 'video/mp4';
-  if (lower.endsWith('.webm')) return 'video/webm';
-  if (lower.endsWith('.mkv')) return 'video/x-matroska';
-  if (lower.endsWith('.mov')) return 'video/quicktime';
-  if (lower.endsWith('.avi')) return 'video/x-msvideo';
-  return 'application/octet-stream';
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".webm")) return "video/webm";
+  if (lower.endsWith(".mkv")) return "video/x-matroska";
+  if (lower.endsWith(".mov")) return "video/quicktime";
+  if (lower.endsWith(".avi")) return "video/x-msvideo";
+  return "application/octet-stream";
 };
 
 const parseFrameRate = (value) => {
-  if (typeof value !== 'string' || !value.includes('/')) {
+  if (typeof value !== "string" || !value.includes("/")) {
     return null;
   }
-  const [num, den] = value.split('/').map((part) => Number(part));
+  const [num, den] = value.split("/").map((part) => Number(part));
   if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) {
     return null;
   }
@@ -65,37 +85,52 @@ const parseFrameRate = (value) => {
 };
 
 const buildVideoInfoFromProbe = (stream, format) => {
-  const frameRate = parseFrameRate(stream?.r_frame_rate) ?? parseFrameRate(stream?.avg_frame_rate);
-  const frameCount = typeof stream?.nb_frames === 'string' ? Number(stream.nb_frames) : stream?.nb_frames;
-  const durationValue = typeof format?.duration === 'string' ? Number(format.duration) : format?.duration;
+  const frameRate =
+    parseFrameRate(stream?.r_frame_rate) ??
+    parseFrameRate(stream?.avg_frame_rate);
+  const frameCount =
+    typeof stream?.nb_frames === "string"
+      ? Number(stream.nb_frames)
+      : stream?.nb_frames;
+  const durationValue =
+    typeof format?.duration === "string"
+      ? Number(format.duration)
+      : format?.duration;
 
   return {
     frame_rate: Number.isFinite(frameRate) ? frameRate : null,
     frame_count: Number.isFinite(frameCount) ? frameCount : null,
     duration_seconds: Number.isFinite(durationValue) ? durationValue : null,
-    width: typeof stream?.width === 'number' ? stream.width : null,
-    height: typeof stream?.height === 'number' ? stream.height : null,
+    width: typeof stream?.width === "number" ? stream.width : null,
+    height: typeof stream?.height === "number" ? stream.height : null,
     codec: stream?.codec_name || null,
     format: format?.format_name || null,
   };
 };
 
 async function readVideoMetadataWithFfprobe(filePath) {
-  const ffprobePath = process.env.FFPROBE_PATH || 'ffprobe';
-  const { stdout } = await execFileAsync(ffprobePath, [
-    '-v', 'quiet',
-    '-print_format', 'json',
-    '-show_streams',
-    '-show_format',
-    filePath,
-  ], { encoding: 'utf8' });
+  const ffprobePath = process.env.FFPROBE_PATH || "ffprobe";
+  const { stdout } = await execFileAsync(
+    ffprobePath,
+    [
+      "-v",
+      "quiet",
+      "-print_format",
+      "json",
+      "-show_streams",
+      "-show_format",
+      filePath,
+    ],
+    { encoding: "utf8" },
+  );
 
-  const output = typeof stdout === 'string' ? stdout : stdout.toString('utf8');
+  const output = typeof stdout === "string" ? stdout : stdout.toString("utf8");
   const payload = JSON.parse(output);
   const format = payload?.format ?? {};
   const tags = format.tags ?? {};
   const streams = Array.isArray(payload?.streams) ? payload.streams : [];
-  const videoStream = streams.find((stream) => stream?.codec_type === 'video') ?? {};
+  const videoStream =
+    streams.find((stream) => stream?.codec_type === "video") ?? {};
 
   return {
     comment: tags.comment,
@@ -142,46 +177,46 @@ function adjustZoom(delta) {
 
 const zoomMenuItems = [
   {
-    label: 'Reset Zoom',
-    accelerator: 'CmdOrCtrl+0',
-    click: resetZoom
+    label: "Reset Zoom",
+    accelerator: "CmdOrCtrl+0",
+    click: resetZoom,
   },
   {
-    label: 'Zoom In',
-    accelerator: 'CmdOrCtrl+=',
-    click: () => adjustZoom(ZOOM_STEP)
+    label: "Zoom In",
+    accelerator: "CmdOrCtrl+=",
+    click: () => adjustZoom(ZOOM_STEP),
   },
   {
-    label: 'Zoom In (+)',
-    accelerator: 'CmdOrCtrl+Plus',
+    label: "Zoom In (+)",
+    accelerator: "CmdOrCtrl+Plus",
     visible: false,
-    click: () => adjustZoom(ZOOM_STEP)
+    click: () => adjustZoom(ZOOM_STEP),
   },
   {
-    label: 'Zoom In (Numpad)',
-    accelerator: 'CmdOrCtrl+numadd',
+    label: "Zoom In (Numpad)",
+    accelerator: "CmdOrCtrl+numadd",
     visible: false,
-    click: () => adjustZoom(ZOOM_STEP)
+    click: () => adjustZoom(ZOOM_STEP),
   },
   {
-    label: 'Zoom Out',
-    accelerator: 'CmdOrCtrl+-',
-    click: () => adjustZoom(-ZOOM_STEP)
+    label: "Zoom Out",
+    accelerator: "CmdOrCtrl+-",
+    click: () => adjustZoom(-ZOOM_STEP),
   },
   {
-    label: 'Zoom Out (Numpad)',
-    accelerator: 'CmdOrCtrl+numsub',
+    label: "Zoom Out (Numpad)",
+    accelerator: "CmdOrCtrl+numsub",
     visible: false,
-    click: () => adjustZoom(-ZOOM_STEP)
-  }
+    click: () => adjustZoom(-ZOOM_STEP),
+  },
 ];
 
 // --- Settings Management ---
-const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+const settingsPath = path.join(app.getPath("userData"), "settings.json");
 
 async function readSettings() {
   try {
-    const data = await fs.readFile(settingsPath, 'utf-8');
+    const data = await fs.readFile(settingsPath, "utf-8");
     return JSON.parse(data);
   } catch (error) {
     // If file doesn't exist or is invalid, return empty object
@@ -193,16 +228,20 @@ async function saveSettings(settings) {
   try {
     await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
   } catch (error) {
-    console.error('Error saving settings:', error);
+    console.error("Error saving settings:", error);
   }
 }
 
 async function getCacheRootPath() {
   const settings = await readSettings();
-  if (settings && typeof settings.cachePath === 'string' && settings.cachePath.trim().length > 0) {
+  if (
+    settings &&
+    typeof settings.cachePath === "string" &&
+    settings.cachePath.trim().length > 0
+  ) {
     return settings.cachePath;
   }
-  return app.getPath('userData');
+  return app.getPath("userData");
 }
 // --- End Settings Management ---
 
@@ -210,167 +249,141 @@ async function getCacheRootPath() {
 function createApplicationMenu() {
   const template = [
     {
-      label: 'File',
+      label: "File",
       submenu: [
         {
-          label: 'Add Folder...',
-          accelerator: 'CmdOrCtrl+O',
+          label: "Add Folder...",
+          accelerator: "CmdOrCtrl+O",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.send('menu-add-folder');
+              mainWindow.webContents.send("menu-add-folder");
             }
-          }
+          },
         },
-        { type: 'separator' },
+        { type: "separator" },
         {
-          label: 'Settings',
-          accelerator: 'CmdOrCtrl+,',
+          label: "Settings",
+          accelerator: "CmdOrCtrl+,",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.send('menu-open-settings');
+              mainWindow.webContents.send("menu-open-settings");
             }
-          }
+          },
         },
-        { type: 'separator' },
+        { type: "separator" },
         {
-          label: 'Exit',
-          accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Alt+F4',
+          label: "Exit",
+          accelerator: process.platform === "darwin" ? "Cmd+Q" : "Alt+F4",
           click: () => {
             app.quit();
-          }
-        }
-      ]
+          },
+        },
+      ],
     },
     {
-      label: 'Edit',
+      label: "Edit",
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' }
-      ]
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
     },
     {
-      label: 'View',
+      label: "View",
       submenu: [
         {
-          label: 'Toggle Grid/List View',
-          accelerator: 'CmdOrCtrl+L',
+          label: "Toggle Grid/List View",
+          accelerator: "CmdOrCtrl+L",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.send('menu-toggle-view');
+              mainWindow.webContents.send("menu-toggle-view");
             }
-          }
+          },
         },
-        { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
+        { type: "separator" },
+        { role: "reload" },
+        { role: "forceReload" },
+        { role: "toggleDevTools" },
+        { type: "separator" },
         ...zoomMenuItems,
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
     },
     {
-      label: 'Window',
+      label: "Window",
       submenu: [
-        { role: 'minimize' },
-        { type: 'separator' },
+        { role: "minimize" },
+        { type: "separator" },
         ...zoomMenuItems,
-        ...(process.platform === 'darwin' ? [
-          { type: 'separator' },
-          { role: 'front' },
-          { type: 'separator' },
-          { role: 'window' }
-        ] : [
-          { role: 'close' }
-        ])
-      ]
+        ...(process.platform === "darwin"
+          ? [
+              { type: "separator" },
+              { role: "front" },
+              { type: "separator" },
+              { role: "window" },
+            ]
+          : [{ role: "close" }]),
+      ],
     },
     {
-      label: 'Help',
+      label: "Help",
       submenu: [
         {
           label: `What's New (v${app.getVersion()})`,
-          accelerator: 'F1',
+          accelerator: "F1",
           click: () => {
             if (mainWindow) {
-              mainWindow.webContents.send('menu-show-changelog');
+              mainWindow.webContents.send("menu-show-changelog");
             }
-          }
+          },
         },
-        { type: 'separator' },
+
+        { type: "separator" },
         {
-          label: 'Check for Updates...',
+          label: "Documentation",
           click: async () => {
-            if (autoUpdater) {
-              try {
-                console.log('Manually checking for updates...');
-                await autoUpdater.checkForUpdates();
-              } catch (error) {
-                console.error('Error checking for updates:', error);
-                if (mainWindow) {
-                  dialog.showMessageBox(mainWindow, {
-                    type: 'info',
-                    title: 'Update Check',
-                    message: 'Failed to check for updates.',
-                    detail: error.message || 'Please try again later.',
-                    buttons: ['OK']
-                  });
-                }
-              }
-            } else {
-              if (mainWindow) {
-                dialog.showMessageBox(mainWindow, {
-                  type: 'info',
-                  title: 'Update Check',
-                  message: 'Auto-updater is not available in development mode.',
-                  buttons: ['OK']
-                });
-              }
-            }
-          }
+            await shell.openExternal(
+              "https://github.com/LuqP2/Image-MetaHub#readme",
+            );
+          },
         },
-        { type: 'separator' },
         {
-          label: 'Documentation',
+          label: "Report Bug",
           click: async () => {
-            await shell.openExternal('https://github.com/LuqP2/Image-MetaHub#readme');
-          }
+            await shell.openExternal(
+              "https://github.com/LuqP2/Image-MetaHub/issues/new",
+            );
+          },
         },
         {
-          label: 'Report Bug',
+          label: "View on GitHub",
           click: async () => {
-            await shell.openExternal('https://github.com/LuqP2/Image-MetaHub/issues/new');
-          }
+            await shell.openExternal("https://github.com/LuqP2/Image-MetaHub");
+          },
         },
+        { type: "separator" },
         {
-          label: 'View on GitHub',
-          click: async () => {
-            await shell.openExternal('https://github.com/LuqP2/Image-MetaHub');
-          }
-        },
-        { type: 'separator' },
-        {
-          label: `About Image MetaHub`,
+          label: `About AI Images Browser`,
           click: () => {
             if (mainWindow) {
               dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'About Image MetaHub',
-                message: `Image MetaHub v${app.getVersion()}`,
-                detail: 'A powerful tool for browsing and managing AI-generated images with metadata support for InvokeAI, ComfyUI, A1111, and more.\n\n© 2025 LuqP2',
-                buttons: ['OK']
+                type: "info",
+                title: "About AI Images Browser",
+                message: `AI Images Browser v${app.getVersion()}`,
+                detail:
+                  "A powerful tool for browsing and managing AI-generated images with metadata support for InvokeAI, ComfyUI, A1111, and more.\n\n© 2025 skkut",
+                buttons: ["OK"],
               });
             }
-          }
-        }
-      ]
-    }
+          },
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
@@ -378,195 +391,7 @@ function createApplicationMenu() {
 }
 // --- End Application Menu ---
 
-// Configure auto-updater
-if (autoUpdater) {
-  autoUpdater.autoDownload = false; // CRITICAL: Disable automatic downloads
-
-  // Configure for macOS specifically
-  if (process.platform === 'darwin') {
-    autoUpdater.forceDevUpdateConfig = true; // Allow updates in development
-  }
-
-  // Remove checkForUpdatesAndNotify to avoid duplicate dialogs
-  // autoUpdater.checkForUpdatesAndNotify();
-
-  // Check for updates manually, respecting user settings
-  setTimeout(async () => {
-    if (isDev) return;
-
-    const settings = await readSettings();
-    // Default to true if the setting is not present
-    const shouldCheckForUpdates = settings.autoUpdate !== false;
-
-    if (shouldCheckForUpdates) {
-      console.log('Checking for updates...');
-      autoUpdater.checkForUpdates();
-    } else {
-      console.log('Auto-update is disabled by user settings.');
-    }
-  }, 3000); // Wait 3 seconds after app start
-} else {
-  console.log('⚠️ Auto-updater not available, skipping update configuration');
-}
-
-// Auto-updater events
-if (autoUpdater) {
-  autoUpdater.on('checking-for-update', () => {
-    // console.log('Checking for update...');
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    console.log('Update available:', info.version);
-
-    // Check if user previously skipped this version
-    if (skippedVersions.has(info.version)) {
-      console.log('User previously skipped version', info.version, '- not showing dialog');
-      return;
-    }
-
-    if (mainWindow) {
-      // Extract and format changelog from release notes
-      let changelogText = 'No release notes available.';
-      
-      if (info.releaseNotes) {
-        if (typeof info.releaseNotes === 'string') {
-          // Clean up markdown formatting for dialog display
-          changelogText = info.releaseNotes
-            .replace(/#{1,6}\s/g, '') // Remove markdown headers
-            .replace(/\*\*/g, '') // Remove bold markers
-            .replace(/\*/g, '•') // Convert asterisks to bullets
-            .replace(/<[^>]*>/g, '') // Remove HTML tags
-            .trim();
-        } else if (Array.isArray(info.releaseNotes)) {
-          changelogText = info.releaseNotes
-            .map(note => note.note || '')
-            .join('\n')
-            .trim();
-        }
-      }
-
-      // Limit changelog length for dialog (show main highlights only)
-      if (changelogText.length > 400) {
-        changelogText = changelogText.substring(0, 397) + '...';
-      }
-
-      // If still "No release notes available", try to extract from other fields
-      if (changelogText === 'No release notes available.' && info.releaseName) {
-        changelogText = `Release: ${info.releaseName}`;
-      }
-
-      // Add link to full changelog
-      const changelogUrl = `https://github.com/LuqP2/image-metahub/releases/tag/v${info.version}`;
-      const fullMessage = `What's new:\n\n${changelogText}\n\nView full changelog: ${changelogUrl}\n\nWould you like to download this update now?`;
-
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: '🎉 Update Available',
-        message: `Version ${info.version} is ready to download!`,
-        detail: fullMessage,
-        buttons: ['Download Now', 'Download Later', 'Skip this version'],
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true
-      }).then((result) => {
-        if (result.response === 0) {
-          // User chose to download - START DOWNLOAD NOW
-          console.log('User accepted update download - starting download...');
-          autoUpdater.downloadUpdate();
-        } else if (result.response === 1) {
-          // User chose "Download Later"
-          console.log('User postponed download - will ask again later');
-          // Ensure no download starts automatically
-        } else {
-          // User chose "Skip this version"
-          console.log('User skipped version', info.version);
-          skippedVersions.add(info.version);
-          // Ensure no download starts automatically
-        }
-      }).catch((error) => {
-        console.error('Error showing update dialog:', error);
-        // If dialog fails, don't download automatically - respect user choice
-        console.log('Dialog failed - not downloading update');
-      });
-    } else {
-      console.log('Main window not available - not downloading update');
-      // Don't download if we can't ask for permission
-    }
-  });
-
-  autoUpdater.on('update-not-available', (info) => {
-    // console.log('Update not available');
-  });
-
-  autoUpdater.on('error', (err) => {
-    console.log('Error in auto-updater:', err);
-    
-    // Special handling for macOS
-    if (process.platform === 'darwin') {
-      console.log('macOS auto-updater error - this may be due to code signing requirements');
-    }
-    
-    dialog.showMessageBox(mainWindow, {
-      type: 'error',
-      title: 'Update Error',
-      message: 'Failed to check for updates.',
-      detail: err.message || 'Please try again later.',
-      buttons: ['OK']
-    });
-  });
-
-  autoUpdater.on('download-progress', (progressObj) => {
-    let log_message = `Download speed: ${progressObj.bytesPerSecond}`;
-    log_message = log_message + ` - Downloaded ${progressObj.percent}%`;
-    log_message = log_message + ` (${progressObj.transferred}/${progressObj.total})`;
-    console.log(log_message);
-
-    // Optional: Send progress to renderer process for UI feedback
-    if (mainWindow && mainWindow.webContents) {
-      mainWindow.webContents.send('update-progress', progressObj);
-    }
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('Update downloaded:', info.version);
-    if (mainWindow) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'question',
-        title: 'Update Downloaded',
-        message: `Update ${info.version} downloaded successfully!`,
-        detail: 'The update is ready to install. When would you like to apply it?',
-        buttons: ['Install Now', 'Install on Next Start', 'Cancel'],
-        defaultId: 0,
-        cancelId: 2
-      }).then((result) => {
-        if (result.response === 0) {
-          // Install now
-          console.log('User chose to install update now');
-          autoUpdater.quitAndInstall();
-        } else if (result.response === 1) {
-          // Install on next start - don't restart now
-          console.log('User chose to install update on next start');
-          // The update will be installed automatically on next app launch
-          // No need to call quitAndInstall() here
-        } else {
-          // Cancel - user changed their mind
-          console.log('User cancelled update installation');
-          // Update remains downloaded but not installed
-          // User can still install it later if they change their mind
-        }
-      }).catch((error) => {
-        console.error('Error showing installation dialog:', error);
-        // If dialog fails, don't force install - respect user choice
-        console.log('Installation dialog failed - update will install on next start');
-      });
-    } else {
-      console.log('Main window not available - update will install on next start');
-      // Don't force restart if window is not available
-    }
-  });
-} else {
-  console.log('⚠️ Auto-updater not available, skipping event handlers');
-}
+// Auto-updater removed
 
 function createWindow(startupDirectory = null) {
   // Create the browser window
@@ -581,10 +406,10 @@ function createWindow(startupDirectory = null) {
       contextIsolation: true,
       enableRemoteModule: false,
       webSecurity: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, "preload.js"),
     },
-    titleBarStyle: 'default',
-    show: false // Don't show until ready
+    titleBarStyle: "default",
+    show: false, // Don't show until ready
   });
 
   // Create application menu
@@ -596,104 +421,122 @@ function createWindow(startupDirectory = null) {
   // Set window title to include version (keeps it accurate across builds)
   try {
     const appVersion = app.getVersion();
-    mainWindow.setTitle(`Image MetaHub v${appVersion}`);
+    mainWindow.setTitle(`AI Images Browser`);
   } catch (e) {
     // Fallback if app.getVersion is not available
-    mainWindow.setTitle('Image MetaHub v0.13.0');
+    mainWindow.setTitle("AI Images Browser");
   }
+
+  // Add Dev indicator to title
+  if (isDev) {
+    console.log("🔧 Setting initial dev title");
+    mainWindow.setTitle("AI Images Browser - Dev");
+  }
+
+  // Prevent index.html title from overriding the Dev suffix
+  mainWindow.on("page-title-updated", (e, title) => {
+    if (isDev) {
+      e.preventDefault();
+      mainWindow.setTitle(`${title} - Dev`);
+    }
+  });
 
   // Load the app
   let startUrl;
-  if (isDev) {
-    startUrl = 'http://localhost:5173';
+  if (isDev && !process.argv.includes("--dist")) {
+    startUrl = "http://localhost:5173";
   } else {
     // In production, files are directly in the app directory
-    startUrl = `file://${path.join(__dirname, 'dist', 'index.html')}`;
+    startUrl = `file://${path.join(__dirname, "dist", "index.html")}`;
   }
-  
+
   // console.log('Loading URL:', startUrl);
   // console.log('Is Dev:', isDev);
   // console.log('App path:', __dirname);
-  
+
   mainWindow.loadURL(startUrl);
 
   // Show window when ready
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once("ready-to-show", () => {
     mainWindow.show();
 
     // If a startup directory was provided via CLI, send it to the renderer
     if (startupDirectory) {
-      console.log('Sending startup directory to renderer:', startupDirectory);
-      mainWindow.webContents.send('load-directory-from-cli', startupDirectory);
+      console.log("Sending startup directory to renderer:", startupDirectory);
+      mainWindow.webContents.send("load-directory-from-cli", startupDirectory);
     }
-    
+
     // Check for updates in production (REMOVED checkForUpdatesAndNotify to prevent auto-download)
     // Update check is handled in the setTimeout above with checkForUpdates()
   });
 
   // Open DevTools in development
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
+  // if (isDev) {
+  //   mainWindow.webContents.openDevTools();
+  // }
 
   // Open external links in browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
-    return { action: 'deny' };
+    return { action: "deny" };
   });
 
-  mainWindow.webContents.on('before-input-event', (event, input) => {
+  mainWindow.webContents.on("before-input-event", (event, input) => {
     const isZoomModifier = input.control || input.meta;
     if (!isZoomModifier) return;
 
     const key = input.key?.toLowerCase();
-    if (key === '0' || input.code === 'Digit0' || input.code === 'Numpad0') {
+    if (key === "0" || input.code === "Digit0" || input.code === "Numpad0") {
       event.preventDefault();
       resetZoom();
       return;
     }
 
-    if (key === '+' || key === '=' || input.code === 'NumpadAdd') {
+    if (key === "+" || key === "=" || input.code === "NumpadAdd") {
       event.preventDefault();
       adjustZoom(ZOOM_STEP);
       return;
     }
 
-    if (key === '-' || input.code === 'NumpadSubtract') {
+    if (key === "-" || input.code === "NumpadSubtract") {
       event.preventDefault();
       adjustZoom(-ZOOM_STEP);
     }
   });
 
   // Handle window closed
-  mainWindow.on('closed', () => {
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 
   // Track fullscreen state changes and notify renderer
   // These events work on macOS, Windows, and Linux
-  mainWindow.on('enter-full-screen', () => {
+  mainWindow.on("enter-full-screen", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('fullscreen-changed', { isFullscreen: true });
+      mainWindow.webContents.send("fullscreen-changed", { isFullscreen: true });
     }
   });
 
-  mainWindow.on('leave-full-screen', () => {
+  mainWindow.on("leave-full-screen", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('fullscreen-changed', { isFullscreen: false });
+      mainWindow.webContents.send("fullscreen-changed", {
+        isFullscreen: false,
+      });
     }
   });
 
   // Additional event for Windows/Linux compatibility
   // Some window managers may not fire enter/leave-full-screen consistently
   let lastKnownFullscreenState = false;
-  mainWindow.on('resize', () => {
+  mainWindow.on("resize", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       const currentFullscreenState = mainWindow.isFullScreen();
       // Only send if the state actually changed to avoid excessive updates
       if (currentFullscreenState !== lastKnownFullscreenState) {
         lastKnownFullscreenState = currentFullscreenState;
-        mainWindow.webContents.send('fullscreen-state-check', { isFullscreen: currentFullscreenState });
+        mainWindow.webContents.send("fullscreen-state-check", {
+          isFullscreen: currentFullscreenState,
+        });
       }
     }
   });
@@ -702,9 +545,9 @@ function createWindow(startupDirectory = null) {
 // App event handlers
 app.whenReady().then(async () => {
   // Listen for theme changes and notify renderer
-  nativeTheme.on('updated', () => {
+  nativeTheme.on("updated", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('theme-updated', {
+      mainWindow.webContents.send("theme-updated", {
         shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
       });
     }
@@ -715,17 +558,17 @@ app.whenReady().then(async () => {
   // Check for a directory path provided as a command-line argument
   // In dev, args start at index 2 (`electron . /path`); in packaged app, at index 1 (`app.exe /path`)
   const args = process.argv.slice(app.isPackaged ? 1 : 2);
-  
+
   // Support both --dir flag and direct path
   let potentialPath = null;
-  const dirFlagIndex = args.indexOf('--dir');
-  
+  const dirFlagIndex = args.indexOf("--dir");
+
   if (dirFlagIndex !== -1 && args[dirFlagIndex + 1]) {
     // Use --dir flag value
     potentialPath = args[dirFlagIndex + 1];
   } else {
     // Fall back to first non-flag argument
-    potentialPath = args.find(arg => !arg.startsWith('--'));
+    potentialPath = args.find((arg) => !arg.startsWith("--"));
   }
 
   if (potentialPath) {
@@ -734,18 +577,20 @@ app.whenReady().then(async () => {
       const stats = await fs.stat(fullPath);
       if (stats.isDirectory()) {
         startupDirectory = fullPath;
-        console.log('Startup directory specified:', startupDirectory);
+        console.log("Startup directory specified:", startupDirectory);
       } else {
         console.warn(`Provided startup path is not a directory: ${fullPath}`);
       }
     } catch (error) {
-      console.warn(`Error checking startup path "${fullPath}": ${error.message}`);
+      console.warn(
+        `Error checking startup path "${fullPath}": ${error.message}`,
+      );
     }
   }
 
   // Setup IPC handlers for file operations BEFORE creating window
   setupFileOperationHandlers();
-  
+
   createWindow(startupDirectory);
 });
 
@@ -755,36 +600,43 @@ const allowedDirectoryPaths = new Set();
 
 // Helper function for recursive file search
 async function getFilesRecursively(directory, baseDirectory) {
-    const files = [];
-    try {
-        const entries = await fs.readdir(directory, { withFileTypes: true });
+  const files = [];
+  try {
+    const entries = await fs.readdir(directory, { withFileTypes: true });
 
-        for (const entry of entries) {
-            const fullPath = path.join(directory, entry.name);
-            if (entry.isDirectory()) {
-                files.push(...await getFilesRecursively(fullPath, baseDirectory));
-            } else if (entry.isFile()) {
-                const lowerName = entry.name.toLowerCase();
-                const isImage = lowerName.endsWith('.png') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.webp') || lowerName.endsWith('.gif');
-                const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) => lowerName.endsWith(ext));
-                if (isImage || isVideo) {
-                    const stats = await fs.stat(fullPath);
-                    const fileType = getMimeTypeFromName(lowerName);
-                    files.push({
-                        name: path.relative(baseDirectory, fullPath).replace(/\\/g, '/'),
-                        lastModified: stats.birthtimeMs,
-                        size: stats.size,
-                        type: fileType,
-                        birthtimeMs: stats.birthtimeMs,
-                    });
-                }
-            }
+    for (const entry of entries) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        files.push(...(await getFilesRecursively(fullPath, baseDirectory)));
+      } else if (entry.isFile()) {
+        const lowerName = entry.name.toLowerCase();
+        const isImage =
+          lowerName.endsWith(".png") ||
+          lowerName.endsWith(".jpg") ||
+          lowerName.endsWith(".jpeg") ||
+          lowerName.endsWith(".webp") ||
+          lowerName.endsWith(".gif");
+        const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) =>
+          lowerName.endsWith(ext),
+        );
+        if (isImage || isVideo) {
+          const stats = await fs.stat(fullPath);
+          const fileType = getMimeTypeFromName(lowerName);
+          files.push({
+            name: path.relative(baseDirectory, fullPath).replace(/\\/g, "/"),
+            lastModified: stats.birthtimeMs,
+            size: stats.size,
+            type: fileType,
+            birthtimeMs: stats.birthtimeMs,
+          });
         }
-    } catch (error) {
-        // Ignore errors from directories we can't read, e.g. permissions
-        console.warn(`Could not read directory ${directory}: ${error.message}`);
+      }
     }
-    return files;
+  } catch (error) {
+    // Ignore errors from directories we can't read, e.g. permissions
+    console.warn(`Could not read directory ${directory}: ${error.message}`);
+  }
+  return files;
 }
 
 function setupFileOperationHandlers() {
@@ -792,15 +644,21 @@ function setupFileOperationHandlers() {
   const isPathAllowed = (filePath) => {
     if (allowedDirectoryPaths.size === 0) return false;
     const normalizedFilePath = path.normalize(filePath);
-    return Array.from(allowedDirectoryPaths).some(allowedPath => normalizedFilePath.startsWith(allowedPath));
+    return Array.from(allowedDirectoryPaths).some((allowedPath) =>
+      normalizedFilePath.startsWith(allowedPath),
+    );
   };
-  const userDataPath = path.normalize(app.getPath('userData'));
+  const userDataPath = path.normalize(app.getPath("userData"));
   const isInternalPath = (filePath) => {
     if (!filePath) return false;
     const normalized = path.normalize(filePath);
-    return normalized === userDataPath || normalized.startsWith(userDataPath + path.sep);
+    return (
+      normalized === userDataPath ||
+      normalized.startsWith(userDataPath + path.sep)
+    );
   };
-  const isAllowedOrInternal = (filePath) => isPathAllowed(filePath) || isInternalPath(filePath);
+  const isAllowedOrInternal = (filePath) =>
+    isPathAllowed(filePath) || isInternalPath(filePath);
   const normalizeNameKey = (name) => name.toLowerCase();
   const getUniqueName = (name, usedNames) => {
     const parsed = path.parse(name);
@@ -815,77 +673,79 @@ function setupFileOperationHandlers() {
   };
 
   // --- Settings IPC ---
-  ipcMain.handle('get-settings', async () => {
+  ipcMain.handle("get-settings", async () => {
     const settings = await readSettings();
     return settings;
   });
 
-  ipcMain.handle('save-settings', async (event, newSettings) => {
+  ipcMain.handle("save-settings", async (event, newSettings) => {
     const currentSettings = await readSettings();
     const mergedSettings = { ...currentSettings, ...newSettings };
     await saveSettings(mergedSettings);
   });
 
-  ipcMain.handle('get-default-cache-path', () => {
+  ipcMain.handle("get-default-cache-path", () => {
     try {
       // Define a specific subfolder for the cache
-      const cachePath = path.join(app.getPath('userData'), 'ImageMetaHubCache');
+      const cachePath = path.join(app.getPath("userData"), "ImageMetaHubCache");
       return { success: true, path: cachePath };
     } catch (error) {
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('get-user-data-path', () => {
-    return app.getPath('userData');
+  ipcMain.handle("get-user-data-path", () => {
+    return app.getPath("userData");
   });
 
-  ipcMain.handle('get-theme', () => {
+  ipcMain.handle("get-theme", () => {
     return {
-      shouldUseDarkColors: nativeTheme.shouldUseDarkColors
+      shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
     };
   });
 
-  ipcMain.handle('get-app-version', () => {
+  ipcMain.handle("get-app-version", () => {
     return app.getVersion();
   });
   // --- End Settings IPC ---
 
   // --- Cache IPC Handlers ---
   const getCacheFilePath = async (cacheId) => {
-    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const rootPath = await getCacheRootPath();
     return path.join(rootPath, `${safeCacheId}.json`);
   };
 
-  ipcMain.handle('get-cached-data', async (event, cacheId) => {
+  ipcMain.handle("get-cached-data", async (event, cacheId) => {
     const filePath = await getCacheFilePath(cacheId);
     try {
-      const data = await fs.readFile(filePath, 'utf-8');
+      const data = await fs.readFile(filePath, "utf-8");
       const parsed = JSON.parse(data);
 
       // Check parser version - if mismatch, invalidate cache
       if (parsed.parserVersion !== PARSER_VERSION) {
-        console.log(`⚠️ Cache version mismatch for ${cacheId}: stored=${parsed.parserVersion}, current=${PARSER_VERSION}. Invalidating cache to force re-parse.`);
+        console.log(
+          `⚠️ Cache version mismatch for ${cacheId}: stored=${parsed.parserVersion}, current=${PARSER_VERSION}. Invalidating cache to force re-parse.`,
+        );
         return { success: true, data: null }; // Return null to force re-parse with new parser
       }
 
       return { success: true, data: parsed };
     } catch (error) {
-      if (error.code === 'ENOENT') {
+      if (error.code === "ENOENT") {
         return { success: true, data: null }; // File not found is not an error
       }
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('get-cache-summary', async (event, cacheId) => {
+  ipcMain.handle("get-cache-summary", async (event, cacheId) => {
     const filePath = await getCacheFilePath(cacheId);
     try {
-      const data = await fs.readFile(filePath, 'utf-8');
+      const data = await fs.readFile(filePath, "utf-8");
       return { success: true, data: JSON.parse(data) };
     } catch (error) {
-      if (error.code === 'ENOENT') {
+      if (error.code === "ENOENT") {
         return { success: true, data: null };
       }
       return { success: false, error: error.message };
@@ -894,11 +754,11 @@ function setupFileOperationHandlers() {
 
   const CHUNK_SIZE = 5000; // Store 5000 images per chunk file
 
-  ipcMain.handle('cache-data', async (event, { cacheId, data }) => {
-    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
+  ipcMain.handle("cache-data", async (event, { cacheId, data }) => {
+    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const { metadata, ...cacheRecord } = data;
     const rootPath = await getCacheRootPath();
-    const cacheDir = path.join(rootPath, 'json_cache');
+    const cacheDir = path.join(rootPath, "json_cache");
     await fs.mkdir(cacheDir, { recursive: true });
 
     // Write chunk files
@@ -918,24 +778,26 @@ function setupFileOperationHandlers() {
     return { success: true };
   });
 
-  ipcMain.handle('prepare-cache-write', async (event, { cacheId }) => {
+  ipcMain.handle("prepare-cache-write", async (event, { cacheId }) => {
     try {
-      const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
+      const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
       const rootPath = await getCacheRootPath();
-      const cacheDir = path.join(rootPath, 'json_cache');
+      const cacheDir = path.join(rootPath, "json_cache");
       await fs.mkdir(cacheDir, { recursive: true });
 
       try {
         const files = await fs.readdir(cacheDir);
         await Promise.all(
           files
-            .filter(file => file.startsWith(`${safeCacheId}_`))
-            .map(file => fs.unlink(path.join(cacheDir, file)).catch(err => {
-              if (err.code !== 'ENOENT') throw err;
-            }))
+            .filter((file) => file.startsWith(`${safeCacheId}_`))
+            .map((file) =>
+              fs.unlink(path.join(cacheDir, file)).catch((err) => {
+                if (err.code !== "ENOENT") throw err;
+              }),
+            ),
         );
       } catch (error) {
-        if (error.code !== 'ENOENT') {
+        if (error.code !== "ENOENT") {
           throw error;
         }
       }
@@ -946,75 +808,83 @@ function setupFileOperationHandlers() {
     }
   });
 
-  ipcMain.handle('write-cache-chunk', async (event, { cacheId, chunkIndex, data }) => {
-    try {
-      const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
-      const rootPath = await getCacheRootPath();
-      const cacheDir = path.join(rootPath, 'json_cache');
-      await fs.mkdir(cacheDir, { recursive: true });
-      const chunkPath = path.join(cacheDir, `${safeCacheId}_${chunkIndex}.json`);
-      await fs.writeFile(chunkPath, JSON.stringify(data));
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
+  ipcMain.handle(
+    "write-cache-chunk",
+    async (event, { cacheId, chunkIndex, data }) => {
+      try {
+        const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
+        const rootPath = await getCacheRootPath();
+        const cacheDir = path.join(rootPath, "json_cache");
+        await fs.mkdir(cacheDir, { recursive: true });
+        const chunkPath = path.join(
+          cacheDir,
+          `${safeCacheId}_${chunkIndex}.json`,
+        );
+        await fs.writeFile(chunkPath, JSON.stringify(data));
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error.message };
+      }
+    },
+  );
 
-  ipcMain.handle('finalize-cache-write', async (event, { cacheId, record }) => {
+  ipcMain.handle("finalize-cache-write", async (event, { cacheId, record }) => {
     try {
       const mainCachePath = await getCacheFilePath(cacheId);
       // Add parser version to cache record
       const recordWithVersion = { ...record, parserVersion: PARSER_VERSION };
-      await fs.writeFile(mainCachePath, JSON.stringify(recordWithVersion, null, 2));
+      await fs.writeFile(
+        mainCachePath,
+        JSON.stringify(recordWithVersion, null, 2),
+      );
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('get-cache-chunk', async (event, { cacheId, chunkIndex }) => {
-    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
+  ipcMain.handle("get-cache-chunk", async (event, { cacheId, chunkIndex }) => {
+    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const rootPath = await getCacheRootPath();
-    const cacheDir = path.join(rootPath, 'json_cache');
+    const cacheDir = path.join(rootPath, "json_cache");
     const chunkPath = path.join(cacheDir, `${safeCacheId}_${chunkIndex}.json`);
     try {
-      const data = await fs.readFile(chunkPath, 'utf-8');
+      const data = await fs.readFile(chunkPath, "utf-8");
       return { success: true, data: JSON.parse(data) };
     } catch (error) {
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('clear-cache-data', async (event, cacheId) => {
-    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, '_');
+  ipcMain.handle("clear-cache-data", async (event, cacheId) => {
+    const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const rootPath = await getCacheRootPath();
-    const cacheDir = path.join(rootPath, 'json_cache');
+    const cacheDir = path.join(rootPath, "json_cache");
     const mainCachePath = await getCacheFilePath(cacheId);
 
     try {
-        // Delete main cache file
-        await fs.unlink(mainCachePath).catch(err => {
-            if (err.code !== 'ENOENT') throw err;
-        });
+      // Delete main cache file
+      await fs.unlink(mainCachePath).catch((err) => {
+        if (err.code !== "ENOENT") throw err;
+      });
 
-        // Delete chunk files
-        const files = await fs.readdir(cacheDir);
-        for (const file of files) {
-            if (file.startsWith(`${safeCacheId}_`)) {
-                await fs.unlink(path.join(cacheDir, file));
-            }
+      // Delete chunk files
+      const files = await fs.readdir(cacheDir);
+      for (const file of files) {
+        if (file.startsWith(`${safeCacheId}_`)) {
+          await fs.unlink(path.join(cacheDir, file));
         }
-        return { success: true };
+      }
+      return { success: true };
     } catch (error) {
-        return { success: false, error: error.message };
+      return { success: false, error: error.message };
     }
   });
-
 
   // --- Thumbnail Cache IPC Handlers ---
   const getThumbnailCachePath = async (thumbnailId) => {
     const rootPath = await getCacheRootPath();
-    const cacheDir = path.join(rootPath, 'thumbnails');
+    const cacheDir = path.join(rootPath, "thumbnails");
     await fs.mkdir(cacheDir, { recursive: true });
 
     // Use MD5 hash for long IDs to avoid Windows MAX_PATH (260 char) limit
@@ -1025,57 +895,63 @@ function setupFileOperationHandlers() {
     let safeId;
     if (thumbnailId.length > MAX_FILENAME_LENGTH) {
       // Use MD5 hash for very long IDs (32 hex chars)
-      const hash = crypto.createHash('md5').update(thumbnailId).digest('hex');
+      const hash = crypto.createHash("md5").update(thumbnailId).digest("hex");
       safeId = hash;
     } else {
       // For shorter IDs, just sanitize special characters
-      safeId = thumbnailId.replace(/[^a-zA-Z0-9-_]/g, '_');
+      safeId = thumbnailId.replace(/[^a-zA-Z0-9-_]/g, "_");
     }
 
     return path.join(cacheDir, `${safeId}.webp`);
   };
 
-  ipcMain.handle('get-thumbnail', async (event, thumbnailId) => {
+  ipcMain.handle("get-thumbnail", async (event, thumbnailId) => {
     const filePath = await getThumbnailCachePath(thumbnailId);
     try {
       const data = await fs.readFile(filePath);
       return { success: true, data };
     } catch (error) {
-      if (error.code === 'ENOENT') {
+      if (error.code === "ENOENT") {
         return { success: true, data: null }; // Not an error
       }
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('cache-thumbnail', async (event, { thumbnailId, data }) => {
+  ipcMain.handle("cache-thumbnail", async (event, { thumbnailId, data }) => {
     const filePath = await getThumbnailCachePath(thumbnailId);
     try {
       await fs.writeFile(filePath, data);
       return { success: true };
     } catch (error) {
       // Log the error with context for debugging
-      const isPathTooLong = error.code === 'ENAMETOOLONG' || error.message?.includes('path too long');
-      const isPermissionError = error.code === 'EACCES' || error.code === 'EPERM';
+      const isPathTooLong =
+        error.code === "ENAMETOOLONG" ||
+        error.message?.includes("path too long");
+      const isPermissionError =
+        error.code === "EACCES" || error.code === "EPERM";
 
       if (isPathTooLong) {
-        console.error(`Thumbnail path too long (this should not happen with hashing):`, {
-          thumbnailIdLength: thumbnailId.length,
-          filePathLength: filePath.length,
-          error: error.message
-        });
+        console.error(
+          `Thumbnail path too long (this should not happen with hashing):`,
+          {
+            thumbnailIdLength: thumbnailId.length,
+            filePathLength: filePath.length,
+            error: error.message,
+          },
+        );
       } else if (!isPermissionError) {
-        console.error('Error caching thumbnail:', error);
+        console.error("Error caching thumbnail:", error);
       }
 
       return { success: false, error: error.message, errorCode: error.code };
     }
   });
 
-  ipcMain.handle('clear-metadata-cache', async () => {
+  ipcMain.handle("clear-metadata-cache", async () => {
     try {
       const rootPath = await getCacheRootPath();
-      const cacheDir = path.join(rootPath, 'json_cache');
+      const cacheDir = path.join(rootPath, "json_cache");
       if (fs.existsSync(cacheDir)) {
         await fs.promises.rm(cacheDir, { recursive: true, force: true });
         await fs.promises.mkdir(cacheDir, { recursive: true });
@@ -1086,10 +962,10 @@ function setupFileOperationHandlers() {
     }
   });
 
-  ipcMain.handle('clear-thumbnail-cache', async () => {
+  ipcMain.handle("clear-thumbnail-cache", async () => {
     try {
       const rootPath = await getCacheRootPath();
-      const cacheDir = path.join(rootPath, 'thumbnails');
+      const cacheDir = path.join(rootPath, "thumbnails");
       if (fs.existsSync(cacheDir)) {
         await fs.promises.rm(cacheDir, { recursive: true, force: true });
         await fs.promises.mkdir(cacheDir, { recursive: true });
@@ -1101,9 +977,9 @@ function setupFileOperationHandlers() {
   });
 
   // Delete all cache files and folders (but not userData itself, as app is using it)
-  ipcMain.handle('delete-cache-folder', async () => {
+  ipcMain.handle("delete-cache-folder", async () => {
     try {
-      const userDataDir = app.getPath('userData');
+      const userDataDir = app.getPath("userData");
       try {
         const files = await fs.readdir(userDataDir);
 
@@ -1122,26 +998,26 @@ function setupFileOperationHandlers() {
         }
       } catch (error) {
         // If userData doesn't exist or can't be read, that's fine (already clean)
-        if (error.code !== 'ENOENT') {
+        if (error.code !== "ENOENT") {
           throw error;
         }
       }
       return { success: true, needsRestart: true };
     } catch (error) {
-      console.error('Error deleting cache folder:', error);
+      console.error("Error deleting cache folder:", error);
       return { success: false, error: error.message, needsRestart: false };
     }
   });
 
   // Restart the application (used after cache reset)
-  ipcMain.handle('restart-app', async () => {
+  ipcMain.handle("restart-app", async () => {
     try {
-      console.log('🔄 Restarting application...');
+      console.log("🔄 Restarting application...");
       app.relaunch();
       app.quit();
       return { success: true };
     } catch (error) {
-      console.error('Error restarting app:', error);
+      console.error("Error restarting app:", error);
       return { success: false, error: error.message };
     }
   });
@@ -1149,28 +1025,33 @@ function setupFileOperationHandlers() {
   // --- End Thumbnail Cache IPC Handlers ---
   // --- End Cache IPC Handlers ---
 
-
   // Handle updating the set of allowed directories for file operations
-  ipcMain.handle('update-allowed-paths', (event, paths) => {
+  ipcMain.handle("update-allowed-paths", (event, paths) => {
     try {
       if (!Array.isArray(paths)) {
-        return { success: false, error: 'Invalid paths provided. Must be an array.' };
+        return {
+          success: false,
+          error: "Invalid paths provided. Must be an array.",
+        };
       }
       allowedDirectoryPaths.clear();
       for (const p of paths) {
         const normalized = path.normalize(p);
         allowedDirectoryPaths.add(normalized);
-        console.log('[Main] Added allowed directory:', normalized);
+        console.log("[Main] Added allowed directory:", normalized);
       }
-      console.log('[Main] Total allowed directories:', allowedDirectoryPaths.size);
+      console.log(
+        "[Main] Total allowed directories:",
+        allowedDirectoryPaths.size,
+      );
       return { success: true };
     } catch (error) {
-      console.error('Error updating allowed paths:', error);
+      console.error("Error updating allowed paths:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.on('start-file-drag', (event, payload) => {
+  ipcMain.on("start-file-drag", (event, payload) => {
     try {
       const directoryPath = payload?.directoryPath;
       const relativePath = payload?.relativePath;
@@ -1180,48 +1061,51 @@ function setupFileOperationHandlers() {
 
       const fullPath = path.resolve(directoryPath, relativePath);
       if (!isPathAllowed(fullPath)) {
-        console.error('SECURITY VIOLATION: Attempted to drag file outside of allowed directories.');
+        console.error(
+          "SECURITY VIOLATION: Attempted to drag file outside of allowed directories.",
+        );
         return;
       }
 
       const fileIcon = nativeImage.createFromPath(fullPath);
-      const dragIcon = fileIcon && !fileIcon.isEmpty()
-        ? fileIcon
-        : nativeImage.createFromPath(getIconPath());
+      const dragIcon =
+        fileIcon && !fileIcon.isEmpty()
+          ? fileIcon
+          : nativeImage.createFromPath(getIconPath());
 
       event.sender.startDrag({ file: fullPath, icon: dragIcon });
     } catch (error) {
-      console.error('Error starting file drag:', error);
+      console.error("Error starting file drag:", error);
     }
   });
 
   // Handle directory selection for Electron
-  ipcMain.handle('show-directory-dialog', async () => {
+  ipcMain.handle("show-directory-dialog", async () => {
     try {
       const result = await dialog.showOpenDialog(mainWindow, {
-        properties: ['openDirectory']
+        properties: ["openDirectory"],
       });
-      
+
       if (result.canceled || result.filePaths.length === 0) {
         return { success: false, canceled: true };
       }
-      
+
       const selectedPath = result.filePaths[0];
       // NOTE: Don't update currentDirectoryPath here - this is for export destination selection
       // currentDirectoryPath should remain as the source directory
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         path: selectedPath,
-        name: path.basename(selectedPath)
+        name: path.basename(selectedPath),
       };
     } catch (error) {
-      console.error('Error showing directory dialog:', error);
+      console.error("Error showing directory dialog:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('show-save-dialog', async (event, options = {}) => {
+  ipcMain.handle("show-save-dialog", async (event, options = {}) => {
     try {
       const result = await dialog.showSaveDialog(mainWindow, options);
       if (result.canceled) {
@@ -1229,155 +1113,176 @@ function setupFileOperationHandlers() {
       }
       return { success: true, canceled: false, path: result.filePath };
     } catch (error) {
-      console.error('Error showing save dialog:', error);
+      console.error("Error showing save dialog:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle file deletion (move to trash)
-  ipcMain.handle('trash-file', async (event, filePath) => {
+  ipcMain.handle("trash-file", async (event, filePath) => {
     try {
       if (!isPathAllowed(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to trash file outside of allowed directories.');
-        return { success: false, error: 'Access denied: Cannot trash files outside of the allowed directories.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to trash file outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot trash files outside of the allowed directories.",
+        };
       }
 
-      console.log('Attempting to trash file:', filePath);
+      console.log("Attempting to trash file:", filePath);
       await shell.trashItem(filePath);
       return { success: true };
     } catch (error) {
-      console.error('Error trashing file:', error);
+      console.error("Error trashing file:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle file renaming
-  ipcMain.handle('rename-file', async (event, oldPath, newPath) => {
+  ipcMain.handle("rename-file", async (event, oldPath, newPath) => {
     try {
       if (!isAllowedOrInternal(oldPath) || !isAllowedOrInternal(newPath)) {
-        console.error('SECURITY VIOLATION: Attempted to rename file outside of allowed directories.');
-        return { success: false, error: 'Access denied: Cannot rename files outside of the allowed directories.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to rename file outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot rename files outside of the allowed directories.",
+        };
       }
-      
-      console.log('Attempting to rename file:', oldPath, 'to', newPath);
+
+      console.log("Attempting to rename file:", oldPath, "to", newPath);
       await fs.rename(oldPath, newPath);
       return { success: true };
     } catch (error) {
-      console.error('Error renaming file:', error);
+      console.error("Error renaming file:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle show item in folder
-  ipcMain.handle('show-item-in-folder', async (event, filePath) => {
+  ipcMain.handle("show-item-in-folder", async (event, filePath) => {
     try {
       if (!isPathAllowed(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to show item outside of allowed directories.');
-        return { success: false, error: 'Access denied: Cannot show items outside of the allowed directories.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to show item outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot show items outside of the allowed directories.",
+        };
       }
 
       const normalizedFilePath = path.normalize(filePath);
-      console.log('📂 Attempting to show item in folder:', normalizedFilePath);
+      console.log("📂 Attempting to show item in folder:", normalizedFilePath);
 
       // Verify the file exists before trying to show it
       try {
         await fs.access(normalizedFilePath);
-        console.log('✅ File exists:', normalizedFilePath);
+        console.log("✅ File exists:", normalizedFilePath);
       } catch (accessError) {
-        console.error('❌ File does not exist:', normalizedFilePath, accessError);
-        return { success: false, error: `File does not exist: ${normalizedFilePath}` };
+        console.error(
+          "❌ File does not exist:",
+          normalizedFilePath,
+          accessError,
+        );
+        return {
+          success: false,
+          error: `File does not exist: ${normalizedFilePath}`,
+        };
       }
 
       shell.showItemInFolder(normalizedFilePath);
-      console.log('✅ shell.showItemInFolder called for:', normalizedFilePath);
+      console.log("✅ shell.showItemInFolder called for:", normalizedFilePath);
 
       return { success: true };
     } catch (error) {
-      console.error('❌ Error showing item in folder:', error);
+      console.error("❌ Error showing item in folder:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle open cache location (without security restrictions since it's app's internal cache)
-  ipcMain.handle('open-cache-location', async (event, cachePath) => {
+  ipcMain.handle("open-cache-location", async (event, cachePath) => {
     try {
       const normalizedCachePath = path.normalize(cachePath);
       const parentPath = path.dirname(normalizedCachePath);
-      console.log('📂 Opening cache parent directory:', parentPath);
+      console.log("📂 Opening cache parent directory:", parentPath);
 
       shell.showItemInFolder(parentPath);
-      console.log('✅ shell.showItemInFolder called for:', parentPath);
+      console.log("✅ shell.showItemInFolder called for:", parentPath);
 
       return { success: true };
     } catch (error) {
-      console.error('❌ Error opening cache location:', error);
+      console.error("❌ Error opening cache location:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('list-subfolders', async (event, folderPath) => {
+  ipcMain.handle("list-subfolders", async (event, folderPath) => {
     try {
       if (!isPathAllowed(folderPath)) {
-        console.error('SECURITY VIOLATION: Attempted to list subfolders outside of allowed directories.');
-        return { success: false, error: 'Access denied: Cannot list subfolders outside of the allowed directories.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to list subfolders outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot list subfolders outside of the allowed directories.",
+        };
       }
 
       const normalizedPath = path.normalize(folderPath);
-      console.log('📂 Listing subfolders for:', normalizedPath);
+      console.log("📂 Listing subfolders for:", normalizedPath);
 
       // Verify the folder exists
       try {
         const stats = await fs.stat(normalizedPath);
         if (!stats.isDirectory()) {
-          console.error('❌ Path is not a directory:', normalizedPath);
-          return { success: false, error: 'Path is not a directory' };
+          console.error("❌ Path is not a directory:", normalizedPath);
+          return { success: false, error: "Path is not a directory" };
         }
       } catch (accessError) {
-        console.error('❌ Folder does not exist:', normalizedPath, accessError);
-        return { success: false, error: `Folder does not exist: ${normalizedPath}` };
+        console.error("❌ Folder does not exist:", normalizedPath, accessError);
+        return {
+          success: false,
+          error: `Folder does not exist: ${normalizedPath}`,
+        };
       }
 
       // Read directory and filter to only directories
       const entries = await fs.readdir(normalizedPath, { withFileTypes: true });
       const subfolders = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => ({
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => ({
           name: entry.name,
-          path: path.join(normalizedPath, entry.name)
+          path: path.join(normalizedPath, entry.name),
         }));
 
-      console.log(`✅ Found ${subfolders.length} subfolders in ${normalizedPath}`);
+      console.log(
+        `✅ Found ${subfolders.length} subfolders in ${normalizedPath}`,
+      );
       return { success: true, subfolders };
     } catch (error) {
-      console.error('❌ Error listing subfolders:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Handle manual update check
-  ipcMain.handle('check-for-updates', async () => {
-    if (!autoUpdater) {
-      return { success: false, error: 'Auto-updater not available' };
-    }
-    try {
-      console.log('Manual update check requested');
-      const result = await autoUpdater.checkForUpdates();
-      return { success: true, updateInfo: result.updateInfo };
-    } catch (error) {
-      console.error('Error checking for updates:', error);
+      console.error("❌ Error listing subfolders:", error);
       return { success: false, error: error.message };
     }
   });
 
   // TEST ONLY: Simulate update available dialog
-  ipcMain.handle('test-update-dialog', async () => {
+  ipcMain.handle("test-update-dialog", async () => {
     if (!mainWindow) {
-      return { success: false, error: 'Main window not available' };
+      return { success: false, error: "Main window not available" };
     }
-    
+
     // Simulate update info
     const mockUpdateInfo = {
-  version: '0.13.0',
+      version: "0.2.0",
       releaseNotes: `## [0.13.0] - Release
 
 ### Major Performance Improvements
@@ -1389,59 +1294,67 @@ function setupFileOperationHandlers() {
 ### New Features
 - **Comparison Modes**: Slider and hover modes for side-by-side image comparison
 - **Component Memoization**: Sidebar and preview components prevent unnecessary re-renders
-- **Optimized Rendering**: Improved grid and table view performance for large datasets`
+- **Optimized Rendering**: Improved grid and table view performance for large datasets`,
     };
 
     // Extract and format changelog
-    let changelogText = 'No release notes available.';
-    
+    let changelogText = "No release notes available.";
+
     if (mockUpdateInfo.releaseNotes) {
       changelogText = mockUpdateInfo.releaseNotes
-        .replace(/#{1,6}\s/g, '') // Remove markdown headers
-        .replace(/\*\*/g, '') // Remove bold markers
-        .replace(/\*/g, '•') // Convert asterisks to bullets
-        .replace(/<[^>]*>/g, '') // Remove HTML tags
+        .replace(/#{1,6}\s/g, "") // Remove markdown headers
+        .replace(/\*\*/g, "") // Remove bold markers
+        .replace(/\*/g, "•") // Convert asterisks to bullets
+        .replace(/<[^>]*>/g, "") // Remove HTML tags
         .trim();
     }
 
     // Limit changelog length
     if (changelogText.length > 500) {
-      changelogText = changelogText.substring(0, 497) + '...';
+      changelogText = changelogText.substring(0, 497) + "...";
     }
 
     const result = await dialog.showMessageBox(mainWindow, {
-      type: 'info',
-      title: '🎉 Update Available (TEST)',
+      type: "info",
+      title: "🎉 Update Available (TEST)",
       message: `Version ${mockUpdateInfo.version} is ready to download!`,
       detail: `What's new:\n\n${changelogText}\n\nWould you like to download this update now?`,
-      buttons: ['Download Now', 'Download Later', 'Skip this version'],
+      buttons: ["Download Now", "Download Later", "Skip this version"],
       defaultId: 0,
       cancelId: 2,
-      noLink: true
+      noLink: true,
     });
 
     return { success: true, response: result.response };
   });
 
   // Handle listing directory files
-  ipcMain.handle('list-directory-files', async (event, { dirPath, recursive = false }) => {
-    try {
-      if (!dirPath) {
-        return { success: false, error: 'No directory path provided' };
-      }
+  ipcMain.handle(
+    "list-directory-files",
+    async (event, { dirPath, recursive = false }) => {
+      try {
+        if (!dirPath) {
+          return { success: false, error: "No directory path provided" };
+        }
 
-      let imageFiles = [];
+        let imageFiles = [];
 
-      if (recursive) {
-        imageFiles = await getFilesRecursively(dirPath, dirPath);
-      } else {
-        const files = await fs.readdir(dirPath, { withFileTypes: true });
+        if (recursive) {
+          imageFiles = await getFilesRecursively(dirPath, dirPath);
+        } else {
+          const files = await fs.readdir(dirPath, { withFileTypes: true });
 
-        for (const file of files) {
+          for (const file of files) {
             if (file.isFile()) {
               const name = file.name.toLowerCase();
-              const isImage = name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.webp');
-              const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) => name.endsWith(ext));
+              const isImage =
+                name.endsWith(".png") ||
+                name.endsWith(".jpg") ||
+                name.endsWith(".jpeg") ||
+                name.endsWith(".webp");
+              const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) =>
+                name.endsWith(ext),
+              );
               if (isImage || isVideo) {
                 const filePath = path.join(dirPath, file.name);
                 const stats = await fs.stat(filePath);
@@ -1455,51 +1368,52 @@ function setupFileOperationHandlers() {
                 });
               }
             }
+          }
         }
-      }
 
-      return { success: true, files: imageFiles };
-    } catch (error) {
-      console.error('Error listing directory files:', error);
-      return { success: false, error: error.message };
-    }
-  });
+        return { success: true, files: imageFiles };
+      } catch (error) {
+        console.error("Error listing directory files:", error);
+        return { success: false, error: error.message };
+      }
+    },
+  );
 
   // ============================================================
   // File Watching Handlers
   // ============================================================
 
-  ipcMain.handle('start-watching-directory', async (event, args) => {
+  ipcMain.handle("start-watching-directory", async (event, args) => {
     const { directoryId, dirPath } = args;
 
     if (!directoryId || !dirPath) {
-      return { success: false, error: 'Missing required parameters' };
+      return { success: false, error: "Missing required parameters" };
     }
 
     // Validar se o path está permitido
     if (!isPathAllowed(dirPath)) {
-      return { success: false, error: 'Path not allowed' };
+      return { success: false, error: "Path not allowed" };
     }
 
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (!mainWindow) {
-      return { success: false, error: 'No window available' };
+      return { success: false, error: "No window available" };
     }
 
     return fileWatcher.startWatching(directoryId, dirPath, mainWindow);
   });
 
-  ipcMain.handle('stop-watching-directory', async (event, args) => {
+  ipcMain.handle("stop-watching-directory", async (event, args) => {
     const { directoryId } = args;
 
     if (!directoryId) {
-      return { success: false, error: 'Missing directoryId' };
+      return { success: false, error: "Missing directoryId" };
     }
 
     return fileWatcher.stopWatching(directoryId);
   });
 
-  ipcMain.handle('get-watcher-status', async (event, args) => {
+  ipcMain.handle("get-watcher-status", async (event, args) => {
     const { directoryId } = args;
 
     if (!directoryId) {
@@ -1511,18 +1425,30 @@ function setupFileOperationHandlers() {
   });
 
   // Handle reading file content
-  ipcMain.handle('read-file', async (event, filePath) => {
+  ipcMain.handle("read-file", async (event, filePath) => {
     try {
       if (!filePath) {
-        return { success: false, error: 'No file path provided' };
+        return { success: false, error: "No file path provided" };
       }
 
       if (!isPathAllowed(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to read file outside of allowed directories.');
-        console.error('  [read-file] Requested path:', filePath);
-        console.error('  [read-file] Normalized path:', path.normalize(filePath));
-        console.error('  [read-file] Allowed directories:', Array.from(allowedDirectoryPaths));
-        return { success: false, error: 'Access denied', errorType: 'PERMISSION_DENIED' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to read file outside of allowed directories.",
+        );
+        console.error("  [read-file] Requested path:", filePath);
+        console.error(
+          "  [read-file] Normalized path:",
+          path.normalize(filePath),
+        );
+        console.error(
+          "  [read-file] Allowed directories:",
+          Array.from(allowedDirectoryPaths),
+        );
+        return {
+          success: false,
+          error: "Access denied",
+          errorType: "PERMISSION_DENIED",
+        };
       }
 
       const data = await fs.readFile(filePath);
@@ -1531,280 +1457,381 @@ function setupFileOperationHandlers() {
       return { success: true, data: data };
     } catch (error) {
       // Classify the error type for better handling in the frontend
-      const isFileNotFound = error.code === 'ENOENT' || error.message?.includes('no such file');
-      const isPermissionError = error.code === 'EACCES' || error.code === 'EPERM';
+      const isFileNotFound =
+        error.code === "ENOENT" || error.message?.includes("no such file");
+      const isPermissionError =
+        error.code === "EACCES" || error.code === "EPERM";
 
       // Only log non-ENOENT errors to avoid spam when cache is stale
       if (!isFileNotFound) {
-        console.error('Error reading file:', filePath, error);
+        console.error("Error reading file:", filePath, error);
       }
 
       return {
         success: false,
         error: error.message,
-        errorType: isFileNotFound ? 'FILE_NOT_FOUND' : (isPermissionError ? 'PERMISSION_ERROR' : 'UNKNOWN_ERROR'),
-        errorCode: error.code
+        errorType: isFileNotFound
+          ? "FILE_NOT_FOUND"
+          : isPermissionError
+            ? "PERMISSION_ERROR"
+            : "UNKNOWN_ERROR",
+        errorCode: error.code,
       };
     }
   });
 
-  ipcMain.handle('read-video-metadata', async (event, args) => {
+  ipcMain.handle("read-video-metadata", async (event, args) => {
     try {
       const filePath = args?.filePath;
       if (!filePath) {
-        return { success: false, error: 'No file path provided' };
+        return { success: false, error: "No file path provided" };
       }
 
       if (!isPathAllowed(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to read file outside of allowed directories.');
-        console.error('  [read-video-metadata] Requested path:', filePath);
-        console.error('  [read-video-metadata] Normalized path:', path.normalize(filePath));
-        console.error('  [read-video-metadata] Allowed directories:', Array.from(allowedDirectoryPaths));
-        return { success: false, error: 'Access denied', errorType: 'PERMISSION_DENIED' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to read file outside of allowed directories.",
+        );
+        console.error("  [read-video-metadata] Requested path:", filePath);
+        console.error(
+          "  [read-video-metadata] Normalized path:",
+          path.normalize(filePath),
+        );
+        console.error(
+          "  [read-video-metadata] Allowed directories:",
+          Array.from(allowedDirectoryPaths),
+        );
+        return {
+          success: false,
+          error: "Access denied",
+          errorType: "PERMISSION_DENIED",
+        };
       }
 
       const metadata = await readVideoMetadataWithFfprobe(filePath);
       return { success: true, ...metadata };
     } catch (error) {
-      const isBinaryMissing = error?.code === 'ENOENT' || error?.message?.includes('ffprobe');
+      const isBinaryMissing =
+        error?.code === "ENOENT" || error?.message?.includes("ffprobe");
       return {
         success: false,
-        error: isBinaryMissing ? 'FFPROBE_NOT_FOUND' : (error?.message || String(error)),
+        error: isBinaryMissing
+          ? "FFPROBE_NOT_FOUND"
+          : error?.message || String(error),
       };
     }
   });
 
   // Handle getting skipped versions
-  ipcMain.handle('get-skipped-versions', () => {
+  ipcMain.handle("get-skipped-versions", () => {
     return { success: true, skippedVersions: Array.from(skippedVersions) };
   });
 
   // Handle clearing skipped versions
-  ipcMain.handle('clear-skipped-versions', () => {
+  ipcMain.handle("clear-skipped-versions", () => {
     const count = skippedVersions.size;
     skippedVersions.clear();
-    console.log('Cleared', count, 'skipped versions');
+    console.log("Cleared", count, "skipped versions");
     return { success: true, clearedCount: count };
   });
 
   // Handle skipping a specific version
-  ipcMain.handle('skip-version', (event, version) => {
+  ipcMain.handle("skip-version", (event, version) => {
     if (version) {
       skippedVersions.add(version);
-      console.log('Manually skipped version:', version);
+      console.log("Manually skipped version:", version);
       return { success: true };
     }
-    return { success: false, error: 'Version not provided' };
+    return { success: false, error: "Version not provided" };
   });
 
   // Handle toggling fullscreen
-  ipcMain.handle('toggle-fullscreen', () => {
+  ipcMain.handle("toggle-fullscreen", () => {
     if (mainWindow) {
       mainWindow.setFullScreen(!mainWindow.isFullScreen());
       return { success: true, isFullscreen: mainWindow.isFullScreen() };
     }
-    return { success: false, error: 'Main window not available' };
+    return { success: false, error: "Main window not available" };
   });
 
   // Handle reading multiple files in a batch
-  ipcMain.handle('read-files-batch', async (event, filePaths) => {
+  ipcMain.handle("read-files-batch", async (event, filePaths) => {
     try {
       if (!Array.isArray(filePaths) || filePaths.length === 0) {
-        return { success: false, error: 'No file paths provided' };
+        return { success: false, error: "No file paths provided" };
       }
 
       // --- SECURITY CHECK ---
       for (const filePath of filePaths) {
         if (!isPathAllowed(filePath)) {
-          console.error('SECURITY VIOLATION: Attempted to read file outside of allowed directories.');
-          console.error('  Requested path:', filePath);
-          console.error('  Normalized path:', path.normalize(filePath));
-          console.error('  Allowed directories:', Array.from(allowedDirectoryPaths));
-          return { success: false, error: 'Access denied: Cannot read files outside of the allowed directories.' };
+          console.error(
+            "SECURITY VIOLATION: Attempted to read file outside of allowed directories.",
+          );
+          console.error("  Requested path:", filePath);
+          console.error("  Normalized path:", path.normalize(filePath));
+          console.error(
+            "  Allowed directories:",
+            Array.from(allowedDirectoryPaths),
+          );
+          return {
+            success: false,
+            error:
+              "Access denied: Cannot read files outside of the allowed directories.",
+          };
         }
       }
       // --- END SECURITY CHECK ---
 
-      const promises = filePaths.map(filePath => fs.readFile(filePath));
+      const promises = filePaths.map((filePath) => fs.readFile(filePath));
       const results = await Promise.allSettled(promises);
 
       const data = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
+        if (result.status === "fulfilled") {
           return { success: true, data: result.value, path: filePaths[index] };
         } else {
-          if (!result.reason.message?.includes('ENOENT')) {
-            console.error('Error reading file in batch:', filePaths[index], result.reason);
+          if (!result.reason.message?.includes("ENOENT")) {
+            console.error(
+              "Error reading file in batch:",
+              filePaths[index],
+              result.reason,
+            );
           }
-          return { success: false, error: result.reason.message, path: filePaths[index] };
+          return {
+            success: false,
+            error: result.reason.message,
+            path: filePaths[index],
+          };
         }
       });
 
       return { success: true, files: data };
     } catch (error) {
-      console.error('Error in read-files-batch handler:', error);
+      console.error("Error in read-files-batch handler:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('read-files-head-batch', async (event, { filePaths, maxBytes }) => {
-    const start = performance.now();
-    try {
-      if (!Array.isArray(filePaths) || filePaths.length === 0) {
-        return { success: false, error: 'No file paths provided' };
-      }
-
-      // --- SECURITY CHECK ---
-      for (const filePath of filePaths) {
-        if (!isPathAllowed(filePath)) {
-          console.error('SECURITY VIOLATION: Attempted to read file outside of allowed directories.');
-          console.error('  Requested path:', filePath);
-          console.error('  Normalized path:', path.normalize(filePath));
-          console.error('  Allowed directories:', Array.from(allowedDirectoryPaths));
-          return { success: false, error: 'Access denied: Cannot read files outside of the allowed directories.' };
-        }
-      }
-      // --- END SECURITY CHECK ---
-
-      const FALLBACK_HEAD_BYTES = 256 * 1024;
-      const MAX_HEAD_BYTES = 2 * 1024 * 1024;
-      const requestedBytes = typeof maxBytes === 'number' ? maxBytes : FALLBACK_HEAD_BYTES;
-      const safeBytes = Math.max(1, Math.min(requestedBytes, MAX_HEAD_BYTES));
-
-      // Use Synchronous operations to bypass UV Threadpool overhead
-      // This emulates the performance characteristics of PowerShell/CMD
-      const results = new Array(filePaths.length);
-      
-      let totalOpenTime = 0;
-      let totalReadTime = 0;
-
-      for (let i = 0; i < filePaths.length; i++) {
-        const filePath = filePaths[i];
-        
-        // Yield every 5 files to prevent Main Process freeze
-        if (i > 0 && i % 5 === 0) {
-            await new Promise(resolve => setImmediate(resolve));
+  ipcMain.handle(
+    "read-files-head-batch",
+    async (event, { filePaths, maxBytes }) => {
+      const start = performance.now();
+      try {
+        if (!Array.isArray(filePaths) || filePaths.length === 0) {
+          return { success: false, error: "No file paths provided" };
         }
 
-        try {
+        // --- SECURITY CHECK ---
+        for (const filePath of filePaths) {
+          if (!isPathAllowed(filePath)) {
+            console.error(
+              "SECURITY VIOLATION: Attempted to read file outside of allowed directories.",
+            );
+            console.error("  Requested path:", filePath);
+            console.error("  Normalized path:", path.normalize(filePath));
+            console.error(
+              "  Allowed directories:",
+              Array.from(allowedDirectoryPaths),
+            );
+            return {
+              success: false,
+              error:
+                "Access denied: Cannot read files outside of the allowed directories.",
+            };
+          }
+        }
+        // --- END SECURITY CHECK ---
+
+        const FALLBACK_HEAD_BYTES = 256 * 1024;
+        const MAX_HEAD_BYTES = 2 * 1024 * 1024;
+        const requestedBytes =
+          typeof maxBytes === "number" ? maxBytes : FALLBACK_HEAD_BYTES;
+        const safeBytes = Math.max(1, Math.min(requestedBytes, MAX_HEAD_BYTES));
+
+        // Use Synchronous operations to bypass UV Threadpool overhead
+        // This emulates the performance characteristics of PowerShell/CMD
+        const results = new Array(filePaths.length);
+
+        let totalOpenTime = 0;
+        let totalReadTime = 0;
+
+        for (let i = 0; i < filePaths.length; i++) {
+          const filePath = filePaths[i];
+
+          // Yield every 5 files to prevent Main Process freeze
+          if (i > 0 && i % 5 === 0) {
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+
+          try {
             const t0 = performance.now();
-            const fd = fsSync.openSync(filePath, 'r');
+            const fd = fsSync.openSync(filePath, "r");
             const t1 = performance.now();
-            totalOpenTime += (t1 - t0);
+            totalOpenTime += t1 - t0;
 
             try {
-                const buffer = Buffer.allocUnsafe(safeBytes);
-                // readSync returns bytesRead directly
-                const bytesRead = fsSync.readSync(fd, buffer, 0, safeBytes, 0);
-                const t2 = performance.now();
-                totalReadTime += (t2 - t1);
-                
-                results[i] = { status: 'fulfilled', value: { success: true, data: buffer.subarray(0, bytesRead), bytesRead, path: filePath } };
+              const buffer = Buffer.allocUnsafe(safeBytes);
+              // readSync returns bytesRead directly
+              const bytesRead = fsSync.readSync(fd, buffer, 0, safeBytes, 0);
+              const t2 = performance.now();
+              totalReadTime += t2 - t1;
+
+              results[i] = {
+                status: "fulfilled",
+                value: {
+                  success: true,
+                  data: buffer.subarray(0, bytesRead),
+                  bytesRead,
+                  path: filePath,
+                },
+              };
             } finally {
-                fsSync.closeSync(fd);
+              fsSync.closeSync(fd);
             }
-        } catch (error) {
-            results[i] = { status: 'rejected', reason: error };
+          } catch (error) {
+            results[i] = { status: "rejected", reason: error };
+          }
         }
+
+        console.log(
+          `[Main] Batch(${filePaths.length}) - Sync Open: ${totalOpenTime.toFixed(1)}ms, Sync Read: ${totalReadTime.toFixed(1)}ms`,
+        );
+
+        const data = results.map((result, index) => {
+          if (result.status === "fulfilled") {
+            return result.value;
+          }
+          if (!result.reason.message?.includes("ENOENT")) {
+            console.error(
+              "Error reading file head in batch:",
+              filePaths[index],
+              result.reason,
+            );
+          }
+          return {
+            success: false,
+            error: result.reason.message,
+            path: filePaths[index],
+          };
+        });
+
+        const response = {
+          success: true,
+          files: data,
+          debug: {
+            totalTime: performance.now() - start,
+            openTime: totalOpenTime,
+            readTime: totalReadTime,
+            avgPerFile: (totalOpenTime + totalReadTime) / filePaths.length,
+            concurrency: 1,
+          },
+        };
+
+        return response;
+      } catch (error) {
+        console.error("Error in read-files-head-batch handler:", error);
+        return { success: false, error: error.message };
       }
+    },
+  );
 
-      console.log(`[Main] Batch(${filePaths.length}) - Sync Open: ${totalOpenTime.toFixed(1)}ms, Sync Read: ${totalReadTime.toFixed(1)}ms`);
-
-      const data = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value;
+  ipcMain.handle(
+    "read-files-tail-batch",
+    async (event, { filePaths, maxBytes }) => {
+      try {
+        if (!Array.isArray(filePaths) || filePaths.length === 0) {
+          return { success: false, error: "No file paths provided" };
         }
-        if (!result.reason.message?.includes('ENOENT')) {
-          console.error('Error reading file head in batch:', filePaths[index], result.reason);
-        }
-        return { success: false, error: result.reason.message, path: filePaths[index] };
-      });
 
-      const response = { 
-        success: true, 
-        files: data,
-        debug: {
-          totalTime: performance.now() - start,
-          openTime: totalOpenTime,
-          readTime: totalReadTime,
-          avgPerFile: (totalOpenTime + totalReadTime) / filePaths.length,
-          concurrency: 1
+        // --- SECURITY CHECK ---
+        for (const filePath of filePaths) {
+          if (!isPathAllowed(filePath)) {
+            console.error(
+              "SECURITY VIOLATION: Attempted to read file outside of allowed directories.",
+            );
+            console.error("  Requested path:", filePath);
+            console.error("  Normalized path:", path.normalize(filePath));
+            console.error(
+              "  Allowed directories:",
+              Array.from(allowedDirectoryPaths),
+            );
+            return {
+              success: false,
+              error:
+                "Access denied: Cannot read files outside of the allowed directories.",
+            };
+          }
         }
-      };
-      
-      return response;
-    } catch (error) {
-      console.error('Error in read-files-head-batch handler:', error);
-      return { success: false, error: error.message };
-    }
-  });
+        // --- END SECURITY CHECK ---
 
-  ipcMain.handle('read-files-tail-batch', async (event, { filePaths, maxBytes }) => {
-    try {
-      if (!Array.isArray(filePaths) || filePaths.length === 0) {
-        return { success: false, error: 'No file paths provided' };
+        const FALLBACK_TAIL_BYTES = 256 * 1024;
+        const MAX_TAIL_BYTES = 2 * 1024 * 1024;
+        const requestedBytes =
+          typeof maxBytes === "number" ? maxBytes : FALLBACK_TAIL_BYTES;
+        const safeBytes = Math.max(1, Math.min(requestedBytes, MAX_TAIL_BYTES));
+
+        const promises = filePaths.map(async (filePath) => {
+          const handle = await fs.open(filePath, "r");
+          try {
+            const stats = await handle.stat();
+            const fileSize = stats.size ?? 0;
+            const readSize = Math.min(safeBytes, fileSize);
+            const start = Math.max(0, fileSize - readSize);
+            const buffer = Buffer.allocUnsafe(readSize);
+            const { bytesRead } = await handle.read(buffer, 0, readSize, start);
+            return {
+              success: true,
+              data: buffer.subarray(0, bytesRead),
+              bytesRead,
+              path: filePath,
+            };
+          } finally {
+            await handle.close();
+          }
+        });
+        const results = await Promise.allSettled(promises);
+
+        const data = results.map((result, index) => {
+          if (result.status === "fulfilled") {
+            return result.value;
+          }
+          if (!result.reason.message?.includes("ENOENT")) {
+            console.error(
+              "Error reading file tail in batch:",
+              filePaths[index],
+              result.reason,
+            );
+          }
+          return {
+            success: false,
+            error: result.reason.message,
+            path: filePaths[index],
+          };
+        });
+
+        return { success: true, files: data };
+      } catch (error) {
+        console.error("Error in read-files-tail-batch handler:", error);
+        return { success: false, error: error.message };
       }
-
-      // --- SECURITY CHECK ---
-      for (const filePath of filePaths) {
-        if (!isPathAllowed(filePath)) {
-          console.error('SECURITY VIOLATION: Attempted to read file outside of allowed directories.');
-          console.error('  Requested path:', filePath);
-          console.error('  Normalized path:', path.normalize(filePath));
-          console.error('  Allowed directories:', Array.from(allowedDirectoryPaths));
-          return { success: false, error: 'Access denied: Cannot read files outside of the allowed directories.' };
-        }
-      }
-      // --- END SECURITY CHECK ---
-
-      const FALLBACK_TAIL_BYTES = 256 * 1024;
-      const MAX_TAIL_BYTES = 2 * 1024 * 1024;
-      const requestedBytes = typeof maxBytes === 'number' ? maxBytes : FALLBACK_TAIL_BYTES;
-      const safeBytes = Math.max(1, Math.min(requestedBytes, MAX_TAIL_BYTES));
-
-      const promises = filePaths.map(async (filePath) => {
-        const handle = await fs.open(filePath, 'r');
-        try {
-          const stats = await handle.stat();
-          const fileSize = stats.size ?? 0;
-          const readSize = Math.min(safeBytes, fileSize);
-          const start = Math.max(0, fileSize - readSize);
-          const buffer = Buffer.allocUnsafe(readSize);
-          const { bytesRead } = await handle.read(buffer, 0, readSize, start);
-          return { success: true, data: buffer.subarray(0, bytesRead), bytesRead, path: filePath };
-        } finally {
-          await handle.close();
-        }
-      });
-      const results = await Promise.allSettled(promises);
-
-      const data = results.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return result.value;
-        }
-        if (!result.reason.message?.includes('ENOENT')) {
-          console.error('Error reading file tail in batch:', filePaths[index], result.reason);
-        }
-        return { success: false, error: result.reason.message, path: filePaths[index] };
-      });
-
-      return { success: true, files: data };
-    } catch (error) {
-      console.error('Error in read-files-tail-batch handler:', error);
-      return { success: false, error: error.message };
-    }
-  });
+    },
+  );
 
   // Handle getting file statistics (creation date, etc.)
-  ipcMain.handle('get-file-stats', async (event, filePath) => {
+  ipcMain.handle("get-file-stats", async (event, filePath) => {
     try {
       if (!filePath) {
-        return { success: false, error: 'No file path provided' };
+        return { success: false, error: "No file path provided" };
       }
 
       // --- SECURITY CHECK ---
       if (!isPathAllowed(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to get stats for file outside of allowed directories.');
-        return { success: false, error: 'Access denied: Cannot get stats for files outside of the selected directory.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to get stats for file outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot get stats for files outside of the selected directory.",
+        };
       }
       // --- END SECURITY CHECK ---
 
@@ -1818,58 +1845,60 @@ function setupFileOperationHandlers() {
           mtime: stats.mtime,
           mtimeMs: stats.mtimeMs,
           ctime: stats.ctime,
-          ctimeMs: stats.ctimeMs
-        }
+          ctimeMs: stats.ctimeMs,
+        },
       };
     } catch (error) {
-      console.error('Error getting file stats:', error);
+      console.error("Error getting file stats:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle path joining
-  ipcMain.handle('join-paths', async (event, ...paths) => {
+  ipcMain.handle("join-paths", async (event, ...paths) => {
     try {
       if (!paths || paths.length === 0) {
-        return { success: false, error: 'No paths provided to join' };
+        return { success: false, error: "No paths provided to join" };
       }
       // Use path.resolve to ensure we get an absolute path
       const joinedPath = path.resolve(...paths);
       return { success: true, path: joinedPath };
     } catch (error) {
-      console.error('Error joining paths:', error);
+      console.error("Error joining paths:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle batch path joining - optimized for processing multiple paths at once
-  ipcMain.handle('join-paths-batch', async (event, { basePath, fileNames }) => {
+  ipcMain.handle("join-paths-batch", async (event, { basePath, fileNames }) => {
     try {
       if (!basePath) {
-        return { success: false, error: 'No base path provided' };
+        return { success: false, error: "No base path provided" };
       }
       if (!Array.isArray(fileNames) || fileNames.length === 0) {
-        return { success: false, error: 'No file names provided' };
+        return { success: false, error: "No file names provided" };
       }
 
       // Process all paths in a single call
-      const paths = fileNames.map(fileName => path.resolve(basePath, fileName));
+      const paths = fileNames.map((fileName) =>
+        path.resolve(basePath, fileName),
+      );
       return { success: true, paths };
     } catch (error) {
-      console.error('Error joining paths in batch:', error);
+      console.error("Error joining paths in batch:", error);
       return { success: false, error: error.message };
     }
   });
 
   // Handle writing file content
-  ipcMain.handle('write-file', async (event, filePath, data) => {
+  ipcMain.handle("write-file", async (event, filePath, data) => {
     try {
       if (!filePath) {
-        return { success: false, error: 'No file path provided' };
+        return { success: false, error: "No file path provided" };
       }
 
       if (!data) {
-        return { success: false, error: 'No data provided' };
+        return { success: false, error: "No data provided" };
       }
 
       // --- SECURITY CHECK ---
@@ -1882,245 +1911,330 @@ function setupFileOperationHandlers() {
       // For now, we'll allow writing to any directory (since users explicitly choose export locations)
       // But we should add additional validation in the future if needed
 
-      console.log('Writing file to:', normalizedFilePath, 'Size:', data.length);
+      console.log("Writing file to:", normalizedFilePath, "Size:", data.length);
 
       await fs.writeFile(normalizedFilePath, data);
       return { success: true };
     } catch (error) {
-      console.error('Error writing file:', error);
+      console.error("Error writing file:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('export-images-batch', async (event, { files, destDir, exportId } = {}) => {
-    try {
-      if (!Array.isArray(files) || files.length === 0) {
-        return { success: false, error: 'No files provided for export.', exportedCount: 0, failedCount: 0 };
-      }
-      if (!destDir) {
-        return { success: false, error: 'No destination directory provided.', exportedCount: 0, failedCount: 0 };
-      }
-
-      await fs.mkdir(destDir, { recursive: true });
-      const usedNames = new Set();
-      let exportedCount = 0;
-      let failedCount = 0;
-      let processedCount = 0;
-      let stage = 'copying';
-      const totalCount = files.length;
-      const progressId = exportId ? String(exportId) : null;
-      const PROGRESS_THROTTLE_MS = 200;
-      let lastProgressAt = 0;
-      const sendProgress = (force = false) => {
-        const now = Date.now();
-        if (!force && now - lastProgressAt < PROGRESS_THROTTLE_MS && processedCount < totalCount) {
-          return;
+  ipcMain.handle(
+    "export-images-batch",
+    async (event, { files, destDir, exportId } = {}) => {
+      try {
+        if (!Array.isArray(files) || files.length === 0) {
+          return {
+            success: false,
+            error: "No files provided for export.",
+            exportedCount: 0,
+            failedCount: 0,
+          };
         }
-        lastProgressAt = now;
-        try {
-          event.sender.send('export-batch-progress', {
-            exportId: progressId,
-            mode: 'folder',
-            total: totalCount,
-            processed: processedCount,
-            exportedCount,
-            failedCount,
-            stage,
-          });
-        } catch (err) {
-          // ignore sender errors (window closed)
+        if (!destDir) {
+          return {
+            success: false,
+            error: "No destination directory provided.",
+            exportedCount: 0,
+            failedCount: 0,
+          };
         }
-      };
 
-      sendProgress(true);
-
-      for (const file of files) {
-        try {
-          const sourcePath = path.resolve(file.directoryPath, file.relativePath);
-          if (!isPathAllowed(sourcePath)) {
-            failedCount += 1;
-            continue;
+        await fs.mkdir(destDir, { recursive: true });
+        const usedNames = new Set();
+        let exportedCount = 0;
+        let failedCount = 0;
+        let processedCount = 0;
+        let stage = "copying";
+        const totalCount = files.length;
+        const progressId = exportId ? String(exportId) : null;
+        const PROGRESS_THROTTLE_MS = 200;
+        let lastProgressAt = 0;
+        const sendProgress = (force = false) => {
+          const now = Date.now();
+          if (
+            !force &&
+            now - lastProgressAt < PROGRESS_THROTTLE_MS &&
+            processedCount < totalCount
+          ) {
+            return;
           }
-
-          const baseName = path.basename(file.relativePath);
-          const uniqueName = getUniqueName(baseName, usedNames);
-          const destPath = path.resolve(destDir, uniqueName);
-          await fs.copyFile(sourcePath, destPath);
-          exportedCount += 1;
-        } catch (error) {
-          failedCount += 1;
-        } finally {
-          processedCount += 1;
-          sendProgress();
-        }
-      }
-
-      stage = 'done';
-      sendProgress(true);
-
-      const success = exportedCount > 0;
-      return {
-        success,
-        exportedCount,
-        failedCount,
-        error: success ? undefined : 'No files were exported.',
-      };
-    } catch (error) {
-      console.error('Error exporting images in batch:', error);
-      return { success: false, error: error.message, exportedCount: 0, failedCount: 0 };
-    }
-  });
-
-  ipcMain.handle('export-images-zip', async (event, { files, destZipPath, exportId } = {}) => {
-    try {
-      if (!Array.isArray(files) || files.length === 0) {
-        return { success: false, error: 'No files provided for export.', exportedCount: 0, failedCount: 0 };
-      }
-      if (!destZipPath) {
-        return { success: false, error: 'No ZIP destination provided.', exportedCount: 0, failedCount: 0 };
-      }
-
-      await fs.mkdir(path.dirname(destZipPath), { recursive: true });
-      const usedNames = new Set();
-      let exportedCount = 0;
-      let failedCount = 0;
-      let processedCount = 0;
-      let stage = 'copying';
-      const totalCount = files.length;
-      const progressId = exportId ? String(exportId) : null;
-      const PROGRESS_THROTTLE_MS = 200;
-      let lastProgressAt = 0;
-      const sendProgress = (force = false) => {
-        const now = Date.now();
-        if (!force && now - lastProgressAt < PROGRESS_THROTTLE_MS && processedCount < totalCount) {
-          return;
-        }
-        lastProgressAt = now;
-        try {
-          event.sender.send('export-batch-progress', {
-            exportId: progressId,
-            mode: 'zip',
-            total: totalCount,
-            processed: processedCount,
-            exportedCount,
-            failedCount,
-            stage,
-          });
-        } catch (err) {
-          // ignore sender errors (window closed)
-        }
-      };
-
-      const output = fsSync.createWriteStream(destZipPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-
-      const finalizePromise = new Promise((resolve, reject) => {
-        output.on('close', resolve);
-        output.on('error', reject);
-        archive.on('error', reject);
-      });
-
-      archive.pipe(output);
-
-      sendProgress(true);
-
-      for (const file of files) {
-        try {
-          const sourcePath = path.resolve(file.directoryPath, file.relativePath);
-          if (!isPathAllowed(sourcePath)) {
-            failedCount += 1;
-            continue;
+          lastProgressAt = now;
+          try {
+            event.sender.send("export-batch-progress", {
+              exportId: progressId,
+              mode: "folder",
+              total: totalCount,
+              processed: processedCount,
+              exportedCount,
+              failedCount,
+              stage,
+            });
+          } catch (err) {
+            // ignore sender errors (window closed)
           }
+        };
 
-          await fs.access(sourcePath);
-          const baseName = path.basename(file.relativePath);
-          const uniqueName = getUniqueName(baseName, usedNames);
-          archive.file(sourcePath, { name: uniqueName });
-          exportedCount += 1;
-        } catch (error) {
-          failedCount += 1;
-        } finally {
-          processedCount += 1;
-          sendProgress();
+        sendProgress(true);
+
+        for (const file of files) {
+          try {
+            const sourcePath = path.resolve(
+              file.directoryPath,
+              file.relativePath,
+            );
+            if (!isPathAllowed(sourcePath)) {
+              failedCount += 1;
+              continue;
+            }
+
+            const baseName = path.basename(file.relativePath);
+            const uniqueName = getUniqueName(baseName, usedNames);
+            const destPath = path.resolve(destDir, uniqueName);
+            await fs.copyFile(sourcePath, destPath);
+            exportedCount += 1;
+          } catch (error) {
+            failedCount += 1;
+          } finally {
+            processedCount += 1;
+            sendProgress();
+          }
         }
+
+        stage = "done";
+        sendProgress(true);
+
+        const success = exportedCount > 0;
+        return {
+          success,
+          exportedCount,
+          failedCount,
+          error: success ? undefined : "No files were exported.",
+        };
+      } catch (error) {
+        console.error("Error exporting images in batch:", error);
+        return {
+          success: false,
+          error: error.message,
+          exportedCount: 0,
+          failedCount: 0,
+        };
       }
+    },
+  );
 
-      stage = 'finalizing';
-      sendProgress(true);
+  ipcMain.handle(
+    "export-images-zip",
+    async (event, { files, destZipPath, exportId } = {}) => {
+      try {
+        if (!Array.isArray(files) || files.length === 0) {
+          return {
+            success: false,
+            error: "No files provided for export.",
+            exportedCount: 0,
+            failedCount: 0,
+          };
+        }
+        if (!destZipPath) {
+          return {
+            success: false,
+            error: "No ZIP destination provided.",
+            exportedCount: 0,
+            failedCount: 0,
+          };
+        }
 
-      await archive.finalize();
-      await finalizePromise;
+        await fs.mkdir(path.dirname(destZipPath), { recursive: true });
+        const usedNames = new Set();
+        let exportedCount = 0;
+        let failedCount = 0;
+        let processedCount = 0;
+        let stage = "copying";
+        const totalCount = files.length;
+        const progressId = exportId ? String(exportId) : null;
+        const PROGRESS_THROTTLE_MS = 200;
+        let lastProgressAt = 0;
+        const sendProgress = (force = false) => {
+          const now = Date.now();
+          if (
+            !force &&
+            now - lastProgressAt < PROGRESS_THROTTLE_MS &&
+            processedCount < totalCount
+          ) {
+            return;
+          }
+          lastProgressAt = now;
+          try {
+            event.sender.send("export-batch-progress", {
+              exportId: progressId,
+              mode: "zip",
+              total: totalCount,
+              processed: processedCount,
+              exportedCount,
+              failedCount,
+              stage,
+            });
+          } catch (err) {
+            // ignore sender errors (window closed)
+          }
+        };
 
-      stage = 'done';
-      sendProgress(true);
+        const output = fsSync.createWriteStream(destZipPath);
+        const archive = archiver("zip", { zlib: { level: 9 } });
 
-      const success = exportedCount > 0;
-      return {
-        success,
-        exportedCount,
-        failedCount,
-        error: success ? undefined : 'No files were exported.',
-      };
-    } catch (error) {
-      console.error('Error exporting images to ZIP:', error);
-      return { success: false, error: error.message, exportedCount: 0, failedCount: 0 };
-    }
-  });
+        const finalizePromise = new Promise((resolve, reject) => {
+          output.on("close", resolve);
+          output.on("error", reject);
+          archive.on("error", reject);
+        });
 
-  ipcMain.handle('delete-file', async (event, filePath) => {
+        archive.pipe(output);
+
+        sendProgress(true);
+
+        for (const file of files) {
+          try {
+            const sourcePath = path.resolve(
+              file.directoryPath,
+              file.relativePath,
+            );
+            if (!isPathAllowed(sourcePath)) {
+              failedCount += 1;
+              continue;
+            }
+
+            await fs.access(sourcePath);
+            const baseName = path.basename(file.relativePath);
+            const uniqueName = getUniqueName(baseName, usedNames);
+            archive.file(sourcePath, { name: uniqueName });
+            exportedCount += 1;
+          } catch (error) {
+            failedCount += 1;
+          } finally {
+            processedCount += 1;
+            sendProgress();
+          }
+        }
+
+        stage = "finalizing";
+        sendProgress(true);
+
+        await archive.finalize();
+        await finalizePromise;
+
+        stage = "done";
+        sendProgress(true);
+
+        const success = exportedCount > 0;
+        return {
+          success,
+          exportedCount,
+          failedCount,
+          error: success ? undefined : "No files were exported.",
+        };
+      } catch (error) {
+        console.error("Error exporting images to ZIP:", error);
+        return {
+          success: false,
+          error: error.message,
+          exportedCount: 0,
+          failedCount: 0,
+        };
+      }
+    },
+  );
+
+  ipcMain.handle("delete-file", async (event, filePath) => {
     try {
       if (!isInternalPath(filePath)) {
-        console.error('SECURITY VIOLATION: Attempted to delete file outside userData.');
-        return { success: false, error: 'Access denied: Cannot delete files outside userData.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to delete file outside userData.",
+        );
+        return {
+          success: false,
+          error: "Access denied: Cannot delete files outside userData.",
+        };
       }
       await fs.unlink(filePath);
       return { success: true };
     } catch (error) {
-      if (error.code === 'ENOENT') {
+      if (error.code === "ENOENT") {
         return { success: true };
       }
-      console.error('Error deleting file:', error);
+      console.error("Error deleting file:", error);
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('ensure-directory', async (event, dirPath) => {
+  ipcMain.handle("ensure-directory", async (event, dirPath) => {
     try {
       if (!isInternalPath(dirPath)) {
-        console.error('SECURITY VIOLATION: Attempted to create directory outside userData.');
-        return { success: false, error: 'Access denied: Cannot create directories outside userData.' };
+        console.error(
+          "SECURITY VIOLATION: Attempted to create directory outside userData.",
+        );
+        return {
+          success: false,
+          error: "Access denied: Cannot create directories outside userData.",
+        };
       }
       await fs.mkdir(dirPath, { recursive: true });
       return { success: true };
     } catch (error) {
-      console.error('Error ensuring directory:', error);
+      console.error("Error ensuring directory:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("launch-app", async (event, path, args = []) => {
+    try {
+      console.log(`[IPC] Launching app: ${path} with args:`, args);
+      const process = spawn(path, args, {
+        detached: true,
+        stdio: "ignore",
+      });
+      process.unref();
+      return { success: true };
+    } catch (error) {
+      console.error(`[IPC] Failed to launch app: ${path}`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("open-external", async (event, url) => {
+    try {
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error(`[IPC] Failed to open external URL: ${url}`, error);
       return { success: false, error: error.message };
     }
   });
 }
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-app.on('before-quit', () => {
+app.on("before-quit", () => {
   // Stop all file watchers before quitting
   fileWatcher.stopAllWatchers();
 });
 
-app.on('activate', () => {
+app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
 });
 
 // Error handling
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
 });

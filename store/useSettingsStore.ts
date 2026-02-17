@@ -54,7 +54,7 @@ interface SettingsState {
   scanSubfolders: boolean;
   imageSize: number;
   cachePath: string | null;
-  autoUpdate: boolean;
+
   viewMode: 'grid' | 'list';
   theme: 'light' | 'dark' | 'system' | 'dracula' | 'nord' | 'ocean';
   keymap: Keymap;
@@ -76,6 +76,7 @@ interface SettingsState {
 
   // ComfyUI Integration settings
   comfyUIServerUrl: string;
+  comfyUIDesktopPath: string;
   comfyUILastConnectionStatus: 'unknown' | 'connected' | 'error';
 
   // Actions
@@ -84,7 +85,7 @@ interface SettingsState {
   toggleScanSubfolders: () => void;
   setImageSize: (size: number) => void;
   setCachePath: (path: string) => void;
-  toggleAutoUpdate: () => void;
+
   toggleViewMode: () => void;
   setTheme: (theme: 'light' | 'dark' | 'system' | 'dracula' | 'nord' | 'ocean') => void;
   updateKeybinding: (scope: string, action: string, keybinding: string) => void;
@@ -103,6 +104,7 @@ interface SettingsState {
   toggleA1111AutoStart: () => void;
   setA1111ConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   setComfyUIServerUrl: (url: string) => void;
+  setComfyUIDesktopPath: (path: string) => void;
   setComfyUIConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   resetState: () => void;
 }
@@ -121,7 +123,7 @@ export const useSettingsStore = create<SettingsState>()(
       scanSubfolders: true,
       imageSize: 120,
       cachePath: null, // Default cache path, null means use app data dir
-      autoUpdate: true, // Check for updates by default
+
       viewMode: 'grid',
       theme: 'system', // Default to system theme
       keymap: getDefaultKeymap(),
@@ -143,6 +145,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       // ComfyUI Integration initial state
       comfyUIServerUrl: 'http://127.0.0.1:8188',
+      comfyUIDesktopPath: '', // Default to empty
       comfyUILastConnectionStatus: 'unknown',
 
       // Actions
@@ -155,7 +158,7 @@ export const useSettingsStore = create<SettingsState>()(
       toggleScanSubfolders: () => set((state) => ({ scanSubfolders: !state.scanSubfolders })),
       setImageSize: (size) => set({ imageSize: size }),
       setCachePath: (path) => set({ cachePath: path }),
-      toggleAutoUpdate: () => set((state) => ({ autoUpdate: !state.autoUpdate })),
+
       toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === 'grid' ? 'list' : 'grid' })),
       setTheme: (theme) => set({ theme }),
       setLastViewedVersion: (version) => set({ lastViewedVersion: version }),
@@ -197,6 +200,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       // ComfyUI Integration actions
       setComfyUIServerUrl: (url) => set({ comfyUIServerUrl: url }),
+      setComfyUIDesktopPath: (path) => set({ comfyUIDesktopPath: path }),
       setComfyUIConnectionStatus: (status) => set({ comfyUILastConnectionStatus: status }),
 
       resetState: () => set({
@@ -205,7 +209,7 @@ export const useSettingsStore = create<SettingsState>()(
         scanSubfolders: true,
         imageSize: 120,
         cachePath: null,
-        autoUpdate: true,
+
         viewMode: 'grid',
         theme: 'system',
         keymap: getDefaultKeymap(),
@@ -223,6 +227,7 @@ export const useSettingsStore = create<SettingsState>()(
         a1111AutoStart: false,
         a1111LastConnectionStatus: 'unknown',
         comfyUIServerUrl: 'http://127.0.0.1:8188',
+        comfyUIDesktopPath: '',
         comfyUILastConnectionStatus: 'unknown',
       }),
     }),

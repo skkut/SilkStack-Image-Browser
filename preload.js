@@ -174,6 +174,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('watcher-debug', subscription);
   },
 
+  // External Apps
+  launchApp: (path, args) => ipcRenderer.invoke('launch-app', path, args),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+
   // TEST ONLY: Simulate update dialog
   testUpdateDialog: () => ipcRenderer.invoke('test-update-dialog')
 });

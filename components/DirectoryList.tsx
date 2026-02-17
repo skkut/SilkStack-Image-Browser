@@ -162,7 +162,7 @@ export default function DirectoryList({
       if (isElectron && (window as any).electronAPI.showItemInFolder) {
         await (window as any).electronAPI.showItemInFolder(path);
       } else {
-        alert('This feature requires the desktop app. Please use the Image MetaHub application.');
+        alert('This feature requires the desktop app. Please use the AI Images Browser application.');
       }
     } catch (error) {
       console.error('Error opening folder:', error);

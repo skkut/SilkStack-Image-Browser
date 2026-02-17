@@ -540,7 +540,7 @@ export default function App() {
 
       // Check if this is a new version since last view (or first run)
       if (currentLastViewed !== version) {
-        setIsChangelogModalOpen(true);
+        // setIsChangelogModalOpen(true); // Disabled per user request
         setLastViewedVersion(version);
       }
     };

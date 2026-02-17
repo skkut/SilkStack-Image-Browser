@@ -150,11 +150,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center gap-3 p-4 pb-2">
             <div className="relative flex-shrink-0">
                 <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full opacity-50" />
-                <img src="logo1.png" alt="Image MetaHub" className="h-10 w-10 rounded-xl shadow-2xl relative z-10" />
+                <img src="logo1.png" alt="AI Images Browser" className="h-10 w-10 rounded-xl shadow-2xl relative z-10" />
             </div>
             <div className="flex flex-col overflow-hidden">
-                <h1 className="text-lg font-bold tracking-tight text-white/90 truncate">Image MetaHub</h1>
-                <span className="text-[10px] font-mono font-normal text-gray-500">v0.13.0</span>
+                <h1 className="text-lg font-bold tracking-tight text-white/90 truncate">AI Images Browser</h1>
+                <span className="text-[10px] font-mono font-normal text-gray-500">v0.1.0</span>
             </div>
         </div>
 

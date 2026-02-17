@@ -1,6 +1,6 @@
 {
-  "appId": "com.luqp2.image-metahub",
-  "productName": "Image MetaHub",
+  "appId": "com.skkut.ai-images-browser",
+  "productName": "AI Images Browser",
   "directories": {
     "output": "dist-electron"
   },
@@ -18,7 +18,9 @@
       "nsis",
       "zip"
     ],
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "cscLink": null,
+    "cscKeyPassword": null
   },
   "mac": {
     "icon": "public/logo1.png",
@@ -44,7 +46,7 @@
       }
     ],
     "category": "Utility",
-    "synopsis": "Local image browser for InvokeAI outputs",
+    "synopsis": "Local image browser for AI generated images",
     "generateUpdatesFilesForAllChannels": true
   },
   "nsis": {
@@ -52,12 +54,12 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "artifactName": "ImageMetaHub-Setup-${version}.${ext}"
+    "artifactName": "AIImagesBrowser-Setup-${version}.${ext}"
   },
   "publish": {
     "provider": "github",
-    "owner": "LuqP2",
-    "repo": "image-metahub",
+    "owner": "skkut",
+    "repo": "ai-images-browser",
     "releaseType": "release"
   },
   "generateUpdatesFilesForAllChannels": true

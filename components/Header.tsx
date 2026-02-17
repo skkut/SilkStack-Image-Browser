@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Bug, BarChart3, Crown, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Settings, BarChart3, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
@@ -112,16 +112,9 @@ const Header: React.FC<HeaderProps> = ({
     <header className="bg-gray-900/80 backdrop-blur-md sticky top-0 z-50 px-4 py-2 border-b border-gray-800/60 shadow-lg transition-all duration-300">
       <div className="container mx-auto flex items-center justify-between gap-4">
         
-        {/* Left Side - Status Indicator */}
+        {/* Left Side - Status Indicator - REMOVED */}
         <div className="flex items-center gap-4">
-            <button
-              onClick={onOpenLicense}
-              className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border transition-all duration-300 hover:scale-105 ${statusConfig.classes}`}
-              title={isFree ? 'Start trial or activate license' : 'Manage license and status'}
-            >
-              <Crown className="w-3 h-3" />
-              {statusConfig.label.replace('Status: ', '')}
-            </button>
+            {/* License button removed */}
         </div>
 
         {/* Center Side - View Controls (Only visible if libraryView is provided) */}
@@ -245,18 +238,7 @@ const Header: React.FC<HeaderProps> = ({
              </div>
           )}
 
-          <a
-            href="https://github.com/LuqP2/Image-MetaHub/issues/new"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-2 py-1.5 rounded-lg transition-all duration-200 text-xs font-medium text-gray-400 hover:bg-white/5 hover:text-white flex items-center gap-2 group"
-            title="Report a bug or provide feedback"
-          >
-            <Bug size={14} className="group-hover:text-red-400 transition-colors" />
-            <span className="hidden sm:inline">Feedback</span>
-          </a>
-          
-          <div className="w-px h-5 bg-gray-700/50 mx-1"></div>
+
 
           {/* Generate Dropdown - Solid Blue Theme */}
           <div className="relative">
@@ -264,13 +246,10 @@ const Header: React.FC<HeaderProps> = ({
               onClick={() => setIsGenerateDropdownOpen(!isGenerateDropdownOpen)}
               onBlur={() => setTimeout(() => setIsGenerateDropdownOpen(false), 200)}
               className="px-3 py-1.5 rounded-lg transition-all duration-300 text-xs font-bold text-white hover:bg-blue-500 bg-blue-600 shadow-md shadow-blue-900/20 border border-blue-500/50 group flex items-center gap-2"
-              title={(canUseA1111 || canUseComfyUI) ? "Generate new image" : "Generate new image (Pro Feature)"}
+              title="Generate new image"
             >
               <Sparkles size={14} className="text-white/90 group-hover:text-white transition-colors" />
               Generate
-              {!canUseA1111 && !canUseComfyUI && initialized && (
-                <Crown className="w-3 h-3 text-amber-300 absolute -top-1.5 -right-1.5 drop-shadow-md" />
-              )}
               <ChevronDown size={14} className={`transition-transform duration-300 ${isGenerateDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -279,65 +258,36 @@ const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     setIsGenerateDropdownOpen(false);
-                    if (canUseA1111) {
-                      onOpenA1111Generate?.();
-                    } else {
-                      showProModal('a1111');
-                    }
+                    onOpenA1111Generate?.();
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-between group"
-                  title={!canUseA1111 && initialized ? 'Pro feature - start trial' : undefined}
                 >
                   <span className="font-medium">with A1111 WebUI</span>
-                  {!canUseA1111 && initialized && <Crown className="w-3 h-3 text-amber-400 opacity-70 group-hover:opacity-100" />}
                 </button>
                 <button
                   onClick={() => {
                     setIsGenerateDropdownOpen(false);
-                    if (canUseComfyUI) {
-                      onOpenComfyUIGenerate?.();
-                    } else {
-                      showProModal('comfyui');
-                    }
+                    onOpenComfyUIGenerate?.();
                   }}
                   className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-between group"
-                  title={!canUseComfyUI && initialized ? 'Pro feature - start trial' : undefined}
                 >
                   <span className="font-medium">with ComfyUI</span>
-                  {!canUseComfyUI && initialized && <Crown className="w-3 h-3 text-amber-400 opacity-70 group-hover:opacity-100" />}
                 </button>
               </div>
             )}
           </div>
           
-          {/* Discreet Get Pro link - Unified Amber Theme */}
-          {!isPro && (
-            <a
-              href="https://lucasphere4660.gumroad.com/l/qmjima"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden lg:inline-flex text-[10px] font-bold uppercase tracking-wider text-amber-400 hover:text-amber-300 transition-colors px-3 py-1.5 rounded-full bg-amber-900/20 border border-amber-600/30 hover:bg-amber-900/40 hover:border-amber-500/50"
-            >
-              Get Pro
-            </a>
-          )}
+          {/* Get Pro link REMOVED */}
           
           <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50">
             <button
               onClick={() => {
-                if (canUseAnalytics) {
                   onOpenAnalytics();
-                } else {
-                  showProModal('analytics');
-                }
               }}
               className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-white transition-all hover:shadow-lg relative group"
-              title={canUseAnalytics ? 'Analytics (Pro)' : 'Analytics (Pro Feature) - start trial'}
+              title="Analytics"
             >
               <BarChart3 size={16} />
-              <div className="absolute -top-0.5 -right-0.5 transition-transform group-hover:scale-110">
-                <Crown className={`w-2.5 h-2.5 ${analyticsBadgeClass}`} />
-              </div>
             </button>
             <button
               onClick={onOpenSettings}
