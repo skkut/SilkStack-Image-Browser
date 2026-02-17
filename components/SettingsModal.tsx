@@ -58,9 +58,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   // ComfyUI Integration settings
   const comfyUIServerUrl = useSettingsStore((state) => state.comfyUIServerUrl);
   const comfyUILastConnectionStatus = useSettingsStore((state) => state.comfyUILastConnectionStatus);
-  const comfyUIDesktopPath = useSettingsStore((state) => state.comfyUIDesktopPath);
   const setComfyUIServerUrl = useSettingsStore((state) => state.setComfyUIServerUrl);
-  const setComfyUIDesktopPath = useSettingsStore((state) => state.setComfyUIDesktopPath);
+
   const setComfyUIConnectionStatus = useSettingsStore((state) => state.setComfyUIConnectionStatus);
 
   const [currentCachePath, setCurrentCachePath] = useState('');
@@ -480,34 +479,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                   />
                 </div>
                 
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    ComfyUI Desktop Path (Optional)
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={comfyUIDesktopPath || ''}
-                      onChange={(e) => setComfyUIDesktopPath(e.target.value)}
-                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
-                      placeholder="C:\Path\To\ComfyUI\ComfyUI.exe"
-                    />
-                      <button
-                        onClick={async () => {
-                          const result = await window.electronAPI.selectPath(false);
-                          if (result.success && result.path) {
-                            setComfyUIDesktopPath(result.path);
-                          }
-                        }}
-                        className="bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg text-gray-200 transition-colors"
-                      >
-                        <FolderOpen size={18} />
-                      </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    If set, "Send to ComfyUI" will try to launch this executable.
-                  </p>
-                </div>
+
               </div>
 
               <div className="flex items-center space-x-2 mb-3">

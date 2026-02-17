@@ -76,7 +76,6 @@ interface SettingsState {
 
   // ComfyUI Integration settings
   comfyUIServerUrl: string;
-  comfyUIDesktopPath: string;
   comfyUILastConnectionStatus: 'unknown' | 'connected' | 'error';
 
   // Actions
@@ -104,7 +103,6 @@ interface SettingsState {
   toggleA1111AutoStart: () => void;
   setA1111ConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   setComfyUIServerUrl: (url: string) => void;
-  setComfyUIDesktopPath: (path: string) => void;
   setComfyUIConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   resetState: () => void;
 }
@@ -145,7 +143,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       // ComfyUI Integration initial state
       comfyUIServerUrl: 'http://127.0.0.1:8188',
-      comfyUIDesktopPath: '', // Default to empty
       comfyUILastConnectionStatus: 'unknown',
 
       // Actions
@@ -200,7 +197,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       // ComfyUI Integration actions
       setComfyUIServerUrl: (url) => set({ comfyUIServerUrl: url }),
-      setComfyUIDesktopPath: (path) => set({ comfyUIDesktopPath: path }),
       setComfyUIConnectionStatus: (status) => set({ comfyUILastConnectionStatus: status }),
 
       resetState: () => set({
@@ -227,7 +223,6 @@ export const useSettingsStore = create<SettingsState>()(
         a1111AutoStart: false,
         a1111LastConnectionStatus: 'unknown',
         comfyUIServerUrl: 'http://127.0.0.1:8188',
-        comfyUIDesktopPath: '',
         comfyUILastConnectionStatus: 'unknown',
       }),
     }),

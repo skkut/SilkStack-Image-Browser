@@ -175,7 +175,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // External Apps
-  launchApp: (path, args) => ipcRenderer.invoke('launch-app', path, args),
+
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   // TEST ONLY: Simulate update dialog

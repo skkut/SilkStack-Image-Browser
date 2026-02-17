@@ -81,7 +81,7 @@ export interface ElectronAPI {
   onWatcherDebug: (callback: (data: { message: string }) => void) => () => void;
   
   // External Apps
-  launchApp: (path: string, args?: string[]) => Promise<{ success: boolean; error?: string }>;
+
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 

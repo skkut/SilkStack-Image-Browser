@@ -2187,21 +2187,6 @@ function setupFileOperationHandlers() {
     }
   });
 
-  ipcMain.handle("launch-app", async (event, path, args = []) => {
-    try {
-      console.log(`[IPC] Launching app: ${path} with args:`, args);
-      const process = spawn(path, args, {
-        detached: true,
-        stdio: "ignore",
-      });
-      process.unref();
-      return { success: true };
-    } catch (error) {
-      console.error(`[IPC] Failed to launch app: ${path}`, error);
-      return { success: false, error: error.message };
-    }
-  });
-
   ipcMain.handle("open-external", async (event, url) => {
     try {
       await shell.openExternal(url);
