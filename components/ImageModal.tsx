@@ -1,25 +1,53 @@
-import React, { useEffect, useState, FC, useCallback } from 'react';
-import { type IndexedImage, type BaseMetadata, type LoRAInfo } from '../types';
-import { FileOperations } from '../services/fileOperations';
-import { copyImageToClipboard, showInExplorer } from '../utils/imageUtils';
-import { Copy, Pencil, Trash2, ChevronDown, ChevronRight, Folder, Download, Clipboard, Sparkles, GitCompare, Star, X, Zap, CheckCircle, ArrowUp, Play, Pause, Volume2, VolumeX, Repeat, Eye, EyeOff } from 'lucide-react';
-import { useCopyToA1111 } from '../hooks/useCopyToA1111';
-import { useGenerateWithA1111 } from '../hooks/useGenerateWithA1111';
-import { useCopyToComfyUI } from '../hooks/useCopyToComfyUI';
-import { useGenerateWithComfyUI } from '../hooks/useGenerateWithComfyUI';
-import { useImageComparison } from '../hooks/useImageComparison';
-import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import { A1111GenerateModal, type GenerationParams as A1111GenerationParams } from './A1111GenerateModal';
-import { ComfyUIGenerateModal, type GenerationParams as ComfyUIGenerationParams } from './ComfyUIGenerateModal';
-import ProBadge from './ProBadge';
-import hotkeyManager from '../services/hotkeyManager';
-import { useImageStore } from '../store/useImageStore';
-import { useSettingsStore } from '../store/useSettingsStore';
+import React, { useEffect, useState, FC, useCallback } from "react";
+import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
+import { FileOperations } from "../services/fileOperations";
+import { copyImageToClipboard, showInExplorer } from "../utils/imageUtils";
+import {
+  Copy,
+  Pencil,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  Download,
+  Clipboard,
+  Sparkles,
+  GitCompare,
+  Star,
+  X,
+  Zap,
+  CheckCircle,
+  ArrowUp,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Repeat,
+  Eye,
+  EyeOff,
+} from "lucide-react";
+import { useCopyToA1111 } from "../hooks/useCopyToA1111";
+import { useGenerateWithA1111 } from "../hooks/useGenerateWithA1111";
+import { useCopyToComfyUI } from "../hooks/useCopyToComfyUI";
+import { useGenerateWithComfyUI } from "../hooks/useGenerateWithComfyUI";
+import { useImageComparison } from "../hooks/useImageComparison";
+import { useFeatureAccess } from "../hooks/useFeatureAccess";
+import {
+  A1111GenerateModal,
+  type GenerationParams as A1111GenerationParams,
+} from "./A1111GenerateModal";
+import {
+  ComfyUIGenerateModal,
+  type GenerationParams as ComfyUIGenerationParams,
+} from "./ComfyUIGenerateModal";
+import ProBadge from "./ProBadge";
+import hotkeyManager from "../services/hotkeyManager";
+import { useImageStore } from "../store/useImageStore";
+import { useSettingsStore } from "../store/useSettingsStore";
 
-import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
-import { useShadowMetadata } from '../hooks/useShadowMetadata';
-import { MetadataEditorModal } from './MetadataEditorModal';
-
+import { hasVerifiedTelemetry } from "../utils/telemetryDetection";
+import { useShadowMetadata } from "../hooks/useShadowMetadata";
+import { MetadataEditorModal } from "./MetadataEditorModal";
 
 const TAG_SUGGESTION_LIMIT = 5;
 
@@ -66,11 +94,11 @@ interface ImageModalProps {
 
 // Helper function to format LoRA with weight
 const formatLoRA = (lora: string | LoRAInfo): string => {
-  if (typeof lora === 'string') {
+  if (typeof lora === "string") {
     return lora;
   }
 
-  const name = lora.name || lora.model_name || 'Unknown LoRA';
+  const name = lora.name || lora.model_name || "Unknown LoRA";
   const weight = lora.weight ?? lora.model_weight;
 
   if (weight !== undefined && weight !== null) {
@@ -91,7 +119,7 @@ const formatGenerationTime = (ms: number): string => {
 };
 
 const formatDurationSeconds = (seconds: number): string => {
-  if (!Number.isFinite(seconds)) return '';
+  if (!Number.isFinite(seconds)) return "";
   if (seconds < 60) return `${seconds.toFixed(2)}s`;
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
@@ -104,8 +132,14 @@ const formatVRAM = (vramMb: number, gpuDevice?: string | null): string => {
 
   // Known GPU VRAM mappings
   const gpuVramMap: Record<string, number> = {
-    '4090': 24, '3090': 24, '3080': 10, '3070': 8, '3060': 12,
-    'A100': 40, 'A6000': 48, 'V100': 16,
+    "4090": 24,
+    "3090": 24,
+    "3080": 10,
+    "3070": 8,
+    "3060": 12,
+    A100: 40,
+    A6000: 48,
+    V100: 16,
   };
 
   let totalVramGb: number | null = null;
@@ -126,10 +160,13 @@ const formatVRAM = (vramMb: number, gpuDevice?: string | null): string => {
   return `${vramGb.toFixed(1)} GB`;
 };
 
-const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
+const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mkv", ".mov", ".avi"];
 
-const isVideoFileName = (fileName: string, fileType?: string | null): boolean => {
-  if (fileType && fileType.startsWith('video/')) {
+const isVideoFileName = (
+  fileName: string,
+  fileType?: string | null,
+): boolean => {
+  if (fileType && fileType.startsWith("video/")) {
     return true;
   }
   const lower = fileName.toLowerCase();
@@ -138,21 +175,25 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
 
 const resolveImageMimeType = (fileName: string): string => {
   const lowerName = fileName.toLowerCase();
-  if (lowerName.endsWith('.mp4')) return 'video/mp4';
-  if (lowerName.endsWith('.webm')) return 'video/webm';
-  if (lowerName.endsWith('.mkv')) return 'video/x-matroska';
-  if (lowerName.endsWith('.mov')) return 'video/quicktime';
-  if (lowerName.endsWith('.avi')) return 'video/x-msvideo';
-  if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) return 'image/jpeg';
-  if (lowerName.endsWith('.webp')) return 'image/webp';
-  if (lowerName.endsWith('.gif')) return 'image/gif';
-  return 'image/png';
+  if (lowerName.endsWith(".mp4")) return "video/mp4";
+  if (lowerName.endsWith(".webm")) return "video/webm";
+  if (lowerName.endsWith(".mkv")) return "video/x-matroska";
+  if (lowerName.endsWith(".mov")) return "video/quicktime";
+  if (lowerName.endsWith(".avi")) return "video/x-msvideo";
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg"))
+    return "image/jpeg";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".gif")) return "image/gif";
+  return "image/png";
 };
 
-const createImageUrlFromFileData = (data: unknown, fileName: string): { url: string; revoke: boolean } => {
+const createImageUrlFromFileData = (
+  data: unknown,
+  fileName: string,
+): { url: string; revoke: boolean } => {
   const mimeType = resolveImageMimeType(fileName);
 
-  if (typeof data === 'string') {
+  if (typeof data === "string") {
     return { url: `data:${mimeType};base64,${data}`, revoke: false };
   }
 
@@ -168,37 +209,62 @@ const createImageUrlFromFileData = (data: unknown, fileName: string): { url: str
     return { url: URL.createObjectURL(blob), revoke: true };
   }
 
-  if (data && typeof data === 'object' && 'data' in data && Array.isArray((data as { data: unknown }).data)) {
+  if (
+    data &&
+    typeof data === "object" &&
+    "data" in data &&
+    Array.isArray((data as { data: unknown }).data)
+  ) {
     const view = new Uint8Array((data as { data: number[] }).data);
     const blob = new Blob([view], { type: mimeType });
     return { url: URL.createObjectURL(blob), revoke: true };
   }
 
-  throw new Error('Unknown file data format.');
+  throw new Error("Unknown file data format.");
 };
 
 // Helper component for consistently rendering metadata items
-const MetadataItem: FC<{ label: string; value?: string | number | any[]; isPrompt?: boolean; onCopy?: (value: string) => void }> = ({ label, value, isPrompt = false, onCopy }) => {
-  if (value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0)) {
+const MetadataItem: FC<{
+  label: string;
+  value?: string | number | any[];
+  isPrompt?: boolean;
+  onCopy?: (value: string) => void;
+}> = ({ label, value, isPrompt = false, onCopy }) => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  ) {
     return null;
   }
 
-  const displayValue = Array.isArray(value) ? value.join(', ') : String(value);
+  const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
 
   return (
     <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50 relative group">
       <div className="flex justify-between items-start">
-        <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider">{label}</p>
+        <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider">
+          {label}
+        </p>
         {onCopy && (
-            <button onClick={() => onCopy(displayValue)} className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white" title={`Copy ${label}`}>
-                <Copy className="w-4 h-4" />
-            </button>
+          <button
+            onClick={() => onCopy(displayValue)}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white"
+            title={`Copy ${label}`}
+          >
+            <Copy className="w-4 h-4" />
+          </button>
         )}
       </div>
       {isPrompt ? (
-        <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">{displayValue}</pre>
+        <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">
+          {displayValue}
+        </pre>
       ) : (
-        <p className="text-gray-200 break-words font-mono text-sm mt-1">{displayValue}</p>
+        <p className="text-gray-200 break-words font-mono text-sm mt-1">
+          {displayValue}
+        </p>
       )}
     </div>
   );
@@ -206,10 +272,10 @@ const MetadataItem: FC<{ label: string; value?: string | number | any[]; isPromp
 
 // Helper to format time
 const formatTime = (seconds: number) => {
-  if (!Number.isFinite(seconds)) return '0:00';
+  if (!Number.isFinite(seconds)) return "0:00";
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
 
 const VideoPlayer: React.FC<{
@@ -219,23 +285,23 @@ const VideoPlayer: React.FC<{
 }> = ({ src, poster, onContextMenu }) => {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
-  
+
   // State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
-  
+
   // Persistent state
   const [volume, setVolume] = useState(() => {
-    const saved = localStorage.getItem('video_player_volume');
+    const saved = localStorage.getItem("video_player_volume");
     return saved ? parseFloat(saved) : 1;
   });
   const [isMuted, setIsMuted] = useState(() => {
-    return localStorage.getItem('video_player_muted') === 'true';
+    return localStorage.getItem("video_player_muted") === "true";
   });
   const [isLooping, setIsLooping] = useState(() => {
-    return localStorage.getItem('video_player_loop') === 'true';
+    return localStorage.getItem("video_player_loop") === "true";
   });
 
   // Apply properties when video ref changes or state changes
@@ -248,9 +314,9 @@ const VideoPlayer: React.FC<{
   }, [volume, isMuted, isLooping]);
 
   useEffect(() => {
-     localStorage.setItem('video_player_volume', volume.toString());
-     localStorage.setItem('video_player_muted', isMuted.toString());
-     localStorage.setItem('video_player_loop', isLooping.toString());
+    localStorage.setItem("video_player_volume", volume.toString());
+    localStorage.setItem("video_player_muted", isMuted.toString());
+    localStorage.setItem("video_player_loop", isLooping.toString());
   }, [volume, isMuted, isLooping]);
 
   const togglePlay = useCallback((e?: React.MouseEvent) => {
@@ -266,12 +332,12 @@ const VideoPlayer: React.FC<{
 
   const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsMuted(prev => !prev);
+    setIsMuted((prev) => !prev);
   }, []);
 
   const toggleLoop = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsLooping(prev => !prev);
+    setIsLooping((prev) => !prev);
   }, []);
 
   const handleTimeUpdate = () => {
@@ -283,7 +349,7 @@ const VideoPlayer: React.FC<{
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration);
-      // Auto-enable loop for short videos (< 5s) if not manually set? 
+      // Auto-enable loop for short videos (< 5s) if not manually set?
       // For now, respect user preference only to avoid confusion.
     }
   };
@@ -305,7 +371,7 @@ const VideoPlayer: React.FC<{
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className="relative w-full h-full flex items-center justify-center bg-black group/video"
       onMouseEnter={() => setIsHovering(true)}
@@ -330,70 +396,89 @@ const VideoPlayer: React.FC<{
       {/* Center Play Button Overlay (only when paused and not hovering controls) */}
       {!isPlaying && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/50 backdrop-blur-sm rounded-full p-4 text-white hover:bg-black/70 transition-all pointer-events-auto cursor-pointer transform hover:scale-110" onClick={togglePlay}>
+          <div
+            className="bg-black/50 backdrop-blur-sm rounded-full p-4 text-white hover:bg-black/70 transition-all pointer-events-auto cursor-pointer transform hover:scale-110"
+            onClick={togglePlay}
+          >
             <Play size={48} fill="currentColor" />
           </div>
         </div>
       )}
 
       {/* Controls Overlay */}
-      <div 
-        className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-opacity duration-300 ${isHovering || !isPlaying ? 'opacity-100' : 'opacity-0'}`}
+      <div
+        className={`absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/60 to-transparent transition-opacity duration-300 ${isHovering || !isPlaying ? "opacity-100" : "opacity-0"}`}
         onClick={(e) => e.stopPropagation()} // Prevent clicking controls from toggling play
       >
         {/* Progress Bar */}
         <div className="w-full mb-2 flex items-center gap-2 group/progress">
-            <span className="text-xs font-mono text-gray-300">{formatTime(currentTime)}</span>
-            <input
-                type="range"
-                min={0}
-                max={duration || 100}
-                value={currentTime}
-                onChange={handleSeek}
-                className="flex-1 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer hover:h-2 transition-all accent-blue-500"
-            />
-            <span className="text-xs font-mono text-gray-300">{formatTime(duration)}</span>
+          <span className="text-xs font-mono text-gray-300">
+            {formatTime(currentTime)}
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={duration || 100}
+            value={currentTime}
+            onChange={handleSeek}
+            className="flex-1 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer hover:h-2 transition-all accent-blue-500"
+          />
+          <span className="text-xs font-mono text-gray-300">
+            {formatTime(duration)}
+          </span>
         </div>
 
         {/* Buttons Row */}
         <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-                <button onClick={togglePlay} className="text-white hover:text-blue-400 transition-colors">
-                    {isPlaying ? <Pause size={20} fill="currentColor"/> : <Play size={20} fill="currentColor"/>}
-                </button>
-                
-                <div className="flex items-center gap-2 group/volume">
-                    <button onClick={toggleMute} className="text-white hover:text-blue-400 transition-colors">
-                        {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                    </button>
-                    <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={isMuted ? 0 : volume}
-                        onChange={handleVolumeChange}
-                        className="w-0 overflow-hidden group-hover/volume:w-20 transition-all duration-300 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                    />
-                </div>
-            </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={togglePlay}
+              className="text-white hover:text-blue-400 transition-colors"
+            >
+              {isPlaying ? (
+                <Pause size={20} fill="currentColor" />
+              ) : (
+                <Play size={20} fill="currentColor" />
+              )}
+            </button>
 
-            <div className="flex items-center gap-4">
-                <button 
-                  onClick={toggleLoop} 
-                  className={`transition-colors ${isLooping ? 'text-blue-400' : 'text-gray-400 hover:text-white'}`}
-                  title={isLooping ? "Loop On" : "Loop Off"}
-                >
-                    <Repeat size={18} />
-                </button>
+            <div className="flex items-center gap-2 group/volume">
+              <button
+                onClick={toggleMute}
+                className="text-white hover:text-blue-400 transition-colors"
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX size={20} />
+                ) : (
+                  <Volume2 size={20} />
+                )}
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className="w-0 overflow-hidden group-hover/volume:w-20 transition-all duration-300 h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
             </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={toggleLoop}
+              className={`transition-colors ${isLooping ? "text-blue-400" : "text-gray-400 hover:text-white"}`}
+              title={isLooping ? "Loop On" : "Loop Off"}
+            >
+              <Repeat size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
-
-
 
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
@@ -405,19 +490,27 @@ const ImageModal: React.FC<ImageModalProps> = ({
   onNavigateNext,
   onNavigatePrevious,
   directoryPath,
-  isIndexing = false
+  isIndexing = false,
 }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [newName, setNewName] = useState(image.name.replace(/\.(png|jpg|jpeg|webp|mp4|webm|mkv|mov|avi)$/i, ''));
+  const [newName, setNewName] = useState(
+    image.name.replace(/\.(png|jpg|jpeg|webp|mp4|webm|mkv|mov|avi)$/i, ""),
+  );
   const [showRawMetadata, setShowRawMetadata] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; visible: boolean }>({ x: 0, y: 0, visible: false });
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    visible: boolean;
+  }>({ x: 0, y: 0, visible: false });
   const [showDetails, setShowDetails] = useState(true);
   const [showPerformance, setShowPerformance] = useState(true);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
-  const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] = useState(false);
-  const canDragExternally = typeof window !== 'undefined' && !!window.electronAPI?.startFileDrag;
+  const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] =
+    useState(false);
+  const canDragExternally =
+    typeof window !== "undefined" && !!window.electronAPI?.startFileDrag;
 
   // Zoom and pan states
   const [zoom, setZoom] = useState(1);
@@ -427,46 +520,74 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // A1111 integration hooks
   const { copyToA1111, isCopying, copyStatus } = useCopyToA1111();
-  const { generateWithA1111, isGenerating, generateStatus } = useGenerateWithA1111();
+  const { generateWithA1111, isGenerating, generateStatus } =
+    useGenerateWithA1111();
 
   // ComfyUI integration hooks
-  const { copyToComfyUI, isCopying: isCopyingComfyUI, copyStatus: copyStatusComfyUI } = useCopyToComfyUI();
-  const { generateWithComfyUI, isGenerating: isGeneratingComfyUI, generateStatus: generateStatusComfyUI } = useGenerateWithComfyUI();
+  const {
+    copyToComfyUI,
+    isCopying: isCopyingComfyUI,
+    copyStatus: copyStatusComfyUI,
+  } = useCopyToComfyUI();
+  const {
+    generateWithComfyUI,
+    isGenerating: isGeneratingComfyUI,
+    generateStatus: generateStatusComfyUI,
+  } = useGenerateWithComfyUI();
 
   // Image comparison hook
   const { addImage, comparisonCount } = useImageComparison();
 
   // Feature access (license/trial gating)
-  const { canUseA1111, canUseComfyUI, canUseComparison, showProModal, initialized } = useFeatureAccess();
+  const {
+    canUseA1111,
+    canUseComfyUI,
+    canUseComparison,
+    showProModal,
+    initialized,
+  } = useFeatureAccess();
 
   // Annotations hooks
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
   const addTagToImage = useImageStore((state) => state.addTagToImage);
   const removeTagFromImage = useImageStore((state) => state.removeTagFromImage);
-  const removeAutoTagFromImage = useImageStore((state) => state.removeAutoTagFromImage);
+  const removeAutoTagFromImage = useImageStore(
+    (state) => state.removeAutoTagFromImage,
+  );
   const availableTags = useImageStore((state) => state.availableTags);
 
   const recentTags = useImageStore((state) => state.recentTags);
 
   // Shadow Metadata Hook
-  const { metadata: shadowMetadata, saveMetadata: saveShadowMetadata, deleteMetadata: deleteShadowMetadata } = useShadowMetadata(image.id);
+  const {
+    metadata: shadowMetadata,
+    saveMetadata: saveShadowMetadata,
+    deleteMetadata: deleteShadowMetadata,
+  } = useShadowMetadata(image.id);
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
 
   // Get live tags and favorite status from store instead of props
-  const imageFromStore = useImageStore((state) =>
-    state.images.find(img => img.id === image.id) ||
-    state.filteredImages.find(img => img.id === image.id)
+  const imageFromStore = useImageStore(
+    (state) =>
+      state.images.find((img) => img.id === image.id) ||
+      state.filteredImages.find((img) => img.id === image.id),
   );
   const isVideo = isVideoFileName(image.name, image.fileType);
   const currentTags = imageFromStore?.tags || image.tags || [];
   const currentAutoTags = imageFromStore?.autoTags || image.autoTags || [];
-  const currentIsFavorite = imageFromStore?.isFavorite ?? image.isFavorite ?? false;
-  const preferredThumbnailUrl = imageFromStore?.thumbnailUrl ?? image.thumbnailUrl;
-  const tagSuggestions = buildTagSuggestions(recentTags, availableTags, currentTags);
+  const currentIsFavorite =
+    imageFromStore?.isFavorite ?? image.isFavorite ?? false;
+  const preferredThumbnailUrl =
+    imageFromStore?.thumbnailUrl ?? image.thumbnailUrl;
+  const tagSuggestions = buildTagSuggestions(
+    recentTags,
+    availableTags,
+    currentTags,
+  );
 
   // State for tag input
-  const [tagInput, setTagInput] = useState('');
+  const [tagInput, setTagInput] = useState("");
   const [showTagAutocomplete, setShowTagAutocomplete] = useState(false);
 
   // Full screen toggle - calls Electron API for actual fullscreen
@@ -482,14 +603,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Listen for fullscreen changes from Electron
   useEffect(() => {
     // Listen for fullscreen-changed events from Electron (when user presses F11 or uses menu)
-    const unsubscribeFullscreenChanged = window.electronAPI?.onFullscreenChanged?.((data) => {
-      setIsFullscreen(data.isFullscreen);
-    });
+    const unsubscribeFullscreenChanged =
+      window.electronAPI?.onFullscreenChanged?.((data) => {
+        setIsFullscreen(data.isFullscreen);
+      });
 
     // Listen for fullscreen-state-check events (periodic check for state changes)
-    const unsubscribeFullscreenStateCheck = window.electronAPI?.onFullscreenStateCheck?.((data) => {
-      setIsFullscreen(data.isFullscreen);
-    });
+    const unsubscribeFullscreenStateCheck =
+      window.electronAPI?.onFullscreenStateCheck?.((data) => {
+        setIsFullscreen(data.isFullscreen);
+      });
 
     return () => {
       unsubscribeFullscreenChanged?.();
@@ -499,9 +622,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // Initialize fullscreen mode from sessionStorage (backward compatibility)
   useEffect(() => {
-    const shouldStartFullscreen = sessionStorage.getItem('openImageFullscreen') === 'true';
+    const shouldStartFullscreen =
+      sessionStorage.getItem("openImageFullscreen") === "true";
     if (shouldStartFullscreen) {
-      sessionStorage.removeItem('openImageFullscreen');
+      sessionStorage.removeItem("openImageFullscreen");
       setTimeout(() => {
         if (window.electronAPI?.toggleFullscreen) {
           window.electronAPI.toggleFullscreen().then((result) => {
@@ -514,50 +638,64 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
   }, []);
 
-   // Merge metadata for display
+  // Merge metadata for display
   const nMeta: BaseMetadata | undefined = image.metadata?.normalizedMetadata;
-  const effectiveMetadata: BaseMetadata | undefined = (nMeta && !showOriginal) ? {
-    ...nMeta,
-    prompt: shadowMetadata?.prompt ?? nMeta.prompt,
-    negativePrompt: shadowMetadata?.negativePrompt ?? nMeta.negativePrompt,
-    seed: shadowMetadata?.seed ?? nMeta.seed,
-    width: shadowMetadata?.width ?? nMeta.width,
-    height: shadowMetadata?.height ?? nMeta.height,
-    model: (shadowMetadata?.resources?.find(r => r.type === 'model')?.name) ?? nMeta.model,
-  } : (shadowMetadata && !showOriginal) ? {
-     prompt: shadowMetadata.prompt || '',
-     negativePrompt: shadowMetadata.negativePrompt,
-     seed: shadowMetadata.seed,
-     width: shadowMetadata.width || 0,
-     height: shadowMetadata.height || 0,
-     model: shadowMetadata.resources?.find(r => r.type === 'model')?.name || 'Unknown',
-     steps: 0,
-     scheduler: 'Unknown',
-     topics: [],
-  } as BaseMetadata : nMeta;
+  const effectiveMetadata: BaseMetadata | undefined =
+    nMeta && !showOriginal
+      ? {
+          ...nMeta,
+          prompt: shadowMetadata?.prompt ?? nMeta.prompt,
+          negativePrompt:
+            shadowMetadata?.negativePrompt ?? nMeta.negativePrompt,
+          seed: shadowMetadata?.seed ?? nMeta.seed,
+          width: shadowMetadata?.width ?? nMeta.width,
+          height: shadowMetadata?.height ?? nMeta.height,
+          model:
+            shadowMetadata?.resources?.find((r) => r.type === "model")?.name ??
+            nMeta.model,
+        }
+      : shadowMetadata && !showOriginal
+        ? ({
+            prompt: shadowMetadata.prompt || "",
+            negativePrompt: shadowMetadata.negativePrompt,
+            seed: shadowMetadata.seed,
+            width: shadowMetadata.width || 0,
+            height: shadowMetadata.height || 0,
+            model:
+              shadowMetadata.resources?.find((r) => r.type === "model")?.name ||
+              "Unknown",
+            steps: 0,
+            scheduler: "Unknown",
+            topics: [],
+          } as BaseMetadata)
+        : nMeta;
 
   // If we have shadow duration, we might need a way to override video info if it exists, or just use it in display
-  const effectiveDuration = shadowMetadata?.duration ?? (nMeta as any)?.video?.duration_seconds;
-
+  const effectiveDuration =
+    shadowMetadata?.duration ?? (nMeta as any)?.video?.duration_seconds;
 
   const videoInfo = (nMeta as any)?.video;
   const motionModel = (nMeta as any)?.motion_model;
 
   const copyToClipboard = (text: string, type: string) => {
-    if(!text) {
-        alert(`No ${type} to copy.`);
-        return;
+    if (!text) {
+      alert(`No ${type} to copy.`);
+      return;
     }
-    navigator.clipboard.writeText(text).then(() => {
-      const notification = document.createElement('div');
-      notification.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
-      notification.textContent = `${type} copied to clipboard!`;
-      document.body.appendChild(notification);
-      setTimeout(() => document.body.removeChild(notification), 2000);
-    }).catch(err => {
-      console.error(`Failed to copy ${type}:`, err);
-      alert(`Failed to copy ${type}.`);
-    });
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        const notification = document.createElement("div");
+        notification.className =
+          "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
+        notification.textContent = `${type} copied to clipboard!`;
+        document.body.appendChild(notification);
+        setTimeout(() => document.body.removeChild(notification), 2000);
+      })
+      .catch((err) => {
+        console.error(`Failed to copy ${type}:`, err);
+        alert(`Failed to copy ${type}.`);
+      });
   };
 
   const copyToClipboardElectron = async (text: string, type: string) => {
@@ -570,8 +708,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
       // Usar navigator.clipboard (funciona tanto no Electron quanto no browser)
       await navigator.clipboard.writeText(text);
 
-      const notification = document.createElement('div');
-      notification.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+      const notification = document.createElement("div");
+      notification.className =
+        "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
       notification.textContent = `${type} copied to clipboard!`;
       document.body.appendChild(notification);
       setTimeout(() => document.body.removeChild(notification), 2000);
@@ -586,7 +725,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
-      visible: true
+      visible: true,
     });
   };
 
@@ -595,17 +734,17 @@ const ImageModal: React.FC<ImageModalProps> = ({
   };
 
   const copyPrompt = () => {
-    copyToClipboardElectron(nMeta?.prompt || '', 'Prompt');
+    copyToClipboardElectron(nMeta?.prompt || "", "Prompt");
     hideContextMenu();
   };
 
   const copyNegativePrompt = () => {
-    copyToClipboardElectron(nMeta?.negativePrompt || '', 'Negative Prompt');
+    copyToClipboardElectron(nMeta?.negativePrompt || "", "Negative Prompt");
     hideContextMenu();
   };
 
   const copySeed = () => {
-    copyToClipboardElectron(String(nMeta?.seed || ''), 'Seed');
+    copyToClipboardElectron(String(nMeta?.seed || ""), "Seed");
     hideContextMenu();
   };
 
@@ -616,9 +755,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
     const result = await copyImageToClipboard(image);
     if (result.success) {
-      const notification = document.createElement('div');
-      notification.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50';
-      notification.textContent = 'Image copied to clipboard!';
+      const notification = document.createElement("div");
+      notification.className =
+        "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50";
+      notification.textContent = "Image copied to clipboard!";
       document.body.appendChild(notification);
       setTimeout(() => document.body.removeChild(notification), 2000);
     } else {
@@ -627,14 +767,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
   };
 
   const copyModel = () => {
-    copyToClipboardElectron(nMeta?.model || '', 'Model');
+    copyToClipboardElectron(nMeta?.model || "", "Model");
     hideContextMenu();
   };
 
   const showInFolder = () => {
     hideContextMenu();
     if (!directoryPath) {
-      alert('Cannot determine file location: directory path is missing.');
+      alert("Cannot determine file location: directory path is missing.");
       return;
     }
     // The showInExplorer utility can handle the full path directly
@@ -643,14 +783,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const exportImage = async () => {
     hideContextMenu();
-    
+
     if (!window.electronAPI) {
-      alert('Export feature is only available in the desktop app version.');
+      alert("Export feature is only available in the desktop app version.");
       return;
     }
-    
+
     if (!directoryPath) {
-      alert('Cannot export image: source directory path is missing.');
+      alert("Cannot export image: source directory path is missing.");
       return;
     }
 
@@ -662,13 +802,23 @@ const ImageModal: React.FC<ImageModalProps> = ({
       }
       const destDir = destResult.path;
       // Get safe paths using joinPaths
-      const sourcePathResult = await window.electronAPI.joinPaths(directoryPath, image.name);
+      const sourcePathResult = await window.electronAPI.joinPaths(
+        directoryPath,
+        image.name,
+      );
       if (!sourcePathResult.success || !sourcePathResult.path) {
-        throw new Error(`Failed to construct source path: ${sourcePathResult.error}`);
+        throw new Error(
+          `Failed to construct source path: ${sourcePathResult.error}`,
+        );
       }
-      const destPathResult = await window.electronAPI.joinPaths(destDir, image.name);
+      const destPathResult = await window.electronAPI.joinPaths(
+        destDir,
+        image.name,
+      );
       if (!destPathResult.success || !destPathResult.path) {
-        throw new Error(`Failed to construct destination path: ${destPathResult.error}`);
+        throw new Error(
+          `Failed to construct destination path: ${destPathResult.error}`,
+        );
       }
 
       const sourcePath = sourcePathResult.path;
@@ -682,7 +832,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
       }
 
       // 3. Write the new file
-      const writeResult = await window.electronAPI.writeFile(destPath, readResult.data);
+      const writeResult = await window.electronAPI.writeFile(
+        destPath,
+        readResult.data,
+      );
       if (!writeResult.success) {
         alert(`Failed to export image: ${writeResult.error}`);
         return;
@@ -690,9 +843,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       // 4. Success!
       alert(`Image exported successfully to: ${destPath}`);
-
     } catch (error) {
-      console.error('Export error:', error);
+      console.error("Export error:", error);
       alert(`An unexpected error occurred during export: ${error.message}`);
     }
   };
@@ -710,63 +862,75 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }, [isFullscreen]);
 
   // Zoom handlers
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      e.preventDefault();
 
-    const delta = e.deltaY * -0.01;
-    const newZoom = Math.min(Math.max(1, zoom + delta), 5); // Min 1x, Max 5x
+      const delta = e.deltaY * -0.01;
+      const newZoom = Math.min(Math.max(1, zoom + delta), 5); // Min 1x, Max 5x
 
-    setZoom(newZoom);
+      setZoom(newZoom);
 
-    // Reset pan if zooming out to 1x
-    if (newZoom === 1) {
-      setPan({ x: 0, y: 0 });
-    }
-  }, [zoom]);
+      // Reset pan if zooming out to 1x
+      if (newZoom === 1) {
+        setPan({ x: 0, y: 0 });
+      }
+    },
+    [zoom],
+  );
 
   // Pan handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (zoom > 1 && e.button === 0) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      e.preventDefault();
-    }
-  }, [zoom, pan]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (zoom > 1 && e.button === 0) {
+        setIsDragging(true);
+        setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+        e.preventDefault();
+      }
+    },
+    [zoom, pan],
+  );
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging && zoom > 1) {
-      setPan({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y,
-      });
-    }
-  }, [isDragging, dragStart, zoom]);
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging && zoom > 1) {
+        setPan({
+          x: e.clientX - dragStart.x,
+          y: e.clientY - dragStart.y,
+        });
+      }
+    },
+    [isDragging, dragStart, zoom],
+  );
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  const handleDragStart = useCallback((e: React.DragEvent<HTMLImageElement>) => {
-    if (!canDragExternally) {
-      return;
-    }
+  const handleDragStart = useCallback(
+    (e: React.DragEvent<HTMLImageElement>) => {
+      if (!canDragExternally) {
+        return;
+      }
 
-    if (!directoryPath) {
-      return;
-    }
+      if (!directoryPath) {
+        return;
+      }
 
-    const [, relativeFromId] = image.id.split('::');
-    const relativePath = relativeFromId || image.name;
+      const [, relativeFromId] = image.id.split("::");
+      const relativePath = relativeFromId || image.name;
 
-    e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'copy';
-    }
-    window.electronAPI?.startFileDrag({ directoryPath, relativePath });
-  }, [canDragExternally, directoryPath, image.id, image.name]);
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "copy";
+      }
+      window.electronAPI?.startFileDrag({ directoryPath, relativePath });
+    },
+    [canDragExternally, directoryPath, image.id, image.name],
+  );
 
   const handleZoomIn = () => {
-    setZoom(prev => Math.min(prev + 0.5, 5));
+    setZoom((prev) => Math.min(prev + 0.5, 5));
   };
 
   const handleZoomOut = () => {
@@ -794,10 +958,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       // Validate directoryPath before attempting to load (prevents recursion)
       if (!directoryPath && window.electronAPI) {
-        console.error('Cannot load image: directoryPath is undefined');
+        console.error("Cannot load image: directoryPath is undefined");
         if (isMounted && !hasPreview) {
           setImageUrl(null);
-          alert('Failed to load image: Directory path is not available.');
+          alert("Failed to load image: Directory path is not available.");
         }
         return;
       }
@@ -818,9 +982,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
         const primaryHandle = image.handle;
         const fallbackHandle = image.thumbnailHandle;
         const fileHandle =
-          primaryHandle && typeof primaryHandle.getFile === 'function'
+          primaryHandle && typeof primaryHandle.getFile === "function"
             ? primaryHandle
-            : fallbackHandle && typeof fallbackHandle.getFile === 'function'
+            : fallbackHandle && typeof fallbackHandle.getFile === "function"
               ? fallbackHandle
               : null;
 
@@ -832,35 +996,57 @@ const ImageModal: React.FC<ImageModalProps> = ({
           }
           return; // Success, no need for fallback
         }
-        throw new Error('Image handle is not a valid FileSystemFileHandle.');
+        throw new Error("Image handle is not a valid FileSystemFileHandle.");
       } catch (handleError) {
-        const message = handleError instanceof Error ? handleError.message : String(handleError);
-        console.warn(`Could not load image with FileSystemFileHandle: ${message}. Attempting Electron fallback.`);
+        const message =
+          handleError instanceof Error
+            ? handleError.message
+            : String(handleError);
+        console.warn(
+          `Could not load image with FileSystemFileHandle: ${message}. Attempting Electron fallback.`,
+        );
         if (isMounted && window.electronAPI && directoryPath) {
           try {
-            const pathResult = await window.electronAPI.joinPaths(directoryPath, image.name);
+            const pathResult = await window.electronAPI.joinPaths(
+              directoryPath,
+              image.name,
+            );
             if (!pathResult.success || !pathResult.path) {
-              throw new Error(pathResult.error || 'Failed to construct image path.');
+              throw new Error(
+                pathResult.error || "Failed to construct image path.",
+              );
             }
-            const fileResult = await window.electronAPI.readFile(pathResult.path);
+            const fileResult = await window.electronAPI.readFile(
+              pathResult.path,
+            );
             if (fileResult.success && fileResult.data && isMounted) {
-              const { url, revoke } = createImageUrlFromFileData(fileResult.data, image.name);
+              const { url, revoke } = createImageUrlFromFileData(
+                fileResult.data,
+                image.name,
+              );
               setResolvedUrl(url, revoke);
             } else {
-              throw new Error(fileResult.error || 'Failed to read file via Electron API.');
+              throw new Error(
+                fileResult.error || "Failed to read file via Electron API.",
+              );
             }
           } catch (electronError) {
-            console.error('Electron fallback failed:', electronError);
+            console.error("Electron fallback failed:", electronError);
             if (isMounted && !hasPreview) {
               setImageUrl(null); // Explicitly set to null on failure
-              const errorMessage = electronError instanceof Error ? electronError.message : String(electronError);
+              const errorMessage =
+                electronError instanceof Error
+                  ? electronError.message
+                  : String(electronError);
               alert(`Failed to load image: ${errorMessage}`);
             }
           }
         } else if (isMounted && !hasPreview) {
           // If no fallback is available
           setImageUrl(null);
-          alert('Failed to load image: No valid file handle and not in a compatible Electron environment.');
+          alert(
+            "Failed to load image: No valid file handle and not in a compatible Electron environment.",
+          );
         }
       }
     };
@@ -873,7 +1059,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
         URL.revokeObjectURL(createdUrl);
       }
     };
-  }, [image.id, image.handle, image.thumbnailHandle, image.name, directoryPath, preferredThumbnailUrl, isVideo]);
+  }, [
+    image.id,
+    image.handle,
+    image.thumbnailHandle,
+    image.name,
+    directoryPath,
+    preferredThumbnailUrl,
+    isVideo,
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -885,7 +1079,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       if (isRenaming) return;
 
       // Alt+Enter = Toggle fullscreen (works in both grid and modal)
-      if (event.key === 'Enter' && event.altKey) {
+      if (event.key === "Enter" && event.altKey) {
         event.preventDefault();
         event.stopPropagation();
         toggleFullscreen(); // Toggle fullscreen ON/OFF
@@ -893,7 +1087,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       }
 
       // Escape = Exit fullscreen first, then close modal
-      if (event.key === 'Escape') {
+      if (event.key === "Escape") {
         event.stopPropagation(); // Prevent global hotkeys (closing sidebar)
         if (isFullscreen) {
           // Call toggleFullscreen to actually exit Electron fullscreen
@@ -904,47 +1098,59 @@ const ImageModal: React.FC<ImageModalProps> = ({
         return;
       }
 
-      if (event.key === 'ArrowLeft') onNavigatePrevious?.();
-      if (event.key === 'ArrowRight') onNavigateNext?.();
-      if (event.key === 'Delete') handleDelete();
+      if (event.key === "ArrowLeft") onNavigatePrevious?.();
+      if (event.key === "ArrowRight") onNavigateNext?.();
+      if (event.key === "Delete") handleDelete();
     };
 
     const handleClickOutside = () => {
       hideContextMenu();
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('click', handleClickOutside);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("click", handleClickOutside);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('click', handleClickOutside);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("click", handleClickOutside);
     };
-  }, [hideContextMenu, isFullscreen, isRenaming, onClose, onNavigateNext, onNavigatePrevious, toggleFullscreen]);
+  }, [
+    hideContextMenu,
+    isFullscreen,
+    isRenaming,
+    onClose,
+    onNavigateNext,
+    onNavigatePrevious,
+    toggleFullscreen,
+  ]);
 
   // Separate effect for wheel event listener to avoid image reloading on zoom changes
   useEffect(() => {
-    const imageContainer = document.getElementById('image-zoom-container');
+    const imageContainer = document.getElementById("image-zoom-container");
     if (imageContainer) {
-      imageContainer.addEventListener('wheel', handleWheel, { passive: false });
+      imageContainer.addEventListener("wheel", handleWheel, { passive: false });
     }
 
     return () => {
       if (imageContainer) {
-        imageContainer.removeEventListener('wheel', handleWheel);
+        imageContainer.removeEventListener("wheel", handleWheel);
       }
     };
   }, [handleWheel]);
 
   const handleDelete = async () => {
-    if (window.confirm('Are you sure you want to delete this image? This action cannot be undone.')) {
+    if (
+      window.confirm(
+        "Are you sure you want to delete this image? This action cannot be undone.",
+      )
+    ) {
       const idToDelete = image.id;
       const imageToDelete = image; // Capture reference
 
       // Navigate to next/previous image BEFORE deletion to keep modal open
       // Check if we have other images to navigate to
       const hasMoreImages = totalImages > 1;
-      
+
       if (hasMoreImages) {
         // Prefer next image, fallback to previous if at the end
         if (currentIndex < totalImages - 1) {
@@ -957,7 +1163,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       const result = await FileOperations.deleteFile(imageToDelete);
       if (result.success) {
         onImageDeleted?.(idToDelete);
-        
+
         // Only close if we didn't have anywhere to navigate (last image deleted)
         if (!hasMoreImages) {
           onClose();
@@ -970,12 +1176,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const confirmRename = async () => {
     if (!newName.trim() || !FileOperations.validateFilename(newName).valid) {
-      alert('Invalid filename.');
+      alert("Invalid filename.");
       return;
     }
     const result = await FileOperations.renameFile(image, newName);
     if (result.success) {
-      onImageRenamed?.(image.id, `${newName}.${image.name.split('.').pop()}`);
+      onImageRenamed?.(image.id, `${newName}.${image.name.split(".").pop()}`);
       setIsRenaming(false);
     } else {
       alert(`Failed to rename file: ${result.error}`);
@@ -986,7 +1192,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const handleAddTag = () => {
     if (!tagInput.trim()) return;
     addTagToImage(image.id, tagInput);
-    setTagInput('');
+    setTagInput("");
     setShowTagAutocomplete(false);
   };
 
@@ -1011,9 +1217,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Filter autocomplete tags
   const autocompleteOptions = tagInput
     ? availableTags
-        .filter(tag =>
-          tag.name.includes(tagInput.toLowerCase()) &&
-          !currentTags.includes(tag.name)
+        .filter(
+          (tag) =>
+            tag.name.includes(tagInput.toLowerCase()) &&
+            !currentTags.includes(tag.name),
         )
         .slice(0, 5)
     : [];
@@ -1021,15 +1228,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
   return (
     <div
       className={`fixed inset-0 flex items-center justify-center z-50 transition-all duration-300 ${
-        isFullscreen ? 'bg-black p-0' : 'bg-black/90 backdrop-blur-md p-4 md:p-8'
+        isFullscreen ? "bg-black p-0" : "bg-black/90 backdrop-blur-md p-2"
       }`}
       onClick={onClose}
     >
       <div
         className={`${
-          isFullscreen 
-            ? 'w-full h-full rounded-none' 
-            : 'w-full h-full max-w-[1600px] max-h-[90vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10'
+          isFullscreen
+            ? "w-full h-full rounded-none"
+            : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10"
         } flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
         onClick={(e) => {
           e.stopPropagation();
@@ -1039,12 +1246,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Image Display Section */}
         <div
           id="image-zoom-container"
-          className={`w-full ${isFullscreen ? 'h-full' : 'md:w-3/4 h-1/2 md:h-full'} bg-black flex items-center justify-center ${isFullscreen ? 'p-0' : 'p-2'} relative group overflow-hidden`}
+          className={`w-full ${isFullscreen ? "h-full" : "md:w-3/4 h-1/2 md:h-full"} bg-black flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
           onMouseLeave={isVideo ? undefined : handleMouseUp}
-          style={{ cursor: !isVideo && zoom > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default' }}
+          style={{
+            cursor:
+              !isVideo && zoom > 1
+                ? isDragging
+                  ? "grabbing"
+                  : "grab"
+                : "default",
+          }}
         >
           {imageUrl ? (
             isVideo ? (
@@ -1063,7 +1277,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 onDragStart={handleDragStart}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                  transition: isDragging ? "none" : "transform 0.1s ease-out",
                 }}
                 draggable={canDragExternally && zoom === 1}
               />
@@ -1072,8 +1286,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <div className="w-full h-full animate-pulse bg-gray-700 rounded-md"></div>
           )}
 
-          {onNavigatePrevious && <button onClick={onNavigatePrevious} className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity">←</button>}
-          {onNavigateNext && <button onClick={onNavigateNext} className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity">→</button>}
+          {onNavigatePrevious && (
+            <button
+              onClick={onNavigatePrevious}
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              ←
+            </button>
+          )}
+          {onNavigateNext && (
+            <button
+              onClick={onNavigateNext}
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              →
+            </button>
+          )}
 
           <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-full text-sm font-medium backdrop-blur-sm border border-white/20">
             {currentIndex + 1} / {totalImages}
@@ -1087,19 +1315,41 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 className="text-white p-2 hover:bg-white/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 title="Zoom In"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
                 </svg>
               </button>
-              <div className="text-white text-xs text-center font-mono">{Math.round(zoom * 100)}%</div>
+              <div className="text-white text-xs text-center font-mono">
+                {Math.round(zoom * 100)}%
+              </div>
               <button
                 onClick={handleZoomOut}
                 disabled={zoom <= 1}
                 className="text-white p-2 hover:bg-white/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 title="Zoom Out"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 12H4"
+                  />
                 </svg>
               </button>
               <button
@@ -1114,8 +1364,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
           )}
 
           <div className="absolute top-4 right-4 flex items-center gap-2">
-            <button onClick={toggleFullscreen} className="bg-black/60 text-white rounded-full px-3 py-2 text-sm opacity-0 group-hover:opacity-100 transition-opacity">
-              {isFullscreen ? 'Exit' : 'Fullscreen'}
+            <button
+              onClick={toggleFullscreen}
+              className="bg-black/60 text-white rounded-full px-3 py-2 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              {isFullscreen ? "Exit" : "Fullscreen"}
             </button>
             <button
               onClick={onClose}
@@ -1129,13 +1382,32 @@ const ImageModal: React.FC<ImageModalProps> = ({
         </div>
 
         {/* Metadata Panel */}
-        <div className={`w-full ${isFullscreen ? 'hidden' : 'md:w-1/4 h-1/2 md:h-full'} p-6 overflow-y-auto space-y-4`}>
+        <div
+          className={`w-full ${isFullscreen ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} p-6 overflow-y-auto space-y-4`}
+        >
           <div>
             {isRenaming ? (
               <div className="flex gap-2">
-                <input type="text" value={newName} onChange={e => setNewName(e.target.value)} className="bg-gray-900 text-white border border-gray-600 rounded-lg px-2 py-1 w-full" autoFocus onKeyDown={e => e.key === 'Enter' && confirmRename()}/>
-                <button onClick={confirmRename} className="bg-green-600 text-white px-3 py-1 rounded-lg">Save</button>
-                <button onClick={() => setIsRenaming(false)} className="bg-gray-600 text-white px-3 py-1 rounded-lg">Cancel</button>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="bg-gray-900 text-white border border-gray-600 rounded-lg px-2 py-1 w-full"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && confirmRename()}
+                />
+                <button
+                  onClick={confirmRename}
+                  className="bg-green-600 text-white px-3 py-1 rounded-lg"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setIsRenaming(false)}
+                  className="bg-gray-600 text-white px-3 py-1 rounded-lg"
+                >
+                  Cancel
+                </button>
               </div>
             ) : (
               <h2 className="text-xl font-bold text-gray-100 break-all flex items-center gap-2 flex-wrap">
@@ -1146,28 +1418,40 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     title="Verified Telemetry - Generated with MetaHub Save Node. Includes accurate performance metrics: generation time, VRAM usage, GPU device, and software versions."
                   >
                     <CheckCircle size={14} className="flex-shrink-0" />
-                    <span className="whitespace-nowrap">Verified Telemetry</span>
+                    <span className="whitespace-nowrap">
+                      Verified Telemetry
+                    </span>
                   </span>
                 )}
                 <button
                   onClick={() => setIsRenaming(true)}
                   disabled={isIndexing}
-                  className={`p-1 ${isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-orange-400'}`}
-                  title={isIndexing ? "Cannot rename during indexing" : "Rename image"}
+                  className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-orange-400"}`}
+                  title={
+                    isIndexing
+                      ? "Cannot rename during indexing"
+                      : "Rename image"
+                  }
                 >
                   <Pencil size={16} />
                 </button>
                 <button
                   onClick={handleDelete}
                   disabled={isIndexing}
-                  className={`p-1 ${isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-red-400'}`}
-                  title={isIndexing ? "Cannot delete during indexing" : "Delete image"}
+                  className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-red-400"}`}
+                  title={
+                    isIndexing
+                      ? "Cannot delete during indexing"
+                      : "Delete image"
+                  }
                 >
                   <Trash2 size={16} />
                 </button>
               </h2>
             )}
-            <p className="text-xs text-blue-400 font-mono break-all">{new Date(image.lastModified).toLocaleString()}</p>
+            <p className="text-xs text-blue-400 font-mono break-all">
+              {new Date(image.lastModified).toLocaleString()}
+            </p>
           </div>
 
           {/* Annotations Section */}
@@ -1179,12 +1463,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 onClick={handleToggleFavorite}
                 className={`p-1.5 rounded transition-all ${
                   currentIsFavorite
-                    ? 'text-yellow-400 hover:text-yellow-300'
-                    : 'text-gray-500 hover:text-yellow-400'
+                    ? "text-yellow-400 hover:text-yellow-300"
+                    : "text-gray-500 hover:text-yellow-400"
                 }`}
-                title={currentIsFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                title={
+                  currentIsFavorite
+                    ? "Remove from favorites"
+                    : "Add to favorites"
+                }
               >
-                <Star className={`w-5 h-5 ${currentIsFavorite ? 'fill-current' : ''}`} />
+                <Star
+                  className={`w-5 h-5 ${currentIsFavorite ? "fill-current" : ""}`}
+                />
               </button>
 
               {/* Tags Pills */}
@@ -1192,7 +1482,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 {/* Current Tags */}
                 {currentTags && currentTags.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
-                    {currentTags.map(tag => (
+                    {currentTags.map((tag) => (
                       <button
                         key={tag}
                         onClick={() => handleRemoveTag(tag)}
@@ -1217,35 +1507,39 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       setShowTagAutocomplete(e.target.value.length > 0);
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         handleAddTag();
                       }
-                      if (e.key === 'Escape') {
-                        setTagInput('');
+                      if (e.key === "Escape") {
+                        setTagInput("");
                         setShowTagAutocomplete(false);
                       }
                     }}
                     onFocus={() => tagInput && setShowTagAutocomplete(true)}
-                    onBlur={() => setTimeout(() => setShowTagAutocomplete(false), 200)}
+                    onBlur={() =>
+                      setTimeout(() => setShowTagAutocomplete(false), 200)
+                    }
                     className="w-full bg-gray-700/50 text-gray-200 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
                   />
 
                   {/* Autocomplete Dropdown */}
                   {showTagAutocomplete && autocompleteOptions.length > 0 && (
                     <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-32 overflow-y-auto">
-                      {autocompleteOptions.map(tag => (
+                      {autocompleteOptions.map((tag) => (
                         <button
                           key={tag.name}
                           onClick={() => {
                             addTagToImage(image.id, tag.name);
-                            setTagInput('');
+                            setTagInput("");
                             setShowTagAutocomplete(false);
                           }}
                           className="w-full text-left px-2 py-1.5 text-xs text-gray-200 hover:bg-gray-700 flex justify-between items-center"
                         >
                           <span>{tag.name}</span>
-                          <span className="text-xs text-gray-500">({tag.count})</span>
+                          <span className="text-xs text-gray-500">
+                            ({tag.count})
+                          </span>
                         </button>
                       ))}
                     </div>
@@ -1255,7 +1549,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 {/* Tag Suggestions */}
                 {tagInput.trim().length === 0 && tagSuggestions.length > 0 && (
                   <div className="flex flex-wrap gap-1">
-                    {tagSuggestions.map(tag => (
+                    {tagSuggestions.map((tag) => (
                       <button
                         key={tag}
                         onClick={() => addTagToImage(image.id, tag)}
@@ -1269,10 +1563,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
                 {currentAutoTags && currentAutoTags.length > 0 && (
                   <div className="space-y-1">
-                    <p className="text-[10px] uppercase tracking-wider text-purple-300">Auto tags</p>
+                    <p className="text-[10px] uppercase tracking-wider text-purple-300">
+                      Auto tags
+                    </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {currentAutoTags.map(tag => (
-                        <div key={`auto-${tag}`} className="inline-flex items-center bg-purple-600/20 border border-purple-500/40 rounded-full overflow-hidden">
+                      {currentAutoTags.map((tag) => (
+                        <div
+                          key={`auto-${tag}`}
+                          className="inline-flex items-center bg-purple-600/20 border border-purple-500/40 rounded-full overflow-hidden"
+                        >
                           <button
                             onClick={() => handlePromoteAutoTag(tag)}
                             className="px-2 py-0.5 text-purple-300 hover:bg-blue-600/30 hover:text-blue-200 transition-all"
@@ -1301,9 +1600,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {nMeta?.notes && (
             <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700/50">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-semibold text-purple-600 dark:text-purple-300 uppercase tracking-wider">Notes (MetaHub Save Node)</span>
+                <span className="text-xs font-semibold text-purple-600 dark:text-purple-300 uppercase tracking-wider">
+                  Notes (MetaHub Save Node)
+                </span>
               </div>
-              <pre className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words font-mono text-sm bg-white dark:bg-gray-800/50 p-2 rounded border border-gray-200 dark:border-gray-700/50">{nMeta.notes}</pre>
+              <pre className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words font-mono text-sm bg-white dark:bg-gray-800/50 p-2 rounded border border-gray-200 dark:border-gray-700/50">
+                {nMeta.notes}
+              </pre>
             </div>
           )}
 
@@ -1311,100 +1614,222 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <div className="space-y-4">
               {/* Prompt Section - Always Visible */}
               <div className="space-y-3">
-                <MetadataItem label="Prompt" value={effectiveMetadata?.prompt} isPrompt onCopy={() => copyToClipboard(effectiveMetadata?.prompt || '', 'Prompt')} />
-                <MetadataItem label="Negative Prompt" value={effectiveMetadata?.negativePrompt} isPrompt onCopy={() => copyToClipboard(effectiveMetadata?.negativePrompt || '', 'Negative Prompt')} />
-                
+                <MetadataItem
+                  label="Prompt"
+                  value={effectiveMetadata?.prompt}
+                  isPrompt
+                  onCopy={() =>
+                    copyToClipboard(effectiveMetadata?.prompt || "", "Prompt")
+                  }
+                />
+                <MetadataItem
+                  label="Negative Prompt"
+                  value={effectiveMetadata?.negativePrompt}
+                  isPrompt
+                  onCopy={() =>
+                    copyToClipboard(
+                      effectiveMetadata?.negativePrompt || "",
+                      "Negative Prompt",
+                    )
+                  }
+                />
+
                 {/* Shadow Resources List */}
-                {shadowMetadata?.resources && shadowMetadata.resources.length > 0 && (
-                  <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50">
-                     <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider mb-2">Resources (Overrides)</p>
-                     <ul className="space-y-1">
-                       {shadowMetadata.resources.map(r => (
-                         <li key={r.id} className="text-sm text-gray-200 flex justify-between">
-                           <span>{r.name} <span className="text-gray-500 text-xs">({r.type})</span></span>
-                           {r.weight !== undefined && <span className="text-gray-400 text-xs">{r.weight}</span>}
-                         </li>
-                       ))}
-                     </ul>
-                  </div>
-                )}
+                {shadowMetadata?.resources &&
+                  shadowMetadata.resources.length > 0 && (
+                    <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50">
+                      <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider mb-2">
+                        Resources (Overrides)
+                      </p>
+                      <ul className="space-y-1">
+                        {shadowMetadata.resources.map((r) => (
+                          <li
+                            key={r.id}
+                            className="text-sm text-gray-200 flex justify-between"
+                          >
+                            <span>
+                              {r.name}{" "}
+                              <span className="text-gray-500 text-xs">
+                                ({r.type})
+                              </span>
+                            </span>
+                            {r.weight !== undefined && (
+                              <span className="text-gray-400 text-xs">
+                                {r.weight}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                 <div className="grid grid-cols-2 gap-3">
-                  <MetadataItem label="Seed" value={effectiveMetadata?.seed} onCopy={() => copyToClipboard(String(effectiveMetadata?.seed || ''), 'Seed')} />
-                  <MetadataItem label="Model" value={effectiveMetadata?.model} onCopy={() => copyToClipboard(effectiveMetadata?.model || '', 'Model')} />
+                  <MetadataItem
+                    label="Seed"
+                    value={effectiveMetadata?.seed}
+                    onCopy={() =>
+                      copyToClipboard(
+                        String(effectiveMetadata?.seed || ""),
+                        "Seed",
+                      )
+                    }
+                  />
+                  <MetadataItem
+                    label="Model"
+                    value={effectiveMetadata?.model}
+                    onCopy={() =>
+                      copyToClipboard(effectiveMetadata?.model || "", "Model")
+                    }
+                  />
                 </div>
               </div>
 
               {/* Details Section - Collapsible */}
               <div>
-                <button 
-                  onClick={() => setShowDetails(!showDetails)} 
+                <button
+                  onClick={() => setShowDetails(!showDetails)}
                   className="text-gray-600 dark:text-gray-300 text-sm w-full text-left py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
                   <span className="font-semibold">Generation Details</span>
-                  {showDetails ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  {showDetails ? (
+                    <ChevronDown size={16} />
+                  ) : (
+                    <ChevronRight size={16} />
+                  )}
                 </button>
                 {showDetails && (
                   <div className="space-y-3 mt-3">
-                    <MetadataItem label="Model" value={nMeta.model} onCopy={(v) => copyToClipboard(v, "Model")} />
+                    <MetadataItem
+                      label="Model"
+                      value={nMeta.model}
+                      onCopy={(v) => copyToClipboard(v, "Model")}
+                    />
                     {nMeta.generator && (
                       <MetadataItem label="Generator" value={nMeta.generator} />
                     )}
                     {((nMeta as any).vae || (nMeta as any).vaes?.[0]?.name) && (
-                      <MetadataItem label="VAE" value={(nMeta as any).vae || (nMeta as any).vaes?.[0]?.name} />
+                      <MetadataItem
+                        label="VAE"
+                        value={
+                          (nMeta as any).vae || (nMeta as any).vaes?.[0]?.name
+                        }
+                      />
                     )}
                     {nMeta.loras && nMeta.loras.length > 0 && (
-                      <MetadataItem label="LoRAs" value={nMeta.loras.map(formatLoRA).join(', ')} />
+                      <MetadataItem
+                        label="LoRAs"
+                        value={nMeta.loras.map(formatLoRA).join(", ")}
+                      />
                     )}
                     <div className="grid grid-cols-2 gap-2">
-                      <MetadataItem label="Steps" value={effectiveMetadata?.steps} />
-                      <MetadataItem label="CFG Scale" value={effectiveMetadata?.cfg_scale} />
+                      <MetadataItem
+                        label="Steps"
+                        value={effectiveMetadata?.steps}
+                      />
+                      <MetadataItem
+                        label="CFG Scale"
+                        value={effectiveMetadata?.cfg_scale}
+                      />
                       {nMeta.clip_skip && nMeta.clip_skip > 1 && (
-                        <MetadataItem label="Clip Skip" value={nMeta.clip_skip} />
+                        <MetadataItem
+                          label="Clip Skip"
+                          value={nMeta.clip_skip}
+                        />
                       )}
-                      <MetadataItem label="Seed" value={nMeta.seed} onCopy={(v) => copyToClipboard(v, "Seed")} />
+                      <MetadataItem
+                        label="Seed"
+                        value={nMeta.seed}
+                        onCopy={(v) => copyToClipboard(v, "Seed")}
+                      />
                       <MetadataItem label="Sampler" value={nMeta.sampler} />
-                      <MetadataItem label="Scheduler" value={effectiveMetadata?.scheduler} />
-                      <MetadataItem label="Dimensions" value={effectiveMetadata?.width && effectiveMetadata?.height ? `${effectiveMetadata.width}x${effectiveMetadata.height}` : undefined} />
-                      {(nMeta as any).denoise != null && (nMeta as any).denoise < 1 && (
-                        <MetadataItem label="Denoise" value={(nMeta as any).denoise} />
-                      )}
+                      <MetadataItem
+                        label="Scheduler"
+                        value={effectiveMetadata?.scheduler}
+                      />
+                      <MetadataItem
+                        label="Dimensions"
+                        value={
+                          effectiveMetadata?.width && effectiveMetadata?.height
+                            ? `${effectiveMetadata.width}x${effectiveMetadata.height}`
+                            : undefined
+                        }
+                      />
+                      {(nMeta as any).denoise != null &&
+                        (nMeta as any).denoise < 1 && (
+                          <MetadataItem
+                            label="Denoise"
+                            value={(nMeta as any).denoise}
+                          />
+                        )}
                     </div>
                     {videoInfo && (
                       <div className="grid grid-cols-2 gap-2">
-                        <MetadataItem label="Frames" value={videoInfo.frame_count} />
-                        <MetadataItem label="FPS" value={videoInfo.frame_rate != null ? Number(videoInfo.frame_rate).toFixed(2) : undefined} />
+                        <MetadataItem
+                          label="Frames"
+                          value={videoInfo.frame_count}
+                        />
+                        <MetadataItem
+                          label="FPS"
+                          value={
+                            videoInfo.frame_rate != null
+                              ? Number(videoInfo.frame_rate).toFixed(2)
+                              : undefined
+                          }
+                        />
                         {effectiveDuration != null && (
-                          <MetadataItem label="Duration" value={formatDurationSeconds(Number(effectiveDuration))} />
+                          <MetadataItem
+                            label="Duration"
+                            value={formatDurationSeconds(
+                              Number(effectiveDuration),
+                            )}
+                          />
                         )}
-                        <MetadataItem label="Video Codec" value={videoInfo.codec} />
-                        <MetadataItem 
-                          label="Video Format" 
+                        <MetadataItem
+                          label="Video Codec"
+                          value={videoInfo.codec}
+                        />
+                        <MetadataItem
+                          label="Video Format"
                           value={(() => {
                             if (!videoInfo.format) return undefined;
-                            const formats = videoInfo.format.split(',');
-                            const ext = image.name.split('.').pop()?.toLowerCase();
+                            const formats = videoInfo.format.split(",");
+                            const ext = image.name
+                              .split(".")
+                              .pop()
+                              ?.toLowerCase();
                             if (ext && formats.includes(ext)) return ext;
                             return formats[0];
-                          })()} 
+                          })()}
                         />
                       </div>
                     )}
                     {motionModel?.name && (
-                      <MetadataItem label="Motion Model" value={motionModel.name} />
+                      <MetadataItem
+                        label="Motion Model"
+                        value={motionModel.name}
+                      />
                     )}
                     {motionModel?.hash && (
-                      <MetadataItem label="Motion Model Hash" value={motionModel.hash} />
+                      <MetadataItem
+                        label="Motion Model Hash"
+                        value={motionModel.hash}
+                      />
                     )}
                     {(nMeta as any)?._metahub_pro?.project_name && (
-                      <MetadataItem label="Project" value={(nMeta as any)._metahub_pro.project_name} />
+                      <MetadataItem
+                        label="Project"
+                        value={(nMeta as any)._metahub_pro.project_name}
+                      />
                     )}
                     {shadowMetadata?.notes && (
                       <div className="col-span-2 pt-2 border-t border-gray-700/50 mt-2">
-                         <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-1">Workflow Notes</h4>
-                         <div className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-2 rounded border border-gray-800">
-                           {shadowMetadata.notes}
-                         </div>
+                        <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-1">
+                          Workflow Notes
+                        </h4>
+                        <div className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-2 rounded border border-gray-800">
+                          {shadowMetadata.notes}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1419,32 +1844,48 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     className="text-gray-600 dark:text-gray-300 text-sm w-full text-left py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between hover:text-gray-900 dark:hover:text-white transition-colors"
                   >
                     <span className="font-semibold flex items-center gap-2">
-                      <Zap size={16} className="text-yellow-600 dark:text-yellow-400" />
+                      <Zap
+                        size={16}
+                        className="text-yellow-600 dark:text-yellow-400"
+                      />
                       Performance
                     </span>
-                    {showPerformance ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    {showPerformance ? (
+                      <ChevronDown size={16} />
+                    ) : (
+                      <ChevronRight size={16} />
+                    )}
                   </button>
 
                   {showPerformance && (
                     <div className="space-y-3 mt-3">
                       {/* Tier 1: CRITICAL */}
                       <div className="grid grid-cols-2 gap-2">
-                        {nMeta._analytics.generation_time_ms != null && nMeta._analytics.generation_time_ms > 0 && (
-                          <MetadataItem
-                            label="Generation Time"
-                            value={formatGenerationTime(nMeta._analytics.generation_time_ms)}
-                          />
-                        )}
+                        {nMeta._analytics.generation_time_ms != null &&
+                          nMeta._analytics.generation_time_ms > 0 && (
+                            <MetadataItem
+                              label="Generation Time"
+                              value={formatGenerationTime(
+                                nMeta._analytics.generation_time_ms,
+                              )}
+                            />
+                          )}
                         {nMeta._analytics.vram_peak_mb != null && (
                           <MetadataItem
                             label="VRAM Peak"
-                            value={formatVRAM(nMeta._analytics.vram_peak_mb, nMeta._analytics.gpu_device)}
+                            value={formatVRAM(
+                              nMeta._analytics.vram_peak_mb,
+                              nMeta._analytics.gpu_device,
+                            )}
                           />
                         )}
                       </div>
 
                       {nMeta._analytics.gpu_device && (
-                        <MetadataItem label="GPU Device" value={nMeta._analytics.gpu_device} />
+                        <MetadataItem
+                          label="GPU Device"
+                          value={nMeta._analytics.gpu_device}
+                        />
                       )}
 
                       {/* Tier 2: VERY USEFUL */}
@@ -1456,15 +1897,23 @@ const ImageModal: React.FC<ImageModalProps> = ({
                           />
                         )}
                         {nMeta._analytics.comfyui_version && (
-                          <MetadataItem label="ComfyUI" value={nMeta._analytics.comfyui_version} />
+                          <MetadataItem
+                            label="ComfyUI"
+                            value={nMeta._analytics.comfyui_version}
+                          />
                         )}
                       </div>
 
                       {/* Tier 3: NICE-TO-HAVE (small text) */}
-                      {(nMeta._analytics.torch_version || nMeta._analytics.python_version) && (
+                      {(nMeta._analytics.torch_version ||
+                        nMeta._analytics.python_version) && (
                         <div className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700/50 pt-2 space-y-1">
-                          {nMeta._analytics.torch_version && <div>PyTorch: {nMeta._analytics.torch_version}</div>}
-                          {nMeta._analytics.python_version && <div>Python: {nMeta._analytics.python_version}</div>}
+                          {nMeta._analytics.torch_version && (
+                            <div>PyTorch: {nMeta._analytics.torch_version}</div>
+                          )}
+                          {nMeta._analytics.python_version && (
+                            <div>Python: {nMeta._analytics.python_version}</div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1474,24 +1923,46 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </div>
           ) : (
             <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-4 py-3 rounded-lg text-sm">
-                No normalized metadata available.
+              No normalized metadata available.
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <button onClick={() => copyToClipboard(nMeta?.prompt || '', 'Prompt')} className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2">Copy Prompt</button>
-            <button onClick={() => copyToClipboard(JSON.stringify(image.metadata, null, 2), 'Raw Metadata')} className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2">Copy Raw Metadata</button>
-            <button onClick={async () => {
-              if (!directoryPath) {
-                alert('Cannot determine file location: directory path is missing.');
-                return;
+            <button
+              onClick={() => copyToClipboard(nMeta?.prompt || "", "Prompt")}
+              className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
+            >
+              Copy Prompt
+            </button>
+            <button
+              onClick={() =>
+                copyToClipboard(
+                  JSON.stringify(image.metadata, null, 2),
+                  "Raw Metadata",
+                )
               }
-              await showInExplorer(`${directoryPath}/${image.name}`);
-            }} className="w-full justify-center bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/10 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2">Show in Folder</button>
+              className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
+            >
+              Copy Raw Metadata
+            </button>
+            <button
+              onClick={async () => {
+                if (!directoryPath) {
+                  alert(
+                    "Cannot determine file location: directory path is missing.",
+                  );
+                  return;
+                }
+                await showInExplorer(`${directoryPath}/${image.name}`);
+              }}
+              className="w-full justify-center bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/10 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2"
+            >
+              Show in Folder
+            </button>
             <button
               onClick={() => {
                 if (!canUseComparison) {
-                  showProModal('comparison');
+                  showProModal("comparison");
                   return;
                 }
                 const added = addImage(image);
@@ -1501,10 +1972,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
               }}
               disabled={canUseComparison && comparisonCount >= 2}
               className="w-full justify-center bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 dark:hover:bg-purple-500/20 disabled:bg-gray-100 dark:disabled:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
-              title={!canUseComparison ? "Comparison (Pro Feature)" : comparisonCount >= 2 ? "Comparison queue full" : "Add to comparison"}
+              title={
+                !canUseComparison
+                  ? "Comparison (Pro Feature)"
+                  : comparisonCount >= 2
+                    ? "Comparison queue full"
+                    : "Add to comparison"
+              }
             >
               <GitCompare className="w-3 h-3" />
-              Add to Compare {canUseComparison && comparisonCount > 0 && `(${comparisonCount}/2)`}
+              Add to Compare{" "}
+              {canUseComparison &&
+                comparisonCount > 0 &&
+                `(${comparisonCount}/2)`}
               {!canUseComparison && initialized && <ProBadge size="sm" />}
             </button>
           </div>
@@ -1512,13 +1992,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {/* A1111 Integration - Separate Buttons with Visual Hierarchy */}
           {nMeta && !isVideo && (
             <div className="mt-3 space-y-2">
-{/* Generate with A1111 button REMOVED */}
+              {/* Generate with A1111 button REMOVED */}
 
               {/* Utility Button: Copy to A1111 */}
               <button
                 onClick={() => {
                   if (!canUseA1111) {
-                    showProModal('a1111');
+                    showProModal("a1111");
                     return;
                   }
                   copyToA1111(image);
@@ -1528,9 +2008,25 @@ const ImageModal: React.FC<ImageModalProps> = ({
               >
                 {isCopying && canUseA1111 ? (
                   <>
-                    <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="animate-spin h-3 w-3"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Copying...</span>
                   </>
@@ -1545,11 +2041,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
               {/* Status messages */}
               {(copyStatus || generateStatus) && (
-                <div className={`mt-2 p-2 rounded text-xs ${
-                  (copyStatus?.success || generateStatus?.success)
-                    ? 'bg-green-900/50 border border-green-700 text-green-300'
-                    : 'bg-red-900/50 border border-red-700 text-red-300'
-                }`}>
+                <div
+                  className={`mt-2 p-2 rounded text-xs ${
+                    copyStatus?.success || generateStatus?.success
+                      ? "bg-green-900/50 border border-green-700 text-green-300"
+                      : "bg-red-900/50 border border-red-700 text-red-300"
+                  }`}
+                >
                   {copyStatus?.message || generateStatus?.message}
                 </div>
               )}
@@ -1572,7 +2070,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       model: params.model || nMeta?.model,
                       ...(params.sampler ? { sampler: params.sampler } : {}),
                     };
-                    await generateWithA1111(image, customMetadata, params.numberOfImages);
+                    await generateWithA1111(
+                      image,
+                      customMetadata,
+                      params.numberOfImages,
+                    );
                     setIsGenerateModalOpen(false);
                   }}
                   isGenerating={isGenerating}
@@ -1581,21 +2083,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </div>
           )}
 
-
-
-
           {/* ComfyUI Integration */}
           {nMeta && !isVideo && (
             <div className="mt-3 pt-3 border-t border-gray-700">
-              <h4 className="text-xs text-gray-400 uppercase tracking-wider mb-2">ComfyUI</h4>
-              
-{/* Generate with ComfyUI button REMOVED */}
+              <h4 className="text-xs text-gray-400 uppercase tracking-wider mb-2">
+                ComfyUI
+              </h4>
+
+              {/* Generate with ComfyUI button REMOVED */}
 
               {/* Copy Workflow Button */}
               <button
                 onClick={() => {
                   if (!canUseComfyUI) {
-                    showProModal('comfyui');
+                    showProModal("comfyui");
                     return;
                   }
                   copyToComfyUI(image);
@@ -1605,9 +2106,25 @@ const ImageModal: React.FC<ImageModalProps> = ({
               >
                 {isCopyingComfyUI && canUseComfyUI ? (
                   <>
-                    <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    <svg
+                      className="animate-spin h-3 w-3"
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
                     </svg>
                     <span>Copying...</span>
                   </>
@@ -1622,11 +2139,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
               {/* Status messages */}
               {(copyStatusComfyUI || generateStatusComfyUI) && (
-                <div className={`mt-2 p-2 rounded text-xs ${
-                  (copyStatusComfyUI?.success || generateStatusComfyUI?.success)
-                    ? 'bg-green-900/50 border border-green-700 text-green-300'
-                    : 'bg-red-900/50 border border-red-700 text-red-300'
-                }`}>
+                <div
+                  className={`mt-2 p-2 rounded text-xs ${
+                    copyStatusComfyUI?.success || generateStatusComfyUI?.success
+                      ? "bg-green-900/50 border border-green-700 text-green-300"
+                      : "bg-red-900/50 border border-red-700 text-red-300"
+                  }`}
+                >
                   {copyStatusComfyUI?.message || generateStatusComfyUI?.message}
                 </div>
               )}
@@ -1648,7 +2167,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       height: params.height,
                       batch_size: params.numberOfImages,
                       ...(params.sampler ? { sampler: params.sampler } : {}),
-                      ...(params.scheduler ? { scheduler: params.scheduler } : {}),
+                      ...(params.scheduler
+                        ? { scheduler: params.scheduler }
+                        : {}),
                     };
                     await generateWithComfyUI(image, {
                       customMetadata,
@@ -1681,14 +2202,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   <>
                     <button
                       onClick={() => setShowOriginal(!showOriginal)}
-                      className={`p-1.5 rounded-md transition-colors ${showOriginal ? 'bg-blue-900/50 text-blue-300' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+                      className={`p-1.5 rounded-md transition-colors ${showOriginal ? "bg-blue-900/50 text-blue-300" : "bg-gray-800 text-gray-400 hover:text-white"}`}
                       title={showOriginal ? "Back to Edited" : "See Original"}
                     >
                       {showOriginal ? <EyeOff size={14} /> : <Eye size={14} />}
                     </button>
-                     <button
+                    <button
                       onClick={() => {
-                        if (confirm('Are you sure you want to delete all edited metadata and revert to the original?')) {
+                        if (
+                          confirm(
+                            "Are you sure you want to delete all edited metadata and revert to the original?",
+                          )
+                        ) {
                           deleteShadowMetadata();
                         }
                       }}
@@ -1710,7 +2235,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   onClick={() => setShowRawMetadata(!showRawMetadata)}
                   className="text-xs text-gray-400 hover:text-white underline"
                 >
-                  {showRawMetadata ? 'Show Parsed' : 'Show JSON'}
+                  {showRawMetadata ? "Show Parsed" : "Show JSON"}
                 </button>
               </div>
             </div>
@@ -1728,7 +2253,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
         isOpen={isMetadataEditorOpen}
         onClose={() => setIsMetadataEditorOpen(false)}
         initialMetadata={shadowMetadata}
-        onSave={async (m) => { await saveShadowMetadata(m); }}
+        onSave={async (m) => {
+          await saveShadowMetadata(m);
+        }}
         imageId={image.id}
       />
 
@@ -1741,15 +2268,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
         >
           <button
             onClick={copyImage}
-            className={`w-full text-left px-4 py-2 text-sm text-gray-200 transition-colors flex items-center gap-2 ${isVideo ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700 hover:text-white'}`}
+            className={`w-full text-left px-4 py-2 text-sm text-gray-200 transition-colors flex items-center gap-2 ${isVideo ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-700 hover:text-white"}`}
             disabled={isVideo}
           >
             <Copy className="w-4 h-4" />
             Copy to Clipboard
           </button>
-          
+
           <div className="border-t border-gray-600 my-1"></div>
-          
+
           <button
             onClick={copyPrompt}
             className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
@@ -1782,9 +2309,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <Copy className="w-4 h-4" />
             Copy Model
           </button>
-          
+
           <div className="border-t border-gray-600 my-1"></div>
-          
+
           <button
             onClick={showInFolder}
             className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
@@ -1792,7 +2319,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <Folder className="w-4 h-4" />
             Show in Folder
           </button>
-          
+
           <button
             onClick={exportImage}
             className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
