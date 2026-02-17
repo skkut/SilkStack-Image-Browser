@@ -54,7 +54,7 @@ const Header: React.FC<HeaderProps> = ({
   const startClustering = useImageStore((state) => state.startClustering);
   const startAutoTagging = useImageStore((state) => state.startAutoTagging);
 
-  const [isGenerateDropdownOpen, setIsGenerateDropdownOpen] = useState(false);
+
 
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
@@ -240,42 +240,7 @@ const Header: React.FC<HeaderProps> = ({
 
 
 
-          {/* Generate Dropdown - Solid Blue Theme */}
-          <div className="relative">
-            <button
-              onClick={() => setIsGenerateDropdownOpen(!isGenerateDropdownOpen)}
-              onBlur={() => setTimeout(() => setIsGenerateDropdownOpen(false), 200)}
-              className="px-3 py-1.5 rounded-lg transition-all duration-300 text-xs font-bold text-white hover:bg-blue-500 bg-blue-600 shadow-md shadow-blue-900/20 border border-blue-500/50 group flex items-center gap-2"
-              title="Generate new image"
-            >
-              <Sparkles size={14} className="text-white/90 group-hover:text-white transition-colors" />
-              Generate
-              <ChevronDown size={14} className={`transition-transform duration-300 ${isGenerateDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {isGenerateDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-gray-900/95 backdrop-blur-xl border border-gray-700/50 rounded-xl shadow-2xl py-2 z-50 transform origin-top-right transition-all animate-in fade-in zoom-in-95 duration-200">
-                <button
-                  onClick={() => {
-                    setIsGenerateDropdownOpen(false);
-                    onOpenA1111Generate?.();
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-between group"
-                >
-                  <span className="font-medium">with A1111 WebUI</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsGenerateDropdownOpen(false);
-                    onOpenComfyUIGenerate?.();
-                  }}
-                  className="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-white/10 hover:text-white transition-colors flex items-center justify-between group"
-                >
-                  <span className="font-medium">with ComfyUI</span>
-                </button>
-              </div>
-            )}
-          </div>
+{/* Generate Dropdown REMOVED */}
           
           {/* Get Pro link REMOVED */}
           
