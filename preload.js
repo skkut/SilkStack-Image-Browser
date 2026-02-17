@@ -133,6 +133,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportBatchToZip: (args) => ipcRenderer.invoke('export-images-zip', args),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
   ensureDirectory: (dirPath) => ipcRenderer.invoke('ensure-directory', dirPath),
+  checkDirectoryConnection: (dirPath) => ipcRenderer.invoke('checkDirectoryConnection', dirPath),
   getUserDataPath: () => ipcRenderer.invoke('get-user-data-path'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),

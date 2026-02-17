@@ -234,6 +234,7 @@ interface ImageState {
 
   // Actions
   addDirectory: (directory: Directory) => void;
+  updateDirectoryStatus: (directoryId: string, isConnected: boolean) => void;
   removeDirectory: (directoryId: string) => void;
   toggleDirectoryVisibility: (directoryId: string) => void;
   toggleAutoWatch: (directoryId: string) => void;
@@ -671,7 +672,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         const { images, searchQuery, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
 
         const visibleDirectoryIds = new Set(
-            directories.filter(dir => dir.visible ?? true).map(dir => dir.id)
+            directories.filter(dir => (dir.visible ?? true) && (dir.isConnected !== false)).map(dir => dir.id)
         );
 
         const directoryPathMap = new Map<string, string>();
@@ -1025,6 +1026,23 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
             const newDirectories = [...state.directories, { ...directory, visible: directory.visible ?? true }];
             const newState = { ...state, directories: newDirectories };
+            return { ...newState, ...filterAndSort(newState) };
+        }),
+
+
+        updateDirectoryStatus: (directoryId, isConnected) => set(state => {
+            const updatedDirectories = state.directories.map(dir =>
+                dir.id === directoryId ? { ...dir, isConnected } : dir
+            );
+            
+            // Only trigger re-render if status actually changed
+            const changed = state.directories.some(dir => 
+                dir.id === directoryId && dir.isConnected !== isConnected
+            );
+            
+            if (!changed) return state;
+
+            const newState = { ...state, directories: updatedDirectories };
             return { ...newState, ...filterAndSort(newState) };
         }),
 

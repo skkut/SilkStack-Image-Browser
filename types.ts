@@ -35,6 +35,7 @@ export interface ElectronAPI {
   selectPath: (isDirectory?: boolean) => Promise<{ success: boolean; path?: string }>;
   openDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
+  checkDirectoryConnection: (dirPath: string) => Promise<{ success: boolean; isConnected: boolean }>;
   getUserDataPath: () => Promise<string>;
   getSettings: () => Promise<any>;
   saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>;
@@ -670,6 +671,7 @@ export interface Directory {
   path: string;
   handle: FileSystemDirectoryHandle;
   visible?: boolean; // Whether images from this directory should be shown (default: true)
+  isConnected?: boolean; // Whether the directory is currently accessible (e.g. removable storage connected)
   autoWatch?: boolean; // Whether to automatically watch this directory for new images (default: false)
 }
 

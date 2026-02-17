@@ -120,11 +120,14 @@ export default function App() {
   const closeComparisonModal = useImageStore((state) => state.closeComparisonModal);
   const setComparisonImages = useImageStore((state) => state.setComparisonImages);
   const openComparisonModal = useImageStore((state) => state.openComparisonModal);
+
+
   const initializeFolderSelection = useImageStore((state) => state.initializeFolderSelection);
   const loadAnnotations = useImageStore((state) => state.loadAnnotations);
   const imageStoreSetSortOrder = useImageStore((state) => state.setSortOrder);
   const sortOrder = useImageStore((state) => state.sortOrder);
   const reshuffle = useImageStore((state) => state.reshuffle);
+  const updateDirectoryStatus = useImageStore((state) => state.updateDirectoryStatus);
 
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
   const safeDirectories = Array.isArray(directories) ? directories : [];
@@ -591,6 +594,7 @@ export default function App() {
     }
   }, [safeFilteredImages.length, itemsPerPage, currentPage]);
 
+
   // Clean up selectedImage if its directory no longer exists
   useEffect(() => {
     if (selectedImage && !safeDirectories.find(d => d.id === selectedImage.directoryId)) {
@@ -598,6 +602,37 @@ export default function App() {
       setSelectedImage(null);
     }
   }, [selectedImage, safeDirectories, setSelectedImage]);
+
+  // Poll for directory connection status (for removable storage)
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const checkConnections = async () => {
+        const { directories, updateDirectoryStatus } = useImageStore.getState();
+        
+        for (const dir of directories) {
+            try {
+                const result = await window.electronAPI.checkDirectoryConnection(dir.path);
+                
+                // Only update if status changed (handled by store action to avoid redundant re-renders)
+                if (dir.isConnected !== result.isConnected) {
+                    updateDirectoryStatus(dir.id, result.isConnected);
+                }
+            } catch (e) {
+                console.warn(`Failed to poll connection for ${dir.path}`, e);
+            }
+        }
+    };
+
+    // Check every 5 seconds
+    const intervalId = setInterval(checkConnections, 5000);
+    
+    // Also run immediately on mount/change
+    checkConnections();
+
+    return () => clearInterval(intervalId);
+  }, [directories.length]); // Re-setup when directory count changes (added/removed)
+
 
   // --- Memoized Callbacks for UI ---
   const handleImageDeleted = useCallback((imageId: string) => {

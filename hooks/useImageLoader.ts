@@ -967,14 +967,30 @@ export function useImageLoader() {
                     // Use global auto-watch setting for all directories
                     const globalAutoWatch = useSettingsStore.getState().globalAutoWatch;
 
+
                     // First, add all directories to the store without loading.
                     for (const path of paths) {
                         const name = path.split(/\/|\\/).pop() || 'Loaded Folder';
                         const handle = { name, kind: 'directory' } as any;
                         const directoryId = path;
+                        
+                        let isConnected = true;
+                         try {
+                            const result = await window.electronAPI.checkDirectoryConnection(path);
+                            isConnected = result.isConnected;
+                        } catch (e) {
+                            console.warn(`Failed to check connection for ${path}`, e);
+                        }
 
                         // All directories use the global auto-watch setting
-                        const newDirectory: Directory = { id: directoryId, path, name, handle, autoWatch: globalAutoWatch };
+                        const newDirectory: Directory = { 
+                            id: directoryId, 
+                            path, 
+                            name, 
+                            handle, 
+                            autoWatch: globalAutoWatch,
+                            isConnected
+                        };
                         addDirectory(newDirectory);
                     }
                     

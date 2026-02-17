@@ -1406,6 +1406,17 @@ function setupFileOperationHandlers() {
     return fileWatcher.startWatching(directoryId, dirPath, mainWindow);
   });
 
+
+  ipcMain.handle('checkDirectoryConnection', async (event, dirPath) => {
+    try {
+      await fs.access(dirPath);
+      return { success: true, isConnected: true };
+    } catch (error) {
+      // If access fails, we assume it's disconnected (or at least not accessible)
+      return { success: true, isConnected: false };
+    }
+  });
+
   ipcMain.handle("stop-watching-directory", async (event, args) => {
     const { directoryId } = args;
 

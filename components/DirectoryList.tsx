@@ -229,6 +229,8 @@ export default function DirectoryList({
             }`}
             onClick={(e) => handleFolderClick(child.path, e)}
             onContextMenu={(e) => handleContextMenu(e, child.path)}
+             title={rootDirectory.isConnected === false ? 'Parent directory disconnected' : ''}
+             style={{ opacity: rootDirectory.isConnected === false ? 0.5 : 1 }}
           >
             {hasSubfolders ? (
               <button
@@ -363,7 +365,7 @@ export default function DirectoryList({
       {isExpanded && (
         <div className="px-4 pb-4">
           <ul className="space-y-1">
-            {directories.map((dir) => {
+            {directories.filter(dir => dir.isConnected !== false).map((dir) => {
               const rootKey = makeNodeKey(dir.id, '');
               const isRootExpanded = expandedNodes.has(rootKey);
               const isRootLoading = loadingNodes.has(rootKey);
@@ -377,13 +379,14 @@ export default function DirectoryList({
 
               return (
                 <li key={dir.id}>
-                  <div
-                    className={`flex items-center justify-between p-2 rounded-md transition-colors ${
-                      isRootSelected
-                        ? 'bg-blue-600/30 hover:bg-blue-600/40'
-                        : 'bg-gray-800 hover:bg-gray-700/50'
-                    }`}
-                  >
+                    <div
+                      className={`flex items-center justify-between p-2 rounded-md transition-colors ${
+                        isRootSelected
+                          ? 'bg-blue-600/30 hover:bg-blue-600/40'
+                          : 'bg-gray-800 hover:bg-gray-700/50'
+                      } ${dir.isConnected === false ? 'opacity-50 grayscale' : ''}`}
+                      title={dir.isConnected === false ? 'Directory not found (disconnected)' : ''}
+                    >
                     <div className="flex items-center overflow-hidden flex-1">
                       {hasSubfolders ? (
                         <button
