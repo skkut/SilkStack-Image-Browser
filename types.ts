@@ -1,64 +1,216 @@
 export interface ExportBatchProgress {
   exportId: string | null;
-  mode: 'folder' | 'zip';
+  mode: "folder" | "zip";
   total: number;
   processed: number;
   exportedCount: number;
   failedCount: number;
-  stage: 'copying' | 'finalizing' | 'done';
+  stage: "copying" | "finalizing" | "done";
 }
 
 export interface ElectronAPI {
-  trashFile: (filename: string) => Promise<{ success: boolean; error?: string }>;
-  renameFile: (oldName: string, newName: string) => Promise<{ success: boolean; error?: string }>;
-  setCurrentDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
-  updateAllowedPaths: (paths: string[]) => Promise<{ success: boolean; error?: string }>;
-  showDirectoryDialog: () => Promise<{ success: boolean; path?: string; name?: string; canceled?: boolean; error?: string }>;
-  showSaveDialog: (options: { title?: string; defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => Promise<{ success: boolean; path?: string; canceled?: boolean; error?: string }>;
-  showItemInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
-  openCacheLocation: (cachePath: string) => Promise<{ success: boolean; error?: string }>;
-  listSubfolders: (folderPath: string) => Promise<{ success: boolean; subfolders?: { name: string; path: string }[]; error?: string }>;
-  listDirectoryFiles: (args: { dirPath: string; recursive?: boolean }) => Promise<{
+  trashFile: (
+    filename: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  renameFile: (
+    oldName: string,
+    newName: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  setCurrentDirectory: (
+    dirPath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  updateAllowedPaths: (
+    paths: string[],
+  ) => Promise<{ success: boolean; error?: string }>;
+  showDirectoryDialog: () => Promise<{
     success: boolean;
-    files?: { name: string; lastModified: number; size: number; type: string; birthtimeMs?: number }[];
+    path?: string;
+    name?: string;
+    canceled?: boolean;
     error?: string;
   }>;
-  readFile: (filePath: string) => Promise<{ success: boolean; data?: Buffer; error?: string; errorType?: string; errorCode?: string }>;
-  readFilesBatch: (filePaths: string[]) => Promise<{ success: boolean; files?: { success: boolean; data?: Buffer; path: string; error?: string; errorType?: string; errorCode?: string }[]; error?: string }>;
-  readVideoMetadata: (args: { filePath: string }) => Promise<{ success: boolean; comment?: string; description?: string; title?: string; video?: VideoInfo | null; error?: string }>;
-  getFileStats: (filePath: string) => Promise<{ success: boolean; stats?: any; error?: string }>;
-  writeFile: (filePath: string, data: any) => Promise<{ success: boolean; error?: string }>;
-  exportBatchToFolder: (args: { files: { directoryPath: string; relativePath: string }[]; destDir: string; exportId?: string }) => Promise<{ success: boolean; exportedCount: number; failedCount: number; error?: string }>;
-  exportBatchToZip: (args: { files: { directoryPath: string; relativePath: string }[]; destZipPath: string; exportId?: string }) => Promise<{ success: boolean; exportedCount: number; failedCount: number; error?: string }>;
-  deleteFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  showSaveDialog: (options: {
+    title?: string;
+    defaultPath?: string;
+    filters?: { name: string; extensions: string[] }[];
+  }) => Promise<{
+    success: boolean;
+    path?: string;
+    canceled?: boolean;
+    error?: string;
+  }>;
+  showItemInFolder: (
+    filePath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  openCacheLocation: (
+    cachePath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  listSubfolders: (
+    folderPath: string,
+  ) => Promise<{
+    success: boolean;
+    subfolders?: { name: string; path: string }[];
+    error?: string;
+  }>;
+  listDirectoryFiles: (args: {
+    dirPath: string;
+    recursive?: boolean;
+  }) => Promise<{
+    success: boolean;
+    files?: {
+      name: string;
+      lastModified: number;
+      size: number;
+      type: string;
+      birthtimeMs?: number;
+    }[];
+    error?: string;
+  }>;
+  readFile: (
+    filePath: string,
+  ) => Promise<{
+    success: boolean;
+    data?: Buffer;
+    error?: string;
+    errorType?: string;
+    errorCode?: string;
+  }>;
+  readFilesBatch: (
+    filePaths: string[],
+  ) => Promise<{
+    success: boolean;
+    files?: {
+      success: boolean;
+      data?: Buffer;
+      path: string;
+      error?: string;
+      errorType?: string;
+      errorCode?: string;
+    }[];
+    error?: string;
+  }>;
+  readVideoMetadata: (args: {
+    filePath: string;
+  }) => Promise<{
+    success: boolean;
+    comment?: string;
+    description?: string;
+    title?: string;
+    video?: VideoInfo | null;
+    error?: string;
+  }>;
+  getFileStats: (
+    filePath: string,
+  ) => Promise<{ success: boolean; stats?: any; error?: string }>;
+  writeFile: (
+    filePath: string,
+    data: any,
+  ) => Promise<{ success: boolean; error?: string }>;
+  exportBatchToFolder: (args: {
+    files: { directoryPath: string; relativePath: string }[];
+    destDir: string;
+    exportId?: string;
+  }) => Promise<{
+    success: boolean;
+    exportedCount: number;
+    failedCount: number;
+    error?: string;
+  }>;
+  exportBatchToZip: (args: {
+    files: { directoryPath: string; relativePath: string }[];
+    destZipPath: string;
+    exportId?: string;
+  }) => Promise<{
+    success: boolean;
+    exportedCount: number;
+    failedCount: number;
+    error?: string;
+  }>;
+  deleteFile: (
+    filePath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   selectDirectory: () => Promise<{ success: boolean; path?: string }>;
-  selectPath: (isDirectory?: boolean) => Promise<{ success: boolean; path?: string }>;
-  openDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
-  ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>;
-  checkDirectoryConnection: (dirPath: string) => Promise<{ success: boolean; isConnected: boolean }>;
+  selectPath: (
+    isDirectory?: boolean,
+  ) => Promise<{ success: boolean; path?: string }>;
+  openDirectory: (
+    path: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  ensureDirectory: (
+    dirPath: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  checkDirectoryConnection: (
+    dirPath: string,
+  ) => Promise<{ success: boolean; isConnected: boolean }>;
   getUserDataPath: () => Promise<string>;
   getSettings: () => Promise<any>;
-  saveSettings: (settings: any) => Promise<{ success: boolean; error?: string }>;
-  getDefaultCachePath: () => Promise<{ success: boolean; path?: string; error?: string }>;
+  saveSettings: (
+    settings: any,
+  ) => Promise<{ success: boolean; error?: string }>;
+  getDefaultCachePath: () => Promise<{
+    success: boolean;
+    path?: string;
+    error?: string;
+  }>;
   getAppVersion: () => Promise<string>;
-  joinPaths: (...paths: string[]) => Promise<{ success: boolean; path?: string; error?: string }>;
-  joinPathsBatch: (args: { basePath: string; fileNames: string[] }) => Promise<{ success: boolean; paths?: string[]; error?: string }>;
-  startFileDrag: (args: { directoryPath: string; relativePath: string }) => void;
-  
+  joinPaths: (
+    ...paths: string[]
+  ) => Promise<{ success: boolean; path?: string; error?: string }>;
+  joinPathsBatch: (args: {
+    basePath: string;
+    fileNames: string[];
+  }) => Promise<{ success: boolean; paths?: string[]; error?: string }>;
+  startFileDrag: (args: {
+    directoryPath: string;
+    relativePath: string;
+    id?: string;
+    lastModified?: number;
+  }) => void;
+
   // --- Caching ---
-  getCachedData: (cacheId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-  getCacheChunk: (args: { cacheId: string; chunkIndex: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
-  getCacheSummary: (cacheId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-  cacheData: (args: { cacheId: string; data: any }) => Promise<{ success: boolean; error?: string }>;
-  prepareCacheWrite: (args: { cacheId: string }) => Promise<{ success: boolean; error?: string }>;
-  writeCacheChunk: (args: { cacheId: string; chunkIndex: number; data: any }) => Promise<{ success: boolean; error?: string }>;
-  finalizeCacheWrite: (args: { cacheId: string; record: any }) => Promise<{ success: boolean; error?: string }>;
-  clearCacheData: (cacheId: string) => Promise<{ success: boolean; error?: string }>;
-  getThumbnail: (thumbnailId: string) => Promise<{ success: boolean; data?: Buffer; error?: string }>;
-  cacheThumbnail: (args: { thumbnailId: string; data: Uint8Array }) => Promise<{ success: boolean; error?: string; errorCode?: string }>;
+  getCachedData: (
+    cacheId: string,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
+  getCacheChunk: (args: {
+    cacheId: string;
+    chunkIndex: number;
+  }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  getCacheSummary: (
+    cacheId: string,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
+  cacheData: (args: {
+    cacheId: string;
+    data: any;
+  }) => Promise<{ success: boolean; error?: string }>;
+  prepareCacheWrite: (args: {
+    cacheId: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  writeCacheChunk: (args: {
+    cacheId: string;
+    chunkIndex: number;
+    data: any;
+  }) => Promise<{ success: boolean; error?: string }>;
+  finalizeCacheWrite: (args: {
+    cacheId: string;
+    record: any;
+  }) => Promise<{ success: boolean; error?: string }>;
+  clearCacheData: (
+    cacheId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  getThumbnail: (
+    thumbnailId: string,
+  ) => Promise<{ success: boolean; data?: Buffer; error?: string }>;
+  cacheThumbnail: (args: {
+    thumbnailId: string;
+    data: Uint8Array;
+  }) => Promise<{ success: boolean; error?: string; errorCode?: string }>;
   clearMetadataCache: () => Promise<{ success: boolean; error?: string }>;
   clearThumbnailCache: () => Promise<{ success: boolean; error?: string }>;
-  deleteCacheFolder: () => Promise<{ success: boolean; needsRestart?: boolean; error?: string }>;
+  deleteCacheFolder: () => Promise<{
+    success: boolean;
+    needsRestart?: boolean;
+    error?: string;
+  }>;
   restartApp: () => Promise<{ success: boolean; error?: string }>;
 
   onLoadDirectoryFromCLI: (callback: (dirPath: string) => void) => () => void;
@@ -66,21 +218,55 @@ export interface ElectronAPI {
   onMenuOpenSettings: (callback: () => void) => () => void;
   onMenuToggleView: (callback: () => void) => () => void;
   onMenuShowChangelog: (callback: () => void) => () => void;
-  testUpdateDialog: () => Promise<{ success: boolean; response?: number; error?: string }>;
+  testUpdateDialog: () => Promise<{
+    success: boolean;
+    response?: number;
+    error?: string;
+  }>;
   getTheme: () => Promise<{ shouldUseDarkColors: boolean }>;
-  onThemeUpdated: (callback: (theme: { shouldUseDarkColors: boolean }) => void) => () => void;
-  toggleFullscreen: () => Promise<{ success: boolean; isFullscreen?: boolean; error?: string }>;
-  onFullscreenChanged: (callback: (state: { isFullscreen: boolean }) => void) => () => void;
-  onFullscreenStateCheck: (callback: (state: { isFullscreen: boolean }) => void) => () => void;
-  onExportBatchProgress: (callback: (progress: ExportBatchProgress) => void) => () => void;
+  onThemeUpdated: (
+    callback: (theme: { shouldUseDarkColors: boolean }) => void,
+  ) => () => void;
+  toggleFullscreen: () => Promise<{
+    success: boolean;
+    isFullscreen?: boolean;
+    error?: string;
+  }>;
+  onFullscreenChanged: (
+    callback: (state: { isFullscreen: boolean }) => void,
+  ) => () => void;
+  onFullscreenStateCheck: (
+    callback: (state: { isFullscreen: boolean }) => void,
+  ) => () => void;
+  onExportBatchProgress: (
+    callback: (progress: ExportBatchProgress) => void,
+  ) => () => void;
 
   // File watching
-  startWatchingDirectory: (args: { directoryId: string; dirPath: string }) => Promise<{ success: boolean; error?: string }>;
-  stopWatchingDirectory: (args: { directoryId: string }) => Promise<{ success: boolean }>;
-  getWatcherStatus: (args: { directoryId: string }) => Promise<{ success: boolean; active: boolean }>;
-  onNewImagesDetected: (callback: (data: { directoryId: string; files: Array<{ name: string; path: string; lastModified: number; size: number; type: string }> }) => void) => () => void;
+  startWatchingDirectory: (args: {
+    directoryId: string;
+    dirPath: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  stopWatchingDirectory: (args: {
+    directoryId: string;
+  }) => Promise<{ success: boolean }>;
+  getWatcherStatus: (args: {
+    directoryId: string;
+  }) => Promise<{ success: boolean; active: boolean }>;
+  onNewImagesDetected: (
+    callback: (data: {
+      directoryId: string;
+      files: Array<{
+        name: string;
+        path: string;
+        lastModified: number;
+        size: number;
+        type: string;
+      }>;
+    }) => void,
+  ) => () => void;
   onWatcherDebug: (callback: (data: { message: string }) => void) => () => void;
-  
+
   // External Apps
 
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
@@ -128,7 +314,7 @@ export interface InvokeAIMetadata {
 
 export interface ShadowResource {
   id: string; // Unique ID for list management
-  type: 'model' | 'lora' | 'embedding';
+  type: "model" | "lora" | "embedding";
   name: string;
   weight?: number;
 }
@@ -196,7 +382,7 @@ export interface ComfyUIPrompt {
 
 export interface ComfyUIMetadata {
   workflow?: ComfyUIWorkflow | string;
-  parameters?: string // Can be object or JSON string
+  parameters?: string; // Can be object or JSON string
   prompt?: ComfyUIPrompt | string; // Can be object or JSON string
   // Additional fields that might be present
   normalizedMetadata?: BaseMetadata;
@@ -334,7 +520,23 @@ export interface SDNextMetadata {
 }
 
 // Union type for all supported metadata formats
-export type ImageMetadata = InvokeAIMetadata | Automatic1111Metadata | ComfyUIMetadata | SwarmUIMetadata | EasyDiffusionMetadata | EasyDiffusionJson | MidjourneyMetadata | NijiMetadata | ForgeMetadata | DalleMetadata | DreamStudioMetadata | FireflyMetadata | DrawThingsMetadata | FooocusMetadata | SDNextMetadata | VideoMetadata;
+export type ImageMetadata =
+  | InvokeAIMetadata
+  | Automatic1111Metadata
+  | ComfyUIMetadata
+  | SwarmUIMetadata
+  | EasyDiffusionMetadata
+  | EasyDiffusionJson
+  | MidjourneyMetadata
+  | NijiMetadata
+  | ForgeMetadata
+  | DalleMetadata
+  | DreamStudioMetadata
+  | FireflyMetadata
+  | DrawThingsMetadata
+  | FooocusMetadata
+  | SDNextMetadata
+  | VideoMetadata;
 
 // LoRA interface for detailed LoRA information
 export interface LoRAInfo {
@@ -378,7 +580,7 @@ export interface BaseMetadata {
   generator?: string; // Name of the AI generator/parser used
   version?: string;
   module?: string;
-  media_type?: 'image' | 'video';
+  media_type?: "image" | "video";
   video?: VideoInfo | null;
   motion_model?: MotionModelInfo | null;
   // MetaHub Save Node user inputs
@@ -404,38 +606,57 @@ export interface BaseMetadata {
 }
 
 // Type guard functions
-export function isInvokeAIMetadata(metadata: ImageMetadata): metadata is InvokeAIMetadata {
+export function isInvokeAIMetadata(
+  metadata: ImageMetadata,
+): metadata is InvokeAIMetadata {
   // More permissive detection - check for common InvokeAI fields
-  const hasInvokeAIFields = ('positive_prompt' in metadata) ||
-                           ('negative_prompt' in metadata) ||
-                           ('generation_mode' in metadata) ||
-                           ('app_version' in metadata) ||
-                           ('model_name' in metadata) ||
-                           ('cfg_scale' in metadata) ||
-                           ('scheduler' in metadata);
+  const hasInvokeAIFields =
+    "positive_prompt" in metadata ||
+    "negative_prompt" in metadata ||
+    "generation_mode" in metadata ||
+    "app_version" in metadata ||
+    "model_name" in metadata ||
+    "cfg_scale" in metadata ||
+    "scheduler" in metadata;
 
   // Also check for legacy prompt field with generation parameters
-  const hasLegacyFields = ('prompt' in metadata) &&
-                         (('model' in metadata) || ('width' in metadata) || ('height' in metadata) || ('steps' in metadata));
+  const hasLegacyFields =
+    "prompt" in metadata &&
+    ("model" in metadata ||
+      "width" in metadata ||
+      "height" in metadata ||
+      "steps" in metadata);
 
   // Check if it has InvokeAI-specific structure (not ComfyUI or A1111)
-  const notComfyUI = !('workflow' in metadata) && !('prompt' in metadata && typeof metadata.prompt === 'object');
-  const notA1111 = !('parameters' in metadata && typeof metadata.parameters === 'string');
+  const notComfyUI =
+    !("workflow" in metadata) &&
+    !("prompt" in metadata && typeof metadata.prompt === "object");
+  const notA1111 = !(
+    "parameters" in metadata && typeof metadata.parameters === "string"
+  );
 
   return (hasInvokeAIFields || hasLegacyFields) && notComfyUI && notA1111;
 }
 
-export function isSwarmUIMetadata(metadata: ImageMetadata): metadata is SwarmUIMetadata {
+export function isSwarmUIMetadata(
+  metadata: ImageMetadata,
+): metadata is SwarmUIMetadata {
   // Check for direct SwarmUI metadata at root level
-  if ('sui_image_params' in metadata && typeof metadata.sui_image_params === 'object') {
+  if (
+    "sui_image_params" in metadata &&
+    typeof metadata.sui_image_params === "object"
+  ) {
     return true;
   }
 
   // Check for SwarmUI metadata wrapped in parameters string (some SwarmUI images are saved this way)
-  if ('parameters' in metadata && typeof metadata.parameters === 'string') {
+  if ("parameters" in metadata && typeof metadata.parameters === "string") {
     try {
       const parsedParams = JSON.parse(metadata.parameters);
-      return 'sui_image_params' in parsedParams && typeof parsedParams.sui_image_params === 'object';
+      return (
+        "sui_image_params" in parsedParams &&
+        typeof parsedParams.sui_image_params === "object"
+      );
     } catch {
       // Not valid JSON, not SwarmUI
       return false;
@@ -445,167 +666,235 @@ export function isSwarmUIMetadata(metadata: ImageMetadata): metadata is SwarmUIM
   return false;
 }
 
-export function isEasyDiffusionMetadata(metadata: ImageMetadata): metadata is EasyDiffusionMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         metadata.parameters.includes('Prompt:') && 
-         !('sui_image_params' in metadata) && 
-         !metadata.parameters.includes('Model hash:'); // Distinguish from A1111
+export function isEasyDiffusionMetadata(
+  metadata: ImageMetadata,
+): metadata is EasyDiffusionMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    metadata.parameters.includes("Prompt:") &&
+    !("sui_image_params" in metadata) &&
+    !metadata.parameters.includes("Model hash:")
+  ); // Distinguish from A1111
 }
 
-export function isEasyDiffusionJson(metadata: ImageMetadata): metadata is EasyDiffusionJson {
-  return 'prompt' in metadata && typeof metadata.prompt === 'string' && !('parameters' in metadata);
+export function isEasyDiffusionJson(
+  metadata: ImageMetadata,
+): metadata is EasyDiffusionJson {
+  return (
+    "prompt" in metadata &&
+    typeof metadata.prompt === "string" &&
+    !("parameters" in metadata)
+  );
 }
 
-export function isMidjourneyMetadata(metadata: ImageMetadata): metadata is MidjourneyMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         (metadata.parameters.includes('Midjourney') || 
-          metadata.parameters.includes('--v') || 
-          metadata.parameters.includes('--ar') ||
-          metadata.parameters.includes('--q') ||
-          metadata.parameters.includes('--s'));
+export function isMidjourneyMetadata(
+  metadata: ImageMetadata,
+): metadata is MidjourneyMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    (metadata.parameters.includes("Midjourney") ||
+      metadata.parameters.includes("--v") ||
+      metadata.parameters.includes("--ar") ||
+      metadata.parameters.includes("--q") ||
+      metadata.parameters.includes("--s"))
+  );
 }
 
-export function isNijiMetadata(metadata: ImageMetadata): metadata is NijiMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         metadata.parameters.includes('--niji');
+export function isNijiMetadata(
+  metadata: ImageMetadata,
+): metadata is NijiMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    metadata.parameters.includes("--niji")
+  );
 }
 
-export function isForgeMetadata(metadata: ImageMetadata): metadata is ForgeMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         (metadata.parameters.includes('Forge') || 
-          metadata.parameters.includes('Gradio') ||
-          (metadata.parameters.includes('Steps:') && 
-           metadata.parameters.includes('Sampler:') && 
-           metadata.parameters.includes('Model hash:'))); // Similar to A1111 but with Forge/Gradio indicators
+export function isForgeMetadata(
+  metadata: ImageMetadata,
+): metadata is ForgeMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    (metadata.parameters.includes("Forge") ||
+      metadata.parameters.includes("Gradio") ||
+      (metadata.parameters.includes("Steps:") &&
+        metadata.parameters.includes("Sampler:") &&
+        metadata.parameters.includes("Model hash:")))
+  ); // Similar to A1111 but with Forge/Gradio indicators
 }
 
-export function isDalleMetadata(metadata: ImageMetadata): metadata is DalleMetadata {
+export function isDalleMetadata(
+  metadata: ImageMetadata,
+): metadata is DalleMetadata {
   // Check for C2PA manifest (primary indicator)
-  if ('c2pa_manifest' in metadata) {
+  if ("c2pa_manifest" in metadata) {
     return true;
   }
 
   // Check for OpenAI/DALL-E specific EXIF data
-  if ('exif_data' in metadata && typeof metadata.exif_data === 'object') {
+  if ("exif_data" in metadata && typeof metadata.exif_data === "object") {
     const exif = metadata.exif_data as any;
     // Look for OpenAI/DALL-E indicators in EXIF
-    if (exif['openai:dalle'] || exif['Software']?.includes('DALL-E') || exif['Software']?.includes('OpenAI')) {
+    if (
+      exif["openai:dalle"] ||
+      exif["Software"]?.includes("DALL-E") ||
+      exif["Software"]?.includes("OpenAI")
+    ) {
       return true;
     }
   }
 
   // Check for DALL-E specific fields
-  if ('prompt' in metadata && 'model_version' in metadata && 
-      (metadata.model_version?.includes('dall-e') || metadata.model_version?.includes('DALL-E'))) {
+  if (
+    "prompt" in metadata &&
+    "model_version" in metadata &&
+    (metadata.model_version?.includes("dall-e") ||
+      metadata.model_version?.includes("DALL-E"))
+  ) {
     return true;
   }
 
   return false;
 }
 
-export function isFireflyMetadata(metadata: ImageMetadata): metadata is FireflyMetadata {
+export function isFireflyMetadata(
+  metadata: ImageMetadata,
+): metadata is FireflyMetadata {
   // Check for C2PA manifest with Firefly indicators
-  if ('c2pa_manifest' in metadata) {
+  if ("c2pa_manifest" in metadata) {
     const manifest = metadata.c2pa_manifest as any;
     // Check for Adobe Firefly specific indicators
-    if (manifest?.['adobe:firefly'] || 
-        (typeof manifest === 'string' && manifest.includes('adobe:firefly'))) {
+    if (
+      manifest?.["adobe:firefly"] ||
+      (typeof manifest === "string" && manifest.includes("adobe:firefly"))
+    ) {
       return true;
     }
     // Check c2pa.actions for Firefly signatures
-    if (manifest?.['c2pa.actions']) {
-      const actions = JSON.stringify(manifest['c2pa.actions']);
-      if (actions.includes('firefly') || actions.includes('adobe.com/firefly')) {
+    if (manifest?.["c2pa.actions"]) {
+      const actions = JSON.stringify(manifest["c2pa.actions"]);
+      if (
+        actions.includes("firefly") ||
+        actions.includes("adobe.com/firefly")
+      ) {
         return true;
       }
     }
   }
 
   // Check for Adobe Firefly specific EXIF data
-  if ('exif_data' in metadata && typeof metadata.exif_data === 'object') {
+  if ("exif_data" in metadata && typeof metadata.exif_data === "object") {
     const exif = metadata.exif_data as any;
-    if (exif['adobe:firefly'] || exif['Software']?.includes('Firefly') || exif['Software']?.includes('Adobe Firefly')) {
+    if (
+      exif["adobe:firefly"] ||
+      exif["Software"]?.includes("Firefly") ||
+      exif["Software"]?.includes("Adobe Firefly")
+    ) {
       return true;
     }
   }
 
   // Check for Firefly specific fields
-  if ('firefly_version' in metadata || 'ai_generated' in metadata) {
+  if ("firefly_version" in metadata || "ai_generated" in metadata) {
     return true;
   }
 
   return false;
 }
 
-export function isDrawThingsMetadata(metadata: ImageMetadata): metadata is DrawThingsMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         (metadata.parameters.includes('Draw Things') || 
-          metadata.parameters.includes('iPhone') || 
-          metadata.parameters.includes('iPad') ||
-          (metadata.parameters.includes('Prompt:') && 
-           metadata.parameters.includes('Steps:') && 
-           metadata.parameters.includes('Seed:') &&
-           !metadata.parameters.includes('Model hash:') && // Exclude A1111
-           !metadata.parameters.includes('Forge') && // Exclude Forge
-           !metadata.parameters.includes('Gradio') && // Exclude Forge
-           !metadata.parameters.includes('DreamStudio') && // Exclude DreamStudio
-           !metadata.parameters.includes('Stability AI') && // Exclude DreamStudio
-           !metadata.parameters.includes('--niji') && // Exclude Niji Journey
-           !metadata.parameters.includes('Midjourney'))); // Exclude Midjourney
+export function isDrawThingsMetadata(
+  metadata: ImageMetadata,
+): metadata is DrawThingsMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    (metadata.parameters.includes("Draw Things") ||
+      metadata.parameters.includes("iPhone") ||
+      metadata.parameters.includes("iPad") ||
+      (metadata.parameters.includes("Prompt:") &&
+        metadata.parameters.includes("Steps:") &&
+        metadata.parameters.includes("Seed:") &&
+        !metadata.parameters.includes("Model hash:") && // Exclude A1111
+        !metadata.parameters.includes("Forge") && // Exclude Forge
+        !metadata.parameters.includes("Gradio") && // Exclude Forge
+        !metadata.parameters.includes("DreamStudio") && // Exclude DreamStudio
+        !metadata.parameters.includes("Stability AI") && // Exclude DreamStudio
+        !metadata.parameters.includes("--niji") && // Exclude Niji Journey
+        !metadata.parameters.includes("Midjourney")))
+  ); // Exclude Midjourney
 }
 
-export function isDreamStudioMetadata(metadata: ImageMetadata): metadata is DreamStudioMetadata {
-  return 'parameters' in metadata && 
-         typeof metadata.parameters === 'string' && 
-         (metadata.parameters.includes('DreamStudio') || 
-          metadata.parameters.includes('Stability AI') ||
-          (metadata.parameters.includes('Prompt:') && 
-           metadata.parameters.includes('Steps:') && 
-           !metadata.parameters.includes('Model hash:') && // Exclude A1111
-           !metadata.parameters.includes('Forge') && // Exclude Forge
-           !metadata.parameters.includes('Gradio'))); // Exclude Forge
+export function isDreamStudioMetadata(
+  metadata: ImageMetadata,
+): metadata is DreamStudioMetadata {
+  return (
+    "parameters" in metadata &&
+    typeof metadata.parameters === "string" &&
+    (metadata.parameters.includes("DreamStudio") ||
+      metadata.parameters.includes("Stability AI") ||
+      (metadata.parameters.includes("Prompt:") &&
+        metadata.parameters.includes("Steps:") &&
+        !metadata.parameters.includes("Model hash:") && // Exclude A1111
+        !metadata.parameters.includes("Forge") && // Exclude Forge
+        !metadata.parameters.includes("Gradio")))
+  ); // Exclude Forge
 }
 
-export function isAutomatic1111Metadata(metadata: ImageMetadata): metadata is Automatic1111Metadata {
-  if (!('parameters' in metadata) || typeof metadata.parameters !== 'string') {
+export function isAutomatic1111Metadata(
+  metadata: ImageMetadata,
+): metadata is Automatic1111Metadata {
+  if (!("parameters" in metadata) || typeof metadata.parameters !== "string") {
     return false;
   }
 
   // Exclude SwarmUI metadata (even when wrapped in parameters string)
-  if (metadata.parameters.includes('sui_image_params')) {
+  if (metadata.parameters.includes("sui_image_params")) {
     return false;
   }
 
   return true;
 }
 
-export function isComfyUIMetadata(metadata: ImageMetadata): metadata is ComfyUIMetadata {
+export function isComfyUIMetadata(
+  metadata: ImageMetadata,
+): metadata is ComfyUIMetadata {
   // The presence of a 'workflow' property is the most reliable and unique indicator for ComfyUI.
   // This check is intentionally lenient, trusting the dedicated parser to handle the details.
   // An overly strict type guard was the cause of previous parsing failures.
-  if ('workflow' in metadata && (typeof metadata.workflow === 'object' || typeof metadata.workflow === 'string')) {
+  if (
+    "workflow" in metadata &&
+    (typeof metadata.workflow === "object" ||
+      typeof metadata.workflow === "string")
+  ) {
     return true;
   }
 
   // As a fallback, check for the API-style 'prompt' object. This format, where keys are
   // node IDs, is also unique to ComfyUI and distinct from other formats.
-  if ('prompt' in metadata && typeof metadata.prompt === 'object' && metadata.prompt !== null && !Array.isArray(metadata.prompt)) {
+  if (
+    "prompt" in metadata &&
+    typeof metadata.prompt === "object" &&
+    metadata.prompt !== null &&
+    !Array.isArray(metadata.prompt)
+  ) {
     // A minimal structural check to ensure it's not just a random object.
     // It should contain values that look like ComfyUI nodes.
     return Object.values(metadata.prompt).some(
-      (node: any) => node && typeof node === 'object' && 'class_type' in node && 'inputs' in node
+      (node: any) =>
+        node &&
+        typeof node === "object" &&
+        "class_type" in node &&
+        "inputs" in node,
     );
   }
 
   return false;
 }
 
-export type ThumbnailStatus = 'pending' | 'loading' | 'ready' | 'error';
+export type ThumbnailStatus = "pending" | "loading" | "ready" | "error";
 
 export interface IndexedImage {
   id: string; // Unique ID, e.g., file path
@@ -630,19 +919,19 @@ export interface IndexedImage {
   dimensions?: string; // Extracted dimensions (width x height) from metadata
   directoryName?: string; // Name of the selected directory for context
   directoryId?: string; // Unique ID for the parent directory
-  enrichmentState?: 'catalog' | 'enriched';
+  enrichmentState?: "catalog" | "enriched";
   fileSize?: number;
   fileType?: string;
 
   // User Annotations (loaded from ImageAnnotations table)
-  isFavorite?: boolean;          // Quick access to favorite status
-  tags?: string[];               // Quick access to tags array
+  isFavorite?: boolean; // Quick access to favorite status
+  tags?: string[]; // Quick access to tags array
 
   // Smart Clustering & Auto-Tagging (Phase 1)
-  clusterId?: string;            // Cluster this image belongs to
-  clusterPosition?: number;      // Position within cluster (0 = cover image)
-  autoTags?: string[];           // Auto-generated tags from TF-IDF
-  autoTagsGeneratedAt?: number;  // Timestamp of tag generation
+  clusterId?: string; // Cluster this image belongs to
+  clusterPosition?: number; // Position within cluster (0 = cover image)
+  autoTags?: string[]; // Auto-generated tags from TF-IDF
+  autoTagsGeneratedAt?: number; // Timestamp of tag generation
 }
 
 /**
@@ -650,19 +939,19 @@ export interface IndexedImage {
  * Stored separately from image metadata in IndexedDB
  */
 export interface ImageAnnotations {
-  imageId: string;              // Links to IndexedImage.id (unique)
-  isFavorite: boolean;           // Star/Favorite flag
-  tags: string[];                // User-defined tags (lowercase normalized)
-  addedAt: number;               // Timestamp when first annotated
-  updatedAt: number;             // Timestamp of last update
+  imageId: string; // Links to IndexedImage.id (unique)
+  isFavorite: boolean; // Star/Favorite flag
+  tags: string[]; // User-defined tags (lowercase normalized)
+  addedAt: number; // Timestamp when first annotated
+  updatedAt: number; // Timestamp of last update
 }
 
 /**
  * Tag with usage statistics
  */
 export interface TagInfo {
-  name: string;                  // Tag name (lowercase)
-  count: number;                 // Number of images with this tag
+  name: string; // Tag name (lowercase)
+  count: number; // Number of images with this tag
 }
 
 export interface Directory {
@@ -678,7 +967,7 @@ export interface Directory {
 export interface FilterOptions {
   models: string[];
   loras: string[];
-  schedulers:string[];
+  schedulers: string[];
   selectedModel: string;
   selectedLora: string;
   selectedScheduler: string;
@@ -686,9 +975,11 @@ export interface FilterOptions {
 
 export interface Keymap {
   version: string;
-  [scope: string]: {
-    [action: string]: string;
-  } | string;
+  [scope: string]:
+    | {
+        [action: string]: string;
+      }
+    | string;
 }
 
 // File System Access API - extended Window interface
@@ -710,12 +1001,12 @@ export interface ZoomState {
   y: number;
 }
 
-export type ComparisonViewMode = 'side-by-side' | 'slider' | 'hover';
+export type ComparisonViewMode = "side-by-side" | "slider" | "hover";
 
 export interface ComparisonPaneProps {
   image: IndexedImage;
   directoryPath: string;
-  position: 'left' | 'right';
+  position: "left" | "right";
   syncEnabled: boolean;
   externalZoom?: ZoomState;
   onZoomChange?: (zoom: number, x: number, y: number) => void;
@@ -730,7 +1021,7 @@ export interface ComparisonMetadataPanelProps {
   image: IndexedImage;
   isExpanded: boolean;
   onToggleExpanded: () => void;
-  viewMode?: 'standard' | 'diff';
+  viewMode?: "standard" | "diff";
   otherImageMetadata?: BaseMetadata | null;
 }
 
@@ -740,37 +1031,37 @@ export interface ComparisonMetadataPanelProps {
  * Image cluster - groups images with similar prompts
  */
 export interface ImageCluster {
-  id: string;                      // Hash-based cluster ID
-  promptHash: string;              // Hash of the base prompt
-  basePrompt: string;              // Representative prompt text
-  imageIds: string[];              // Array of image IDs in this cluster
-  coverImageId: string;            // First image chronologically
-  size: number;                    // Number of images in cluster
-  similarityThreshold: number;     // Threshold used for clustering (0.85-0.90)
-  createdAt: number;               // Timestamp of cluster creation
-  updatedAt: number;               // Timestamp of last update
+  id: string; // Hash-based cluster ID
+  promptHash: string; // Hash of the base prompt
+  basePrompt: string; // Representative prompt text
+  imageIds: string[]; // Array of image IDs in this cluster
+  coverImageId: string; // First image chronologically
+  size: number; // Number of images in cluster
+  similarityThreshold: number; // Threshold used for clustering (0.85-0.90)
+  createdAt: number; // Timestamp of cluster creation
+  updatedAt: number; // Timestamp of last update
 }
 
 /**
  * Auto-generated tag from TF-IDF analysis
  */
 export interface AutoTag {
-  tag: string;                     // Tag name (e.g., "cyberpunk")
-  tfidfScore: number;              // TF-IDF score
-  frequency: number;               // Term frequency across corpus
-  sourceType: 'prompt' | 'metadata';  // Origin of tag
+  tag: string; // Tag name (e.g., "cyberpunk")
+  tfidfScore: number; // TF-IDF score
+  frequency: number; // Term frequency across corpus
+  sourceType: "prompt" | "metadata"; // Origin of tag
 }
 
 /**
  * Smart collection - virtual folder based on filters
  */
 export interface SmartCollection {
-  id: string;                      // Unique collection ID
-  name: string;                    // Display name
-  type: 'model' | 'style' | 'subject' | 'custom';  // Collection category
-  query: SmartCollectionQuery;     // Filter criteria
-  imageCount: number;              // Cached count
-  thumbnailId?: string;            // Cover image ID
+  id: string; // Unique collection ID
+  name: string; // Display name
+  type: "model" | "style" | "subject" | "custom"; // Collection category
+  query: SmartCollectionQuery; // Filter criteria
+  imageCount: number; // Cached count
+  thumbnailId?: string; // Cover image ID
   createdAt: number;
   updatedAt: number;
 }
@@ -790,11 +1081,11 @@ export interface SmartCollectionQuery {
  * User preferences for a specific cluster (stored in IndexedDB)
  */
 export interface ClusterPreference {
-  clusterId: string;               // Primary key
-  bestImageIds: string[];          // User-marked best images
-  archivedImageIds: string[];      // Suggested for deletion
-  isExpanded: boolean;             // UI state persistence
-  notes?: string;                  // User notes about cluster
+  clusterId: string; // Primary key
+  bestImageIds: string[]; // User-marked best images
+  archivedImageIds: string[]; // Suggested for deletion
+  isExpanded: boolean; // UI state persistence
+  notes?: string; // User notes about cluster
   updatedAt: number;
 }
 
@@ -802,26 +1093,26 @@ export interface ClusterPreference {
  * UI state for stack view
  */
 export interface StackViewState {
-  expandedClusterId: string | null;  // Currently expanded stack
-  hoverClusterId: string | null;     // Stack being hovered
-  scrubPosition: number;             // 0-1 for hover preview
+  expandedClusterId: string | null; // Currently expanded stack
+  hoverClusterId: string | null; // Stack being hovered
+  scrubPosition: number; // 0-1 for hover preview
 }
 
 /**
  * TF-IDF model for auto-tagging
  */
 export interface TFIDFModel {
-  vocabulary: string[];                // All unique terms
-  idfScores: Map<string, number>;      // Term → IDF score
-  documentCount: number;               // Total documents processed
+  vocabulary: string[]; // All unique terms
+  idfScores: Map<string, number>; // Term → IDF score
+  documentCount: number; // Total documents processed
 }
 
 /**
  * Stack of images grouped by similar prompt
  */
 export interface ImageStack {
-  id: string;                      // Unique stack ID (e.g. "stack-" + coverImage.id)
-  coverImage: IndexedImage;        // The representative image (first in group)
-  images: IndexedImage[];          // All images in this stack
-  count: number;                   // Total number of images in stack
+  id: string; // Unique stack ID (e.g. "stack-" + coverImage.id)
+  coverImage: IndexedImage; // The representative image (first in group)
+  images: IndexedImage[]; // All images in this stack
+  count: number; // Total number of images in stack
 }

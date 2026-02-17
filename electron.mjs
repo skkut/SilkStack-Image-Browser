@@ -1054,10 +1054,13 @@ function setupFileOperationHandlers() {
     }
   });
 
-  ipcMain.on("start-file-drag", (event, payload) => {
+  ipcMain.on("start-file-drag", async (event, payload) => {
     try {
       const directoryPath = payload?.directoryPath;
       const relativePath = payload?.relativePath;
+      const id = payload?.id;
+      const lastModified = payload?.lastModified;
+
       if (!directoryPath || !relativePath) {
         return;
       }
@@ -1070,11 +1073,53 @@ function setupFileOperationHandlers() {
         return;
       }
 
-      const fileIcon = nativeImage.createFromPath(fullPath);
-      const dragIcon =
-        fileIcon && !fileIcon.isEmpty()
-          ? fileIcon
-          : nativeImage.createFromPath(getIconPath());
+      let dragIcon;
+
+      // Try to use cached thumbnail if ID and lastModified are provided
+      if (id && lastModified) {
+        try {
+          // Construct thumbnail key: ${id}-${lastModified}
+          const thumbnailKey = `${id}-${lastModified}`;
+          const thumbnailPath = await getThumbnailCachePath(thumbnailKey);
+          
+          // Check if thumbnail exists
+          try {
+            await fs.access(thumbnailPath);
+            
+            // Read file into buffer
+            const buffer = await fs.readFile(thumbnailPath);
+            
+            // Try Data URL approach first (better WebP support)
+            const dataUrl = `data:image/webp;base64,${buffer.toString('base64')}`;
+            dragIcon = nativeImage.createFromDataURL(dataUrl);
+            
+            // If DataURL failed, try direct buffer
+            if (dragIcon.isEmpty()) {
+              dragIcon = nativeImage.createFromBuffer(buffer);
+            }
+
+            if (!dragIcon.isEmpty()) {
+              // console.log("[Drag] Using cached thumbnail:", thumbnailPath);
+            }
+          } catch (err) {
+            // Thumbnail doesn't exist or read failed, will fall back
+          }
+        } catch (error) {
+          console.error("[Drag] Error resolving thumbnail path:", error);
+        }
+      }
+
+      // Fallback: If thumbnail failed or wasn't available, resize the full image
+      if (!dragIcon || dragIcon.isEmpty()) {
+        const fileIcon = nativeImage.createFromPath(fullPath);
+        
+        if (fileIcon && !fileIcon.isEmpty()) {
+            // Resize to a reasonable thumbnail size (e.g., 256x256) to avoid dragging huge images
+            dragIcon = fileIcon.resize({ width: 256, height: 256, quality: 'best' });
+        } else {
+            dragIcon = nativeImage.createFromPath(getIconPath());
+        }
+      }
 
       event.sender.startDrag({ file: fullPath, icon: dragIcon });
     } catch (error) {

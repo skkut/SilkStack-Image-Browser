@@ -924,7 +924,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "copy";
       }
-      window.electronAPI?.startFileDrag({ directoryPath, relativePath });
+      window.electronAPI?.startFileDrag({ 
+        directoryPath, 
+        relativePath,
+        id: image.id,
+        lastModified: image.lastModified
+      });
     },
     [canDragExternally, directoryPath, image.id, image.name],
   );

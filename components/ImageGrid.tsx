@@ -194,7 +194,12 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'copy';
     }
-    window.electronAPI?.startFileDrag({ directoryPath, relativePath });
+    window.electronAPI?.startFileDrag({ 
+      directoryPath, 
+      relativePath, 
+      id: image.id,
+      lastModified: image.lastModified 
+    });
   };
 
   return (
