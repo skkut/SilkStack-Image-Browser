@@ -4,6 +4,8 @@ Write-Host "Clearing previous build artifacts..."
 Remove-Item -Path "dist" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "dist-electron" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "release" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "release-builds" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "dist-packager" -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Building and Packaging with Electron Packager..."
 # Specifically use electron-packager via the new script to avoid winCodeSign issues with electron-builder
