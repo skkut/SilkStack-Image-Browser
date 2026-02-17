@@ -72,22 +72,75 @@ async function generateVideoThumbnailBlob(file: File): Promise<Blob | null> {
     const height = video.videoHeight || 1;
     const maxEdge = Math.max(width, height);
     const scale = Math.min(1, MAX_THUMBNAIL_EDGE / maxEdge);
-    const thumbWidth = Math.max(1, Math.round(width * scale));
-    const thumbHeight = Math.max(1, Math.round(height * scale));
+    const targetWidth = Math.max(1, Math.round(width * scale));
+    const targetHeight = Math.max(1, Math.round(height * scale));
 
     const canvas = document.createElement('canvas');
-    canvas.width = thumbWidth;
-    canvas.height = thumbHeight;
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      return null;
-    }
+    if (!ctx) return null;
 
-    ctx.drawImage(video, 0, 0, thumbWidth, thumbHeight);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/webp', 0.82)
-    );
-    return blob;
+    // High quality smoothing settings
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    if (scale < 0.5) {
+      // Multi-step downscaling for better quality (fixes dithering)
+      let currentWidth = width;
+      let currentHeight = height;
+      
+      canvas.width = currentWidth;
+      canvas.height = currentHeight;
+      ctx.drawImage(video, 0, 0, currentWidth, currentHeight);
+
+      while (currentWidth * 0.5 > targetWidth) {
+        currentWidth = Math.floor(currentWidth * 0.5);
+        currentHeight = Math.floor(currentHeight * 0.5);
+        
+        // Draw to a temporary canvas or reuse the same canvas context by resizing
+        // Since we are shrinking, we can just redraw on the same canvas but at smaller size? 
+        // Actually, safer to use a temp canvas or just resize the main canvas and drawImage itself?
+        // Standard technique: Draw current canvas content into itself at half size
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = currentWidth;
+        tempCanvas.height = currentHeight;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) break;
+        
+        tempCtx.imageSmoothingEnabled = true;
+        tempCtx.imageSmoothingQuality = 'high';
+        tempCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, currentWidth, currentHeight);
+        
+        // Update main canvas
+        canvas.width = currentWidth;
+        canvas.height = currentHeight;
+        ctx.drawImage(tempCanvas, 0, 0);
+      }
+      
+      // Final step to exact target size
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = targetWidth;
+      finalCanvas.height = targetHeight;
+      const finalCtx = finalCanvas.getContext('2d');
+      if (!finalCtx) return null;
+      
+      finalCtx.imageSmoothingEnabled = true;
+      finalCtx.imageSmoothingQuality = 'high';
+      finalCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, targetWidth, targetHeight);
+      
+      const blob = await new Promise<Blob | null>((resolve) =>
+        finalCanvas.toBlob(resolve, 'image/webp', 0.90)
+      );
+      return blob;
+    } else {
+      // Single step is fine
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/webp', 0.90)
+      );
+      return blob;
+    }
   } catch (error) {
     console.error('Failed to generate video thumbnail blob:', error);
     return null;
@@ -103,27 +156,81 @@ async function generateThumbnailBlob(file: File): Promise<Blob | null> {
     const bitmap = await createImageBitmap(file);
     const maxEdge = Math.max(bitmap.width, bitmap.height) || 1;
     const scale = Math.min(1, MAX_THUMBNAIL_EDGE / maxEdge);
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const targetWidth = Math.max(1, Math.round(bitmap.width * scale));
+    const targetHeight = Math.max(1, Math.round(bitmap.height * scale));
 
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       bitmap.close();
       return null;
     }
 
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
+    // High quality smoothing settings
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/webp', 0.90)
-    );
+    if (scale < 0.5) {
+      // Multi-step downscaling
+      let currentWidth = bitmap.width;
+      let currentHeight = bitmap.height;
+      
+      // Initial draw
+      canvas.width = currentWidth;
+      canvas.height = currentHeight;
+      ctx.drawImage(bitmap, 0, 0);
 
-    return blob;
+      while (currentWidth * 0.5 > targetWidth) {
+        currentWidth = Math.floor(currentWidth * 0.5);
+        currentHeight = Math.floor(currentHeight * 0.5);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = currentWidth;
+        tempCanvas.height = currentHeight;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) break; // Should not happen
+        
+        tempCtx.imageSmoothingEnabled = true;
+        tempCtx.imageSmoothingQuality = 'high';
+        tempCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, currentWidth, currentHeight);
+        
+        canvas.width = currentWidth;
+        canvas.height = currentHeight;
+        ctx.drawImage(tempCanvas, 0, 0);
+      }
+
+      // Final resize
+      const finalCanvas = document.createElement('canvas');
+      finalCanvas.width = targetWidth;
+      finalCanvas.height = targetHeight;
+      const finalCtx = finalCanvas.getContext('2d');
+      if (!finalCtx) {
+        bitmap.close();
+        return null;
+      }
+      
+      finalCtx.imageSmoothingEnabled = true;
+      finalCtx.imageSmoothingQuality = 'high';
+      finalCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, targetWidth, targetHeight);
+      
+      const blob = await new Promise<Blob | null>((resolve) =>
+        finalCanvas.toBlob(resolve, 'image/webp', 0.90)
+      );
+      bitmap.close();
+      return blob;
+
+    } else {
+      // Single step
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+      bitmap.close();
+      
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/webp', 0.90)
+      );
+      return blob;
+    }
   } catch (error) {
     console.error('Failed to generate thumbnail blob:', error);
     return null;
