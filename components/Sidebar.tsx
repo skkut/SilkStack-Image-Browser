@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import SearchBar from './SearchBar';
 import AdvancedFilters from './AdvancedFilters';
 import TagsAndFavorites from './TagsAndFavorites';
@@ -117,6 +117,20 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const [appVersion, setAppVersion] = useState<string>('v0.0.0');
+
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const version = await window.electronAPI.getAppVersion();
+        setAppVersion(`v${version}`);
+      } catch (error) {
+        console.error('Failed to fetch app version:', error);
+      }
+    };
+    fetchVersion();
+  }, []);
+
   if (isCollapsed) {
     return (
       <div
@@ -154,7 +168,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="flex flex-col overflow-hidden">
                 <h1 className="text-lg font-bold tracking-tight text-white/90 truncate">AI Images Browser</h1>
-                <span className="text-[10px] font-mono font-normal text-gray-500">v0.1.0</span>
+                <span className="text-[10px] font-mono font-normal text-gray-500">{appVersion}</span>
             </div>
         </div>
 
