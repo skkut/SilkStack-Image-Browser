@@ -37,11 +37,23 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
   const [page, setPage] = useState(1);
   const [sortBy] = useState<'count' | 'name'>('count');
 
+  const directories = useImageStore((state) => state.directories);
+
   // Extract models and group images
   const modelEntries = useMemo(() => {
     const models = new Map<string, IndexedImage[]>();
 
+    // Identify disconnected directories
+    const disconnectedDirIds = new Set(
+      directories.filter(d => d.isConnected === false).map(d => d.id)
+    );
+
     images.forEach(image => {
+      // Skip images from disconnected directories
+      if (disconnectedDirIds.has(image.directoryId)) {
+        return;
+      }
+
       if (image.models && image.models.length > 0) {
         image.models.forEach(modelName => {
           if (!modelName) return;
@@ -71,7 +83,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
       }
       return a.name.localeCompare(b.name);
     });
-  }, [images, sortBy]);
+  }, [images, directories, sortBy]);
 
   const totalPages = itemsPerPage === -1 ? 1 : Math.ceil(modelEntries.length / itemsPerPage);
   
