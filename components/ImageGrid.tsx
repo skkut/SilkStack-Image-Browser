@@ -561,6 +561,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
   const { stackedItems } = useImageStacking(images, isStackingEnabled);
   const gridRef = useRef<HTMLDivElement>(null);
+  const gridInstanceRef = useRef<Grid>(null);
+  const columnCountRef = useRef(1);
   const imageCardsRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
@@ -766,25 +768,37 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
     setSelectionEnd(null);
   }, []);
 
+  // --- Stacking Logic ---
+  const itemsToRender: (IndexedImage | ImageStack)[] = isStackingEnabled ? stackedItems : images;
+
   // ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS
   // Sync focusedImageIndex when previewImage changes
   useEffect(() => {
     if (previewImage) {
-      const index = images.findIndex(img => img.id === previewImage.id);
+      const index = itemsToRender.findIndex((item: IndexedImage | ImageStack) => {
+        if (isImageStack(item)) return item.coverImage.id === previewImage.id;
+        return (item as IndexedImage).id === previewImage.id;
+      });
       if (index !== -1 && index !== focusedImageIndex) {
         setFocusedImageIndex(index);
       }
     }
-  }, [previewImage?.id]); // ✅ Removed focusedImageIndex to break circular dependency
+  }, [previewImage?.id, itemsToRender]); // ✅ Removed focusedImageIndex to break circular dependency
 
-  // Adjust focusedImageIndex when changing pages via arrow keys
   useEffect(() => {
-    if (focusedImageIndex === -1 && images.length > 0) {
+    if (focusedImageIndex === -1 && itemsToRender.length > 0) {
       // Quando volta de página, vai para última imagem
-      setFocusedImageIndex(images.length - 1);
-      setPreviewImage(images[images.length - 1]);
+      setFocusedImageIndex(itemsToRender.length - 1);
+      
+      const lastItem = itemsToRender[itemsToRender.length - 1];
+      const imageToPreview = isImageStack(lastItem) ? lastItem.coverImage : lastItem;
+      
+      // Only update if there's already a preview open (don't auto-open)
+      if (useImageStore.getState().previewImage) {
+        setPreviewImage(imageToPreview);
+      }
     }
-  }, [images.length]); // ✅ Removed focusedImageIndex to break circular dependency
+  }, [itemsToRender.length, setFocusedImageIndex, setPreviewImage, itemsToRender]); // ✅ Added missing dependencies
 
   // Keyboard navigation
   useEffect(() => {
@@ -809,18 +823,25 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
       // Enter key works globally when an image is focused (fixes Issue #21)
       if (e.key === 'Enter' && !isTyping) {
         const currentIndex = focusedImageIndex ?? -1;
-        if (currentIndex >= 0 && currentIndex < images.length) {
+        if (currentIndex >= 0 && currentIndex < itemsToRender.length) {
           e.preventDefault();
           e.stopPropagation();
+
+          const selectedItem = itemsToRender[currentIndex];
+
+          if (isImageStack(selectedItem)) {
+              handleStackClick(selectedItem);
+              return;
+          }
 
           // Alt+Enter = Open image in fullscreen mode (hide metadata panel)
           if (e.altKey) {
             sessionStorage.setItem('openImageFullscreen', 'true');
-            onImageClick(images[currentIndex], e as any);
+            onImageClick(selectedItem, e as any);
           } else {
             // Regular Enter = Open modal normally
             sessionStorage.removeItem('openImageFullscreen');
-            onImageClick(images[currentIndex], e as any);
+            onImageClick(selectedItem, e as any);
           }
           return;
         }
@@ -828,34 +849,67 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
       const currentIndex = focusedImageIndex ?? -1;
       let nextIndex = currentIndex;
+      const columnCount = columnCountRef.current;
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      if (e.key === 'ArrowRight') {
         e.preventDefault();
         nextIndex = currentIndex + 1;
-        if (nextIndex < images.length) {
+        if (nextIndex < itemsToRender.length) {
           setFocusedImageIndex(nextIndex);
-          setPreviewImage(images[nextIndex]);
+          const nextItem = itemsToRender[nextIndex];
+          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
+          if (useImageStore.getState().previewImage) {
+            setPreviewImage(imageToPreview);
+          }
         } else if (currentPage < totalPages) {
-          // Chegou no final da página, vai pra próxima
           onPageChange(currentPage + 1);
           setFocusedImageIndex(0);
-          nextIndex = -1; // Wait for page change
+          nextIndex = -1;
         } else {
-            nextIndex = -1; // End of list
+            nextIndex = -1;
         }
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         nextIndex = currentIndex - 1;
         if (nextIndex >= 0) {
           setFocusedImageIndex(nextIndex);
-          setPreviewImage(images[nextIndex]);
+          const nextItem = itemsToRender[nextIndex];
+          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
+          if (useImageStore.getState().previewImage) {
+            setPreviewImage(imageToPreview);
+          }
         } else if (currentPage > 1) {
-          // Chegou no início da página, vai pra anterior
           onPageChange(currentPage - 1);
-          setFocusedImageIndex(-1); // Será ajustado quando as imagens mudarem
-          nextIndex = -1; // Wait for page change
+          setFocusedImageIndex(-1);
+          nextIndex = -1;
         } else {
-            nextIndex = -1; // Start of list
+            nextIndex = -1;
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        nextIndex = currentIndex + columnCount;
+        if (nextIndex < itemsToRender.length) {
+          setFocusedImageIndex(nextIndex);
+          const nextItem = itemsToRender[nextIndex];
+          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
+          if (useImageStore.getState().previewImage) {
+            setPreviewImage(imageToPreview);
+          }
+        } else {
+            nextIndex = -1;
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        nextIndex = currentIndex - columnCount;
+        if (nextIndex >= 0) {
+          setFocusedImageIndex(nextIndex);
+          const nextItem = itemsToRender[nextIndex];
+          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
+          if (useImageStore.getState().previewImage) {
+            setPreviewImage(imageToPreview);
+          }
+        } else {
+            nextIndex = -1;
         }
       } else if (e.key === 'PageDown') {
         e.preventDefault();
@@ -883,20 +937,34 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
         nextIndex = -1;
       }
 
-      // Sync selection if navigation occurred and no modifiers (or Shift) are held
-      // Standard Windows behavior: Arrow key moves focus AND selects, deselecting others (unless Ctrl is held)
+      // Sync selection if navigation occurred
       if (nextIndex !== -1 && nextIndex !== currentIndex) {
          if (!e.ctrlKey && !e.shiftKey) {
-             useImageStore.setState({ selectedImages: new Set([images[nextIndex].id]) });
+             const selectedItem = itemsToRender[nextIndex];
+             const imageId = isImageStack(selectedItem) ? selectedItem.coverImage.id : (selectedItem as IndexedImage).id;
+             useImageStore.setState({ selectedImages: new Set([imageId]) });
          }
-         // TODO: Implement Shift range selection if needed, but for now just preserving Selection if Ctrl is held,
-         // or resetting if neither. (User request: "Arrow key -> all should lose selection" [except new one])
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedImageIndex, images, setFocusedImageIndex, setPreviewImage, onImageClick, currentPage, totalPages, onPageChange]);
+  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, currentPage, totalPages, onPageChange]);
+
+  // Auto-scroll to focused image
+  useEffect(() => {
+    if (focusedImageIndex !== null && focusedImageIndex !== -1 && gridInstanceRef.current) {
+        const columnCount = columnCountRef.current;
+        const rowIndex = Math.floor(focusedImageIndex / columnCount);
+        const columnIndex = focusedImageIndex % columnCount;
+        
+        gridInstanceRef.current.scrollToItem({
+            align: 'auto',
+            columnIndex,
+            rowIndex
+        });
+    }
+  }, [focusedImageIndex]);
 
   // Add global mouseup listener to handle selection end even outside the grid
   useEffect(() => {
@@ -1146,9 +1214,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
     </>
   );
 
-  // --- Stacking Logic ---
-  // Decide what to render based on stacking
-  const itemsToRender = isStackingEnabled ? stackedItems : images;
+  // Decision of what to render is already handled above to support navigation hooks
+  // const itemsToRender = isStackingEnabled ? stackedItems : images;
 
   // Handle drill-down
 
@@ -1228,8 +1295,11 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                     toggleImageSelection
                 };
 
+                columnCountRef.current = safeColumnCount;
+
                 return (
                   <Grid
+                    ref={gridInstanceRef}
                     columnCount={safeColumnCount}
                     columnWidth={dynamicColumnWidth}
                     height={height}
@@ -1300,6 +1370,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
              // available - ((cols - 1) * gap) = cols * size
              // size = (available - ((cols - 1) * gap)) / cols
              const dynamicImageSize = Math.floor((availableWidth - ((safeColumnCount - 1) * GAP_SIZE) - 2) / safeColumnCount);
+
+             columnCountRef.current = safeColumnCount;
 
              return (
               <div
