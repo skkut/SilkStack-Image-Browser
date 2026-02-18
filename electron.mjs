@@ -461,6 +461,7 @@ function createWindow(startupDirectory = null) {
 
   // Show window when ready
   mainWindow.once("ready-to-show", () => {
+    mainWindow.maximize();
     mainWindow.show();
 
     // If a startup directory was provided via CLI, send it to the renderer

@@ -22,6 +22,9 @@ dist-electron
 dist-ssr
 *.local
 $target/
+.claude/
+.github/
+.vscode/
 
 # Build outputs
 dist/
