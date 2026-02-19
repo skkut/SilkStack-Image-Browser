@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Directory } from '../types';
+import { useImageStore } from '../store/useImageStore';
 import { FolderOpen, RotateCcw, Trash2, ChevronDown, Folder, FolderTree, X, EyeOff } from 'lucide-react';
 
 interface DirectoryListProps {
@@ -201,7 +202,111 @@ export default function DirectoryList({
       return () => window.removeEventListener('click', handleClickOutside, true);
     }
   }, [contextMenu]);
+  
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
+  const handleDragOver = useCallback((e: React.DragEvent, path: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Enable copy/move for files
+    e.dataTransfer.dropEffect = 'copy'; 
+    if (dropTarget !== path) {
+        console.log('[DirectoryList] DragOver:', path);
+        setDropTarget(path);
+    }
+  }, [dropTarget]);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent, targetPath: string, rootId: string) => {
+    console.log('[DirectoryList] Drop on:', targetPath);
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTarget(null);
+
+    const isElectron = typeof window !== 'undefined' && (window as any).electronAPI;
+    if (!isElectron) {
+        console.log('[DirectoryList] Not electron');
+        return;
+    }
+
+    let filesToMove: { sourcePath: string; name: string }[] = [];
+
+    // Check for internal drag data (Store State - Preferred for robustness)
+    const draggedItems = useImageStore.getState().draggedItems;
+    if (draggedItems && draggedItems.length > 0) {
+        console.log('[DirectoryList] Found internal drag items (via store):', draggedItems.length);
+        filesToMove = draggedItems;
+    } else {
+        // Fallback to dataTransfer if store is empty (e.g. valid external drag or store cleared too early)
+        const internalData = e.dataTransfer.getData('application/x-image-metahub-items');
+        if (internalData) {
+            console.log('[DirectoryList] Found internal drag data (via dataTransfer)');
+            try {
+                filesToMove = JSON.parse(internalData);
+            } catch (err) {
+                console.error('Failed to parse internal drag data', err);
+            }
+        } else if (e.dataTransfer.files.length > 0) {
+          console.log('[DirectoryList] Found external/native files:', e.dataTransfer.files.length);
+          // External files
+          filesToMove = Array.from(e.dataTransfer.files).map(f => {
+              // Electron's File object has a 'path' property, but sometimes it needs to be accessed differently or might be missing in some contexts?
+              // In newer Electron versions, we might need webUtils.getPathForFile(f) in the main process, but here in renderer 'path' usually works.
+              // Let's explicitly cast and check given the error.
+              const p = (f as any).path;
+              console.log('[DirectoryList] File path extraction:', f.name, p);
+              return {
+                sourcePath: p,
+                name: f.name
+              };
+          }).filter(f => !!f.sourcePath); // Filter out any where path is missing
+        } else {
+            console.log('[DirectoryList] No valid data found in drop');
+        }
+    }
+
+    if (filesToMove.length === 0) return;
+
+    try {
+        const result = await (window as any).electronAPI.moveFiles({
+            files: filesToMove,
+            targetDir: targetPath
+        });
+
+        if (result.success) {
+            console.log('[DirectoryList] Move successful, refreshing...');
+            // Check if we need to refresh the current view (if source or target is current)
+            // Since we don't know the current view here easily without props, 
+            // we at least refresh the target folder if it's the one currently selected?
+            // Actually onUpdateDirectory triggers a scan.
+            // Refresh target directory
+            onUpdateDirectory(rootId, targetPath);
+
+            // Remove moved images from store to update specific thumbnail view immediately
+            const movedPaths = result.results
+                .filter((r: any) => r.success)
+                .map((r: any) => r.sourcePath);
+            
+            if (movedPaths.length > 0) {
+                 useImageStore.getState().removeImagesByPaths(movedPaths);
+            }
+            
+            // For now, this is a good start.
+        } else {
+            console.error('Move failed:', result.error);
+            alert(`Failed to move files: ${result.error}`);
+        }
+    } catch (error) {
+         console.error('Move error:', error);
+         alert('An error occurred while moving files.');
+    }
+  }, [onUpdateDirectory]);
+  
   const renderSubfolderList = useCallback((rootDirectory: Directory, parentKey: string): React.ReactNode => {
     const children = subfolderCache.get(parentKey) || [];
 
@@ -225,12 +330,15 @@ export default function DirectoryList({
             className={`flex items-center cursor-pointer rounded px-2 py-1 transition-colors group ${
               isSelected
                 ? 'bg-blue-600/30 hover:bg-blue-600/40'
-                : 'hover:bg-gray-700/50'
+                : dropTarget === child.path ? 'bg-blue-500/40' : 'hover:bg-gray-700/50'
             }`}
             onClick={(e) => handleFolderClick(child.path, e)}
             onContextMenu={(e) => handleContextMenu(e, child.path)}
              title={rootDirectory.isConnected === false ? 'Parent directory disconnected' : ''}
              style={{ opacity: rootDirectory.isConnected === false ? 0.5 : 1 }}
+             onDragOver={(e) => handleDragOver(e, child.path)}
+             onDragLeave={handleDragLeave}
+             onDrop={(e) => handleDrop(e, child.path, rootDirectory.id)}
           >
             {hasSubfolders ? (
               <button
@@ -307,7 +415,7 @@ export default function DirectoryList({
         </li>
       );
     });
-  }, [expandedNodes, handleFolderClick, handleContextMenu, handleToggleNode, isFolderSelected, loadingNodes, subfolderCache, excludedFolders]);
+  }, [expandedNodes, handleFolderClick, handleContextMenu, handleToggleNode, isFolderSelected, loadingNodes, subfolderCache, excludedFolders, dropTarget, handleDragOver, handleDragLeave, handleDrop]);
 
   return (
     <div className="border-b border-gray-700">
@@ -383,9 +491,12 @@ export default function DirectoryList({
                       className={`flex items-center justify-between p-2 rounded-md transition-colors ${
                         isRootSelected
                           ? 'bg-blue-600/30 hover:bg-blue-600/40'
-                          : 'bg-gray-800 hover:bg-gray-700/50'
+                          : dropTarget === dir.path ? 'bg-blue-500/40' : 'bg-gray-800 hover:bg-gray-700/50'
                       } ${dir.isConnected === false ? 'opacity-50 grayscale' : ''}`}
                       title={dir.isConnected === false ? 'Directory not found (disconnected)' : ''}
+                      onDragOver={(e) => handleDragOver(e, dir.path)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, dir.path, dir.id)}
                     >
                     <div className="flex items-center overflow-hidden flex-1">
                       {hasSubfolders ? (

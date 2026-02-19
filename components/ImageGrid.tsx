@@ -41,6 +41,7 @@ interface ImageCardProps {
   isMarkedBest?: boolean;       // For deduplication: marked as best to keep
   isMarkedArchived?: boolean;   // For deduplication: marked for archive
   isBlurred?: boolean;
+  getDragPayload?: (image: IndexedImage) => { sourcePath: string; name: string }[];
 }
 
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
@@ -53,7 +54,7 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, isComparisonFirst, cardRef, isMarkedBest, isMarkedArchived, isBlurred }) => {
+const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, isComparisonFirst, cardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   // aspectRatio state removed as unused
@@ -64,6 +65,8 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
   const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
   const [showToast, setShowToast] = useState(false);
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
+  const setDraggedItems = useImageStore((state) => state.setDraggedItems);
+  const clearDraggedItems = useImageStore((state) => state.clearDraggedItems);
   const canDragExternally = typeof window !== 'undefined' && !!window.electronAPI?.startFileDrag;
   const isVideo = isVideoFileName(image.name, image.fileType);
 
@@ -190,16 +193,52 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
     const [, relativeFromId] = image.id.split('::');
     const relativePath = relativeFromId || image.name;
 
+    // Internal Drag and Drop Data
+    if (getDragPayload && e.dataTransfer) {
+      const payload = getDragPayload(image);
+      e.dataTransfer.setData('application/x-image-metahub-items', JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = 'copyMove';
+
+      // Set global drag state for reliable internal drops
+      setDraggedItems(payload);
+    }
+
+    // Native File Drag (for external apps)
     e.preventDefault();
     if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'copy';
+      // We set copy here for external apps, but internal drop handlers will look at effectAllowed
+      e.dataTransfer.effectAllowed = 'copyMove';
     }
+
+    // Get all files to drag
+    let filesToDrag: string[] = [];
+    if (getDragPayload) {
+        const payload = getDragPayload(image);
+        filesToDrag = payload.map(p => p.sourcePath).filter(Boolean);
+    }
+
+    // Fallback to single file if payload empty or failed
+    if (filesToDrag.length === 0) {
+        const directoryPath = image.directoryId;
+        if (!directoryPath) return; // Cannot drag without path
+        const [, relativeFromId] = image.id.split('::');
+        const relativePath = relativeFromId || image.name;
+        // Reconstruct path manually if needed
+        filesToDrag = [`${directoryPath}\\${relativePath}`]; 
+    }
+
     window.electronAPI?.startFileDrag({ 
-      directoryPath, 
-      relativePath, 
+      files: filesToDrag,
+      // Keep legacy single file params just in case, but handler will prioritize 'files'
+      directoryPath: image.directoryId, 
+      relativePath: (image.id.split('::')[1] || image.name), 
       id: image.id,
       lastModified: image.lastModified 
     });
+  };
+
+  const handleDragEnd = (e: React.DragEvent<HTMLDivElement>) => {
+    clearDraggedItems();
   };
 
   return (
@@ -237,6 +276,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
 
         onContextMenu={(e) => onContextMenu && onContextMenu(image, e)}
         onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
         draggable={canDragExternally}
       >
         {/* Checkbox for selection - always visible on hover or when selected */}
@@ -407,6 +447,7 @@ interface CellData {
   sensitiveTagSet?: Set<string>;
   blurSensitiveImages?: boolean;
   toggleImageSelection: (imageId: string, multiSelect: boolean) => void;
+  getDragPayload: (image: IndexedImage) => { sourcePath: string; name: string }[];
 }
 
 const Cell = React.memo(({ columnIndex, rowIndex, style, data }: GridChildComponentProps<CellData>) => {
@@ -427,7 +468,8 @@ const Cell = React.memo(({ columnIndex, rowIndex, style, data }: GridChildCompon
     enableSafeMode,
     sensitiveTagSet,
     blurSensitiveImages,
-    toggleImageSelection
+    toggleImageSelection,
+    getDragPayload
   } = data;
 
   const index = rowIndex * columnCount + columnIndex;
@@ -479,6 +521,7 @@ const Cell = React.memo(({ columnIndex, rowIndex, style, data }: GridChildCompon
               isMarkedBest={markedBestIds?.has(item.coverImage.id)}
               isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
               isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+              getDragPayload={getDragPayload}
             />
 
             {/* Stack Badge */}
@@ -522,6 +565,7 @@ const Cell = React.memo(({ columnIndex, rowIndex, style, data }: GridChildCompon
         isMarkedBest={markedBestIds?.has(image.id)}
         isMarkedArchived={markedArchivedIds?.has(image.id)}
         isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+        getDragPayload={getDragPayload}
       />
     </div>
   );
@@ -1231,7 +1275,45 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
   // Use itemsToRender for calculations
   const isInfinite = itemsPerPage === -1;
+
   const isEmpty = itemsToRender.length === 0;
+
+  const getDragPayload = useCallback((targetImage: IndexedImage) => {
+    // If the dragged image is part of the selection, drag all selected images
+    if (selectedImages.has(targetImage.id)) {
+      // Find all selected images from the current images list
+      const selectedItems = images.filter(img => selectedImages.has(img.id));
+      
+      // If we found them, map them to the payload
+      if (selectedItems.length > 0) {
+        return selectedItems.map(img => {
+            const [, relativeFromId] = img.id.split('::');
+            const relativePath = relativeFromId || img.name;
+            // Best effort path reconstruction using directoryId
+            const sourcePath = img.directoryId 
+              ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\') 
+              : img.id.includes('::') ? img.id.split('::')[1] : img.id;
+
+            return {
+              sourcePath,
+              name: img.name
+            };
+        });
+      }
+    }
+    
+    // Fallback: if not selected or mapping failed, just drag the target image
+    const [, relativeFromId] = targetImage.id.split('::');
+    const relativePath = relativeFromId || targetImage.name;
+    const sourcePath = targetImage.directoryId 
+      ? `${targetImage.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\') 
+      : targetImage.id.includes('::') ? targetImage.id.split('::')[1] : targetImage.id;
+
+    return [{
+       sourcePath,
+       name: targetImage.name
+    }];
+  }, [selectedImages, images]);
 
   // Dummy handler for image loading since aspect ratio tracking was removed but prop is required
   const handleImageLoad = useCallback((id: string, aspectRatio: number) => {
@@ -1292,7 +1374,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                     enableSafeMode,
                     sensitiveTagSet,
                     blurSensitiveImages,
-                    toggleImageSelection
+                    toggleImageSelection,
+                    getDragPayload
                 };
 
                 columnCountRef.current = safeColumnCount;
@@ -1339,10 +1422,11 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
     );
   }
 
-  return (
-    <div className="flex flex-col h-full w-full">
 
-      <div
+
+  return (
+    <div className="h-full flex flex-col min-h-0 bg-gray-900 overflow-hidden" data-area="main-content">
+      <div 
         ref={gridRef}
         className="flex-1 p-2 outline-none overflow-y-auto overflow-x-hidden"
         style={{ minWidth: 0, minHeight: 0, position: 'relative', userSelect: isSelecting ? 'none' : 'auto' }}
@@ -1418,6 +1502,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                                       isMarkedBest={markedBestIds?.has(item.coverImage.id)}
                                       isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
                                       isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                                      getDragPayload={getDragPayload}
                                   />
                                   {/* Low prominence Stack Badge */}
                                   <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-20 border border-blue-400">
@@ -1460,6 +1545,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
                         isMarkedBest={markedBestIds?.has(image.id)}
                         isMarkedArchived={markedArchivedIds?.has(image.id)}
                         isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                        getDragPayload={getDragPayload}
                       />
                     </div>
                   );
@@ -1489,6 +1575,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
       </div>
     </div>
   );
-};
+}; // End of ImageGrid component
 
 export default ImageGrid;
+

@@ -258,6 +258,7 @@ interface ImageState {
   mergeImages: (updatedImages: IndexedImage[]) => void;
   removeImage: (imageId: string) => void;
   removeImages: (imageIds: string[]) => void;
+  removeImagesByPaths: (paths: string[]) => void;
   updateImage: (imageId: string, newName: string) => void;
   clearImages: (directoryId?: string) => void;
   setImageThumbnail: (
@@ -343,6 +344,11 @@ interface ImageState {
   // Cleanup invalid images
   cleanupInvalidImages: () => void;
   setStackingEnabled: (enabled: boolean) => void;
+
+  // Drag and Drop State (Internal)
+  draggedItems: { sourcePath: string; name: string }[];
+  setDraggedItems: (items: { sourcePath: string; name: string }[]) => void;
+  clearDraggedItems: () => void;
 
   // Reset Actions
   resetState: () => void;
@@ -1017,6 +1023,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         autoTaggingProgress: null,
         autoTaggingWorker: null,
         isAutoTagging: false,
+        draggedItems: [],
 
         // --- ACTIONS ---
 
@@ -1308,6 +1315,31 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const remainingImages = state.images.filter(img => !idsToRemove.has(img.id));
                 return _updateState(state, remainingImages);
             });
+        },
+
+        removeImagesByPaths: (paths) => {
+            const pathsToRemove = new Set(paths.map(p => normalizePath(p).toLowerCase())); // Normalize and lowercase
+            const { images, directories } = get();
+            
+            // Create directory map for fast lookup
+            const dirMap = new Map<string, string>();
+            directories.forEach(dir => dirMap.set(dir.id, normalizePath(dir.path)));
+
+            const remainingImages = images.filter(img => {
+                const dirPath = dirMap.get(img.directoryId || '');
+                if (!dirPath) return true; // Keep if we can't determine path
+                
+                const relativePath = getRelativeImagePath(img);
+                const fullPath = joinPath(dirPath, relativePath);
+                const normalizedFullPath = normalizePath(fullPath).toLowerCase();
+                
+                return !pathsToRemove.has(normalizedFullPath);
+            });
+            
+            if (remainingImages.length !== images.length) {
+                flushPendingImages();
+                set(state => _updateState(state, remainingImages));
+            }
         },
 
         removeImage: (imageId) => {
@@ -2291,6 +2323,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
         },
 
+        // Drag and Drop (Internal)
+        setDraggedItems: (items) => set({ draggedItems: items }),
+        clearDraggedItems: () => set({ draggedItems: [] }),
+
         resetState: () => set({
             images: [],
             filteredImages: [],
@@ -2340,9 +2376,9 @@ export const useImageStore = create<ImageState>((set, get) => {
             isClustering: false,
             clusterNavigationContext: null,
             tfidfModel: null,
-            autoTaggingProgress: null,
             autoTaggingWorker: null,
             isAutoTagging: false,
+            draggedItems: [],
         }),
 
         cleanupInvalidImages: () => {

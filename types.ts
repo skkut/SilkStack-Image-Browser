@@ -126,6 +126,15 @@ export interface ElectronAPI {
     failedCount: number;
     error?: string;
   }>;
+  moveFiles: (args: {
+    files: { sourcePath: string; name: string }[];
+    targetDir: string;
+  }) => Promise<{
+    success: boolean;
+    results?: { sourcePath: string; targetPath?: string; success: boolean; error?: string }[];
+    sourceDirectories?: string[];
+    error?: string;
+  }>;
   deleteFile: (
     filePath: string,
   ) => Promise<{ success: boolean; error?: string }>;
@@ -161,6 +170,7 @@ export interface ElectronAPI {
     fileNames: string[];
   }) => Promise<{ success: boolean; paths?: string[]; error?: string }>;
   startFileDrag: (args: {
+    files?: string[];
     directoryPath: string;
     relativePath: string;
     id?: string;

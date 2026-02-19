@@ -20,10 +20,10 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import * as fileWatcher from "./services/fileWatcher.mjs";
 import archiver from "archiver";
-import { createRequire } from 'module';
+import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const pkg = require('./package.json');
+const pkg = require("./package.json");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -646,6 +646,7 @@ async function getFilesRecursively(directory, baseDirectory) {
 function setupFileOperationHandlers() {
   // Security helper to check if a file path is within one of the allowed directories
   const isPathAllowed = (filePath) => {
+    if (!filePath || typeof filePath !== 'string') return false;
     if (allowedDirectoryPaths.size === 0) return false;
     const normalizedFilePath = path.normalize(filePath);
     return Array.from(allowedDirectoryPaths).some((allowedPath) =>
@@ -1082,18 +1083,18 @@ function setupFileOperationHandlers() {
           // Construct thumbnail key: ${id}-${lastModified}
           const thumbnailKey = `${id}-${lastModified}`;
           const thumbnailPath = await getThumbnailCachePath(thumbnailKey);
-          
+
           // Check if thumbnail exists
           try {
             await fs.access(thumbnailPath);
-            
+
             // Read file into buffer
             const buffer = await fs.readFile(thumbnailPath);
-            
+
             // Try Data URL approach first (better WebP support)
-            const dataUrl = `data:image/webp;base64,${buffer.toString('base64')}`;
+            const dataUrl = `data:image/webp;base64,${buffer.toString("base64")}`;
             dragIcon = nativeImage.createFromDataURL(dataUrl);
-            
+
             // If DataURL failed, try direct buffer
             if (dragIcon.isEmpty()) {
               dragIcon = nativeImage.createFromBuffer(buffer);
@@ -1113,12 +1114,16 @@ function setupFileOperationHandlers() {
       // Fallback: If thumbnail failed or wasn't available, resize the full image
       if (!dragIcon || dragIcon.isEmpty()) {
         const fileIcon = nativeImage.createFromPath(fullPath);
-        
+
         if (fileIcon && !fileIcon.isEmpty()) {
-            // Resize to a reasonable thumbnail size (e.g., 256x256) to avoid dragging huge images
-            dragIcon = fileIcon.resize({ width: 256, height: 256, quality: 'best' });
+          // Resize to a reasonable thumbnail size (e.g., 256x256) to avoid dragging huge images
+          dragIcon = fileIcon.resize({
+            width: 256,
+            height: 256,
+            quality: "best",
+          });
         } else {
-            dragIcon = nativeImage.createFromPath(getIconPath());
+          dragIcon = nativeImage.createFromPath(getIconPath());
         }
       }
 
@@ -1209,6 +1214,87 @@ function setupFileOperationHandlers() {
       return { success: true };
     } catch (error) {
       console.error("Error renaming file:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handle batch file moving
+  ipcMain.handle("move-files", async (event, args) => {
+    try {
+      const { files, targetDir } = args;
+      if (!files || !Array.isArray(files) || !targetDir) {
+        return { success: false, error: "Invalid arguments" };
+      }
+
+      if (!isPathAllowed(targetDir)) {
+        return {
+          success: false,
+          error: "Access denied: Target directory not allowed",
+        };
+      }
+
+      const results = [];
+      const sourceDirectories = new Set();
+      const usedNames = new Set();
+
+      // Pre-populate used names from target directory to avoid collisions with existing files
+      try {
+        const existing = await fs.readdir(targetDir);
+        existing.forEach((name) => usedNames.add(normalizeNameKey(name)));
+      } catch (err) {
+        // If we can't read target dir, we might have issues, but let's try to proceed or fail individual files
+        console.error(
+          "Error reading target directory for collision check:",
+          err,
+        );
+      }
+
+      // Helper for robust file moving (handles cross-device moves)
+      const moveFile = async (src, dest) => {
+        try {
+          await fs.rename(src, dest);
+        } catch (err) {
+          if (err.code === 'EXDEV') {
+            // Cross-device move: copy and unlink
+            await fs.copyFile(src, dest);
+            await fs.unlink(src);
+          } else {
+            throw err;
+          }
+        }
+      };
+
+      for (const file of files) {
+        const { sourcePath, name } = file;
+
+        if (!isPathAllowed(sourcePath)) {
+          results.push({ sourcePath, success: false, error: "Access denied" });
+          continue;
+        }
+
+        try {
+          const sourceDir = path.dirname(sourcePath);
+          sourceDirectories.add(sourceDir);
+
+          // Determine unique target name
+          const uniqueName = getUniqueName(name, usedNames);
+          const targetPath = path.join(targetDir, uniqueName);
+
+          await moveFile(sourcePath, targetPath);
+          results.push({ sourcePath, targetPath, success: true });
+        } catch (err) {
+          console.error(`Error moving file ${sourcePath}:`, err);
+          results.push({ sourcePath, success: false, error: err.message });
+        }
+      }
+
+      return {
+        success: true,
+        results,
+        sourceDirectories: Array.from(sourceDirectories),
+      };
+    } catch (error) {
+      console.error("Error moving files:", error);
       return { success: false, error: error.message };
     }
   });
@@ -1452,8 +1538,7 @@ function setupFileOperationHandlers() {
     return fileWatcher.startWatching(directoryId, dirPath, mainWindow);
   });
 
-
-  ipcMain.handle('checkDirectoryConnection', async (event, dirPath) => {
+  ipcMain.handle("checkDirectoryConnection", async (event, dirPath) => {
     try {
       await fs.access(dirPath);
       return { success: true, isConnected: true };
@@ -2225,6 +2310,71 @@ function setupFileOperationHandlers() {
       }
       console.error("Error deleting file:", error);
       return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.on("start-file-drag", async (event, args) => {
+    const { files, directoryPath, relativePath } = args;
+    console.log('[Main] start-file-drag requested');
+    
+    let filePaths = [];
+    
+    if (files && Array.isArray(files) && files.length > 0) {
+        filePaths = files;
+    } else if (directoryPath && relativePath) {
+        filePaths = [path.join(directoryPath, relativePath)];
+    }
+    
+    if (filePaths.length === 0) return;
+    
+    const primaryFile = filePaths[0];
+    console.log('[Main] Dragging files:', filePaths.length, primaryFile);
+    
+    // Create icon with robust fallback (using primary file)
+    let icon;
+    try {
+       // Try image path first
+       icon = await nativeImage.createThumbnailFromPath(primaryFile, { width: 64, height: 64 });
+       if (icon.isEmpty()) throw new Error("Empty thumbnail");
+    } catch (e) {
+       console.log('[Main] Thumbnail generation failed, using fallback:', e);
+       try {
+           // Fallback to app logo
+           icon = nativeImage.createFromPath(path.join(__dirname, 'public', 'logo1.png'));
+           if (icon.isEmpty()) {
+                // Base64 transparent 1x1 pixel png as ultimate fallback
+                const buffer = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+                icon = nativeImage.createFromBuffer(buffer);
+           }
+       } catch (err) {
+           icon = nativeImage.createEmpty(); 
+       }
+    }
+
+    try {
+        console.log('[Main] Calling startDrag with files:', filePaths.length);
+        
+        // Electron startDrag API requires 'files' for arrays and 'file' for single string
+        // Note: 'files' was added in newer Electron versions, but 'file' taking array is deprecated/invalid
+        const dragOptions = { icon };
+        
+        if (filePaths.length > 1) {
+            dragOptions.files = filePaths;
+            // Some older docs say 'file' is required, but for multi-file it's 'files'
+            // To be safe and compliant with the error message "Must specify either 'file' or 'files' option":
+            // We set 'files'. If we set 'file' it must be a string.
+            // Let's set 'file' to the first file as a fallback if 'files' is ignored, 
+            // but the error suggests we shouldn't pass both if it causes confusion, 
+            // OR the error was because I passed an array to 'file'.
+            // Let's try passing ONLY 'files' for multiple.
+        } else {
+            dragOptions.file = filePaths[0];
+        }
+
+        event.sender.startDrag(dragOptions);
+        console.log('[Main] native startDrag call completed successfully');
+    } catch (err) {
+        console.error('[Main] Failed to start native drag:', err);
     }
   });
 
