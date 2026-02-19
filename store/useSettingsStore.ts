@@ -117,9 +117,9 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       // Initial state
       sortOrder: 'desc',
-      itemsPerPage: 20,
+      itemsPerPage: -1, // Default to show all images
       scanSubfolders: true,
-      imageSize: 120,
+      imageSize: 320, // Default to maximum zoom
       cachePath: null, // Default cache path, null means use app data dir
 
       viewMode: 'grid',
@@ -201,9 +201,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       resetState: () => set({
         sortOrder: 'desc',
-        itemsPerPage: 20,
+        itemsPerPage: -1,
         scanSubfolders: true,
-        imageSize: 120,
+        imageSize: 320,
         cachePath: null,
 
         viewMode: 'grid',
