@@ -1,5 +1,6 @@
-import { FixedSizeGrid as Grid, GridChildComponentProps, areEqual } from 'react-window';
+import { VariableSizeList as List, ListChildComponentProps, areEqual } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
+import { computeJustifiedLayout, getItemAspectRatio, type LayoutRow } from '../utils/layoutAlgo';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type IndexedImage, type BaseMetadata, ImageStack } from '../types';
@@ -242,7 +243,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
   };
 
   return (
-    <div className="flex flex-col items-center" style={{ width: `${baseWidth}px` }}>
+    <div className="flex flex-col items-center h-full" style={{ width: `${baseWidth}px` }}>
       {showToast && <Toast message="Prompt copied to clipboard!" onDismiss={() => setShowToast(false)} />}
       <div
         ref={mergedRef}
@@ -253,7 +254,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
         } ${
           isFocused ? 'outline-2 outline-dashed outline-blue-400 outline-offset-2 z-10' : ''
         }`}
-        style={{ width: '100%', height: `${baseWidth * ITEM_HEIGHT_RATIO}px`, flexShrink: 0 }}
+        style={{ width: '100%', height: '100%', flexShrink: 0 }}
         onClick={(e) => {
           if (doubleClickToOpen) {
             if (e.ctrlKey || e.metaKey) {
@@ -428,150 +429,32 @@ function isImageStack(item: IndexedImage | ImageStack): item is ImageStack {
 const GAP_SIZE = 8;
 const ITEM_HEIGHT_RATIO = 1.2; // Normal aspect ratio (rectangular)
 
-// --- Virtualized Cell Component ---
-interface CellData {
-  items: (IndexedImage | ImageStack)[];
-  columnCount: number;
-  onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
-  onStackClick: (stack: ImageStack) => void;
-  selectedImages: Set<string>;
-  focusedImageIndex: number | null;
-  imageSize: number;
-  handleImageLoad: (id: string, aspectRatio: number) => void;
-  handleContextMenu: (image: IndexedImage, event: React.MouseEvent) => void;
-  comparisonFirstImage: IndexedImage | null;
-  createCardRef: (id: string) => (node: HTMLDivElement | null) => void;
-  markedBestIds?: Set<string>;
-  markedArchivedIds?: Set<string>;
-  enableSafeMode?: boolean;
-  sensitiveTagSet?: Set<string>;
-  blurSensitiveImages?: boolean;
-  toggleImageSelection: (imageId: string, multiSelect: boolean) => void;
-  getDragPayload: (image: IndexedImage) => { sourcePath: string; name: string }[];
+// Helper for geometric navigation
+const findClosestItemInRow = (
+  targetX: number,
+  rowItems: (IndexedImage | ImageStack)[],
+  rowHeight: number
+): number => {
+    let currentX = 0;
+    let minDist = Number.MAX_VALUE;
+    let bestIndex = -1;
+
+    for (let i = 0; i < rowItems.length; i++) {
+        const item = rowItems[i];
+        const aspectRatio = getItemAspectRatio(item);
+        const width = rowHeight * aspectRatio;
+        const centerX = currentX + width / 2;
+        const dist = Math.abs(centerX - targetX);
+        
+        if (dist < minDist) {
+            minDist = dist;
+            bestIndex = i;
+        }
+        currentX += width + GAP_SIZE;
+    }
+    return bestIndex;
 }
 
-const Cell = React.memo(({ columnIndex, rowIndex, style, data }: GridChildComponentProps<CellData>) => {
-  const {
-    items,
-    columnCount,
-    onImageClick,
-    onStackClick,
-    selectedImages,
-    focusedImageIndex,
-    imageSize,
-    handleImageLoad,
-    handleContextMenu,
-    comparisonFirstImage,
-    createCardRef,
-    markedBestIds,
-    markedArchivedIds,
-    enableSafeMode,
-    sensitiveTagSet,
-    blurSensitiveImages,
-    toggleImageSelection,
-    getDragPayload
-  } = data;
-
-  const index = rowIndex * columnCount + columnIndex;
-
-  // Handle empty cells
-  if (index >= items.length) {
-    return <div style={style} />;
-  }
-
-  const item = items[index];
-
-  // Render Stack
-  if (isImageStack(item)) {
-    const isSensitive = enableSafeMode &&
-      sensitiveTagSet && sensitiveTagSet.size > 0 &&
-      !!item.coverImage.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-
-    return (
-      <div style={{
-        ...style,
-        left: (style.left as number) + GAP_SIZE,
-        top: (style.top as number) + GAP_SIZE,
-        width: (style.width as number) - GAP_SIZE,
-        height: (style.height as number) - GAP_SIZE,
-      }}>
-        <div
-          className="relative group cursor-pointer w-full h-full"
-          onClick={() => onStackClick(item)}
-        >
-          {/* Back cards effect */}
-          <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
-          <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
-
-          {/* Main Card */}
-          <div className="relative z-10 w-full h-full">
-            <ImageCard
-              image={item.coverImage}
-              onImageClick={(img, e) => {
-                  e.stopPropagation();
-                  onStackClick(item);
-              }}
-              isSelected={selectedImages.has(item.coverImage.id)}
-              isFocused={false}
-              onImageLoad={handleImageLoad}
-              onContextMenu={(img, e) => handleContextMenu(img, e)}
-              baseWidth={imageSize}
-              isComparisonFirst={false}
-              cardRef={createCardRef(item.id)}
-              isMarkedBest={markedBestIds?.has(item.coverImage.id)}
-              isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
-              isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-              getDragPayload={getDragPayload}
-            />
-
-            {/* Stack Badge */}
-            <div className="absolute top-2 right-2 bg-black/60 text-white text-[11px] font-medium px-2 py-0.5 rounded-md backdrop-blur-md z-20 border border-white/10 shadow-sm">
-              +{item.count}
-            </div>
-            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">
-              Stack
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Render Single Image
-  const image = item;
-  const isFocused = focusedImageIndex === index;
-  const isSensitive = enableSafeMode &&
-    sensitiveTagSet && sensitiveTagSet.size > 0 &&
-    !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-
-  return (
-    <div style={{
-      ...style,
-      left: (style.left as number) + GAP_SIZE,
-      top: (style.top as number) + GAP_SIZE,
-      width: (style.width as number) - GAP_SIZE,
-      height: (style.height as number) - GAP_SIZE,
-    }}>
-      <ImageCard
-        image={image}
-        onImageClick={onImageClick}
-        isSelected={selectedImages.has(image.id)}
-        isFocused={isFocused}
-        onImageLoad={handleImageLoad}
-        onContextMenu={(img, e) => handleContextMenu(img, e)} // Adapter for context menu signature
-        baseWidth={imageSize}
-        isComparisonFirst={comparisonFirstImage?.id === image.id}
-        cardRef={createCardRef(image.id)}
-        isMarkedBest={markedBestIds?.has(image.id)}
-        isMarkedArchived={markedArchivedIds?.has(image.id)}
-        isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-        getDragPayload={getDragPayload}
-      />
-    </div>
-  );
-}, areEqual);
-
-// --- ImageGrid Component ---
 interface ImageGridProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
@@ -585,7 +468,7 @@ interface ImageGridProps {
   markedArchivedIds?: Set<string>;  // IDs of images marked for archive
 }
 
-const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedImages, currentPage, totalPages, onPageChange, onBatchExport, markedBestIds, markedArchivedIds }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, currentPage, totalPages, onPageChange, onBatchExport, markedBestIds, markedArchivedIds }) => {
   const imageSize = useSettingsStore((state) => state.imageSize);
   const itemsPerPage = useSettingsStore((state) => state.itemsPerPage);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
@@ -605,9 +488,25 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
   const { stackedItems } = useImageStacking(images, isStackingEnabled);
   const gridRef = useRef<HTMLDivElement>(null);
-  const gridInstanceRef = useRef<Grid>(null);
-  const columnCountRef = useRef(1);
+
   const imageCardsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const prevFocusedImageIndexRef = useRef<number>(focusedImageIndex);
+
+  // Layout logic
+  const itemsToRender: (IndexedImage | ImageStack)[] = isStackingEnabled ? stackedItems : images;
+  const focusedItemId = itemsToRender[focusedImageIndex] ? (isImageStack(itemsToRender[focusedImageIndex]) ? (itemsToRender[focusedImageIndex] as ImageStack).coverImage.id : (itemsToRender[focusedImageIndex] as IndexedImage).id) : null;
+  const rows = useMemo(() => {
+      // Account for padding (p-2 = 16px) and scrollbar (approx 17px) to avoid horizontal scroll
+      const safeWidth = width || 0;
+      const availableWidth = Math.max(1, safeWidth - 40); 
+      return computeJustifiedLayout(itemsToRender, availableWidth, imageSize);
+  }, [itemsToRender, width, imageSize]);
+
+
+
+
+
+
 
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] = useState(false);
@@ -813,7 +712,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   }, []);
 
   // --- Stacking Logic ---
-  const itemsToRender: (IndexedImage | ImageStack)[] = isStackingEnabled ? stackedItems : images;
+  // const itemsToRender moved to top
 
   // ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS
   // Sync focusedImageIndex when previewImage changes
@@ -847,24 +746,16 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check if we're in a modal, command palette, or text input
       const target = e.target as HTMLElement;
       const isInModal = document.querySelector('[role="dialog"]') !== null;
       const isInCommandPalette = document.querySelector('.command-palette, [data-command-palette]') !== null;
       const isTyping = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 
-      // Block navigation if in modal/command palette or typing (except for Enter which should still work)
-      if (isInModal || isInCommandPalette) {
-        return;
-      }
+      if (isInModal || isInCommandPalette) return;
 
-      // For arrow keys and page navigation, require grid focus
       const needsFocus = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End'].includes(e.key);
-      if (needsFocus && !gridRef.current?.contains(document.activeElement)) {
-        return;
-      }
+      if (needsFocus && !gridRef.current?.contains(document.activeElement)) return;
 
-      // Enter key works globally when an image is focused (fixes Issue #21)
       if (e.key === 'Enter' && !isTyping) {
         const currentIndex = focusedImageIndex ?? -1;
         if (currentIndex >= 0 && currentIndex < itemsToRender.length) {
@@ -878,12 +769,10 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
               return;
           }
 
-          // Alt+Enter = Open image in fullscreen mode (hide metadata panel)
           if (e.altKey) {
             sessionStorage.setItem('openImageFullscreen', 'true');
             onImageClick(selectedItem, e as any);
           } else {
-            // Regular Enter = Open modal normally
             sessionStorage.removeItem('openImageFullscreen');
             onImageClick(selectedItem, e as any);
           }
@@ -893,18 +782,28 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
 
       const currentIndex = focusedImageIndex ?? -1;
       let nextIndex = currentIndex;
-      const columnCount = columnCountRef.current;
+
+      // Find which row the current index belongs to
+      let currentRowIndex = -1;
+      let startIndexInRow = 0;
+      let count = 0;
+      
+      if (currentIndex !== -1) {
+          for (let i = 0; i < rows.length; i++) {
+              if (currentIndex < count + rows[i].items.length) {
+                  currentRowIndex = i;
+                  startIndexInRow = count;
+                  break;
+              }
+              count += rows[i].items.length;
+          }
+      }
 
       if (e.key === 'ArrowRight') {
         e.preventDefault();
         nextIndex = currentIndex + 1;
         if (nextIndex < itemsToRender.length) {
-          setFocusedImageIndex(nextIndex);
-          const nextItem = itemsToRender[nextIndex];
-          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
-          if (useImageStore.getState().previewImage) {
-            setPreviewImage(imageToPreview);
-          }
+           // Standard move right
         } else if (currentPage < totalPages) {
           onPageChange(currentPage + 1);
           setFocusedImageIndex(0);
@@ -916,44 +815,62 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
         e.preventDefault();
         nextIndex = currentIndex - 1;
         if (nextIndex >= 0) {
-          setFocusedImageIndex(nextIndex);
-          const nextItem = itemsToRender[nextIndex];
-          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
-          if (useImageStore.getState().previewImage) {
-            setPreviewImage(imageToPreview);
-          }
+           // Standard move left
         } else if (currentPage > 1) {
           onPageChange(currentPage - 1);
-          setFocusedImageIndex(-1);
+          setFocusedImageIndex(-1); 
           nextIndex = -1;
         } else {
             nextIndex = -1;
         }
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        nextIndex = currentIndex + columnCount;
-        if (nextIndex < itemsToRender.length) {
-          setFocusedImageIndex(nextIndex);
-          const nextItem = itemsToRender[nextIndex];
-          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
-          if (useImageStore.getState().previewImage) {
-            setPreviewImage(imageToPreview);
-          }
+        if (currentRowIndex !== -1 && currentRowIndex < rows.length - 1) {
+            const currentRow = rows[currentRowIndex];
+            const nextRow = rows[currentRowIndex + 1];
+            
+            // Calculate current item center X
+            let currentX = 0;
+            const indexInRow = currentIndex - startIndexInRow;
+            for (let i=0; i<indexInRow; i++) {
+                currentX += (currentRow.height * getItemAspectRatio(currentRow.items[i])) + GAP_SIZE;
+            }
+            const currentItemWidth = currentRow.height * getItemAspectRatio(currentRow.items[indexInRow]);
+            const targetCenter = currentX + currentItemWidth / 2;
+            
+            const closestIndexInNextRow = findClosestItemInRow(targetCenter, nextRow.items, nextRow.height);
+            
+            // Calculate global index
+            let nextRowStartIndex = startIndexInRow + currentRow.items.length;
+            nextIndex = nextRowStartIndex + closestIndexInNextRow;
         } else {
             nextIndex = -1;
         }
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        nextIndex = currentIndex - columnCount;
-        if (nextIndex >= 0) {
-          setFocusedImageIndex(nextIndex);
-          const nextItem = itemsToRender[nextIndex];
-          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
-          if (useImageStore.getState().previewImage) {
-            setPreviewImage(imageToPreview);
-          }
+        if (currentRowIndex > 0) {
+            const currentRow = rows[currentRowIndex];
+            const prevRow = rows[currentRowIndex - 1];
+            
+            // Calculate current item center X
+            let currentX = 0;
+            const indexInRow = currentIndex - startIndexInRow;
+            for (let i=0; i<indexInRow; i++) {
+                currentX += (currentRow.height * getItemAspectRatio(currentRow.items[i])) + GAP_SIZE;
+            }
+            const currentItemWidth = currentRow.height * getItemAspectRatio(currentRow.items[indexInRow]);
+            const targetCenter = currentX + currentItemWidth / 2;
+            
+            const closestIndexInPrevRow = findClosestItemInRow(targetCenter, prevRow.items, prevRow.height);
+            
+            // Calculate global index of prev row start
+            let prevRowStartIndex = 0;
+            for(let i=0; i<currentRowIndex-1; i++) {
+                prevRowStartIndex += rows[i].items.length;
+            }
+            nextIndex = prevRowStartIndex + closestIndexInPrevRow;
         } else {
-            nextIndex = -1;
+             nextIndex = -1; 
         }
       } else if (e.key === 'PageDown') {
         e.preventDefault();
@@ -981,34 +898,62 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
         nextIndex = -1;
       }
 
-      // Sync selection if navigation occurred
       if (nextIndex !== -1 && nextIndex !== currentIndex) {
-         if (!e.ctrlKey && !e.shiftKey) {
-             const selectedItem = itemsToRender[nextIndex];
-             const imageId = isImageStack(selectedItem) ? selectedItem.coverImage.id : (selectedItem as IndexedImage).id;
+          setFocusedImageIndex(nextIndex);
+          const nextItem = itemsToRender[nextIndex];
+          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
+          if (useImageStore.getState().previewImage) {
+            setPreviewImage(imageToPreview);
+          }
+          if (!e.ctrlKey && !e.shiftKey) {
+             const imageId = isImageStack(nextItem) ? nextItem.coverImage.id : (nextItem as IndexedImage).id;
              useImageStore.setState({ selectedImages: new Set([imageId]) });
-         }
+          }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, currentPage, totalPages, onPageChange]);
+  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, currentPage, totalPages, onPageChange, rows]);
 
   // Auto-scroll to focused image
   useEffect(() => {
-    if (focusedImageIndex !== null && focusedImageIndex !== -1 && gridInstanceRef.current) {
-        const columnCount = columnCountRef.current;
-        const rowIndex = Math.floor(focusedImageIndex / columnCount);
-        const columnIndex = focusedImageIndex % columnCount;
+    if (focusedImageIndex !== null && focusedImageIndex !== -1 && gridRef.current) {
+        // Only scroll if the focused image index actually changed
+        if (prevFocusedImageIndexRef.current === focusedImageIndex) {
+            return;
+        }
+        prevFocusedImageIndexRef.current = focusedImageIndex;
+
+        // Find row index and offset
+        let count = 0;
+        let targetRowIndex = 0;
+        let offset = 0;
+        for (let i = 0; i < rows.length; i++) {
+              if (focusedImageIndex < count + rows[i].items.length) {
+                  targetRowIndex = i;
+                  break;
+              }
+              count += rows[i].items.length;
+              offset += rows[i].height + 8; // row height + margin
+        }
         
-        gridInstanceRef.current.scrollToItem({
-            align: 'auto',
-            columnIndex,
-            rowIndex
-        });
+        const rowHeight = rows[targetRowIndex]?.height || 0;
+        const containerHeight = gridRef.current.clientHeight;
+        const scrollTop = gridRef.current.scrollTop;
+
+        // Smart scroll logic
+        if (offset < scrollTop) {
+            gridRef.current.scrollTo({ top: offset, behavior: 'smooth' });
+        } else if (offset + rowHeight > scrollTop + containerHeight) {
+             gridRef.current.scrollTo({ top: offset + rowHeight - containerHeight + 8, behavior: 'smooth' });
+        }
+
+    } else if (focusedImageIndex === -1) {
+        // Reset ref if focus is lost/reset so next focus triggers scroll
+        prevFocusedImageIndexRef.current = -1;
     }
-  }, [focusedImageIndex]);
+  }, [focusedImageIndex, rows]);
 
   // Add global mouseup listener to handle selection end even outside the grid
   useEffect(() => {
@@ -1259,7 +1204,7 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   );
 
   // Decision of what to render is already handled above to support navigation hooks
-  // const itemsToRender = isStackingEnabled ? stackedItems : images;
+
 
   // Handle drill-down
 
@@ -1320,6 +1265,8 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
     // No-op
   }, []);
 
+
+
   if (isEmpty) {
      return (
         <div className="flex flex-col h-full w-full">
@@ -1331,101 +1278,18 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
      );
   }
 
-  if (isInfinite) {
-    return (
-      <div className="flex flex-col h-full w-full">
-         <div
-            className="flex-1 outline-none"
-            style={{ position: 'relative' }}
-            data-area="grid"
-            tabIndex={0}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-          >
-            <AutoSizer>
-              {({ height, width }) => {
-                // Calculate columns based on preferred image size (treated as minimum)
-                const minColumnWidth = imageSize + GAP_SIZE;
-                const columnCount = Math.floor(width / minColumnWidth);
-                const safeColumnCount = columnCount > 0 ? columnCount : 1;
 
-                // Expand columns to fill remaining space
-                // Use Math.floor to avoid sub-pixel rendering causing horizontal scrollbars
-                const dynamicColumnWidth = Math.floor(width / safeColumnCount);
-                const dynamicImageSize = dynamicColumnWidth - GAP_SIZE;
 
-                const rowCount = Math.ceil(itemsToRender.length / safeColumnCount);
-                
-                const cellData: CellData = {
-                    items: itemsToRender,
-                    columnCount: safeColumnCount,
-                    onImageClick,
-                    onStackClick: handleStackClick,
-                    selectedImages,
-                    focusedImageIndex,
-                    imageSize: dynamicImageSize, // Pass dynamic size to card
-                    handleImageLoad,
-                    handleContextMenu,
-                    comparisonFirstImage,
-                    createCardRef,
-                    markedBestIds,
-                    markedArchivedIds,
-                    enableSafeMode,
-                    sensitiveTagSet,
-                    blurSensitiveImages,
-                    toggleImageSelection,
-                    getDragPayload
-                };
 
-                columnCountRef.current = safeColumnCount;
-
-                return (
-                  <Grid
-                    ref={gridInstanceRef}
-                    columnCount={safeColumnCount}
-                    columnWidth={dynamicColumnWidth}
-                    height={height}
-                    rowCount={rowCount}
-                    rowHeight={(dynamicImageSize * ITEM_HEIGHT_RATIO) + GAP_SIZE}
-                    width={width}
-                    outerRef={gridRef}
-                    className="no-scrollbar-if-needed"
-                    itemData={cellData}
-                    style={{ overflowX: 'hidden' }}
-                  >
-                    {Cell}
-                  </Grid>
-                );
-              }}
-            </AutoSizer>
-
-            {/* Selection box visual */}
-            {isSelecting && selectionStart && selectionEnd && (
-                <div
-                className="absolute pointer-events-none z-30"
-                style={{
-                    left: `${Math.min(selectionStart.x, selectionEnd.x)}px`,
-                    top: `${Math.min(selectionStart.y, selectionEnd.y)}px`,
-                    width: `${Math.abs(selectionEnd.x - selectionStart.x)}px`,
-                    height: `${Math.abs(selectionEnd.y - selectionStart.y)}px`,
-                    border: '2px solid rgba(59, 130, 246, 0.8)',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                }}
-                />
-            )}
-
-            {contextMenuContent}
-            {modalsContent}
-          </div>
-      </div>
-    );
-  }
 
 
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-gray-900 overflow-hidden" data-area="main-content">
+    <div 
+        className="flex flex-col bg-gray-900 overflow-hidden" 
+        style={{ width, height }}
+        data-area="main-content"
+    >
       <div 
         ref={gridRef}
         className="flex-1 p-2 outline-none overflow-y-auto overflow-x-hidden"
@@ -1437,123 +1301,72 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
       >
-        <AutoSizer disableHeight>
-          {({ width }) => {
-             // Calculate columns based on preferred image size (treated as minimum)
-             const minColumnWidth = imageSize + GAP_SIZE;
-             const columnCount = Math.floor((width - 16) / minColumnWidth); // -16 for padding (p-2 * 2)
-             const safeColumnCount = columnCount > 0 ? columnCount : 1;
-             
-             // AutoSizer gives us the width available INSIDE the parent padding.
-             // So we don't need to subtract padding again.
-             // We add a small safety buffer (2px) to prevent sub-pixel rounding issues causing wrap.
-             const availableWidth = width;
-             
-             // Calculate dynamic size
-             // available = (cols * size) + ((cols - 1) * gap)
-             // available - ((cols - 1) * gap) = cols * size
-             // size = (available - ((cols - 1) * gap)) / cols
-             const dynamicImageSize = Math.floor((availableWidth - ((safeColumnCount - 1) * GAP_SIZE) - 2) / safeColumnCount);
+        <div className="flex flex-col gap-2 relative">
+             {rows.map((row, rowIndex) => (
+                 <div key={rowIndex} className="flex flex-row gap-2" style={{ height: row.height, marginBottom: '8px' }}>
+                     {row.items.map((item) => {
+                         const aspectRatio = getItemAspectRatio(item);
+                         const width = row.height * aspectRatio;
+                         const image = isImageStack(item) ? item.coverImage : item;
+                         const isSensitive = enableSafeMode && sensitiveTagSet && sensitiveTagSet.size > 0 && !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
+                         
+                         if (isImageStack(item)) {
+                             return (
+                                 <div 
+                                    key={item.id} 
+                                    className="relative group cursor-pointer" 
+                                    style={{ width, height: row.height, flexShrink: 0 }}
+                                    onClick={() => handleStackClick(item)}
+                                >
+                                    {/* ... stack layers ... */}
+                                    <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
+                                    <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
+                                    <div className="relative z-10 w-full h-full">
+                                        <ImageCard
+                                            image={item.coverImage}
+                                            onImageClick={(img, e) => { e.stopPropagation(); handleStackClick(item); }}
+                                            isSelected={selectedImages.has(item.coverImage.id)}
+                                            isFocused={focusedItemId === item.coverImage.id}
+                                            onImageLoad={handleImageLoad}
+                                            onContextMenu={(img, e) => handleContextMenu(img, e)}
+                                            baseWidth={width}
+                                            isComparisonFirst={false}
+                                            cardRef={createCardRef(item.id)}
+                                            isMarkedBest={markedBestIds?.has(item.coverImage.id)}
+                                            isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
+                                            isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                                            getDragPayload={getDragPayload}
+                                        />
+                                        <div className="absolute top-2 right-2 bg-black/60 text-white text-[11px] font-medium px-2 py-0.5 rounded-md backdrop-blur-md z-20 border border-white/10 shadow-sm">+{item.count}</div>
+                                        <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">Stack</div>
+                                    </div>
+                                 </div>
+                             );
+                         }
 
-             columnCountRef.current = safeColumnCount;
-
-             return (
-              <div
-                className="flex flex-row flex-wrap gap-2"
-                style={{ 
-                    width: width,
-                    alignContent: 'flex-start' 
-                }}
-                data-grid-background
-              >
-                {itemsToRender.map((item, index) => {
-                  if (isImageStack(item)) {
-                    const isSensitive = enableSafeMode &&
-                      sensitiveTagSet && sensitiveTagSet.size > 0 &&
-                      !!item.coverImage.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-                      
-                      return (
-                          <div 
-                              key={item.id}
-                              className="relative group cursor-pointer"
-                              style={{ 
-                                width: dynamicImageSize, 
-                                height: dynamicImageSize * ITEM_HEIGHT_RATIO,
-                                flexGrow: 0,
-                                flexShrink: 0
-                              }}
-                              onClick={() => handleStackClick(item)}
-                          >
-                              {/* Back cards effect */}
-                              <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
-                              <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
-                              
-                              <div className="relative z-10 w-full h-full">
-                                  <ImageCard
-                                      image={item.coverImage}
-                                      onImageClick={() => handleStackClick(item)}
-                                      isSelected={selectedImages.has(item.coverImage.id)}
-                                      isFocused={false}
-                                      onImageLoad={handleImageLoad}
-                                      onContextMenu={(img, e) => handleContextMenu(img, e)}
-                                      baseWidth={dynamicImageSize}
-                                      isComparisonFirst={false}
-                                      cardRef={createCardRef(item.id)}
-                                      isMarkedBest={markedBestIds?.has(item.coverImage.id)}
-                                      isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
-                                      isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-                                      getDragPayload={getDragPayload}
-                                  />
-                                  {/* Low prominence Stack Badge */}
-                                  <div className="absolute top-2 right-2 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg z-20 border border-blue-400">
-                                      +{item.count}
-                                  </div>
-                                  <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">
-                                      Stack
-                                  </div>
-                              </div>
-                          </div>
-                      );
-                  }
-
-                  const image = item;
-                  const isFocused = focusedImageIndex === index;
-                  const isSensitive = enableSafeMode &&
-                    sensitiveTagSet.size > 0 &&
-                    !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-
-                  return (
-                    <div 
-                      key={image.id}
-                      style={{ 
-                        width: dynamicImageSize, 
-                        height: dynamicImageSize * ITEM_HEIGHT_RATIO,
-                        flexGrow: 0,
-                        flexShrink: 0
-                      }}
-                    >
-                      <ImageCard
-                        image={image}
-                        onImageClick={onImageClick}
-                        isSelected={selectedImages.has(image.id)}
-                        isFocused={isFocused}
-                        onImageLoad={handleImageLoad}
-                        onContextMenu={handleContextMenu}
-                        baseWidth={dynamicImageSize}
-                        isComparisonFirst={comparisonFirstImage?.id === image.id}
-                        cardRef={createCardRef(image.id)}
-                        isMarkedBest={markedBestIds?.has(image.id)}
-                        isMarkedArchived={markedArchivedIds?.has(image.id)}
-                        isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-                        getDragPayload={getDragPayload}
-                      />
-                    </div>
-                  );
+                         return (
+                            <div key={image.id} style={{ width, height: row.height, flexShrink: 0 }}>
+                                <ImageCard
+                                    image={image}
+                                    onImageClick={onImageClick}
+                                    isSelected={selectedImages.has(image.id)}
+                                    isFocused={focusedItemId === image.id}
+                                    onImageLoad={handleImageLoad}
+                                    onContextMenu={(img, e) => handleContextMenu(img, e)}
+                                    baseWidth={width}
+                                    isComparisonFirst={comparisonFirstImage?.id === image.id}
+                                    cardRef={createCardRef(image.id)}
+                                    isMarkedBest={markedBestIds?.has(image.id)}
+                                    isMarkedArchived={markedArchivedIds?.has(image.id)}
+                                    isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                                    getDragPayload={getDragPayload}
+                                />
+                            </div>
+                         );
                 })}
-              </div>
-          );
-        }}
-        </AutoSizer>
+                 </div>
+             ))}
+        </div>
 
         {/* Selection box visual */}
         {isSelecting && selectionStart && selectionEnd && (
@@ -1577,5 +1390,17 @@ const ImageGrid: React.FC<ImageGridProps> = ({ images, onImageClick, selectedIma
   );
 }; // End of ImageGrid component
 
-export default ImageGrid;
+const ImageGridWrapper: React.FC<ImageGridProps> = (props) => {
+  return (
+    <div className="h-full w-full" data-area="main-content-wrapper">
+      <AutoSizer>
+        {({ width, height }) => (
+          <ImageGrid width={width} height={height} {...props} />
+        )}
+      </AutoSizer>
+    </div>
+  );
+};
+
+export default ImageGridWrapper;
 
