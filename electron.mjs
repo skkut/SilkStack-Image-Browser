@@ -547,6 +547,42 @@ function createWindow(startupDirectory = null) {
 }
 
 // App event handlers
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      
+      const args = commandLine.slice(app.isPackaged ? 1 : 2);
+      let potentialPath = null;
+      const dirFlagIndex = args.indexOf("--dir");
+      
+      if (dirFlagIndex !== -1 && args[dirFlagIndex + 1]) {
+        potentialPath = args[dirFlagIndex + 1];
+      } else {
+        potentialPath = args.find((arg) => !arg.startsWith("--"));
+      }
+      
+      if (potentialPath) {
+        const fullPath = path.resolve(potentialPath);
+        fs.stat(fullPath)
+          .then(stats => {
+            if (stats.isDirectory()) {
+              mainWindow.webContents.send("load-directory-from-cli", fullPath);
+            }
+          })
+          .catch(err => {
+            console.warn(`Error checking startup path from second instance: ${err.message}`);
+          });
+      }
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   // Listen for theme changes and notify renderer
   nativeTheme.on("updated", () => {
