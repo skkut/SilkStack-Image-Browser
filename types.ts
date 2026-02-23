@@ -972,6 +972,7 @@ export interface Directory {
   visible?: boolean; // Whether images from this directory should be shown (default: true)
   isConnected?: boolean; // Whether the directory is currently accessible (e.g. removable storage connected)
   autoWatch?: boolean; // Whether to automatically watch this directory for new images (default: false)
+  color?: string; // Optional hex color code for the folder icon
 }
 
 export interface FilterOptions {

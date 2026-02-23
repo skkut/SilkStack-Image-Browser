@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Directory } from '../types';
 import { useImageStore } from '../store/useImageStore';
-import { FolderOpen, RotateCcw, Trash2, ChevronDown, Folder, FolderTree, X, EyeOff } from 'lucide-react';
+import { FolderOpen, RotateCcw, Trash2, ChevronDown, Folder, FolderTree, X, EyeOff, Palette } from 'lucide-react';
+import { normalizePath } from '../utils/pathUtils';
 
 interface DirectoryListProps {
   directories: Directory[];
@@ -26,7 +27,6 @@ interface SubfolderNode {
   relativePath: string;
 }
 
-const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
 const toForwardSlashes = (path: string) => normalizePath(path);
 const makeNodeKey = (rootId: string, relativePath: string) => `${rootId}::${relativePath === '' ? '.' : relativePath}`;
 
@@ -73,6 +73,9 @@ export default function DirectoryList({
     y: number;
     path: string;
   } | null>(null);
+  const [activeColorPicker, setActiveColorPicker] = useState<string | null>(null);
+
+  const { folderPreferences, setFolderColor } = useImageStore();
 
   const loadSubfolders = useCallback(async (
     nodeKey: string,
@@ -306,6 +309,47 @@ export default function DirectoryList({
          alert('An error occurred while moving files.');
     }
   }, [onUpdateDirectory]);
+
+  const PREDEFINED_COLORS = [
+    { name: 'None', value: undefined },
+    { name: 'Pearl', value: '#f1f5f9' },
+    { name: 'Slate', value: '#64748b' },
+    { name: 'Tan', value: '#d6d3d1' },
+    { name: 'Coffee', value: '#44403c' },
+    { name: 'Deep Red', value: '#991b1b' },
+    { name: 'Red', value: '#ef4444' },
+    { name: 'Orange', value: '#f97316' },
+    { name: 'Gold', value: '#b45309' },
+    { name: 'Yellow', value: '#facc15' },
+    { name: 'Lime', value: '#a3e635' },
+    { name: 'Green', value: '#22c55e' },
+    { name: 'Forest', value: '#166534' },
+    { name: 'Teal', value: '#14b8a6' },
+    { name: 'Sky', value: '#0ea5e9' },
+    { name: 'Blue', value: '#2563eb' },
+    { name: 'Navy', value: '#1e3a8a' },
+    { name: 'Violet', value: '#8b5cf6' },
+    { name: 'Magenta', value: '#d946ef' },
+    { name: 'Pink', value: '#fb7185' },
+  ];
+
+  const renderColorPicker = (path: string) => (
+    <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-xl z-[100] p-2 grid grid-cols-5 gap-1.5 w-40">
+      {PREDEFINED_COLORS.map(color => (
+        <button
+          key={color.name}
+          onClick={(e) => {
+            e.stopPropagation();
+            setFolderColor(path, color.value);
+            setActiveColorPicker(null);
+          }}
+          className={`w-4 h-4 rounded-full border border-gray-500 hover:scale-110 transition-transform ${!color.value ? 'bg-transparent relative after:content-["/"] after:absolute after:inset-0 after:flex after:items-center after:justify-center after:text-[10px] after:text-gray-400' : ''}`}
+          style={{ backgroundColor: color.value }}
+          title={color.name}
+        />
+      ))}
+    </div>
+  );
   
   const renderSubfolderList = useCallback((rootDirectory: Directory, parentKey: string): React.ReactNode => {
     const children = subfolderCache.get(parentKey) || [];
@@ -357,11 +401,26 @@ export default function DirectoryList({
               <div className="w-4 mr-1 flex-shrink-0" /> // Spacer
             )}
             
-            <Folder className="w-3 h-3 mr-2 text-gray-400" />
+            <Folder className="w-3 h-3 mr-2" style={{ color: folderPreferences.get(normalizePath(child.path))?.color || '#9ca3af' }} />
             <span className="text-sm text-gray-300 truncate flex-1">{child.name}</span>
             
             {/* Action Buttons (Visible on Hover) */}
             <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                 <div className="relative flex items-center">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setActiveColorPicker(activeColorPicker === child.path ? null : child.path);
+                        }}
+                        className={`p-1 rounded transition-colors ${
+                             activeColorPicker === child.path ? 'text-blue-400 bg-gray-600' : 'text-gray-400 hover:text-white hover:bg-gray-600'
+                        }`}
+                        title="Set folder color"
+                    >
+                        <Palette className="w-3 h-3" />
+                    </button>
+                    {activeColorPicker === child.path && renderColorPicker(child.path)}
+                 </div>
                  <button
                     onClick={(e) => {
                         e.stopPropagation();
@@ -379,8 +438,8 @@ export default function DirectoryList({
                         void loadSubfolders(childKey, child.path, rootDirectory);
                     }}
                     disabled={isIndexing}
-                    className={`p-1 rounded hover:bg-gray-600 transition-colors ${
-                        isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-white'
+                    className={`p-1 rounded transition-colors ${
+                        isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-white hover:bg-gray-600'
                     }`}
                     title="Refresh folder"
                 >
@@ -393,8 +452,8 @@ export default function DirectoryList({
                             onExcludeFolder(normalizePath(child.path));
                         }}
                         disabled={isIndexing}
-                        className={`p-1 rounded hover:bg-gray-600 transition-colors ${
-                            isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-red-400'
+                        className={`p-1 rounded transition-colors ${
+                            isIndexing ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-red-400 hover:bg-gray-600'
                         }`}
                         title="Exclude folder"
                     >
@@ -513,7 +572,7 @@ export default function DirectoryList({
                         <div className="w-4 h-4 ml-1 flex-shrink-0" /> // Spacer
                       )}
                       
-                      <FolderOpen className="w-4 h-4 text-gray-400 flex-shrink-0 ml-1" />
+                      <FolderOpen className="w-4 h-4 flex-shrink-0 ml-1" style={{ color: folderPreferences.get(normalizePath(dir.path))?.color || '#9ca3af' }} />
                       <button
                         onClick={(e) => handleFolderClick(dir.path, e)}
                         onContextMenu={(e) => handleContextMenu(e, dir.path)}
@@ -525,7 +584,22 @@ export default function DirectoryList({
                         {dir.name}
                       </button>
                     </div>
-                    <div className="flex items-center space-x-2 flex-shrink-0">
+                    <div className="flex items-center space-x-1 flex-shrink-0">
+                      <div className="relative flex items-center">
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveColorPicker(activeColorPicker === dir.path ? null : dir.path);
+                            }}
+                            className={`p-1 rounded transition-colors ${
+                                activeColorPicker === dir.path ? 'text-blue-400 bg-gray-700/50' : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                            }`}
+                            title="Set folder color"
+                        >
+                            <Palette className="w-4 h-4" />
+                        </button>
+                        {activeColorPicker === dir.path && renderColorPicker(dir.path)}
+                      </div>
                       <button
                         onClick={() => {
                             onUpdateDirectory(dir.id);
@@ -538,12 +612,12 @@ export default function DirectoryList({
                             void loadSubfolders(rootKey, dir.path, dir);
                         }}
                         disabled={isIndexing || isRefreshing}
-                        className={`transition-colors ${
+                        className={`p-1 rounded transition-colors ${
                           isRefreshing
                             ? 'text-blue-400'
                             : isIndexing
                               ? 'text-gray-600 cursor-not-allowed'
-                              : 'text-gray-400 hover:text-gray-50'
+                              : 'text-gray-400 hover:text-gray-50 hover:bg-gray-700/50'
                         }`}
                         title={
                           isRefreshing
@@ -558,10 +632,10 @@ export default function DirectoryList({
                       <button
                         onClick={() => onRemoveDirectory(dir.id)}
                         disabled={isIndexing || isRefreshing}
-                        className={`transition-colors ${
+                        className={`p-1 rounded transition-colors ${
                           isRefreshing || isIndexing
                             ? 'text-gray-600 cursor-not-allowed'
-                            : 'text-gray-400 hover:text-red-500'
+                            : 'text-gray-400 hover:text-red-500 hover:bg-gray-700/50'
                         }`}
                         title={
                           isRefreshing

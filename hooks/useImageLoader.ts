@@ -4,6 +4,7 @@ import { processFiles } from "../services/fileIndexer";
 import { cacheManager, IncrementalCacheWriter } from "../services/cacheManager";
 import { IndexedImage, Directory } from "../types";
 import { useSettingsStore } from "../store/useSettingsStore";
+import { normalizePath } from "../utils/pathUtils";
 
 // Configure logging level
 const DEBUG = false;
@@ -302,14 +303,9 @@ async function getFileHandles(
   return handles;
 }
 
-const normalizeWatchPath = (path: string) => {
-  if (!path) return "";
-  return path.replace(/\\/g, "/").replace(/\/+$/, "");
-};
-
 const toRelativeWatchPath = (filePath: string, rootPath: string) => {
-  const normalizedFilePath = normalizeWatchPath(filePath);
-  const normalizedRootPath = normalizeWatchPath(rootPath);
+  const normalizedFilePath = normalizePath(filePath);
+  const normalizedRootPath = normalizePath(rootPath);
   if (!normalizedFilePath) return "";
   if (!normalizedRootPath) return normalizedFilePath;
   if (normalizedFilePath === normalizedRootPath) return "";
@@ -318,16 +314,11 @@ const toRelativeWatchPath = (filePath: string, rootPath: string) => {
     return normalizedFilePath.slice(prefix.length);
   }
   return normalizedFilePath;
-  return normalizedFilePath;
 };
 
 const getRelativePath = (rootPath: string, targetPath: string) => {
-  const normalizePath = (path: string) =>
-    path.replace(/\\/g, "/").replace(/\/+$/, "");
-  const toForwardSlashes = (path: string) => normalizePath(path);
-
-  const normalizedRoot = toForwardSlashes(rootPath);
-  const normalizedTarget = toForwardSlashes(targetPath);
+  const normalizedRoot = normalizePath(rootPath);
+  const normalizedTarget = normalizePath(targetPath);
   if (!normalizedRoot) {
     return normalizedTarget;
   }

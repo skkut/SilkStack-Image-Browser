@@ -3,7 +3,7 @@
 export type StoredSelectionState = 'checked' | 'unchecked'; // Legacy type for migration
 
 const DB_NAME = 'image-metahub-preferences';
-const DB_VERSION = 4; // Updated to match imageAnnotationsStorage.ts (Shadow Metadata Phase)
+const DB_VERSION = 5; // Updated to match other storage services
 const STORE_NAME = 'folderSelection';
 const RECORD_KEY = 'selection';
 const EXCLUDED_FOLDERS_KEY = 'excluded-folders';
@@ -90,6 +90,9 @@ async function openDatabase({ allowReset = true }: { allowReset?: boolean } = {}
         const db = request.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('folderPreferences')) {
+          db.createObjectStore('folderPreferences', { keyPath: 'path' });
         }
       };
 

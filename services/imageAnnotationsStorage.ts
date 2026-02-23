@@ -3,7 +3,7 @@
 import type { ImageAnnotations, TagInfo, ClusterPreference, SmartCollection } from '../types';
 
 const DB_NAME = 'image-metahub-preferences';
-const DB_VERSION = 4; // Increment from 3 to 4 (Shadow Metadata)
+const DB_VERSION = 5; // Increment to 5 for folderPreferences store
 const STORE_NAME = 'imageAnnotations';
 
 const inMemoryAnnotations: Map<string, ImageAnnotations> = new Map();
@@ -127,6 +127,14 @@ async function openDatabase({ allowReset = true }: { allowReset?: boolean } = {}
           if (!db.objectStoreNames.contains('shadowMetadata')) {
             db.createObjectStore('shadowMetadata', { keyPath: 'imageId' });
             console.log('Created shadowMetadata object store (v4)');
+          }
+        }
+
+        // Versão 5: Create folderPreferences store
+        if (oldVersion < 5) {
+          if (!db.objectStoreNames.contains('folderPreferences')) {
+            db.createObjectStore('folderPreferences', { keyPath: 'path' });
+            console.log('Created folderPreferences object store (v5)');
           }
         }
       };

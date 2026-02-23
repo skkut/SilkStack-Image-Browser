@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, ImageCluster, TFIDFModel, AutoTag } from '../types';
 import { loadSelectedFolders, saveSelectedFolders, loadExcludedFolders, saveExcludedFolders } from '../services/folderSelectionStorage';
+import { loadFolderPreferences, saveFolderPreference, FolderPreference } from '../services/folderPreferencesStorage';
 import {
   loadAllAnnotations,
   saveAnnotation,
@@ -11,6 +12,7 @@ import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
 import { useLicenseStore } from './useLicenseStore';
 import { useSettingsStore } from './useSettingsStore';
 import { CLUSTERING_FREE_TIER_LIMIT, CLUSTERING_PREVIEW_LIMIT } from '../hooks/useFeatureAccess';
+import { normalizePath } from '../utils/pathUtils';
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
@@ -61,10 +63,6 @@ const updateRecentTags = (currentTags: string[], tag: string): string[] => {
     return next.slice(0, MAX_RECENT_TAGS);
 };
 
-const normalizePath = (path: string) => {
-    if (!path) return '';
-    return path.replace(/[\\/]+$/, '');
-};
 
 const getImageFolderPath = (image: IndexedImage, directoryPath: string): string => {
     const normalizedDirectory = normalizePath(directoryPath);
@@ -167,6 +165,7 @@ interface ImageState {
   excludedFolders: Set<string>;
   isFolderSelectionLoaded: boolean;
   includeSubfolders: boolean;
+  folderPreferences: Map<string, FolderPreference>;
 
   // UI State
   isLoading: boolean;
@@ -245,6 +244,7 @@ interface ImageState {
   addExcludedFolder: (path: string) => void;
   removeExcludedFolder: (path: string) => void;
   isFolderSelected: (path: string) => boolean;
+  setFolderColor: (path: string, color: string | undefined) => Promise<void>;
   toggleIncludeSubfolders: () => void;
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { current: number; total: number } | null) => void;
@@ -970,6 +970,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         excludedFolders: new Set(),
         isFolderSelectionLoaded: false,
         includeSubfolders: localStorage.getItem('image-metahub-include-subfolders') !== 'false', // Default to true
+        folderPreferences: new Map(),
         isLoading: false,
         progress: null,
         enrichmentProgress: null,
@@ -1088,17 +1089,25 @@ export const useImageStore = create<ImageState>((set, get) => {
         initializeFolderSelection: async () => {
             Promise.all([
                 loadSelectedFolders(),
-                loadExcludedFolders()
-            ]).then(([selectedPaths, excludedPaths]) => {
+                loadExcludedFolders(),
+                loadFolderPreferences()
+            ]).then(([selectedPaths, excludedPaths, preferences]) => {
                 set(state => {
                     // Only update if not already loaded to avoid overwriting current selection during re-renders
                     if (state.isFolderSelectionLoaded) {
                         return state;
                     }
 
+                    const prefMap = new Map<string, FolderPreference>();
+                    preferences.forEach(p => {
+                        const normalizedP = normalizePath(p.path);
+                        prefMap.set(normalizedP, { ...p, path: normalizedP });
+                    });
+
                     const newState = {
-                        selectedFolders: new Set(selectedPaths),
-                        excludedFolders: new Set(excludedPaths),
+                        selectedFolders: new Set(selectedPaths.map(p => normalizePath(p))),
+                        excludedFolders: new Set(excludedPaths.map(p => normalizePath(p))),
+                        folderPreferences: prefMap,
                         isFolderSelectionLoaded: true
                     };
                     
@@ -1108,14 +1117,15 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         addExcludedFolder: (path: string) => {
+            const normalizedPath = normalizePath(path);
             set(state => {
                 const newExcluded = new Set(state.excludedFolders);
-                newExcluded.add(path);
+                newExcluded.add(normalizedPath);
                 
                 // If the folder was selected, deselect it
                 const newSelected = new Set(state.selectedFolders);
-                if (newSelected.has(path)) {
-                    newSelected.delete(path);
+                if (newSelected.has(normalizedPath)) {
+                    newSelected.delete(normalizedPath);
                 }
 
                 saveExcludedFolders(Array.from(newExcluded));
@@ -1126,9 +1136,10 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         removeExcludedFolder: (path: string) => {
+            const normalizedPath = normalizePath(path);
             set(state => {
                 const newExcluded = new Set(state.excludedFolders);
-                newExcluded.delete(path);
+                newExcluded.delete(normalizedPath);
                 saveExcludedFolders(Array.from(newExcluded));
                 return _updateState({ ...state, excludedFolders: newExcluded }, state.images);
             });
@@ -1196,6 +1207,28 @@ export const useImageStore = create<ImageState>((set, get) => {
         isFolderSelected: (path) => {
             const normalizedPath = normalizePath(path);
             return get().selectedFolders.has(normalizedPath);
+        },
+
+        setFolderColor: async (path, color) => {
+            const normalizedPath = normalizePath(path);
+            const { folderPreferences } = get();
+            
+            const pref: FolderPreference = {
+                path: normalizedPath,
+                color
+            };
+
+            set(state => {
+                const newPrefs = new Map(state.folderPreferences);
+                if (color) {
+                    newPrefs.set(normalizedPath, pref);
+                } else {
+                    newPrefs.delete(normalizedPath);
+                }
+                return { folderPreferences: newPrefs };
+            });
+
+            await saveFolderPreference(pref);
         },
 
         toggleIncludeSubfolders: () => {
