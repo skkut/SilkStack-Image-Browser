@@ -19,6 +19,7 @@ interface DirectoryListProps {
   scanSubfolders?: boolean;
   excludedFolders?: Set<string>;
   onExcludeFolder?: (path: string) => void;
+  isCollapsed?: boolean;
 }
 
 interface SubfolderNode {
@@ -59,7 +60,8 @@ export default function DirectoryList({
   isIndexing = false,
   scanSubfolders = false,
   excludedFolders,
-  onExcludeFolder
+  onExcludeFolder,
+  isCollapsed = false
 }: DirectoryListProps) {
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [subfolderCache, setSubfolderCache] = useState<Map<string, SubfolderNode[]>>(new Map());
@@ -178,10 +180,14 @@ export default function DirectoryList({
     path: string,
     event: React.MouseEvent
   ) => {
+    console.log('[DirectoryList] handleClick:', path, 'isCollapsed:', isCollapsed);
     event.stopPropagation();
-    if (!onToggleFolderSelection) return;
+    if (!onToggleFolderSelection) {
+      console.log('[DirectoryList] onToggleFolderSelection is missing!');
+      return;
+    }
     onToggleFolderSelection(path, event.ctrlKey);
-  }, [onToggleFolderSelection]);
+  }, [onToggleFolderSelection, isCollapsed]);
 
   const handleContextMenu = useCallback((
     event: React.MouseEvent,
@@ -476,6 +482,57 @@ export default function DirectoryList({
     });
   }, [expandedNodes, handleFolderClick, handleContextMenu, handleToggleNode, isFolderSelected, loadingNodes, subfolderCache, excludedFolders, dropTarget, handleDragOver, handleDragLeave, handleDrop]);
 
+  if (isCollapsed) {
+    return (
+      <ul className="flex flex-col items-center space-y-3 w-full px-1">
+        {directories.filter(dir => dir.isConnected !== false).map((dir) => {
+          // Recursive helper to render icons for the root directory and its expanded subfolders
+          const renderCollapsedIcons = (path: string, rootDir: Directory) => {
+            // Skip if this specific subfolder is excluded
+            if (path !== rootDir.path && excludedFolders?.has(normalizePath(path))) {
+              return [];
+            }
+
+            const key = makeNodeKey(rootDir.id, getRelativePath(rootDir.path, path));
+            const children = subfolderCache.get(key) || [];
+            const icons: React.ReactNode[] = [];
+            const isSelected = isFolderSelected ? isFolderSelected(path) : false;
+            const pref = folderPreferences.get(normalizePath(path));
+
+            icons.push(
+              <li key={path} className="w-full flex justify-center relative group">
+                <button
+                  onClick={(e) => handleFolderClick(path, e)}
+                  onContextMenu={(e) => handleContextMenu(e, path)}
+                  className={`p-2 rounded-xl transition-all ${
+                    isSelected ? 'bg-blue-600/40 shadow-lg shadow-blue-500/20 text-white' : 'hover:bg-gray-700/50 text-gray-400'
+                  }`}
+                  title={`${dir.name}${path !== dir.path ? ` > ${path.split(/[/\\]/).pop()}` : ''}`}
+                >
+                  <Folder
+                    className="w-5 h-5 transition-transform group-hover:scale-110"
+                    style={{ color: pref?.color || '#9ca3af' }}
+                  />
+                </button>
+              </li>
+            );
+
+            // If the folder is expanded in the main sidebar, show its subfolders' icons
+            if (expandedNodes.has(key)) {
+              children.forEach(child => {
+                icons.push(...(renderCollapsedIcons(child.path, rootDir) as any));
+              });
+            }
+
+            return icons;
+          };
+
+          return renderCollapsedIcons(dir.path, dir);
+        })}
+      </ul>
+    );
+  }
+
   return (
     <div className="border-b border-gray-700">
       <div
@@ -551,8 +608,7 @@ export default function DirectoryList({
                         isRootSelected
                           ? 'bg-blue-600/30 hover:bg-blue-600/40'
                           : dropTarget === dir.path ? 'bg-blue-500/40' : 'bg-gray-800 hover:bg-gray-700/50'
-                      } ${dir.isConnected === false ? 'opacity-50 grayscale' : ''}`}
-                      title={dir.isConnected === false ? 'Directory not found (disconnected)' : ''}
+                      }`}
                       onDragOver={(e) => handleDragOver(e, dir.path)}
                       onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, dir.path, dir.id)}

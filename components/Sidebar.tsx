@@ -145,10 +145,21 @@ const Sidebar: React.FC<SidebarProps> = ({
            <div className="absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
            <img src="logo1.png" alt="Expand" className="h-10 w-10 rounded-xl shadow-lg relative z-10 transition-transform duration-200 group-hover:scale-105" />
         </button>
-        <div className="flex flex-col space-y-3">
+        <div className="flex flex-col space-y-3 mb-4">
           {(selectedModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0) && (
             <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" title="Active filters"></div>
           )}
+        </div>
+        <div className="flex-1 w-full overflow-y-auto no-scrollbar pb-10">
+          {children && React.isValidElement(children) ? (
+            React.cloneElement(children as React.ReactElement<any>, {
+              isIndexing,
+              scanSubfolders,
+              excludedFolders,
+              onExcludeFolder,
+              isCollapsed: true,
+            })
+          ) : null}
         </div>
       </div>
     );
