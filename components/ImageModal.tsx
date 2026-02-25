@@ -25,6 +25,8 @@ import {
   Repeat,
   Eye,
   EyeOff,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { useCopyToA1111 } from "../hooks/useCopyToA1111";
 import { useGenerateWithA1111 } from "../hooks/useGenerateWithA1111";
@@ -509,38 +511,49 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // ... (rest of the component state)
 
   // Helper function to load a single image
-  const loadImageToUrl = useCallback(async (img: IndexedImage, dirPath: string): Promise<string | null> => {
-    try {
-      const primaryHandle = img.handle;
-      const fallbackHandle = img.thumbnailHandle;
-      const fileHandle =
-        primaryHandle && typeof primaryHandle.getFile === "function"
-          ? primaryHandle
-          : fallbackHandle && typeof fallbackHandle.getFile === "function"
-            ? fallbackHandle
-            : null;
+  const loadImageToUrl = useCallback(
+    async (img: IndexedImage, dirPath: string): Promise<string | null> => {
+      try {
+        const primaryHandle = img.handle;
+        const fallbackHandle = img.thumbnailHandle;
+        const fileHandle =
+          primaryHandle && typeof primaryHandle.getFile === "function"
+            ? primaryHandle
+            : fallbackHandle && typeof fallbackHandle.getFile === "function"
+              ? fallbackHandle
+              : null;
 
-      if (fileHandle) {
-        const file = await fileHandle.getFile();
-        return URL.createObjectURL(file);
-      }
-      
-      // Fallback to Electron API
-      if (window.electronAPI) {
-        const pathResult = await window.electronAPI.joinPaths(dirPath, img.name);
-        if (pathResult.success && pathResult.path) {
-          const fileResult = await window.electronAPI.readFile(pathResult.path);
-          if (fileResult.success && fileResult.data) {
-            const { url } = createImageUrlFromFileData(fileResult.data, img.name);
-            return url;
+        if (fileHandle) {
+          const file = await fileHandle.getFile();
+          return URL.createObjectURL(file);
+        }
+
+        // Fallback to Electron API
+        if (window.electronAPI) {
+          const pathResult = await window.electronAPI.joinPaths(
+            dirPath,
+            img.name,
+          );
+          if (pathResult.success && pathResult.path) {
+            const fileResult = await window.electronAPI.readFile(
+              pathResult.path,
+            );
+            if (fileResult.success && fileResult.data) {
+              const { url } = createImageUrlFromFileData(
+                fileResult.data,
+                img.name,
+              );
+              return url;
+            }
           }
         }
+      } catch (error) {
+        console.warn(`Failed to preload image ${img.name}:`, error);
       }
-    } catch (error) {
-      console.warn(`Failed to preload image ${img.name}:`, error);
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    [],
+  );
 
   const imageFromStore = useImageStore(
     (state) =>
@@ -555,7 +568,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     let isMounted = true;
     let currentUrl: string | null = null;
     const hasPreview = Boolean(preferredThumbnailUrl);
-    
+
     // Check if we have the image in cache
     if (imageCache.has(image.id)) {
       setImageUrl(imageCache.get(image.id)!);
@@ -571,28 +584,33 @@ const ImageModal: React.FC<ImageModalProps> = ({
       if (!imageCache.has(image.id)) {
         const url = await loadImageToUrl(image, directoryPath);
         if (isMounted && url) {
-           setImageUrl(url);
-           currentUrl = url;
-           setImageCache(prev => {
-             const newCache = new Map(prev);
-             newCache.set(image.id, url);
-             return newCache;
-           });
+          setImageUrl(url);
+          currentUrl = url;
+          setImageCache((prev) => {
+            const newCache = new Map(prev);
+            newCache.set(image.id, url);
+            return newCache;
+          });
         }
       } else {
         currentUrl = imageCache.get(image.id)!;
       }
 
       // 2. Preload adjacent images
-      const imagesToPreload = [nextImage, previousImage].filter(Boolean) as IndexedImage[];
-      
+      const imagesToPreload = [nextImage, previousImage].filter(
+        Boolean,
+      ) as IndexedImage[];
+
       for (const img of imagesToPreload) {
-        if (!imageCache.has(img.id) && !isVideoFileName(img.name, img.fileType)) {
-          // Add a small delay/yield to let the UI breathe if needed, 
+        if (
+          !imageCache.has(img.id) &&
+          !isVideoFileName(img.name, img.fileType)
+        ) {
+          // Add a small delay/yield to let the UI breathe if needed,
           // but async nature helps.
           const url = await loadImageToUrl(img, directoryPath);
           if (isMounted && url) {
-            setImageCache(prev => {
+            setImageCache((prev) => {
               const newCache = new Map(prev);
               newCache.set(img.id, url);
               return newCache;
@@ -600,20 +618,23 @@ const ImageModal: React.FC<ImageModalProps> = ({
           }
         }
       }
-      
+
       // 3. Cleanup cache (keep only current, next, previous)
-      setImageCache(prev => {
-        const keepIds = new Set([image.id, nextImage?.id, previousImage?.id].filter(Boolean));
-        if (prev.size > keepIds.size + 2) { // Allow a tiny buffer
-            const newCache = new Map();
-            prev.forEach((url, id) => {
-                if (keepIds.has(id as string)) {
-                    newCache.set(id, url);
-                } else {
-                    URL.revokeObjectURL(url);
-                }
-            });
-            return newCache;
+      setImageCache((prev) => {
+        const keepIds = new Set(
+          [image.id, nextImage?.id, previousImage?.id].filter(Boolean),
+        );
+        if (prev.size > keepIds.size + 2) {
+          // Allow a tiny buffer
+          const newCache = new Map();
+          prev.forEach((url, id) => {
+            if (keepIds.has(id as string)) {
+              newCache.set(id, url);
+            } else {
+              URL.revokeObjectURL(url);
+            }
+          });
+          return newCache;
         }
         return prev;
       });
@@ -631,31 +652,31 @@ const ImageModal: React.FC<ImageModalProps> = ({
     directoryPath,
     preferredThumbnailUrl,
     isVideo,
-    nextImage, 
+    nextImage,
     previousImage,
-    loadImageToUrl
+    loadImageToUrl,
   ]);
 
   // Global cleanup when component unmounts entirely
   useEffect(() => {
-      return () => {
-          // This effect runs once on mount, and the cleanup runs on unmount
-          // We can't access the *latest* imageCache here in the cleanup unless we include it in deps,
-          // but if we include it in deps, it runs every time cache changes.
-          // Instead, since React 18, we can use a ref to track the cache for cleanup.
-      };
-  }, []); 
+    return () => {
+      // This effect runs once on mount, and the cleanup runs on unmount
+      // We can't access the *latest* imageCache here in the cleanup unless we include it in deps,
+      // but if we include it in deps, it runs every time cache changes.
+      // Instead, since React 18, we can use a ref to track the cache for cleanup.
+    };
+  }, []);
 
   // Use a ref to track cache for cleanup on unmount
   const cacheRef = useRef(imageCache);
   useEffect(() => {
-      cacheRef.current = imageCache;
+    cacheRef.current = imageCache;
   }, [imageCache]);
 
   useEffect(() => {
-      return () => {
-          cacheRef.current.forEach(url => URL.revokeObjectURL(url));
-      };
+    return () => {
+      cacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
   }, []);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -669,6 +690,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] =
     useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem("image_modal_sidebar_collapsed");
+    return saved === "true";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(
+      "image_modal_sidebar_collapsed",
+      String(isSidebarCollapsed),
+    );
+  }, [isSidebarCollapsed]);
+
   const canDragExternally =
     typeof window !== "undefined" && !!window.electronAPI?.startFileDrag;
 
@@ -1079,11 +1112,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "copy";
       }
-      window.electronAPI?.startFileDrag({ 
-        directoryPath, 
+      window.electronAPI?.startFileDrag({
+        directoryPath,
         relativePath,
         id: image.id,
-        lastModified: image.lastModified
+        lastModified: image.lastModified,
       });
     },
     [canDragExternally, directoryPath, image.id, image.name],
@@ -1108,7 +1141,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // Old useEffect removed. Logic moved to the main loading/preloading effect.
   // Kept Empty for diff cleanliness, correct implementation is above.
-
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1287,7 +1319,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Image Display Section */}
         <div
           id="image-zoom-container"
-          className={`w-full ${isFullscreen ? "h-full" : "md:w-3/4 h-1/2 md:h-full"} bg-black flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden`}
+          className={`w-full ${isFullscreen ? "h-full" : isSidebarCollapsed ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-black flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden transition-[width] duration-300`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
@@ -1411,6 +1443,24 @@ const ImageModal: React.FC<ImageModalProps> = ({
             >
               {isFullscreen ? "Exit" : "Fullscreen"}
             </button>
+            {!isFullscreen && (
+              <button
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="bg-black/60 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                aria-label={
+                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                }
+                title={
+                  isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
+                }
+              >
+                {isSidebarCollapsed ? (
+                  <PanelRightOpen className="w-4 h-4" />
+                ) : (
+                  <PanelRightClose className="w-4 h-4" />
+                )}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="bg-black/60 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -1424,7 +1474,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
         {/* Metadata Panel */}
         <div
-          className={`w-full ${isFullscreen ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} p-6 overflow-y-auto space-y-4`}
+          className={`w-full ${isFullscreen || isSidebarCollapsed ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} p-6 overflow-y-auto space-y-4`}
         >
           <div>
             {isRenaming ? (
