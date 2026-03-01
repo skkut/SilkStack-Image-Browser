@@ -409,13 +409,14 @@ export const useImageStore = create<ImageState>((set, get) => {
         set(state => {
             const deduped = new Map<string, IndexedImage>();
             for (const img of imagesToAdd) {
-                if (img?.id && !deduped.has(img.id)) {
-                    deduped.set(img.id, img);
+                if (img?.id && !deduped.has(img.id.toLowerCase())) {
+                    deduped.set(img.id.toLowerCase(), img);
                 }
             }
             const queuedUnique = Array.from(deduped.values());
-            const existingIds = new Set(state.images.map(img => img.id));
-            const uniqueNewImages = queuedUnique.filter(img => !existingIds.has(img.id));
+            const existingIdsLower = new Set(state.images.map(img => img.id.toLowerCase()));
+            const uniqueNewImages = queuedUnique.filter(img => !existingIdsLower.has(img.id.toLowerCase()));
+
             if (uniqueNewImages.length === 0) {
                 console.log('[store] No new images to flush (all duplicates)');
                 return state;
@@ -1352,27 +1353,28 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         removeImagesByPaths: (paths) => {
             const pathsToRemove = new Set(paths.map(p => normalizePath(p).toLowerCase())); // Normalize and lowercase
-            const { images, directories } = get();
-            
-            // Create directory map for fast lookup
-            const dirMap = new Map<string, string>();
-            directories.forEach(dir => dirMap.set(dir.id, normalizePath(dir.path)));
+            flushPendingImages();
 
-            const remainingImages = images.filter(img => {
-                const dirPath = dirMap.get(img.directoryId || '');
-                if (!dirPath) return true; // Keep if we can't determine path
+            set(state => {
+                const { directories } = state;
+                // Create directory map for fast lookup
+                const dirMap = new Map<string, string>();
+                directories.forEach(dir => dirMap.set(dir.id, normalizePath(dir.path)));
+
+                const remainingImages = state.images.filter(img => {
+                    const dirPath = dirMap.get(img.directoryId || '');
+                    if (!dirPath) return true; // Keep if we can't determine path
+                    
+                    const relativePath = getRelativeImagePath(img);
+                    const fullPath = joinPath(dirPath, relativePath);
+                    const normalizedFullPath = normalizePath(fullPath).toLowerCase();
+                    
+                    return !pathsToRemove.has(normalizedFullPath);
+                });
                 
-                const relativePath = getRelativeImagePath(img);
-                const fullPath = joinPath(dirPath, relativePath);
-                const normalizedFullPath = normalizePath(fullPath).toLowerCase();
-                
-                return !pathsToRemove.has(normalizedFullPath);
+                if (remainingImages.length === state.images.length) return state;
+                return _updateState(state, remainingImages);
             });
-            
-            if (remainingImages.length !== images.length) {
-                flushPendingImages();
-                set(state => _updateState(state, remainingImages));
-            }
         },
 
         removeImage: (imageId) => {
