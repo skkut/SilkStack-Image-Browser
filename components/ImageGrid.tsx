@@ -364,6 +364,22 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
             }`}
             loading="lazy"
             draggable={false}
+            onLoad={(e) => {
+              const target = e.currentTarget;
+              const { naturalWidth, naturalHeight } = target;
+              if (naturalWidth > 0 && naturalHeight > 0 && onImageLoad) {
+                  onImageLoad(image.id, naturalWidth / naturalHeight);
+              }
+              const currentDim = image.dimensions;
+              const [strW, strH] = currentDim ? currentDim.split('x') : [];
+              const curW = parseInt(strW, 10) || 0;
+              const curH = parseInt(strH, 10) || 0;
+              const currentAspect = curH > 0 ? curW / curH : 0;
+              const naturalAspect = naturalWidth / naturalHeight;
+              if (!curW || !curH || Math.abs(currentAspect - naturalAspect) > 0.05) {
+                  useImageStore.getState().updateImageDimensions(image.id, `${naturalWidth}x${naturalHeight}`);
+              }
+            }}
           />
         ) : (
           <div className="w-full h-full animate-pulse bg-gray-700"></div>

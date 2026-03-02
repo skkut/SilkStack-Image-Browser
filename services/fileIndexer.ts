@@ -1416,11 +1416,22 @@ if (rawMetadata) {
 
     // Read actual image dimensions - OPTIMIZED: Only if not already in metadata
     const dimensionsStart = profile ? performance.now() : 0;
-    if (normalizedMetadata && (!normalizedMetadata.width || !normalizedMetadata.height) && bufferForDimensions) {
+    if (bufferForDimensions) {
       const dims = extractDimensionsFromBuffer(bufferForDimensions);
       if (dims) {
-        normalizedMetadata.width = normalizedMetadata.width || dims.width;
-        normalizedMetadata.height = normalizedMetadata.height || dims.height;
+        if (!normalizedMetadata) {
+            normalizedMetadata = {
+                prompt: '',
+                model: '',
+                width: dims.width,
+                height: dims.height,
+                steps: 0,
+                scheduler: ''
+            } as BaseMetadata;
+        } else {
+            normalizedMetadata.width = normalizedMetadata.width || dims.width;
+            normalizedMetadata.height = normalizedMetadata.height || dims.height;
+        }
       }
     }
     if (profile) {

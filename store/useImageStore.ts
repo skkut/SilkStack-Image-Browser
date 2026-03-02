@@ -260,6 +260,7 @@ interface ImageState {
   removeImages: (imageIds: string[]) => void;
   removeImagesByPaths: (paths: string[]) => void;
   updateImage: (imageId: string, newName: string) => void;
+  updateImageDimensions: (imageId: string, dimensions: string) => void;
   clearImages: (directoryId?: string) => void;
   setImageThumbnail: (
     imageId: string,
@@ -1390,6 +1391,17 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const updatedImages = state.images.map(img => img.id === imageId ? { ...img, name: newName } : img);
                 // No need to recalculate filters for a simple name change
                 return { ...state, ...filterAndSort({ ...state, images: updatedImages }), images: updatedImages };
+            });
+        },
+
+        updateImageDimensions: (imageId, dimensions) => {
+            set(state => {
+                const imgToUpdate = state.images.find(img => img.id === imageId);
+                if (!imgToUpdate || imgToUpdate.dimensions === dimensions) return state;
+                const updatedImages = state.images.map(img => 
+                    img.id === imageId ? { ...img, dimensions } : img
+                );
+                return _updateState(state, updatedImages);
             });
         },
 
