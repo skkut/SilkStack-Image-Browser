@@ -797,7 +797,7 @@ export default function App() {
           onLibraryViewChange={setLibraryView}
         />
 
-        <main className="mx-auto p-4 flex-1 flex flex-col min-h-0 w-full">
+        <main className="mx-auto px-4 py-0 flex-1 flex flex-col min-h-0 w-full">
           {error && (
             <div className="bg-red-900/50 text-red-300 p-3 rounded-lg my-4 flex items-center justify-between">
               <span>{error}</span>
