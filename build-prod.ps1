@@ -1,4 +1,8 @@
 $ErrorActionPreference = "Stop"
+Write-Host "Closing Running Application Instances..."
+Get-Process -Name "AI Images Browser" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "ai-images-browser" -ErrorAction SilentlyContinue | Stop-Process -Force
+
 
 Write-Host "Clearing previous build artifacts..."
 Remove-Item -Path "dist" -Recurse -Force -ErrorAction SilentlyContinue
@@ -16,5 +20,20 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-Write-Host "Build complete! Artifacts are in release-builds directory."
 
+
+Write-Host "Deploying to C:\Programs\AI Images Browser..."
+$BuildOutput = Get-ChildItem -Path "release-builds" -Directory | Select-Object -First 1
+if ($null -eq $BuildOutput) {
+    Write-Error "Could not find build output directory in release-builds!"
+    exit 1
+}
+
+$DestPath = "C:\Programs\AI Images Browser"
+if (!(Test-Path $DestPath)) {
+    New-Item -ItemType Directory -Path $DestPath -Force
+}
+
+Copy-Item -Path "$($BuildOutput.FullName)\*" -Destination $DestPath -Recurse -Force
+
+Write-Host "Build and Deployment complete! Artifacts are in $DestPath"
