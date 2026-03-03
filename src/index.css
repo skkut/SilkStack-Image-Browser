@@ -2,6 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+}
+
 .masonry-grid {
   display: -webkit-box;
   display: -ms-flexbox;
@@ -83,8 +87,12 @@
   animation: slide-in-right 0.3s ease-out;
 }
 @keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .animate-fade-in {
