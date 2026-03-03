@@ -234,7 +234,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
         </div>
       )}
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {activeCluster ? (
           <StackExpandedView
             cluster={activeCluster.cluster}
@@ -261,7 +261,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
             </p>
           </div>
         ) : (
-          <div className="min-h-0 overflow-auto pr-1">
+          <div className="min-h-0 pr-1">
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {paginatedEntries.map((entry) => {
                 // Check if majority of images in this cluster are locked
