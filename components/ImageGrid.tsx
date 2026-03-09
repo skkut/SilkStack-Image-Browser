@@ -512,12 +512,38 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const gridRef = useRef<HTMLDivElement>(null);
 
   const pendingRestoreKeyRef = useRef<string | null>(scrollKey);
+  const lastResizeTimeRef = useRef(0);
+  
+  // Resize anchor tracking
+  const rowsRef = useRef<any[]>([]);
+  const resizeAnchorRef = useRef<{ id: string, offsetRatio: number } | null>(null);
 
   // Handle scroll event
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     // Only track scroll if we are not in the middle of a folder transition
     if (scrollStateRef.current.key === scrollKey && pendingRestoreKeyRef.current === null) {
-      scrollStateRef.current.top = e.currentTarget.scrollTop;
+      const scrollTop = e.currentTarget.scrollTop;
+      scrollStateRef.current.top = scrollTop;
+      
+      // Update anchor for resize tracking ONLY if not actively resizing (debounce 250ms)
+      if (Date.now() - lastResizeTimeRef.current > 250) {
+        let currentY = 0;
+        for (const row of rowsRef.current) {
+          if (currentY + row.height + 8 >= scrollTop) {
+            if (row.items && row.items.length > 0) {
+              const firstItem = row.items[0];
+              const itemId = 'coverImage' in firstItem ? firstItem.coverImage.id : firstItem.id;
+              if (itemId) {
+                // Calculate proportional offset relative to row height
+                const ratio = row.height > 0 ? Math.max(0, scrollTop - currentY) / row.height : 0;
+                resizeAnchorRef.current = { id: itemId, offsetRatio: ratio };
+              }
+            }
+            break;
+          }
+          currentY += row.height + 8; // row.height + margin (gap-2 = 8px)
+        }
+      }
     }
   }, [scrollKey]);
 
@@ -543,6 +569,47 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
       const availableWidth = Math.max(1, safeWidth - 40); 
       return computeJustifiedLayout(itemsToRender, availableWidth, imageSize);
   }, [itemsToRender, width, imageSize]);
+
+  // Update rowsRef for the scroll handler
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
+  // Restore scroll position based on anchor after resize
+  const prevWidthRef = useRef(width);
+  React.useLayoutEffect(() => {
+    if (prevWidthRef.current !== width) {
+      prevWidthRef.current = width;
+      lastResizeTimeRef.current = Date.now();
+      
+      if (resizeAnchorRef.current && gridRef.current && pendingRestoreKeyRef.current === null) {
+        let currentY = 0;
+        let foundY = 0;
+        let foundRowHeight = 0;
+        let found = false;
+        
+        for (const row of rows) {
+          for (const item of row.items) {
+            const itemId = 'coverImage' in item ? item.coverImage.id : item.id;
+            if (itemId === resizeAnchorRef.current.id) {
+              found = true;
+              foundY = currentY;
+              foundRowHeight = row.height;
+              break;
+            }
+          }
+          if (found) break;
+          currentY += row.height + 8;
+        }
+
+        if (found) {
+          const newScrollTop = foundY + (resizeAnchorRef.current.offsetRatio * foundRowHeight);
+          gridRef.current.scrollTop = newScrollTop;
+          scrollStateRef.current.top = newScrollTop;
+        }
+      }
+    }
+  }, [width, rows]);
 
   React.useLayoutEffect(() => {
     const oldKey = scrollStateRef.current.key;
