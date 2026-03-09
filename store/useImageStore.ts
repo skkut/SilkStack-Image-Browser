@@ -351,6 +351,10 @@ interface ImageState {
   setDraggedItems: (items: { sourcePath: string; name: string }[]) => void;
   clearDraggedItems: () => void;
 
+  // Scroll Positions
+  folderScrollPositions: Record<string, number>;
+  setFolderScrollPosition: (key: string, position: number) => void;
+
   // Reset Actions
   resetState: () => void;
 }
@@ -2373,6 +2377,11 @@ export const useImageStore = create<ImageState>((set, get) => {
         // Drag and Drop (Internal)
         setDraggedItems: (items) => set({ draggedItems: items }),
         clearDraggedItems: () => set({ draggedItems: [] }),
+
+        folderScrollPositions: {},
+        setFolderScrollPosition: (key, position) => set(state => ({
+            folderScrollPositions: { ...state.folderScrollPositions, [key]: position }
+        })),
 
         resetState: () => set({
             images: [],

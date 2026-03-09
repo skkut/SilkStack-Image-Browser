@@ -497,6 +497,12 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const previewImage = useImageStore((state) => state.previewImage);
 
+  // Scroll position state
+  const selectedFolders = useImageStore((state) => state.selectedFolders);
+  const setFolderScrollPosition = useImageStore((state) => state.setFolderScrollPosition);
+  const scrollKey = useMemo(() => Array.from(selectedFolders).sort().join(',') || 'ALL', [selectedFolders]);
+  const scrollStateRef = useRef({ key: scrollKey, top: 0 });
+
   // --- Stacking Logic (Must be top-level) ---
   const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
   const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
@@ -505,18 +511,66 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const { stackedItems } = useImageStacking(images, isStackingEnabled);
   const gridRef = useRef<HTMLDivElement>(null);
 
+  const pendingRestoreKeyRef = useRef<string | null>(scrollKey);
+
+  // Handle scroll event
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    // Only track scroll if we are not in the middle of a folder transition
+    if (scrollStateRef.current.key === scrollKey && pendingRestoreKeyRef.current === null) {
+      scrollStateRef.current.top = e.currentTarget.scrollTop;
+    }
+  }, [scrollKey]);
+
+  // Moved useLayoutEffect below rows definition
+
+  useEffect(() => {
+    // Save current position when component unmounts
+    return () => {
+      setFolderScrollPosition(scrollStateRef.current.key, scrollStateRef.current.top);
+    };
+  }, [setFolderScrollPosition]);
+
   const imageCardsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const prevFocusedImageIndexRef = useRef<number>(focusedImageIndex);
 
   // Layout logic
   const itemsToRender: (IndexedImage | ImageStack)[] = isStackingEnabled ? stackedItems : images;
   const focusedItemId = itemsToRender[focusedImageIndex] ? (isImageStack(itemsToRender[focusedImageIndex]) ? (itemsToRender[focusedImageIndex] as ImageStack).coverImage.id : (itemsToRender[focusedImageIndex] as IndexedImage).id) : null;
+  
   const rows = useMemo(() => {
       // Account for padding (p-2 = 16px) and scrollbar (approx 17px) to avoid horizontal scroll
       const safeWidth = width || 0;
       const availableWidth = Math.max(1, safeWidth - 40); 
       return computeJustifiedLayout(itemsToRender, availableWidth, imageSize);
   }, [itemsToRender, width, imageSize]);
+
+  React.useLayoutEffect(() => {
+    const oldKey = scrollStateRef.current.key;
+    if (oldKey !== scrollKey) {
+      // Save old position
+      setFolderScrollPosition(oldKey, scrollStateRef.current.top);
+      scrollStateRef.current.key = scrollKey;
+      pendingRestoreKeyRef.current = scrollKey;
+    }
+
+    if (pendingRestoreKeyRef.current === scrollKey && gridRef.current) {
+      // Only restore if we actually have rows rendered (meaning width > 0 and height is established)
+      // or if itemsToRender is truly empty (meaning the folder is empty and we can just set to 0)
+      if (rows.length > 0 || itemsToRender.length === 0) {
+        const savedPos = useImageStore.getState().folderScrollPositions[scrollKey] || 0;
+        
+        // Use a short timeout to ensure the browser has applied DOM heights and AutoSizer is completely settled
+        requestAnimationFrame(() => {
+          if (gridRef.current) {
+            gridRef.current.scrollTo({ top: savedPos, behavior: 'instant' });
+            scrollStateRef.current.top = savedPos;
+          }
+        });
+        
+        pendingRestoreKeyRef.current = null;
+      }
+    }
+  }, [scrollKey, setFolderScrollPosition, rows.length, itemsToRender.length]);
 
 
 
@@ -1316,6 +1370,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onScroll={handleScroll}
       >
         <div className="flex flex-col gap-2 relative">
              {rows.map((row, rowIndex) => (
