@@ -682,7 +682,7 @@ export default function App() {
       if (itemsPerPage === -1) {
         return safeFilteredImages;
       }
-      return safeFilteredImages.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+      return safeFilteredImages.slice(0, currentPage * itemsPerPage);
     },
     [safeFilteredImages, currentPage, itemsPerPage]
   );
@@ -883,6 +883,9 @@ export default function App() {
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
                           onBatchExport={handleOpenBatchExport}
+                          currentPage={currentPage}
+                          totalPages={totalPages}
+                          onPageChange={setCurrentPage}
                         />
                   )
                 ) : libraryView === 'model' ? (

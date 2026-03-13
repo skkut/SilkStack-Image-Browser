@@ -1402,6 +1402,21 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     // No-op
   }, []);
 
+  const observer = useRef<IntersectionObserver | null>(null);
+  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
+    if (observer.current) observer.current.disconnect();
+    
+    if (node && onPageChange && currentPage !== undefined && totalPages !== undefined && currentPage < totalPages) {
+      observer.current = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) {
+          onPageChange(currentPage + 1);
+        }
+      }, { rootMargin: '400px' });
+      
+      observer.current.observe(node);
+    }
+  }, [onPageChange, currentPage, totalPages]);
+
 
 
   if (isEmpty) {
@@ -1504,6 +1519,11 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
                 })}
                  </div>
              ))}
+             {currentPage !== undefined && totalPages !== undefined && currentPage < totalPages && (
+               <div ref={loadMoreRef} className="h-20 w-full flex items-center justify-center text-gray-500 font-medium tracking-wide">
+                 Loading more images...
+               </div>
+             )}
         </div>
 
         {/* Selection box visual */}

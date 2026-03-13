@@ -137,62 +137,6 @@ const Footer: React.FC<FooterProps> = ({
             <option value={-1}>All</option>
           </select>
         </div>
-        {showPageControls && (
-          <>
-            <div className="w-px h-4 bg-gray-700/50"></div>
-            <div className="flex items-center gap-1 bg-gray-800/40 p-1 rounded-lg border border-gray-700/30">
-              <button onClick={() => onPageChange(1)} disabled={currentPage === 1} className="p-1.5 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:text-white text-gray-400" title="First page">
-                <ChevronsLeft className="w-4 h-4" />
-              </button>
-              <button onClick={() => onPageChange(currentPage - 1)} disabled={currentPage === 1} className="p-1.5 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:text-white text-gray-400" title="Previous page">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              
-              <div className="px-1 min-w-[80px] text-center">
-                {isEditingPage ? (
-                  <input
-                    type="number"
-                    value={pageInput}
-                    onChange={(e) => setPageInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        let newPage = parseInt(pageInput, 10);
-                        if (!isNaN(newPage)) {
-                          newPage = Math.max(1, Math.min(newPage, totalPages));
-                          onPageChange(newPage);
-                        }
-                        setIsEditingPage(false);
-                      } else if (e.key === 'Escape') {
-                        setIsEditingPage(false);
-                      }
-                    }}
-                    onBlur={() => setIsEditingPage(false)}
-                    autoFocus
-                    min="1"
-                    max={totalPages}
-                    className="w-16 text-center bg-gray-900 border border-blue-500/50 rounded px-1 py-0.5 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-xs font-bold"
-                  />
-                ) : (
-                  <button
-                    onClick={() => setIsEditingPage(true)}
-                    className="px-2 py-0.5 text-gray-300 hover:text-white hover:bg-gray-700/50 rounded transition-colors text-xs font-medium"
-                    title="Click to edit page number"
-                  >
-                    <span className="text-white font-bold">{currentPage}</span> <span className="text-gray-600">of</span> <span className="text-gray-400">{totalPages}</span>
-                  </button>
-                )}
-              </div>
-
-              <button onClick={() => onPageChange(currentPage + 1)} disabled={currentPage === totalPages} className="p-1.5 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:text-white text-gray-400" title="Next page">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-              <button onClick={() => onPageChange(totalPages)} disabled={currentPage === totalPages} className="p-1.5 hover:bg-gray-700 rounded-md disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:text-white text-gray-400" title="Last page">
-                <ChevronsRight className="w-4 h-4" />
-              </button>
-            </div>
-          </>
-        )}
       </nav>
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
