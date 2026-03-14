@@ -1,0 +1,52 @@
+{
+  "workflow": {
+    "nodes": [
+      {
+        "id": 31,
+        "type": "Power Lora Loader (rgthree)",
+        "widgets_values": [
+          {},
+          { "type": "PowerLoraLoaderHeaderWidget" },
+          { "on": true, "lora": "ZIT\\zit_fdpo_enhance_colors_v1.safetensors", "strength": 0.85, "strengthTwo": null },
+          { "on": false, "lora": "ZIT\\negative_n_hyperbolic.safetensors", "strength": 1.2, "strengthTwo": null },
+          { "on": false, "lora": "ZIT\\Disney_IZT_ATK_V1.safetensors", "strength": 1, "strengthTwo": null },
+          {},
+          ""
+        ]
+      }
+    ],
+    "links": []
+  },
+  "prompt": {
+    "3": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 42,
+        "steps": 20,
+        "cfg": 7,
+        "sampler_name": "euler",
+        "scheduler": "normal",
+        "denoise": 1,
+        "model": ["4", 0],
+        "positive": ["5", 0],
+        "negative": ["6", 0]
+      }
+    },
+    "4": {
+      "class_type": "CheckpointLoaderSimple",
+      "inputs": { "ckpt_name": "test_model.safetensors" }
+    },
+    "5": {
+      "class_type": "CLIPTextEncode",
+      "inputs": { "clip": ["4", 1], "text": "beautiful landscape" }
+    },
+    "6": {
+      "class_type": "CLIPTextEncode",
+      "inputs": { "clip": ["4", 1], "text": "blurry" }
+    },
+    "31": {
+      "class_type": "Power Lora Loader (rgthree)",
+      "inputs": { "model": ["4", 0], "clip": ["4", 1] }
+    }
+  }
+}
