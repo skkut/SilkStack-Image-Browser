@@ -1757,14 +1757,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   <MetadataItem
-                    label="Seed"
-                    value={effectiveMetadata?.seed}
-                    onCopy={() =>
-                      copyToClipboard(
-                        String(effectiveMetadata?.seed || ""),
-                        "Seed",
-                      )
-                    }
+                    label="Dimensions"
+                    value={nMeta.width && nMeta.height ? `${nMeta.width}x${nMeta.height}` : undefined}
                   />
                   <MetadataItem
                     label="Model"
@@ -1773,6 +1767,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       copyToClipboard(effectiveMetadata?.model || "", "Model")
                     }
                   />
+                  {nMeta.width && nMeta.height && (
+                    <MetadataItem
+                      label="Megapixels"
+                      value={`${((nMeta.width * nMeta.height) / 1_000_000).toFixed(2)} MP`}
+                    />
+                  )}
                 </div>
               </div>
 
