@@ -1760,13 +1760,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     label="Dimensions"
                     value={nMeta.width && nMeta.height ? `${nMeta.width}x${nMeta.height}` : undefined}
                   />
-                  <MetadataItem
-                    label="Model"
-                    value={effectiveMetadata?.model}
-                    onCopy={() =>
-                      copyToClipboard(effectiveMetadata?.model || "", "Model")
-                    }
-                  />
                   {nMeta.width && nMeta.height && (
                     <MetadataItem
                       label="Megapixels"
