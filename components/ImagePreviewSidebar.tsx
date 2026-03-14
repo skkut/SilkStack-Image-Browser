@@ -563,6 +563,7 @@ const ImagePreviewSidebar: React.FC = () => {
                   <MetadataItem label="CFG Scale" value={nMeta.cfgScale} />
                   <MetadataItem label="Seed" value={nMeta.seed} />
                   <MetadataItem label="Dimensions" value={nMeta.width && nMeta.height ? `${nMeta.width}x${nMeta.height}` : undefined} />
+                  <MetadataItem label="Megapixels" value={nMeta.width && nMeta.height ? `${((nMeta.width * nMeta.height) / 1_000_000).toFixed(2)} MP` : undefined} />
                   <MetadataItem label="Sampler" value={nMeta.sampler} />
                   <MetadataItem label="Scheduler" value={nMeta.scheduler} />
                   {(nMeta as any).denoise != null && (nMeta as any).denoise < 1 && (
