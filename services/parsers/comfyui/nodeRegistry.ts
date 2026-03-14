@@ -1373,5 +1373,50 @@ PrimitiveNode: {
     denoise: { source: 'widget', key: 'value' }
   },
   widget_order: ['value', 'control_after_generate']
+},
+
+'Power Lora Loader (rgthree)': {
+  category: 'LOADING',
+  roles: ['TRANSFORM'],
+  inputs: {
+    model: { type: 'MODEL' },
+    clip: { type: 'CLIP' }
+  },
+  outputs: {
+    MODEL: { type: 'MODEL' },
+    CLIP: { type: 'CLIP' }
+  },
+  param_mapping: {
+    lora: {
+      source: 'custom_extractor',
+      extractor: (node: ParserNode) => {
+        const loras: string[] = [];
+        if (node.widgets_values && Array.isArray(node.widgets_values)) {
+          for (const entry of node.widgets_values) {
+            if (entry && typeof entry === 'object' && entry.on && entry.lora) {
+              loras.push(entry.lora);
+            }
+          }
+        }
+        return loras;
+      }
+    },
+    model: { source: 'trace', input: 'model' }
+  },
+  pass_through_rules: [
+    { from_input: 'model', to_output: 'MODEL' },
+    { from_input: 'clip', to_output: 'CLIP' }
+  ]
+},
+
+PathchSageAttentionKJ: {
+  category: 'TRANSFORM',
+  roles: ['PASS_THROUGH'],
+  inputs: { model: { type: 'MODEL' } },
+  outputs: { MODEL: { type: 'MODEL' } },
+  param_mapping: {},
+  widget_order: ['sage_attention', 'allow_compile'],
+  pass_through_rules: [{ from_input: 'model', to_output: 'MODEL' }]
 }
 };
+

@@ -50,7 +50,7 @@ describe('ComfyUI Parser - Prompt Sources', () => {
 });
 
 describe('ComfyUI Parser - Detection from capitalized string keys', () => {
-  it('should detect ComfyUI when Prompt/Workflow are capitalized and stringified', () => {
+  it('should detect ComfyUI when Prompt/Workflow are capitalized and stringified', async () => {
     const fixture = loadFixture('primitive-string-multiline.json');
     const metadata: any = {
       Prompt: JSON.stringify(fixture.prompt),
@@ -58,7 +58,7 @@ describe('ComfyUI Parser - Detection from capitalized string keys', () => {
       parameters: '' // present but should not force A1111 path
     };
 
-    const result = parseImageMetadata(metadata)!;
+    const result = (await parseImageMetadata(metadata))!;
 
     expect(result.generator).toBe('ComfyUI');
     expect(result.prompt).toContain('Visualize a long, eel-like mutant lizard');

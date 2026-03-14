@@ -121,7 +121,7 @@ export function getMetadataParser(metadata: ImageMetadata): ParserModule | null 
     const workflowCI = getCaseInsensitive<any>(metadata as any, 'workflow');
     const promptCI = getCaseInsensitive<any>(metadata as any, 'prompt');
     const promptLooksLikeGraph = typeof promptCI === 'string' && /"class_type"|"inputs"/.test(promptCI);
-    const hasParameters = 'parameters' in metadata && typeof metadata.parameters === 'string';
+    const hasParameters = 'parameters' in metadata && typeof metadata.parameters === 'string' && metadata.parameters.length > 0;
 
     if (!hasParameters && (workflowCI !== undefined || (promptCI && typeof promptCI === 'object') || promptLooksLikeGraph)) {
         return {
@@ -141,6 +141,7 @@ export function getMetadataParser(metadata: ImageMetadata): ParserModule | null 
                 }
                 const resolvedParams = resolvePromptFromGraph(workflow, prompt);
                 return {
+                    generator: 'ComfyUI',
                     prompt: resolvedParams.prompt || '',
                     negativePrompt: resolvedParams.negativePrompt || '',
                     model: resolvedParams.model || '',
@@ -175,7 +176,7 @@ export function getMetadataParser(metadata: ImageMetadata): ParserModule | null 
         console.log(`   - Contains 'Module 1: ae': ${!!metadata.parameters.match(/Module\s*1:\s*ae/i)}`);
         return { parse: (data: FooocusMetadata) => parseFooocusMetadata(data), generator: 'Fooocus' };
     }
-    if ('parameters' in metadata && typeof metadata.parameters === 'string') {
+    if ('parameters' in metadata && typeof metadata.parameters === 'string' && metadata.parameters.length > 0) {
         return { parse: (data: Automatic1111Metadata) => parseA1111Metadata(data.parameters), generator: 'Automatic1111' };
     }
     if ('parameters' in metadata && 

@@ -198,10 +198,9 @@ function extractAdvancedSeed(node: ParserNode | null, graph: Graph): { seed: num
  * - Maps model hashes to "unknown (hash: xxxx)" format
  */
 function extractAdvancedModel(node: ParserNode | null, graph: Graph): string | null {
-  // Handle null node
-  if (!node) {
-    return null;
-  }
+  if (!node) return null;
+
+
 
   // FIRST: Traverse to source nodes (CheckpointLoader) via model connections
   // This ensures we follow the chain: LoraLoader -> LoraLoader -> CheckpointLoader
@@ -363,58 +362,196 @@ function extractComfyVersion(workflow: any, prompt: any): string | null {
 /**
  * Constrói um mapa de nós simplificado a partir dos dados do workflow e do prompt.
  */
+/**
+ * Constrói um mapa de nós simplificado a partir dos dados do workflow e do prompt.
+ * Suporta subgrafos (workflows aninhados) via expansão recursiva e resolução de proxies.
+ */
 function createNodeMap(workflow: any, prompt: any): Graph {
     const graph: Graph = {};
+    const outputProxies = new Map<string, [string, number]>(); // "instanceId:slot" -> [internalNodeId, internalSlot]
+    const inputProxies = new Map<string, [string, any]>();     // "instanceId:slot" -> [internalNodeId, internalSlotOrName]
 
-    // Add/overlay from prompt (execution data: class_type, inputs)
-    for (const [id, pNode] of Object.entries(prompt || {})) {
-        graph[id] = {
-            id,
-            class_type: (pNode as any).class_type,
-            inputs: (pNode as any).inputs || {},
-            widgets_values: (pNode as any).widgets_values,  // Keep undefined if not present
-            mode: 0,
-        };
-    }
+    const subgraphs = new Map<string, any>(
+        (workflow?.definitions?.subgraphs || []).map((s: any) => [s.id, s])
+    );
 
-    // Overlay from workflow (UI data: widgets_values, mode, type if missing)
-    if (workflow?.nodes) {
-        for (const wNode of workflow.nodes) {
-            const id = wNode.id.toString();
-            if (graph[id]) {
-                graph[id].widgets_values = wNode.widgets_values || [];
-                graph[id].mode = wNode.mode || 0;
-                graph[id].class_type = graph[id].class_type || wNode.type;
+    // 1. Função recursiva para construir o grafo e mapas de proxies
+    const processNodes = (nodeList: any[], prefix = "") => {
+        if (!nodeList) return;
+
+        for (const wNode of nodeList) {
+            const instanceId = prefix ? `${prefix}${wNode.id}` : wNode.id.toString();
+            const subgraphDef = subgraphs.get(wNode.type);
+
+            if (subgraphDef) {
+                const subPrefix = `${instanceId}:`;
+                
+                // Processa nós internos recursivamente
+                processNodes(subgraphDef.nodes, subPrefix);
+
+                // Mapeia widgets de proxy para os nós internos
+                if (subgraphDef.properties?.proxyWidgets && wNode.widgets_values) {
+                    subgraphDef.properties.proxyWidgets.forEach((proxy: [string, string], index: number) => {
+                        const [internalId, widgetName] = proxy;
+                        const targetId = `${subPrefix}${internalId}`;
+                        const targetNode = graph[targetId];
+                        
+                        if (targetNode && wNode.widgets_values[index] !== undefined) {
+                            const nodeDef = NodeRegistry[targetNode.class_type];
+                            if (nodeDef?.widget_order) {
+                                const wIdx = nodeDef.widget_order.indexOf(widgetName);
+                                if (wIdx !== -1) {
+                                    if (!targetNode.widgets_values) targetNode.widgets_values = [];
+                                    targetNode.widgets_values[wIdx] = wNode.widgets_values[index];
+                                }
+                            } else {
+                                // Fallback: se não temos ordem, tentamos injetar no objeto de widgets se o motor suportar
+                                (targetNode as any)._proxied_widgets = (targetNode as any)._proxied_widgets || {};
+                                (targetNode as any)._proxied_widgets[widgetName] = wNode.widgets_values[index];
+                            }
+                        }
+                    });
+                }
+
+                // Mapeia links internos para identificar proxies de I/O
+                if (subgraphDef.links) {
+                    for (const linkData of subgraphDef.links) {
+                        const l = Array.isArray(linkData) ? {
+                            origin_id: linkData[1],
+                            origin_slot: linkData[2],
+                            target_id: linkData[3],
+                            target_slot: linkData[4],
+                            input_name: linkData[6]
+                        } : linkData;
+
+                        const originId = l.origin_id.toString();
+                        const targetId = l.target_id.toString();
+
+                        if (l.target_id === -20) {
+                            // Slot de saída do subgrafo -> Origem interna
+                            outputProxies.set(`${instanceId}:${l.target_slot}`, [`${subPrefix}${originId}`, l.origin_slot]);
+                        } else if (l.origin_id === -10) {
+                            // Slot de entrada do subgrafo -> Destino interno
+                            let targetParam = l.input_name;
+                            if (!targetParam && typeof l.target_slot === 'number') {
+                                const targetNode = graph[`${subPrefix}${targetId}`];
+                                if (targetNode) {
+                                    const nodeDef = NodeRegistry[targetNode.class_type];
+                                    if (nodeDef) {
+                                        targetParam = Object.keys(nodeDef.inputs)[l.target_slot];
+                                    }
+                                }
+                            }
+                            inputProxies.set(`${instanceId}:${l.origin_slot}`, [`${subPrefix}${targetId}`, targetParam || l.target_slot]);
+                        } else {
+                            // Link interno-para-interno
+                            const finalSourceId = `${subPrefix}${originId}`;
+                            const finalTargetId = `${subPrefix}${targetId}`;
+                            const targetNode = graph[finalTargetId];
+                            if (targetNode) {
+                                let inputName = l.input_name;
+                                if (!inputName && typeof l.target_slot === 'number') {
+                                    const nodeDef = NodeRegistry[targetNode.class_type];
+                                    if (nodeDef) {
+                                        inputName = Object.keys(nodeDef.inputs)[l.target_slot];
+                                    }
+                                }
+                                if (inputName) {
+                                    targetNode.inputs[inputName] = [finalSourceId, l.origin_slot];
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
-                graph[id] = {
-                    id,
+
+                // Nó padrão (não é subgrafo)
+                graph[instanceId] = {
+                    id: instanceId,
                     class_type: wNode.type,
                     inputs: {},
                     widgets_values: wNode.widgets_values || [],
                     mode: wNode.mode || 0,
                 };
             }
-            
-            // For grouped workflow nodes: DON'T apply parent widgets to children
-            // The child nodes already have correct values in their "inputs" from the prompt data
-            // Applying parent widgets would break the indices since parent widgets are concatenated
-            // The fallback logic in extractValue will read from inputs when widgets_values is empty
+        }
+    };
+
+    // Processa nós do workflow (incluindo expansão de subgrafos)
+    if (workflow?.nodes) {
+        processNodes(workflow.nodes);
+    }
+
+    // 2. Sobrepõe dados do prompt (dados de execução)
+    // O prompt já pode conter IDs "achatados" (ex: "151:140") se foi gerado pelo ComfyUI backend
+    for (const [id, pNode] of Object.entries(prompt || {})) {
+        if (!graph[id]) {
+            graph[id] = {
+                id,
+                class_type: (pNode as any).class_type,
+                inputs: (pNode as any).inputs || {},
+                widgets_values: (pNode as any).widgets_values || [],
+                mode: 0,
+            };
+        } else {
+            const node = graph[id];
+            if ((pNode as any).inputs) Object.assign(node.inputs, (pNode as any).inputs);
+            if ((pNode as any).class_type) node.class_type = (pNode as any).class_type;
+            if ((pNode as any).widgets_values) node.widgets_values = (pNode as any).widgets_values;
         }
     }
 
-    // If workflow has links, populate inputs for nodes without them (fallback for incomplete prompts)
+    // 3. Resolve links de nível superior (workflow.links) usando os mapas de proxies
+    const resolveOutputProxy = (nodeId: string, slot: number): [string, number] => {
+        const key = `${nodeId}:${slot}`;
+        if (outputProxies.has(key)) {
+            const [intId, intSlot] = outputProxies.get(key)!;
+            return resolveOutputProxy(intId, intSlot); // Recursivo para subgrafos aninhados
+        }
+        return [nodeId, slot];
+    };
+
     if (workflow?.links) {
         for (const link of workflow.links) {
-            const [, sourceId, sourceSlot, targetId, targetSlot, , inputName] = link; // Adjust based on link format
-            const targetNode = graph[targetId.toString()];
-            if (targetNode && inputName) {
-                targetNode.inputs[inputName] = [sourceId.toString(), sourceSlot];
+            let [, sourceId, sourceSlot, targetId, targetSlot, , inputName] = link;
+            sourceId = sourceId.toString();
+            targetId = targetId.toString();
+
+            // Resolve origem através de proxies de saída
+            const [finalSourceId, finalSourceSlot] = resolveOutputProxy(sourceId, sourceSlot);
+
+            // Resolve destino através de proxies de entrada
+            const targetProxyKey = `${targetId}:${targetSlot}`;
+            if (inputProxies.has(targetProxyKey)) {
+                const [intTargetId, intTargetSlotOrName] = inputProxies.get(targetProxyKey)!;
+                const targetNode = graph[intTargetId];
+                if (targetNode) {
+                    const finalInputName = typeof intTargetSlotOrName === 'string' ? intTargetSlotOrName : inputName;
+                    targetNode.inputs[finalInputName] = [finalSourceId, finalSourceSlot];
+                }
+            } else {
+                const targetNode = graph[targetId];
+                if (targetNode) {
+                    // Tenta resolver o nome do input a partir do slot se estiver faltando (comum em arquivos .json)
+                    if (!inputName && typeof targetSlot === 'number') {
+                        const nodeDef = NodeRegistry[targetNode.class_type];
+                        if (nodeDef) {
+                            inputName = Object.keys(nodeDef.inputs)[targetSlot];
+                        }
+                    }
+                    if (inputName) {
+                        targetNode.inputs[inputName] = [finalSourceId, finalSourceSlot];
+                    }
+                }
             }
         }
     }
 
     return graph;
 }
+
+
+
 
 /**
  * Encontra o nó terminal do grafo, que serve como ponto de partida para a travessia.
@@ -492,21 +629,18 @@ export function resolvePromptFromGraph(workflow: any, prompt: any): Record<strin
 
   // Fix duplicated prompts - check if prompt contains repeated segments
   if (results.prompt && typeof results.prompt === 'string') {
-    const trimmedPrompt = results.prompt.trim();
-    
-    // Split by common delimiters (comma, comma+space, double space)
-    const segments = trimmedPrompt.split(/,\s*|,|  +/).filter(s => s.trim());
-    
-    // Remove duplicate segments while preserving order
+    // 1. Deduplicate comma-separated segments
+    const segments = results.prompt.split(/,\s*/).filter(s => s.trim());
     const uniqueSegments = Array.from(new Set(segments));
-    
-    // If we removed duplicates, reconstruct the prompt
     if (uniqueSegments.length < segments.length) {
       results.prompt = uniqueSegments.join(', ');
     }
     
-    // Additional check: if the entire prompt is literally repeated (e.g., "abc abc")
-    const words = trimmedPrompt.split(/\s+/);
+    // 2. Normalize newlines and multiple spaces to a single space
+    results.prompt = results.prompt.replace(/\n+/g, ' ').replace(/  +/g, ' ').replace(/\.$/, '').trim();
+    
+    // 3. Additional check: if the entire prompt is literally repeated (e.g., "abc abc")
+    const words = results.prompt.split(/\s+/);
     const half = Math.floor(words.length / 2);
     if (words.length >= 4 && words.length % 2 === 0) {
       const firstHalf = words.slice(0, half).join(' ');
@@ -516,33 +650,9 @@ export function resolvePromptFromGraph(workflow: any, prompt: any): Record<strin
       }
     }
   }
-  
-  // Fix duplicated prompts - check if prompt contains repeated segments
-  if (results.prompt && typeof results.prompt === 'string') {
-    const trimmedPrompt = results.prompt.trim();
-    
-    // Split by common delimiters (comma, comma+space, double space)
-    const segments = trimmedPrompt.split(/,\s*|,|  +/).filter(s => s.trim());
-    
-    // Remove duplicate segments while preserving order
-    const uniqueSegments = Array.from(new Set(segments));
-    
-    // If we removed duplicates, reconstruct the prompt
-    if (uniqueSegments.length < segments.length) {
-      results.prompt = uniqueSegments.join(', ');
-    }
-    
-    // Additional check: if the entire prompt is literally repeated (e.g., "abc abc")
-    const words = trimmedPrompt.split(/\s+/);
-    const half = Math.floor(words.length / 2);
-    if (words.length >= 4 && words.length % 2 === 0) {
-      const firstHalf = words.slice(0, half).join(' ');
-      const secondHalf = words.slice(half).join(' ');
-      if (firstHalf === secondHalf && firstHalf.length > 0) {
-        results.prompt = firstHalf;
-      }
-    }
-  }
+
+
+
 
   // Phase 2: Advanced extraction using terminal node
   const advancedSeed = extractAdvancedSeed(terminalNode, graph);
