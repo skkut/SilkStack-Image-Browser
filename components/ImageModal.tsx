@@ -1831,14 +1831,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                         label="Scheduler"
                         value={effectiveMetadata?.scheduler}
                       />
-                      <MetadataItem
-                        label="Dimensions"
-                        value={
-                          effectiveMetadata?.width && effectiveMetadata?.height
-                            ? `${effectiveMetadata.width}x${effectiveMetadata.height}`
-                            : undefined
-                        }
-                      />
                       {(nMeta as any).denoise != null &&
                         (nMeta as any).denoise < 1 && (
                           <MetadataItem
