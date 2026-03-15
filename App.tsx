@@ -128,6 +128,7 @@ export default function App() {
   const sortOrder = useImageStore((state) => state.sortOrder);
   const reshuffle = useImageStore((state) => state.reshuffle);
   const updateDirectoryStatus = useImageStore((state) => state.updateDirectoryStatus);
+  const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
 
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
   const safeDirectories = Array.isArray(directories) ? directories : [];
@@ -247,6 +248,17 @@ export default function App() {
       loadAnnotations();
     }
   }, [loadAnnotations, isAnnotationsLoaded]);
+
+  // Restore auto-tags from cache after images are loaded
+  // This runs early so tags are visible without needing to open Smart Library first
+  useEffect(() => {
+    if (safeDirectories.length > 0 && safeFilteredImages.length > 0 && indexingState !== 'indexing') {
+      const primaryPath = safeDirectories[0]?.path;
+      if (primaryPath) {
+        restoreSmartLibraryCache(primaryPath, scanSubfolders);
+      }
+    }
+  }, [safeDirectories.length, indexingState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initialize license and keep trial opt-in
   useEffect(() => {

@@ -41,6 +41,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
   const selectionTotalImages = useImageStore((state) => state.selectionTotalImages);
   const selectionDirectoryCount = useImageStore((state) => state.selectionDirectoryCount);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
+  const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
 
   const { itemsPerPage, setItemsPerPage, viewMode, toggleViewMode } = useSettingsStore();
   // const { handleDeleteSelectedImages, clearSelection } = useImageSelection(); // Unused
@@ -164,6 +165,13 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
 
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
+
+  // Restore cached clusters and auto-tags from disk on first mount
+  useEffect(() => {
+    if (primaryPath && clusters.length === 0 && !isClustering) {
+      restoreSmartLibraryCache(primaryPath, scanSubfolders);
+    }
+  }, [primaryPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerateClusters = () => {
     if (!primaryPath) return;

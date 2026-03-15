@@ -309,6 +309,7 @@ interface ImageState {
   ) => Promise<void>;
   cancelAutoTagging: () => void;
   setAutoTaggingProgress: (progress: { current: number; total: number; message: string } | null) => void;
+  restoreSmartLibraryCache: (directoryPath: string, scanSubfolders: boolean) => Promise<void>;
 
   // Comparison Actions
   setComparisonImages: (images: [IndexedImage | null, IndexedImage | null]) => void;
@@ -1658,6 +1659,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                         worker.terminate();
                         set({ clusteringWorker: null });
                         console.log(`Clustering complete: ${payload.clusters.length} clusters created`);
+
+                        // Save cluster cache to disk for persistence across restarts
+                        import('../services/clusterCacheManager')
+                            .then(({ saveClusterCache }) => saveClusterCache(directoryPath, scanSubfolders, payload.clusters, threshold))
+                            .catch(error => console.warn('Failed to save cluster cache:', error));
                         break;
 
                     case 'error':
@@ -1835,6 +1841,59 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         setAutoTaggingProgress: (progress) => set({ autoTaggingProgress: progress }),
+
+        restoreSmartLibraryCache: async (directoryPath, scanSubfolders) => {
+            try {
+                const { loadClusterCache, loadAutoTagCache, deserializeTFIDFModel } =
+                    await import('../services/clusterCacheManager');
+
+                // Restore clusters (only if none exist yet)
+                const { clusters } = get();
+                if (clusters.length === 0) {
+                    const clusterCache = await loadClusterCache(directoryPath, scanSubfolders);
+                    if (clusterCache?.clusters?.length) {
+                        set({ clusters: clusterCache.clusters });
+                        console.log(`Restored ${clusterCache.clusters.length} clusters from cache`);
+                    }
+                }
+
+                // Restore auto-tags (only if images don't already have them)
+                const { images } = get();
+                const hasAutoTags = images.some(img => img.autoTags && img.autoTags.length > 0);
+                if (!hasAutoTags) {
+                    const autoTagCache = await loadAutoTagCache(directoryPath, scanSubfolders);
+                    if (autoTagCache?.autoTags && Object.keys(autoTagCache.autoTags).length > 0) {
+                        const tagMap = new Map<string, string[]>();
+                        for (const [id, tags] of Object.entries(autoTagCache.autoTags)) {
+                            const normalizedTags = (tags as any[] || []).map((t: any) => t.tag).filter(Boolean);
+                            tagMap.set(id, normalizedTags);
+                        }
+
+                        const tfidfModel = autoTagCache.tfidfModel
+                            ? deserializeTFIDFModel(autoTagCache.tfidfModel)
+                            : null;
+
+                        set(state => {
+                            const updateList = (list: IndexedImage[]) => list.map(img => {
+                                if (!tagMap.has(img.id)) return img;
+                                const tags = tagMap.get(img.id) ?? [];
+                                return { ...img, autoTags: tags, autoTagsGeneratedAt: autoTagCache.lastGenerated };
+                            });
+
+                            return {
+                                ...state,
+                                images: updateList(state.images),
+                                filteredImages: updateList(state.filteredImages),
+                                tfidfModel: tfidfModel ?? state.tfidfModel,
+                            };
+                        });
+                        console.log(`Restored auto-tags for ${tagMap.size} images from cache`);
+                    }
+                }
+            } catch (error) {
+                console.debug('Smart library cache not available:', error);
+            }
+        },
 
         // Comparison Actions
         setComparisonImages: (images) => set({ comparisonImages: images }),
