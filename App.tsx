@@ -249,16 +249,16 @@ export default function App() {
     }
   }, [loadAnnotations, isAnnotationsLoaded]);
 
+  const primaryPath = safeDirectories[0]?.path;
+  const hasImages = safeFilteredImages.length > 0;
+
   // Restore auto-tags from cache after images are loaded
   // This runs early so tags are visible without needing to open Smart Library first
   useEffect(() => {
-    if (safeDirectories.length > 0 && safeFilteredImages.length > 0 && indexingState !== 'indexing') {
-      const primaryPath = safeDirectories[0]?.path;
-      if (primaryPath) {
-        restoreSmartLibraryCache(primaryPath, scanSubfolders);
-      }
+    if (primaryPath && hasImages && indexingState !== 'indexing') {
+      restoreSmartLibraryCache(primaryPath, scanSubfolders);
     }
-  }, [safeDirectories.length, indexingState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [primaryPath, hasImages, indexingState, scanSubfolders, restoreSmartLibraryCache]);
 
   // Initialize license and keep trial opt-in
   useEffect(() => {

@@ -166,12 +166,8 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
 
-  // Restore cached clusters and auto-tags from disk on first mount
-  useEffect(() => {
-    if (primaryPath && clusters.length === 0 && !isClustering) {
-      restoreSmartLibraryCache(primaryPath, scanSubfolders);
-    }
-  }, [primaryPath]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Cache restoration is now handled globally in App.tsx
+  // to ensure auto-tags and clusters are available before opening Smart Library 
 
   const handleGenerateClusters = () => {
     if (!primaryPath) return;
