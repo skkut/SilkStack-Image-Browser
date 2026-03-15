@@ -49,7 +49,7 @@ export default function App() {
 
   // --- Hooks ---
   const { handleSelectFolder, handleUpdateFolder, handleLoadFromStorage, handleRemoveDirectory, loadDirectory, processNewWatchedFiles } = useImageLoader();
-  const { handleImageSelection, handleDeleteSelectedImages } = useImageSelection();
+  const { handleImageSelection, handleDeleteSelectedImages, clearSelection } = useImageSelection();
   const { generateWithA1111, isGenerating: isGeneratingA1111 } = useGenerateWithA1111();
   const { generateWithComfyUI, isGenerating: isGeneratingComfyUI } = useGenerateWithComfyUI();
 
@@ -875,6 +875,7 @@ export default function App() {
                     openComparisonModal();
                   }}
                   onBatchExport={handleOpenBatchExport}
+                  onClearSelection={clearSelection}
                 />
 
               <div className="flex-1 min-h-0">

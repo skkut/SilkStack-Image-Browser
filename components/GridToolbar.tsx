@@ -7,7 +7,8 @@ import {
   GitCompare,
   Sparkles,
   Trash2,
-  ChevronDown
+  ChevronDown,
+  X
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
@@ -26,6 +27,7 @@ interface GridToolbarProps {
   onGenerateComfyUI: (image: IndexedImage) => void;
   onCompare: (images: [IndexedImage, IndexedImage]) => void;
   onBatchExport: () => void;
+  onClearSelection?: () => void;
 }
 
 const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -49,6 +51,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   onGenerateComfyUI,
   onCompare,
   onBatchExport,
+  onClearSelection,
 }) => {
   const [generateDropdownOpen, setGenerateDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -205,7 +208,17 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
       <div className="flex items-center gap-1 flex-1 overflow-hidden">
           {selectedCount > 0 && (
             <>
-              <span className="text-[11px] text-gray-400 mr-2 whitespace-nowrap">{selectedCount} selected</span>
+              <div className="flex items-center gap-1.5 mr-2">
+                <span className="text-[11px] text-gray-400 whitespace-nowrap">{selectedCount} selected</span>
+                <button
+                  onClick={onClearSelection}
+                  className="p-0.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded-full transition-colors flex-shrink-0"
+                  title="Deselect All"
+                  aria-label="Deselect All"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
 
               {/* Copy to Clipboard */}
               <button
