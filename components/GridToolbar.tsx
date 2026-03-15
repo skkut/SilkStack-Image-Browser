@@ -5,9 +5,7 @@ import {
   Download,
   Star,
   GitCompare,
-  Sparkles,
   Trash2,
-  ChevronDown,
   X
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
@@ -23,8 +21,6 @@ interface GridToolbarProps {
   images: IndexedImage[];
   directories: { id: string; path: string }[];
   onDeleteSelected: () => void;
-  onGenerateA1111: (image: IndexedImage) => void;
-  onGenerateComfyUI: (image: IndexedImage) => void;
   onCompare: (images: [IndexedImage, IndexedImage]) => void;
   onBatchExport: () => void;
   onClearSelection?: () => void;
@@ -47,16 +43,12 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   images,
   directories,
   onDeleteSelected,
-  onGenerateA1111,
-  onGenerateComfyUI,
   onCompare,
   onBatchExport,
   onClearSelection,
 }) => {
-  const [generateDropdownOpen, setGenerateDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
-  const { canUseComparison, canUseA1111, canUseComfyUI, showProModal } = useFeatureAccess();
+  const { canUseComparison, showProModal } = useFeatureAccess();
 
 
   // ... (rest of the file)
@@ -66,17 +58,6 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   const firstSelectedImage = selectedImagesList[0];
   // Check if all selected images are favorites
   const allFavorites = selectedImagesList.length > 0 && selectedImagesList.every(img => img.isFavorite);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setGenerateDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const handleCopyToClipboard = async () => {
     if (!firstSelectedImage) return;
@@ -146,30 +127,6 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
     if (selectedImagesList.length === 2) {
       onCompare([selectedImagesList[0], selectedImagesList[1]]);
     }
-  };
-
-  const handleGenerateA1111 = () => {
-    if (!canUseA1111) {
-      showProModal('a1111');
-      setGenerateDropdownOpen(false);
-      return;
-    }
-    if (firstSelectedImage) {
-      onGenerateA1111(firstSelectedImage);
-    }
-    setGenerateDropdownOpen(false);
-  };
-
-  const handleGenerateComfyUI = () => {
-    if (!canUseComfyUI) {
-      showProModal('comfyui');
-      setGenerateDropdownOpen(false);
-      return;
-    }
-    if (firstSelectedImage) {
-      onGenerateComfyUI(firstSelectedImage);
-    }
-    setGenerateDropdownOpen(false);
   };
 
   const selectedModels = useImageStore((state) => state.selectedModels);
@@ -279,37 +236,6 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
               >
                 <GitCompare className="w-4 h-4" />
               </button>
-
-              {/* Generate Dropdown */}
-              <div className="relative" ref={dropdownRef}>
-                <button
-                  onClick={() => setGenerateDropdownOpen(!generateDropdownOpen)}
-                  className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors flex items-center gap-0.5"
-                  title="Generate"
-                  disabled={selectedCount !== 1}
-                >
-                  <Sparkles className="w-4 h-4" />
-                  <ChevronDown className="w-3 h-3" />
-                </button>
-                {generateDropdownOpen && selectedCount === 1 && (
-                  <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 min-w-[160px] z-50">
-                    <button
-                      onClick={handleGenerateA1111}
-                      className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      with A1111
-                    </button>
-                    <button
-                      onClick={handleGenerateComfyUI}
-                      className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      with ComfyUI
-                    </button>
-                  </div>
-                )}
-              </div>
 
               {/* Divider */}
               <div className="w-px h-4 bg-gray-700 mx-1" />

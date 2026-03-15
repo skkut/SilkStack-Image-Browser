@@ -862,14 +862,6 @@ export default function App() {
                   images={paginatedImages}
                   directories={safeDirectories}
                   onDeleteSelected={handleDeleteSelectedImages}
-                  onGenerateA1111={(image) => {
-                    setSelectedImageForGeneration(image);
-                    setIsA1111GenerateModalOpen(true);
-                  }}
-                  onGenerateComfyUI={(image) => {
-                    setSelectedImageForGeneration(image);
-                    setIsComfyUIGenerateModalOpen(true);
-                  }}
                   onCompare={(images) => {
                     setComparisonImages(images);
                     openComparisonModal();
