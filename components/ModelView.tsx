@@ -48,7 +48,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
       directories.filter(d => d.isConnected === false).map(d => d.id)
     );
 
-    images.forEach(image => {
+    filteredImages.forEach(image => {
       // Skip images from disconnected directories
       if (disconnectedDirIds.has(image.directoryId)) {
         return;
@@ -71,7 +71,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
 
     const entries: ModelEntry[] = Array.from(models.entries()).map(([name, modelImages]) => ({
       name,
-      images: modelImages.sort((a, b) => b.lastModified - a.lastModified), // Sort images by newest first
+      images: modelImages.sort((a, b) => b.lastModified - a.lastModified), // Sort images by newest first // Sort images by newest first
       count: modelImages.length
     }));
 
@@ -83,7 +83,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
       }
       return a.name.localeCompare(b.name);
     });
-  }, [images, directories, sortBy]);
+  }, [filteredImages, directories, sortBy]);
 
   const totalPages = itemsPerPage === -1 ? 1 : Math.ceil(modelEntries.length / itemsPerPage);
   
