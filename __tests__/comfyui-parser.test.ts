@@ -75,16 +75,16 @@ describe('ComfyUI Parser - LoRA Workflows', () => {
     expect(result.loras).toHaveLength(2);
     
     // Check first LoRA
-    expect(result.loras[0].name).toBe('style_lora_v1.safetensors');
+    expect(result.loras[0].name).toBe('style_lora_v1');
     expect(result.loras[0].weight).toBe(0.8);
     
     // Check second LoRA
-    expect(result.loras[1].name).toBe('detail_tweaker.safetensors');
+    expect(result.loras[1].name).toBe('detail_tweaker');
     expect(result.loras[1].weight).toBe(0.5);
     
     // Backward compatibility: lora array should exist
-    expect(result.lora).toContain('style_lora_v1.safetensors');
-    expect(result.lora).toContain('detail_tweaker.safetensors');
+    expect(result.lora).toContain('style_lora_v1');
+    expect(result.lora).toContain('detail_tweaker');
   });
   
   it('should extract workflow parameters with LoRAs', () => {

@@ -300,17 +300,27 @@ function extractAdvancedModifiers(graph: Graph): {
       if (Array.isArray(node.widgets_values)) {
         for (const entry of node.widgets_values) {
           if (entry && typeof entry === 'object' && entry.on === true && entry.lora) {
-            loras.push({ name: entry.lora, weight: entry.strength ?? 1.0 });
+            let loraPath = String(entry.lora);
+            loraPath = loraPath.replace(/^(?:flux|Flux|FLUX)[\/\-\s]+/i, '');
+            loraPath = loraPath.replace(/\.safetensors$/i, '').trim();
+            if (loraPath) {
+              loras.push({ name: loraPath, weight: entry.strength ?? 1.0 });
+            }
           }
         }
       }
     } else if (classType.includes('lora') && classType !== 'power lora loader (rgthree)') {
       // Standard LoRA loaders (LoraLoader, LoraLoaderModelOnly, etc.)
-      const name = node.inputs?.lora_name || node.widgets_values?.[0] || 'unknown';
+      let name = node.inputs?.lora_name || node.widgets_values?.[0] || 'unknown';
+      if (name !== 'unknown') {
+        name = String(name).replace(/^(?:flux|Flux|FLUX)[\/\-\s]+/i, '');
+        name = name.replace(/\.safetensors$/i, '').trim();
+      }
       const weight = node.inputs?.strength_model || node.inputs?.weight || node.widgets_values?.[1] || 1.0;
       
       loras.push({ name, weight });
     }
+
     
     // VAE detection
     if (classType.includes('vae') && classType.includes('loader')) {

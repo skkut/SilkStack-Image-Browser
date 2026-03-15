@@ -1389,12 +1389,26 @@ PrimitiveNode: {
   param_mapping: {
     lora: {
       source: 'custom_extractor',
+      accumulate: true,
       extractor: (node: ParserNode) => {
         const loras: string[] = [];
         if (node.widgets_values && Array.isArray(node.widgets_values)) {
           for (const entry of node.widgets_values) {
             if (entry && typeof entry === 'object' && entry.on && entry.lora) {
-              loras.push(entry.lora);
+              let loraPath = String(entry.lora);
+              
+              // Remove common prefixes
+              loraPath = loraPath.replace(/^(?:flux|Flux|FLUX)[\/\-\s]+/i, '');
+              
+              // Remove .safetensors extension
+              loraPath = loraPath.replace(/\.safetensors$/i, '');
+              
+              // Clean extra spaces
+              loraPath = loraPath.trim();
+              
+              if (loraPath) {
+                loras.push(loraPath);
+              }
             }
           }
         }

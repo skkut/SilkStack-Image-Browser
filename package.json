@@ -3,7 +3,7 @@
   "description": "AI Images Browser",
   "author": "skkut <github.com/skkut>",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.5.1",
   "type": "module",
   "main": "electron.mjs",
   "homepage": "./",
