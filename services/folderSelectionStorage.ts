@@ -11,8 +11,11 @@ const STORAGE_VERSION_KEY = 'folder-selection-version';
 const CURRENT_VERSION = 2; // Version 2: Array-based selection (v1 was Map-based)
 
 let inMemorySelection: string[] = [];
-let isPersistenceDisabled = false;
+export let isPersistenceDisabled = false;
 let hasResetAttempted = false;
+
+// Shared promise for database connection to prevent race conditions when multiple stores initialize
+let dbPromise: Promise<IDBDatabase | null> | null = null;
 
 const getIndexedDB = () => {
   if (typeof indexedDB === 'undefined') {
@@ -72,9 +75,14 @@ function getErrorName(error: unknown): string | undefined {
   return undefined;
 }
 
-async function openDatabase({ allowReset = true }: { allowReset?: boolean } = {}): Promise<IDBDatabase | null> {
+export async function openDatabase({ allowReset = true }: { allowReset?: boolean } = {}): Promise<IDBDatabase | null> {
   if (isPersistenceDisabled) {
     return null;
+  }
+
+  // Use the existing promise if a connection is already being established
+  if (dbPromise && !allowReset) {
+      return dbPromise;
   }
 
   const idb = getIndexedDB();
@@ -82,68 +90,73 @@ async function openDatabase({ allowReset = true }: { allowReset?: boolean } = {}
     return null;
   }
 
-  try {
-    return await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = idb.open(DB_NAME, DB_VERSION);
+  dbPromise = (async () => {
+    try {
+      return await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = idb.open(DB_NAME, DB_VERSION);
 
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-        }
-        if (!db.objectStoreNames.contains('folderPreferences')) {
-          db.createObjectStore('folderPreferences', { keyPath: 'path' });
-        }
-      };
-
-      request.onsuccess = () => {
-        const db = request.result;
-        db.onversionchange = () => {
-          try {
-            db.close();
-          } catch (closeError) {
-            console.warn('Failed to close folder selection storage during version change', closeError);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+          if (!db.objectStoreNames.contains('folderPreferences')) {
+            db.createObjectStore('folderPreferences', { keyPath: 'path' });
           }
         };
-        hasResetAttempted = false;
-        resolve(db);
-      };
 
-      request.onerror = () => {
-        const error = request.error;
-        console.warn('Failed to open folder selection storage', error);
+        request.onsuccess = () => {
+          const db = request.result;
+          db.onversionchange = () => {
+            try {
+              db.close();
+            } catch (closeError) {
+              console.warn('Failed to close folder selection storage during version change', closeError);
+            }
+          };
+          hasResetAttempted = false;
+          resolve(db);
+        };
 
-        // Check for VersionError immediately and reject with proper error
-        if (error && (error.name === 'VersionError' || (error as any).constructor?.name === 'VersionError')) {
-          const versionError = new Error('VersionError');
-          versionError.name = 'VersionError';
-          reject(versionError);
-        } else {
-          reject(error);
+        request.onerror = () => {
+          const error = request.error;
+          console.warn('Failed to open folder selection storage', error);
+
+          // Check for VersionError immediately and reject with proper error
+          if (error && (error.name === 'VersionError' || (error as any).constructor?.name === 'VersionError')) {
+            const versionError = new Error('VersionError');
+            versionError.name = 'VersionError';
+            reject(versionError);
+          } else {
+            reject(error);
+          }
+        };
+      });
+    } catch (error) {
+      const errorName = getErrorName(error);
+
+      console.log('🔍 IndexedDB Error caught:', { errorName, allowReset, hasResetAttempted });
+
+      // Auto-reset on version errors, unknown errors, or invalid state
+      if (allowReset && !hasResetAttempted && (errorName === 'VersionError' || errorName === 'UnknownError' || errorName === 'InvalidStateError')) {
+        console.warn('🔄 Resetting folder selection storage due to IndexedDB error:', error);
+        hasResetAttempted = true;
+        const resetSuccessful = await deleteDatabase();
+        console.log('🗑️ Database deletion result:', resetSuccessful);
+        if (resetSuccessful) {
+          console.log('♻️ Attempting to reopen database with version 1...');
+          dbPromise = null; // Clear the failed promise before reopening
+          return openDatabase({ allowReset: false });
         }
-      };
-    });
-  } catch (error) {
-    const errorName = getErrorName(error);
-
-    console.log('🔍 IndexedDB Error caught:', { errorName, allowReset, hasResetAttempted });
-
-    // Auto-reset on version errors, unknown errors, or invalid state
-    if (allowReset && !hasResetAttempted && (errorName === 'VersionError' || errorName === 'UnknownError' || errorName === 'InvalidStateError')) {
-      console.warn('🔄 Resetting folder selection storage due to IndexedDB error:', error);
-      hasResetAttempted = true;
-      const resetSuccessful = await deleteDatabase();
-      console.log('🗑️ Database deletion result:', resetSuccessful);
-      if (resetSuccessful) {
-        console.log('♻️ Attempting to reopen database with version 1...');
-        return openDatabase({ allowReset: false });
       }
-    }
 
-    console.error('❌ Could not recover from IndexedDB error. Disabling persistence.');
-    disablePersistence(error);
-    return null;
-  }
+      console.error('❌ Could not recover from IndexedDB error. Disabling persistence.');
+      disablePersistence(error);
+      return null;
+    }
+  })();
+
+  return dbPromise;
 }
 
 export async function loadSelectedFolders(): Promise<string[]> {
