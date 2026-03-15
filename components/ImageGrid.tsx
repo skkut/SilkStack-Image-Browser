@@ -1234,40 +1234,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
               </button>
             )}
 
-            <div className="border-t border-gray-600 my-1"></div>
-
-          <button
-            onClick={copyMetadataToA1111}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            disabled={!contextMenu.image?.metadata?.normalizedMetadata?.prompt}
-            title={!canUseA1111 && initialized ? 'Pro feature - start trial' : undefined}
-          >
-            <Clipboard className="w-4 h-4" />
-            <span className="flex-1">Copy to A1111</span>
-            {!canUseDuringTrialOrPro && <ProBadge size="sm" />}
-          </button>
-
-          <button
-            onClick={openGenerateModal}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            disabled={!contextMenu.image?.metadata?.normalizedMetadata?.prompt}
-            title={!canUseA1111 && initialized ? 'Pro feature - start trial' : undefined}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span className="flex-1">Generate with A1111</span>
-            {!canUseDuringTrialOrPro && <ProBadge size="sm" />}
-          </button>
-
-          <button
-            onClick={openComfyUIGenerateModal}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            disabled={!contextMenu.image?.metadata?.normalizedMetadata?.prompt}
-            title={!canUseComfyUI && initialized ? 'Pro feature - start trial' : undefined}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span className="flex-1">Generate with ComfyUI</span>
-            {!canUseDuringTrialOrPro && <ProBadge size="sm" />}
-          </button>
         </div>
   );
 
