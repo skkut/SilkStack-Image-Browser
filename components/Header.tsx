@@ -44,7 +44,6 @@ const Header: React.FC<HeaderProps> = ({
   const viewingStackPrompt = useImageStore((state) => state.viewingStackPrompt);
   const setViewingStackPrompt = useImageStore((state) => state.setViewingStackPrompt);
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
-  const clustersCount = useImageStore((state) => state.clusters.length);
 
   // Store hooks for Smart Library Actions
   const directories = useImageStore((state) => state.directories);
@@ -113,7 +112,7 @@ const Header: React.FC<HeaderProps> = ({
       <div className="container mx-auto flex items-center justify-between gap-4">
         
         {/* Left Side - Status Indicator - REMOVED */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-1 justify-start">
             {/* License button removed */}
         </div>
 
@@ -140,9 +139,6 @@ const Header: React.FC<HeaderProps> = ({
                         }`}
                     >
                         Smart Library
-                        {clustersCount > 0 && (
-                            <span className="bg-black/20 px-1.5 rounded-full text-[10px]">{clustersCount}</span>
-                        )}
                     </button>
                     <button
                         onClick={() => onLibraryViewChange('model')}
@@ -161,7 +157,7 @@ const Header: React.FC<HeaderProps> = ({
 
 
         {/* Right Side - Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1 justify-end">
             
                    {/* Stacking Toggle - Only relevant for Library view */}
                    {libraryView === 'library' && (
