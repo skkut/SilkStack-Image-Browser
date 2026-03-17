@@ -26,7 +26,6 @@ import ImagePreviewSidebar from './components/ImagePreviewSidebar';
 import GenerationQueueSidebar from './components/GenerationQueueSidebar';
 import CommandPalette from './components/CommandPalette';
 import HotkeyHelp from './components/HotkeyHelp';
-import Analytics from './components/Analytics';
 import ProOnlyModal from './components/ProOnlyModal';
 import SmartLibrary from './components/SmartLibrary';
 import { ModelView } from './components/ModelView';
@@ -155,7 +154,6 @@ export default function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
   const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
-  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string>('0.10.0');
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [libraryView, setLibraryView] = useState<'library' | 'smart' | 'model'>('library');
@@ -801,7 +799,6 @@ export default function App() {
       <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-12' : 'ml-80') : 'ml-0'} ${(previewImage || isQueueOpen) ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
         <Header
           onOpenSettings={() => handleOpenSettings()}
-          onOpenAnalytics={() => setIsAnalyticsOpen(true)}
           onOpenLicense={handleOpenLicenseSettings}
           onOpenA1111Generate={() => setIsA1111GenerateModalOpen(true)}
           onOpenComfyUIGenerate={() => setIsComfyUIGenerateModalOpen(true)}
@@ -955,11 +952,6 @@ export default function App() {
           isOpen={isChangelogModalOpen}
           onClose={() => setIsChangelogModalOpen(false)}
           currentVersion={currentVersion}
-        />
-
-        <Analytics
-          isOpen={isAnalyticsOpen}
-          onClose={() => setIsAnalyticsOpen(false)}
         />
 
         <ProOnlyModal

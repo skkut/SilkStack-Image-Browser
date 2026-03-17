@@ -6,7 +6,6 @@ export type ProFeature =
   | "a1111"
   | "comfyui"
   | "comparison"
-  | "analytics"
   | "clustering"
   | "batch_export";
 
@@ -75,7 +74,6 @@ export const useFeatureAccess = () => {
   const canUseA1111 = true;
   const canUseComfyUI = true;
   const canUseComparison = true;
-  const canUseAnalytics = true;
   const canUseBatchExport = true;
 
   // Trial countdown
@@ -106,7 +104,6 @@ export const useFeatureAccess = () => {
     canUseA1111,
     canUseComfyUI,
     canUseComparison,
-    canUseAnalytics,
     canUseBatchExport,
 
     // Clustering limits

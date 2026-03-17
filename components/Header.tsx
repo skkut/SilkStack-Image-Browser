@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Settings, BarChart3, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Settings, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 
 interface HeaderProps {
     onOpenSettings: () => void;
-    onOpenAnalytics: () => void;
     onOpenLicense: () => void;
     onOpenA1111Generate?: () => void;
     onOpenComfyUIGenerate?: () => void;
@@ -16,7 +15,6 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ 
     onOpenSettings, 
-    onOpenAnalytics, 
     onOpenLicense, 
     onOpenA1111Generate, 
     onOpenComfyUIGenerate,
@@ -24,7 +22,6 @@ const Header: React.FC<HeaderProps> = ({
     onLibraryViewChange
 }) => {
   const {
-    canUseAnalytics,
     canUseA1111,
     canUseComfyUI,
     showProModal,
@@ -100,12 +97,6 @@ const Header: React.FC<HeaderProps> = ({
       classes: 'text-gray-300 bg-gray-800/60 border-gray-700',
     };
   })();
-
-  const analyticsBadgeClass = isPro
-    ? 'text-green-300'
-    : isTrialActive
-    ? 'text-amber-400'
-    : 'text-purple-400';
 
   return (
     <header className="bg-gray-900/80 backdrop-blur-md sticky top-0 z-50 px-4 py-2 border-b border-gray-800/60 shadow-lg transition-all duration-300">
@@ -241,15 +232,6 @@ const Header: React.FC<HeaderProps> = ({
           {/* Get Pro link REMOVED */}
           
           <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50">
-            <button
-              onClick={() => {
-                  onOpenAnalytics();
-              }}
-              className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-white transition-all hover:shadow-lg relative group"
-              title="Analytics"
-            >
-              <BarChart3 size={16} />
-            </button>
             <button
               onClick={onOpenSettings}
               className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-white transition-all hover:rotate-45"

@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Crown, Sparkles, GitCompare, BarChart3, CheckCircle2, Download } from 'lucide-react';
+import { X, Crown, Sparkles, GitCompare, CheckCircle2, Download } from 'lucide-react';
 import { ProFeature } from '../hooks/useFeatureAccess';
 import { TRIAL_DURATION_DAYS } from '../store/useLicenseStore';
 
@@ -47,17 +47,6 @@ const featureInfo = {
       'Synchronized zoom and pan',
       'Metadata differences highlighted',
       'Quick image swapping',
-    ],
-  },
-  analytics: {
-    name: 'Analytics Dashboard',
-    icon: BarChart3,
-    description: 'Detailed insights and statistics about your image collection',
-    benefits: [
-      'Generation trends over time',
-      'Model and LoRA usage stats',
-      'Creative habit analysis',
-      'Dimension and parameter insights',
     ],
   },
   clustering: {
