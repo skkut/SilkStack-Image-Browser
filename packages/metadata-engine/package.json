@@ -39,10 +39,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/LuqP2/image-metahub.git",
+    "url": "https://github.com/skkut/AI-Images-Browser.git",
     "directory": "packages/metadata-engine"
   },
-  "author": "LuqP2",
+  "author": "skkut",
   "license": "Apache-2.0",
   "engines": {
     "node": ">=16.0.0"

@@ -64,7 +64,7 @@ npm run release-workflow 1.7.4
    ```
 
 4. **Create GitHub release**:
-   - Go to [GitHub Releases](https://github.com/LuqP2/image-metahub/releases/new)
+   - Go to [GitHub Releases](https://github.com/skkut/AI-Images-Browser/releases/new)
    - Select tag `v1.7.4`
    - Copy content from `release-v1.7.4.md`
    - Publish!

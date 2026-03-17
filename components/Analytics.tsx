@@ -293,7 +293,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isOpen, onClose }) => {
                           ComfyUI Registry
                         </a>
                         <a
-                          href="https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save"
+                          href="https://github.com/skkut/ImageMetaHub-ComfyUI-Save"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-700/80 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors"
@@ -872,7 +872,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ isOpen, onClose }) => {
                     </a>
                     {' '}(
                     <a
-                      href="https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save"
+                      href="https://github.com/skkut/ImageMetaHub-ComfyUI-Save"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-gray-400 hover:text-gray-300 underline transition-colors"

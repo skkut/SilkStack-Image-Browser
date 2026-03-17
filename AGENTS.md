@@ -387,7 +387,7 @@ The application includes bidirectional workflow with ComfyUI, allowing users to 
 
 **MetaHub Save Node (Official Companion Node):**
 
-The ComfyUI integration relies on the [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) custom node for complete metadata support.
+The ComfyUI integration relies on the [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) custom node for complete metadata support.
 
 **Repository:** `d:\ImageMetaHub-ComfyUI-Save` (additional working directory)
 
@@ -424,7 +424,7 @@ The ComfyUI integration relies on the [MetaHub Save Node](https://github.com/Luq
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save.git
+git clone https://github.com/skkut/ImageMetaHub-ComfyUI-Save.git
 cd ImageMetaHub-ComfyUI-Save
 pip install -r requirements.txt
 ```
@@ -1019,7 +1019,7 @@ Mozilla Public License Version 2.0 (MPL-2.0)
 
 ## Support
 
-- GitHub Issues: https://github.com/LuqP2/image-metahub/issues
+- GitHub Issues: https://github.com/skkut/AI-Images-Browser/issues
 - Ko-fi: https://ko-fi.com/lucaspierri
 
 ---

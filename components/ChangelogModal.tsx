@@ -57,7 +57,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose, curren
   };
 
   const openGitHubReleases = () => {
-    const url = `https://github.com/LuqP2/Image-MetaHub/releases/tag/v${currentVersion}`;
+    const url = `https://github.com/skkut/AI-Images-Browser/releases/tag/v${currentVersion}`;
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
@@ -142,7 +142,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose, curren
 
                   <div className="flex flex-wrap gap-3 mt-6 pt-4 border-t border-gray-700/50">
                     <a
-                      href="https://github.com/LuqP2/Image-MetaHub"
+                      href="https://github.com/skkut/AI-Images-Browser"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-full transition-colors"

@@ -67,5 +67,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Planned stable release after beta testing.
 
-[Unreleased]: https://github.com/LuqP2/image-metahub/compare/v1.0.0-beta.1...HEAD
-[1.0.0-beta.1]: https://github.com/LuqP2/image-metahub/releases/tag/v1.0.0-beta.1
+[Unreleased]: https://github.com/skkut/AI-Images-Browser/compare/v1.0.0-beta.1...HEAD
+[1.0.0-beta.1]: https://github.com/skkut/AI-Images-Browser/releases/tag/v1.0.0-beta.1

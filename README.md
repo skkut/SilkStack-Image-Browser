@@ -41,7 +41,7 @@ The goal is to keep the tool open and useful for everyone.
 ## Getting started
 
 1. **Download the latest release**
-   - Go to the [Releases](https://github.com/LuqP2/Image-MetaHub/releases) page and grab the installer for your platform (Windows / Linux / macOS).
+   - Go to the [Releases](https://github.com/skkut/AI-Images-Browser/releases) page and grab the installer for your platform (Windows / Linux / macOS).
 
 2. **Install and run**
    - Launch Image MetaHub.
@@ -90,7 +90,7 @@ The Smart Library groups similar images into stacks using prompt similarity, so 
 Image MetaHub parses metadata from:
 
 - Stable Diffusion / Automatic1111 images (PNG, JPEG, WebP)
-- ComfyUI (**full coverage** with [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) - [ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save); partial coverage for legacy workflows)
+- ComfyUI (**full coverage** with [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) - [ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save); partial coverage for legacy workflows)
 - Fooocus
 - SD.Next
 - Forge
@@ -101,7 +101,7 @@ Image MetaHub parses metadata from:
 
 > **New in v0.12.0 - Smart Library + Auto-Tags:** Image MetaHub can now cluster similar prompts into stacks, generate TF-IDF auto-tags, and surface dedup suggestions for large libraries.
 >
-> **NEW in v0.11.0 - Official MetaHub Save Node for ComfyUI:** We've released an [official companion custom node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) ([ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save)) designed specifically for Image MetaHub. This node guarantees full metadata compatibility by auto-extracting all generation parameters and saving them in both A1111 and Image MetaHub formats.
+> **NEW in v0.11.0 - Official MetaHub Save Node for ComfyUI:** We've released an [official companion custom node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) ([ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save)) designed specifically for Image MetaHub. This node guarantees full metadata compatibility by auto-extracting all generation parameters and saving them in both A1111 and Image MetaHub formats.
 >
 > For legacy ComfyUI images without MetaHub Save Node, Image MetaHub attempts to parse metadata from standard workflow formats, though coverage may vary depending on custom nodes and workflow complexity.
 
@@ -148,10 +148,10 @@ With Pro enabled, Image MetaHub can generate variations of your images by sendin
 **Requirements:**
 
 - ComfyUI running locally (default: `http://127.0.0.1:8188`)
-- [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) installed in ComfyUI - [Get it on ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save)
+- [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) installed in ComfyUI - [Get it on ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save)
   - Official companion node released with v0.11.0
   - Ensures full metadata preservation for generated images
-- [MetaHub Timer Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) (included with Save Node, for accurate timing metrics)
+- [MetaHub Timer Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) (included with Save Node, for accurate timing metrics)
 
 **How It Works:**
 
@@ -228,7 +228,7 @@ This simplified workflow approach ensures:
 
    ```bash
    cd ComfyUI/custom_nodes
-   git clone https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save.git
+   git clone https://github.com/skkut/ImageMetaHub-ComfyUI-Save.git
    cd ImageMetaHub-ComfyUI-Save
    pip install -r requirements.txt
    ```
@@ -279,7 +279,7 @@ The analytics dashboard gives you a high-level view of your generation patterns 
 
 **Performance Analytics Dashboard:**
 
-For images with [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) telemetry data, the dashboard provides comprehensive performance visualizations:
+For images with [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) telemetry data, the dashboard provides comprehensive performance visualizations:
 
 - **Overview Cards:**
   - Average generation speed (it/s)
@@ -303,7 +303,7 @@ For images with [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyU
   - Dual-axis visualization for speed and memory usage patterns
 
 - **MetaHub Save Node Promotion:**
-  - Dismissible top banner with links to [ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save) and [GitHub](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save)
+  - Dismissible top banner with links to [ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save) and [GitHub](https://github.com/skkut/ImageMetaHub-ComfyUI-Save)
   - Subtle footer reminder for users without telemetry data
   - localStorage-based banner dismissal preference
 
@@ -384,13 +384,13 @@ _Long-term_
 - Background workers and progress streaming for clustering and auto-tags
 - Cache reliability improvements (atomic writes, userData fallbacks)
 
-For detailed issues and planned work, check the [Issues](https://github.com/LuqP2/Image-MetaHub/issues) and project board.
+For detailed issues and planned work, check the [Issues](https://github.com/skkut/AI-Images-Browser/issues) and project board.
 
 ---
 
 ## Credits
 
-Image MetaHub is built and maintained by **Lucas (LuqP2)**, with feedback and contributions from the community.
+Image MetaHub is built and maintained by **Lucas (skkut)**, with feedback and contributions from the community.
 
 If you find it useful and want to support development, consider upgrading to Pro or starring the repo on GitHub.
 

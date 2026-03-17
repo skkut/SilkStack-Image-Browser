@@ -351,7 +351,7 @@ function createApplicationMenu() {
           label: "Documentation",
           click: async () => {
             await shell.openExternal(
-              "https://github.com/LuqP2/Image-MetaHub#readme",
+              "https://github.com/skkut/AI-Images-Browser#readme",
             );
           },
         },
@@ -359,14 +359,14 @@ function createApplicationMenu() {
           label: "Report Bug",
           click: async () => {
             await shell.openExternal(
-              "https://github.com/LuqP2/Image-MetaHub/issues/new",
+              "https://github.com/skkut/AI-Images-Browser/issues/new",
             );
           },
         },
         {
           label: "View on GitHub",
           click: async () => {
-            await shell.openExternal("https://github.com/LuqP2/Image-MetaHub");
+            await shell.openExternal("https://github.com/skkut/AI-Images-Browser");
           },
         },
         { type: "separator" },

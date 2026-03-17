@@ -504,12 +504,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                 <strong>Installation:</strong> Install the MetaHub Save Node in ComfyUI from:
                 <br />
                 <a
-                  href="https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save"
+                  href="https://github.com/skkut/ImageMetaHub-ComfyUI-Save"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-blue-400 hover:underline"
                 >
-                  github.com/LuqP2/ImageMetaHub-ComfyUI-Save
+                  github.com/skkut/ImageMetaHub-ComfyUI-Save
                 </a>
               </div>
             </div>

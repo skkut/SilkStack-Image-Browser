@@ -32,7 +32,7 @@ The parser uses a **priority-based extraction system**:
 
 **Priority 1: MetaHub Chunk Extraction (v0.10.6+)** ⚡ FASTEST
 - Looks for `imagemetahub_data` iTXt chunk in PNG metadata
-- Contains pre-extracted, validated metadata from [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save)
+- Contains pre-extracted, validated metadata from [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save)
 - **Advantages**: No graph traversal, no nodeRegistry dependency, instant results
 - **Detection**: Checks for `generator: "ComfyUI"` field in chunk
 
@@ -130,7 +130,7 @@ The parser uses a **priority-based extraction system**:
 
 ### Chunk Format
 
-The [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) saves a comprehensive metadata chunk in PNG iTXt format:
+The [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) saves a comprehensive metadata chunk in PNG iTXt format:
 
 **Chunk Name**: `imagemetahub_data`
 **Format**: JSON (UTF-8)
@@ -189,10 +189,10 @@ The parser automatically falls back to graph traversal for:
 
 **For New ComfyUI Users** (v0.10.6+):
 
-1. Install [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) in ComfyUI
+1. Install [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) in ComfyUI
    ```bash
    cd ComfyUI/custom_nodes
-   git clone https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save.git
+   git clone https://github.com/skkut/ImageMetaHub-ComfyUI-Save.git
    pip install -r ImageMetaHub-ComfyUI-Save/requirements.txt
    ```
 
@@ -688,4 +688,4 @@ To contribute improvements to the ComfyUI parser:
 - ✨ MetaHub Save Node integration (primary extraction method)
 - ⚡ Instant metadata parsing with zero nodeRegistry dependency
 - 🔄 Automatic fallback to graph traversal for standard exports
-- 📦 Bundled with [MetaHub Save Node](https://github.com/LuqP2/ImageMetaHub-ComfyUI-Save) companion
+- 📦 Bundled with [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) companion

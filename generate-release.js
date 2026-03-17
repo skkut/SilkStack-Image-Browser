@@ -98,9 +98,9 @@ Choose the appropriate installer for your operating system:
 
 ## Documentation
 
-- [README](https://github.com/LuqP2/image-metahub/blob/main/README.md)
-- [Architecture](https://github.com/LuqP2/image-metahub/blob/main/ARCHITECTURE.md)
-- [Changelog](https://github.com/LuqP2/image-metahub/blob/CHANGELOG.md)
+- [README](https://github.com/skkut/AI-Images-Browser/blob/main/README.md)
+- [Architecture](https://github.com/skkut/AI-Images-Browser/blob/main/ARCHITECTURE.md)
+- [Changelog](https://github.com/skkut/AI-Images-Browser/blob/CHANGELOG.md)
 
 ## Known Issues
 
@@ -109,7 +109,7 @@ Choose the appropriate installer for your operating system:
 
 ## Feedback
 
-Found a bug or have a feature request? [Open an issue](https://github.com/LuqP2/image-metahub/issues)!
+Found a bug or have a feature request? [Open an issue](https://github.com/skkut/AI-Images-Browser/issues)!
 
 ---
 
@@ -135,10 +135,10 @@ console.log('\nOpening GitHub releases page...');
 try {
   // Only try to open browser on Windows (where 'start' command exists)
   if (process.platform === 'win32') {
-    execSync('start https://github.com/LuqP2/image-metahub/releases/new', { stdio: 'inherit' });
+    execSync('start https://github.com/skkut/AI-Images-Browser/releases/new', { stdio: 'inherit' });
   } else {
-    console.log('On non-Windows systems, manually open: https://github.com/LuqP2/image-metahub/releases/new');
+    console.log('On non-Windows systems, manually open: https://github.com/skkut/AI-Images-Browser/releases/new');
   }
 } catch (error) {
-  console.log('Manually open: https://github.com/LuqP2/image-metahub/releases/new');
+  console.log('Manually open: https://github.com/skkut/AI-Images-Browser/releases/new');
 }
