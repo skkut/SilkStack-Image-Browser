@@ -122,8 +122,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const version = await window.electronAPI.getAppVersion();
-        setAppVersion(`v${version}`);
+        if (typeof window !== 'undefined' && window.electronAPI?.getAppVersion) {
+          const version = await window.electronAPI.getAppVersion();
+          setAppVersion(`v${version}`);
+        }
       } catch (error) {
         console.error('Failed to fetch app version:', error);
       }

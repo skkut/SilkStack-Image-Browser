@@ -67,18 +67,57 @@ interface ImageCardProps {
 
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
 
-const isVideoFileName = (fileName: string, fileType?: string | null): boolean => {
+const isVideoFileName = (fileName?: string | null, fileType?: string | null): boolean => {
   if (fileType && fileType.startsWith('video/')) {
     return true;
   }
+  if (!fileName) return false;
   const lower = fileName.toLowerCase();
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, isComparisonFirst, registerCardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+// Global cache to prevent flickering when react-window shifts ImageCards across rows (triggering unmount/remount)
+const fallbackUrlCache = new Map<string, { url: string; timeoutId: ReturnType<typeof setTimeout> | null }>();
 
-  // aspectRatio state removed as unused
+const getCachedFallbackUrl = (id: string): string | null => {
+  const cached = fallbackUrlCache.get(id);
+  if (cached) {
+    if (cached.timeoutId) {
+      clearTimeout(cached.timeoutId);
+      cached.timeoutId = null;
+    }
+    return cached.url;
+  }
+  return null;
+};
+
+const setCachedFallbackUrl = (id: string, url: string) => {
+  const existing = fallbackUrlCache.get(id);
+  if (existing?.timeoutId) clearTimeout(existing.timeoutId);
+  fallbackUrlCache.set(id, { url, timeoutId: null });
+};
+
+const releaseCachedFallbackUrl = (id: string) => {
+  const cached = fallbackUrlCache.get(id);
+  if (cached) {
+    if (cached.timeoutId) clearTimeout(cached.timeoutId);
+    cached.timeoutId = setTimeout(() => {
+      URL.revokeObjectURL(cached.url);
+      fallbackUrlCache.delete(id);
+    }, 2000); // 2 second grace period for layout shifts
+  }
+};
+
+const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, isComparisonFirst, registerCardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
+  const [imageUrl, setImageUrl] = useState<string | null>(() => {
+    // Determine initial state safely before thumbnail hook runs
+    const state = useSettingsStore.getState();
+    if (state.disableThumbnails) return null;
+    if (image.thumbnailStatus === 'ready' && image.thumbnailUrl) return image.thumbnailUrl;
+    if (isVideoFileName(image.name, image.fileType)) return null;
+    return getCachedFallbackUrl(image.id);
+  });
+
   const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
   const showFilenames = useSettingsStore((state) => state.showFilenames);
@@ -93,8 +132,8 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
 
   // Extract filename to display based on showFullFilePath setting
   const displayName = showFullFilePath
-    ? image.name
-    : image.name.split('/').pop() || image.name;
+    ? image.name || 'Unknown'
+    : (image.name || '').split(/[/\\]/).pop() || 'Unknown';
 
   // Virtualization handles visibility, request thumbnail immediately
   useThumbnail(image);
@@ -126,7 +165,6 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
     }
 
     let isMounted = true;
-    let fallbackUrl: string | null = null;
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
     const fileHandle = image.thumbnailHandle || image.handle;
     const isElectron = typeof window !== 'undefined' && window.electronAPI;
@@ -139,8 +177,9 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
       try {
         const file = await fileHandle.getFile();
         if (!isMounted) return;
-        fallbackUrl = URL.createObjectURL(file);
-        setImageUrl(fallbackUrl);
+        const newUrl = URL.createObjectURL(file);
+        setCachedFallbackUrl(image.id, newUrl);
+        setImageUrl(newUrl);
       } catch (error) {
         if (!isMounted) return;
         // Only log non-file-not-found errors to reduce console noise
@@ -153,21 +192,23 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
       }
     };
 
-    // Debounce heavy fallback fetch; if thumbnail becomes ready meanwhile, this effect will rerun and cancel
-    fallbackTimer = setTimeout(() => {
-      void loadFallback();
-    }, 180);
+    // If we already have a cached URL or thumbnail, we don't need to fetch fallback
+    if (!getCachedFallbackUrl(image.id)) {
+      // Debounce heavy fallback fetch; if thumbnail becomes ready meanwhile, this effect will rerun and cancel
+      fallbackTimer = setTimeout(() => {
+        void loadFallback();
+      }, 180);
+    }
 
     return () => {
       isMounted = false;
       if (fallbackTimer) {
         clearTimeout(fallbackTimer);
       }
-      if (fallbackUrl && fallbackUrl !== 'ERROR') {
-        URL.revokeObjectURL(fallbackUrl);
-      }
+      // Release cache to be revoked after 2s if not remounted
+      releaseCachedFallbackUrl(image.id);
     };
-  }, [image.handle, image.thumbnailHandle, image.thumbnailStatus, image.thumbnailUrl, thumbnailsDisabled, isVideo]);
+  }, [image.id, image.handle, image.thumbnailHandle, image.thumbnailStatus, image.thumbnailUrl, thumbnailsDisabled, isVideo]);
 
   const handlePreviewClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -483,6 +524,97 @@ const findClosestItemInRow = (
     }
     return bestIndex;
 }
+
+interface ImageGridRowData {
+  rows: LayoutRow[];
+  enableSafeMode: boolean;
+  sensitiveTagSet?: Set<string>;
+  blurSensitiveImages: boolean;
+  selectedImages: Set<string>;
+  focusedItemId: string | null;
+  markedBestIds?: Set<string>;
+  markedArchivedIds?: Set<string>;
+  comparisonFirstImage?: IndexedImage | null;
+  onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
+  handleStackClick: (stack: ImageStack) => void;
+  handleImageLoad: (id: string, aspectRatio: number) => void;
+  handleContextMenu: (image: IndexedImage, event: React.MouseEvent) => void;
+  registerCardRef: (id: string, el: HTMLDivElement | null) => void;
+  getDragPayload: (image: IndexedImage) => { sourcePath: string; name: string }[];
+}
+
+const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, markedBestIds, markedArchivedIds, comparisonFirstImage, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const row = rows[index];
+  if (!row) return null;
+  
+  return (
+    <div style={{ ...style, padding: '0 8px', top: (style.top as number) + 8 }}>
+        <div className="flex flex-row gap-2" style={{ height: row.height }}>
+            {row.items.map((item) => {
+                const aspectRatio = getItemAspectRatio(item);
+                const itemWidth = row.height * aspectRatio;
+                const image = isImageStack(item) ? item.coverImage : item;
+                const isSensitive = enableSafeMode && sensitiveTagSet && sensitiveTagSet.size > 0 && !!image.tags?.some(tag => tag && sensitiveTagSet.has(tag.toLowerCase()));
+                
+                if (isImageStack(item)) {
+                    return (
+                        <div 
+                          key={item.id} 
+                          className="relative group cursor-pointer" 
+                          style={{ width: itemWidth, height: row.height, flexShrink: 0 }}
+                          onClick={() => handleStackClick(item)}
+                      >
+                          {/* ... stack layers ... */}
+                          <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
+                          <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
+                          <div className="relative z-10 w-full h-full">
+                              <ImageCard
+                                  image={item.coverImage}
+                                  onImageClick={(img, e) => { e.stopPropagation(); handleStackClick(item); }}
+                                  isSelected={selectedImages.has(item.coverImage.id)}
+                                  isFocused={focusedItemId === item.coverImage.id}
+                                  onImageLoad={handleImageLoad}
+                                  onContextMenu={handleContextMenu}
+                                  baseWidth={itemWidth}
+                                  isComparisonFirst={false}
+                                  registerCardRef={registerCardRef}
+                                  isMarkedBest={markedBestIds?.has(item.coverImage.id)}
+                                  isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
+                                  isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                                  getDragPayload={getDragPayload}
+                              />
+                              <div className="absolute top-2 right-2 bg-black/60 text-white text-[11px] font-medium px-2 py-0.5 rounded-md backdrop-blur-md z-20 border border-white/10 shadow-sm">+{item.count}</div>
+                              <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">Stack</div>
+                          </div>
+                        </div>
+                    );
+                }
+
+                return (
+                  <div key={image.id} style={{ width: itemWidth, height: row.height, flexShrink: 0 }}>
+                      <ImageCard
+                          image={image}
+                          onImageClick={onImageClick}
+                          isSelected={selectedImages.has(image.id)}
+                          isFocused={focusedItemId === image.id}
+                          onImageLoad={handleImageLoad}
+                          onContextMenu={handleContextMenu}
+                          baseWidth={itemWidth}
+                          isComparisonFirst={comparisonFirstImage?.id === image.id}
+                          registerCardRef={registerCardRef}
+                          isMarkedBest={markedBestIds?.has(image.id)}
+                          isMarkedArchived={markedArchivedIds?.has(image.id)}
+                          isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
+                          getDragPayload={getDragPayload}
+                      />
+                  </div>
+                );
+            })}
+        </div>
+    </div>
+  );
+}, areEqual);
 
 interface ImageGridProps {
   images: IndexedImage[];
@@ -1433,24 +1565,40 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
 
 
-  if (isEmpty) {
-     return (
-        <div className="flex flex-col h-full w-full">
-            <div className="flex-1 flex items-center justify-center h-64 text-gray-500">
-                No images found
-            </div>
-            {modalsContent}
-        </div>
-     );
-  }
-
-
-
-
-
-
-
-
+  // Ensure all hooks are called consistently before any conditional returns
+  const itemData = useMemo<ImageGridRowData>(() => ({
+    rows,
+    enableSafeMode,
+    sensitiveTagSet,
+    blurSensitiveImages,
+    selectedImages,
+    focusedItemId,
+    markedBestIds,
+    markedArchivedIds,
+    comparisonFirstImage,
+    onImageClick,
+    handleStackClick,
+    handleImageLoad,
+    handleContextMenu,
+    registerCardRef,
+    getDragPayload
+  }), [
+    rows,
+    enableSafeMode,
+    sensitiveTagSet,
+    blurSensitiveImages,
+    selectedImages,
+    focusedItemId,
+    markedBestIds,
+    markedArchivedIds,
+    comparisonFirstImage,
+    onImageClick,
+    handleStackClick,
+    handleImageLoad,
+    handleContextMenu,
+    registerCardRef,
+    getDragPayload
+  ]);
 
   return (
     <div 
@@ -1463,91 +1611,29 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
         onMouseUp={handleMouseUp}
     >
       <GridErrorBoundary>
-        <List
-          ref={listRef}
-          outerRef={gridRef as any}
-          className="flex-1 outline-none overflow-y-auto overflow-x-hidden"
-          style={{ minWidth: 0, minHeight: 0 }}
-          width={width}
-          height={height}
-          itemCount={rows.length}
-          itemSize={index => rows[index] ? rows[index].height + 8 : 0}
-          overscanCount={10}
-          onScroll={({ scrollOffset }) => {
-            handleScroll({ currentTarget: { scrollTop: scrollOffset } } as any);
-          }}
-        >
-          {({ index, style }) => {
-             const row = rows[index];
-             if (!row) return null;
-             return (
-               <div style={{ ...style, padding: '0 8px', top: (style.top as number) + 8 }}>
-                   <div className="flex flex-row gap-2" style={{ height: row.height }}>
-                       {row.items.map((item) => {
-                           const aspectRatio = getItemAspectRatio(item);
-                           const itemWidth = row.height * aspectRatio;
-                           const image = isImageStack(item) ? item.coverImage : item;
-                           const isSensitive = enableSafeMode && sensitiveTagSet && sensitiveTagSet.size > 0 && !!image.tags?.some(tag => sensitiveTagSet.has(tag.toLowerCase()));
-                           
-                           if (isImageStack(item)) {
-                               return (
-                                   <div 
-                                      key={item.id} 
-                                      className="relative group cursor-pointer" 
-                                      style={{ width: itemWidth, height: row.height, flexShrink: 0 }}
-                                      onClick={() => handleStackClick(item)}
-                                  >
-                                      {/* ... stack layers ... */}
-                                      <div className="absolute top-[-4px] left-[4px] right-[-4px] bottom-[4px] bg-gray-700 rounded-lg border border-gray-600 shadow-sm z-0"></div>
-                                      <div className="absolute top-[-8px] left-[8px] right-[-8px] bottom-[8px] bg-gray-800 rounded-lg border border-gray-700 shadow-sm z-[-1]"></div>
-                                      <div className="relative z-10 w-full h-full">
-                                          <ImageCard
-                                              image={item.coverImage}
-                                              onImageClick={(img, e) => { e.stopPropagation(); handleStackClick(item); }}
-                                              isSelected={selectedImages.has(item.coverImage.id)}
-                                              isFocused={focusedItemId === item.coverImage.id}
-                                              onImageLoad={handleImageLoad}
-                                              onContextMenu={handleContextMenu}
-                                              baseWidth={itemWidth}
-                                              isComparisonFirst={false}
-                                              registerCardRef={registerCardRef}
-                                              isMarkedBest={markedBestIds?.has(item.coverImage.id)}
-                                              isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
-                                              isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-                                              getDragPayload={getDragPayload}
-                                          />
-                                          <div className="absolute top-2 right-2 bg-black/60 text-white text-[11px] font-medium px-2 py-0.5 rounded-md backdrop-blur-md z-20 border border-white/10 shadow-sm">+{item.count}</div>
-                                          <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] font-mono px-1.5 py-0.5 rounded backdrop-blur-sm z-20 pointer-events-none">Stack</div>
-                                      </div>
-                                   </div>
-                               );
-                           }
-  
-                           return (
-                              <div key={image.id} style={{ width: itemWidth, height: row.height, flexShrink: 0 }}>
-                                  <ImageCard
-                                      image={image}
-                                      onImageClick={onImageClick}
-                                      isSelected={selectedImages.has(image.id)}
-                                      isFocused={focusedItemId === image.id}
-                                      onImageLoad={handleImageLoad}
-                                      onContextMenu={handleContextMenu}
-                                      baseWidth={itemWidth}
-                                      isComparisonFirst={comparisonFirstImage?.id === image.id}
-                                      registerCardRef={registerCardRef}
-                                      isMarkedBest={markedBestIds?.has(image.id)}
-                                      isMarkedArchived={markedArchivedIds?.has(image.id)}
-                                      isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
-                                      getDragPayload={getDragPayload}
-                                  />
-                              </div>
-                           );
-                  })}
-                   </div>
-               </div>
-             );
-          }}
-        </List>
+        {isEmpty ? (
+          <div className="flex-1 flex items-center justify-center h-full w-full text-gray-500">
+            No images found
+          </div>
+        ) : (
+          <List
+            ref={listRef}
+            outerRef={gridRef as any}
+            className="flex-1 outline-none overflow-y-auto overflow-x-hidden"
+            style={{ minWidth: 0, minHeight: 0 }}
+            width={width}
+            height={height}
+            itemCount={rows.length}
+            itemSize={index => rows[index] ? rows[index].height + 8 : 0}
+            overscanCount={10}
+            onScroll={({ scrollOffset }) => {
+              handleScroll({ currentTarget: { scrollTop: scrollOffset } } as any);
+            }}
+            itemData={itemData}
+          >
+            {ImageGridRowComponent}
+          </List>
+        )}
       </GridErrorBoundary>
 
         {/* Selection box visual */}
