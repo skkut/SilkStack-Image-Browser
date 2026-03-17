@@ -6,6 +6,8 @@
 import { useState, useCallback } from 'react';
 import { IndexedImage } from '../types';
 import { formatMetadataForComfyUI } from '../utils/comfyUIFormatter';
+import { useImageStore } from '../store/useImageStore';
+import { extractRawMetadataFromFile } from '../services/fileIndexer';
 
 interface CopyStatus {
   success: boolean;
@@ -35,9 +37,26 @@ export function useCopyToComfyUI() {
       // 1. Try to get raw workflow/prompt from root metadata first (Highest fidelity)
       // ComfyUI metadata often has 'workflow' or 'prompt' at the root
       let workflowJSON = '';
+      let rawMetadata = image.metadata as any;
       
-      const rawMetadata = image.metadata as any;
-      
+      if (!rawMetadata.workflow && !rawMetadata.prompt) {
+        try {
+          const dir = useImageStore.getState().directories.find(d => d.id === image.directoryId);
+          if (dir && dir.path && window.electronAPI) {
+            const relativePath = image.id.split('::')[1] || image.name;
+            const pathResult = await window.electronAPI.joinPaths(dir.path, relativePath);
+            if (pathResult.success && pathResult.path) {
+              const fetchedMeta = await extractRawMetadataFromFile(pathResult.path);
+              if (fetchedMeta) {
+                rawMetadata = fetchedMeta;
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Failed to lazy load raw metadata:', err);
+        }
+      }
+
       if (rawMetadata.workflow) {
         workflowJSON = JSON.stringify(rawMetadata.workflow, null, 2);
       } else if (rawMetadata.prompt) {

@@ -120,7 +120,8 @@ const buildEnrichedSearchText = (image: IndexedImage): string => {
 
     const segments: string[] = [];
     if (image.metadataString) {
-        segments.push(image.metadataString.toLowerCase());
+        // metadataString is intentionally set to '' to save memory
+        // keeping this block in case older clients have it, but skipping segments.push to avoid bloat
     }
     if (image.prompt) {
         segments.push(image.prompt.toLowerCase());
@@ -271,6 +272,7 @@ interface ImageState {
       error?: string | null;
     }
   ) => void;
+  clearAllThumbnails: () => void;
 
   // Filter & Sort Actions
   setSearchQuery: (query: string) => void;
@@ -376,6 +378,8 @@ export const useImageStore = create<ImageState>((set, get) => {
     let pendingMergeQueue: IndexedImage[] = [];
     let pendingMergeTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingFilterRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingDimensionUpdates = new Map<string, string>();
+    let pendingDimensionTimer: ReturnType<typeof setTimeout> | null = null;
     const MERGE_FLUSH_INTERVAL_MS = 250;
     const MERGE_FLUSH_INTERVAL_INDEXING_MS = 3000;
     const MERGE_FLUSH_INTERVAL_INDEXING_LARGE_MS = 15000;
@@ -396,6 +400,11 @@ export const useImageStore = create<ImageState>((set, get) => {
         if (pendingFilterRecomputeTimer) {
             clearTimeout(pendingFilterRecomputeTimer);
             pendingFilterRecomputeTimer = null;
+        }
+        pendingDimensionUpdates.clear();
+        if (pendingDimensionTimer) {
+            clearTimeout(pendingDimensionTimer);
+            pendingDimensionTimer = null;
         }
     };
 
@@ -965,6 +974,30 @@ export const useImageStore = create<ImageState>((set, get) => {
         };
     };
 
+    const flushDimensionUpdates = () => {
+        if (pendingDimensionUpdates.size === 0) return;
+        if (pendingDimensionTimer) {
+            clearTimeout(pendingDimensionTimer);
+            pendingDimensionTimer = null;
+        }
+
+        set(state => {
+            let changed = false;
+            const updatedImages = state.images.map(img => {
+                const newDim = pendingDimensionUpdates.get(img.id);
+                if (newDim && img.dimensions !== newDim) {
+                    changed = true;
+                    return { ...img, dimensions: newDim };
+                }
+                return img;
+            });
+            
+            pendingDimensionUpdates.clear();
+            
+            if (!changed) return state;
+            return _updateState(state, updatedImages);
+        });
+    };
 
     return {
         // Initial State
@@ -1400,13 +1433,27 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         updateImageDimensions: (imageId, dimensions) => {
+            pendingDimensionUpdates.set(imageId, dimensions);
+            if (!pendingDimensionTimer) {
+                pendingDimensionTimer = setTimeout(() => {
+                    flushDimensionUpdates();
+                }, 200); // Batch every 200ms
+            }
+        },
+
+        clearAllThumbnails: () => {
             set(state => {
-                const imgToUpdate = state.images.find(img => img.id === imageId);
-                if (!imgToUpdate || imgToUpdate.dimensions === dimensions) return state;
-                const updatedImages = state.images.map(img => 
-                    img.id === imageId ? { ...img, dimensions } : img
-                );
-                return _updateState(state, updatedImages);
+                const nextImages = state.images.map(img => {
+                    if (img.thumbnailStatus === 'ready' || img.thumbnailUrl) {
+                        return {
+                            ...img,
+                            thumbnailStatus: undefined as any,
+                            thumbnailUrl: undefined
+                        };
+                    }
+                    return img;
+                });
+                return _updateState(state, nextImages);
             });
         },
 
@@ -2494,6 +2541,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             autoTaggingWorker: null,
             isAutoTagging: false,
             draggedItems: [],
+            clearAllThumbnails: () => {},
         }),
 
         cleanupInvalidImages: () => {

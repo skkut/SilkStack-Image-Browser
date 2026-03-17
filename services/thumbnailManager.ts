@@ -432,6 +432,13 @@ class ThumbnailManager {
     this.activeUrls.set(imageId, url);
     return url;
   }
+
+  clearAllUrls(): void {
+    for (const url of this.activeUrls.values()) {
+      URL.revokeObjectURL(url);
+    }
+    this.activeUrls.clear();
+  }
 }
 
 export const thumbnailManager = new ThumbnailManager();

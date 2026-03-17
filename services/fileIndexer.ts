@@ -1452,8 +1452,8 @@ if (rawMetadata) {
       thumbnailStatus: 'pending',
       thumbnailError: null,
       directoryId,
-      metadata: normalizedMetadata ? { ...(rawMetadata ?? {}), normalizedMetadata } : rawMetadata || {},
-      metadataString: (rawMetadata && Object.keys(rawMetadata).length > 0) ? JSON.stringify(rawMetadata) : '', // OPTIMIZED: Skip stringify if no metadata or empty object
+      metadata: normalizedMetadata ? { normalizedMetadata } : {}, // OPTIMIZED: Drop heavy rawMetadata to save memory
+      metadataString: '', // OPTIMIZED: Drop redundant metadataString to save memory
       lastModified: sortDate, // Use the determined sort date
       models: normalizedMetadata?.models || [],
       loras: normalizedMetadata?.loras || [],
@@ -2309,8 +2309,8 @@ export async function processFiles(
 
       return {
         ...image,
-        metadata: { ...rawMetadata, normalizedMetadata },
-        metadataString: Object.keys(rawMetadata).length > 0 ? JSON.stringify(rawMetadata) : '',
+        metadata: { normalizedMetadata }, // OPTIMIZED
+        metadataString: '', // OPTIMIZED
         models: normalizedMetadata.models || [],
         loras: normalizedMetadata.loras || [],
         scheduler: normalizedMetadata.scheduler || '',
@@ -2625,4 +2625,24 @@ export async function processFiles(
   };
 
   return { phaseB: runEnrichmentPhase() };
+}
+
+export async function extractRawMetadataFromFile(absolutePath: string): Promise<ImageMetadata | null> {
+  if (!isElectron || !(window as any).electronAPI?.readFile) return null;
+  try {
+    const result = await (window as any).electronAPI.readFile(absolutePath);
+    if (!result.success || !result.data) return null;
+    
+    const buffer = result.data.buffer || result.data;
+    const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : new Uint8Array(buffer).buffer;
+    const view = new DataView(arrayBuffer);
+    const type = detectImageType(view);
+    
+    if (type === 'png') return parsePNGMetadata(arrayBuffer);
+    if (type === 'jpeg') return parseJPEGMetadata(arrayBuffer);
+    if (type === 'webp') return parseWebPMetadata(arrayBuffer);
+  } catch (err) {
+    console.warn('[FileIndexer] Failed to load raw metadata for:', absolutePath, err);
+  }
+  return null;
 }
