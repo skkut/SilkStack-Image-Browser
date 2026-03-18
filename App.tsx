@@ -796,7 +796,7 @@ export default function App() {
         <ImagePreviewSidebar />
       )}
 
-      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-12' : 'ml-80') : 'ml-0'} ${(previewImage || isQueueOpen) ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
+      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-16' : 'ml-80') : 'ml-0'} ${(previewImage || isQueueOpen) ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
         <Header
           onOpenSettings={() => handleOpenSettings()}
           onOpenLicense={handleOpenLicenseSettings}
@@ -806,7 +806,7 @@ export default function App() {
           onLibraryViewChange={setLibraryView}
         />
 
-        <main className="mx-auto px-4 py-0 flex-1 flex flex-col min-h-0 w-full">
+        <main className="mx-auto pl-2 pr-4 py-0 flex-1 flex flex-col min-h-0 w-full">
           {error && (
             <div className="bg-red-900/50 text-red-300 p-3 rounded-lg my-4 flex items-center justify-between">
               <span>{error}</span>

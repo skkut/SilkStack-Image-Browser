@@ -549,7 +549,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
   if (!row) return null;
   
   return (
-    <div style={{ ...style, padding: '0 8px', top: (style.top as number) + 8 }}>
+    <div style={{ ...style, padding: '0 8px 0 0', top: (style.top as number) + 8 }}>
         <div className="flex flex-row gap-2" style={{ height: row.height }}>
             {row.items.map((item) => {
                 const aspectRatio = getItemAspectRatio(item);
@@ -712,7 +712,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const rows = useMemo(() => {
       // Account for padding (p-2 = 16px) and scrollbar (approx 17px) to avoid horizontal scroll
       const safeWidth = width || 0;
-      const availableWidth = Math.max(1, safeWidth - 40); 
+      const availableWidth = Math.max(1, safeWidth - 24); 
       return computeJustifiedLayout(itemsToRender, availableWidth, imageSize);
   }, [itemsToRender, width, imageSize]);
 

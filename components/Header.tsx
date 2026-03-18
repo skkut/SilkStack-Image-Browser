@@ -99,7 +99,7 @@ const Header: React.FC<HeaderProps> = ({
   })();
 
   return (
-    <header className="bg-gray-900/80 backdrop-blur-md sticky top-0 z-50 px-4 py-2 border-b border-gray-800/60 shadow-lg transition-all duration-300">
+    <header className="bg-gray-900/80 backdrop-blur-md sticky top-0 z-50 pl-2 pr-4 py-2 border-b border-gray-800/60 shadow-lg transition-all duration-300">
       <div className="container mx-auto flex items-center justify-between gap-4">
         
         {/* Left Side - Status Indicator - REMOVED */}
