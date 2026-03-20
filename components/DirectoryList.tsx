@@ -646,7 +646,7 @@ export default function DirectoryList({
                     title={`${dir.name}${path !== dir.path ? ` > ${path.split(/[/\\]/).pop()}` : ""}`}
                   >
                     <Folder
-                      className="w-5 h-5 transition-transform group-hover:scale-110"
+                      className="w-6 h-6 transition-transform group-hover:scale-110"
                       style={{ color: pref?.color || "#9ca3af" }}
                     />
                   </button>

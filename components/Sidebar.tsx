@@ -138,16 +138,29 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div
         data-area="sidebar"
         tabIndex={-1}
-        className="fixed left-0 top-0 h-full w-16 bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col items-center py-6 transition-all duration-300 ease-in-out shadow-lg shadow-black/20">
-        <button
-          onClick={onToggleCollapse}
-          className="mt-4 mb-6 relative group"
-          title="Expand sidebar"
-        >
-           <div className="absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-           <img src="logo1.png" alt="Expand" className="h-10 w-10 rounded-xl shadow-lg relative z-10 transition-transform duration-200 group-hover:scale-105" />
-        </button>
-        <div className="flex flex-col space-y-3 mb-4">
+        className="fixed left-0 top-0 h-full w-16 bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-lg shadow-black/20">
+        
+        {/* Header section for the logo/toggle button - structure exactly matches expanded sidebar height and vertical padding */}
+        <div className="flex flex-col border-b border-gray-800/60 bg-gray-900/40">
+          <div className="flex flex-col items-center pt-4 pb-2 px-2">
+            <button
+              onClick={onToggleCollapse}
+              className="relative group"
+              title="Expand sidebar"
+            >
+               <div className="absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+               <img src="logo1.png" alt="Expand" className="h-11 w-11 rounded-xl shadow-lg relative z-10 transition-transform duration-200 group-hover:scale-105" />
+            </button>
+          </div>
+          {/* Row matching the 'Filters' label row height in expanded sidebar using relative classes */}
+          <div className="flex items-center justify-center pt-1 pb-3 px-2">
+             <div className="h-4 flex items-center justify-center">
+                 <div className="w-4 h-0.5 bg-gray-700/50 rounded-full" />
+             </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center pt-4 space-y-3 mb-4">
           {(selectedModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0) && (
             <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" title="Active filters"></div>
           )}
