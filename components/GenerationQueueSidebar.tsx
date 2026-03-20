@@ -190,7 +190,7 @@ const GenerationQueueSidebar: React.FC<GenerationQueueSidebarProps> = ({ onClose
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      <div className="flex-1 overflow-y-auto scrollbar-adaptive p-4 space-y-3">
         {items.length === 0 ? (
           <div className="text-sm text-gray-500 text-center py-8">
             No generations queued yet.

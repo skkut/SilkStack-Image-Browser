@@ -382,7 +382,7 @@ const ImagePreviewSidebar: React.FC = () => {
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto scrollbar-adaptive p-4 space-y-4">
         {/* Image */}
         <div className="bg-black flex items-center justify-center rounded-lg">
           {imageUrl ? (

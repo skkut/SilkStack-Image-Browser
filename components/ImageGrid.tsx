@@ -1619,7 +1619,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
           <List
             ref={listRef}
             outerRef={gridRef as any}
-            className="flex-1 outline-none overflow-y-auto overflow-x-hidden"
+            className="flex-1 outline-none overflow-y-auto overflow-x-hidden scrollbar-adaptive"
             style={{ minWidth: 0, minHeight: 0 }}
             width={width}
             height={height}

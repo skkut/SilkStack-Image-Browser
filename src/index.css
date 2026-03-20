@@ -2,9 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
+
 
 .masonry-grid {
   display: -webkit-box;
@@ -97,4 +95,49 @@
 
 .animate-fade-in {
   animation: fade-in 0.2s ease-in-out;
+}
+
+/* Global adaptive scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--gray-500) / 0.3);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--gray-500) / 0.5);
+}
+
+.scrollbar-adaptive {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--gray-500) / 0.4) transparent;
+}
+
+.scrollbar-adaptive::-webkit-scrollbar {
+  width: 10px;
+}
+
+.scrollbar-adaptive::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-adaptive::-webkit-scrollbar-thumb {
+  background: rgb(var(--gray-500) / 0.3);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.scrollbar-adaptive::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--gray-500) / 0.5);
 }
