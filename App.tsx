@@ -23,7 +23,6 @@ import Footer from './components/Footer';
 import cacheManager from './services/cacheManager';
 import DirectoryList from './components/DirectoryList';
 import ImagePreviewSidebar from './components/ImagePreviewSidebar';
-import GenerationQueueSidebar from './components/GenerationQueueSidebar';
 import CommandPalette from './components/CommandPalette';
 import HotkeyHelp from './components/HotkeyHelp';
 import ProOnlyModal from './components/ProOnlyModal';
@@ -31,26 +30,13 @@ import SmartLibrary from './components/SmartLibrary';
 import { ModelView } from './components/ModelView';
 import GridToolbar from './components/GridToolbar';
 import BatchExportModal from './components/BatchExportModal';
-import { useA1111ProgressContext } from './contexts/A1111ProgressContext';
-import { useGenerationQueueSync } from './hooks/useGenerationQueueSync';
-import { useGenerationQueueStore } from './store/useGenerationQueueStore';
 // Ensure the correct path to ImageTable
 import ImageTable from './components/ImageTable'; // Verify this file exists or adjust the path
-import { A1111GenerateModal, type GenerationParams as A1111GenerationParams } from './components/A1111GenerateModal';
-import { ComfyUIGenerateModal, type GenerationParams as ComfyUIGenerationParams } from './components/ComfyUIGenerateModal';
-import { useGenerateWithA1111 } from './hooks/useGenerateWithA1111';
-import { useGenerateWithComfyUI } from './hooks/useGenerateWithComfyUI';
-import { type IndexedImage, type BaseMetadata } from './types';
 
 export default function App() {
-  const { progressState: a1111Progress } = useA1111ProgressContext();
-  useGenerationQueueSync();
-
   // --- Hooks ---
   const { handleSelectFolder, handleUpdateFolder, handleLoadFromStorage, handleRemoveDirectory, loadDirectory, processNewWatchedFiles } = useImageLoader();
   const { handleImageSelection, handleDeleteSelectedImages, clearSelection } = useImageSelection();
-  const { generateWithA1111, isGenerating: isGeneratingA1111 } = useGenerateWithA1111();
-  const { generateWithComfyUI, isGenerating: isGeneratingComfyUI } = useGenerateWithComfyUI();
 
   // --- Zustand Store State (Granular Selectors for Performance) ---
   // Data selectors
@@ -155,17 +141,9 @@ export default function App() {
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
   const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string>('0.10.0');
-  const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [libraryView, setLibraryView] = useState<'library' | 'smart' | 'model'>('library');
-  const [isA1111GenerateModalOpen, setIsA1111GenerateModalOpen] = useState(false);
-  const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] = useState(false);
-  const [selectedImageForGeneration, setSelectedImageForGeneration] = useState<IndexedImage | null>(null);
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
   const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState(false);
-
-  const queueCount = useGenerationQueueStore((state) =>
-    state.items.filter((item) => item.status === 'waiting' || item.status === 'processing').length
-  );
 
   // --- Hotkeys Hook ---
   const { commands } = useHotkeys({
@@ -206,32 +184,6 @@ export default function App() {
 
   const handleOpenLicenseSettings = () => {
     handleOpenSettings('general', 'license');
-  };
-
-  // Create a dummy image for generation from scratch (no base image)
-  const createDummyImage = (): IndexedImage => {
-    return {
-      id: 'dummy-generation',
-      name: 'New Generation',
-      lastModified: Date.now(),
-      directoryId: '',
-      handle: {} as FileSystemFileHandle,
-      metadataString: '',
-      models: [],
-      loras: [],
-      scheduler: '',
-      metadata: {
-        normalizedMetadata: {
-          prompt: '',
-          negativePrompt: '',
-          steps: 20,
-          cfg_scale: 7.0,
-          seed: -1,
-          width: 1024,
-          height: 1024,
-        }
-      }
-    };
   };
 
   useEffect(() => {
@@ -790,18 +742,12 @@ export default function App() {
         </Sidebar>
       )}
       
-      {isQueueOpen ? (
-        <GenerationQueueSidebar onClose={() => setIsQueueOpen(false)} />
-      ) : (
-        <ImagePreviewSidebar />
-      )}
+      <ImagePreviewSidebar />
 
-      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-16' : 'ml-80') : 'ml-0'} ${(previewImage || isQueueOpen) ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
+      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-16' : 'ml-80') : 'ml-0'} ${previewImage ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
         <Header
           onOpenSettings={() => handleOpenSettings()}
           onOpenLicense={handleOpenLicenseSettings}
-          onOpenA1111Generate={() => setIsA1111GenerateModalOpen(true)}
-          onOpenComfyUIGenerate={() => setIsComfyUIGenerateModalOpen(true)}
           libraryView={libraryView}
           onLibraryViewChange={setLibraryView}
         />
@@ -892,8 +838,6 @@ export default function App() {
                   )
                 ) : libraryView === 'model' ? (
                   <ModelView
-                    isQueueOpen={isQueueOpen}
-                    onToggleQueue={() => setIsQueueOpen((prev) => !prev)}
                     onModelSelect={(modelName) => {
                       setSelectedFilters({ models: [modelName] });
                       setLibraryView('library');
@@ -901,8 +845,6 @@ export default function App() {
                   />
                 ) : (
                   <SmartLibrary
-                    isQueueOpen={isQueueOpen}
-                    onToggleQueue={() => setIsQueueOpen((prev) => !prev)}
                     onBatchExport={handleOpenBatchExport}
                   />
                 )}
@@ -921,10 +863,6 @@ export default function App() {
                   totalCount={selectionTotalImages}
                   directoryCount={selectionDirectoryCount}
                   enrichmentProgress={enrichmentProgress}
-                  a1111Progress={a1111Progress}
-                  queueCount={queueCount}
-                  isQueueOpen={isQueueOpen}
-                  onToggleQueue={() => setIsQueueOpen((prev) => !prev)}
                 />
               )}
             </>
@@ -966,71 +904,6 @@ export default function App() {
           isPro={isPro}
         />
 
-        {/* Generate Modals */}
-        {isA1111GenerateModalOpen && (
-          <A1111GenerateModal
-            isOpen={isA1111GenerateModalOpen}
-            onClose={() => {
-              setIsA1111GenerateModalOpen(false);
-              setSelectedImageForGeneration(null);
-            }}
-            image={selectedImageForGeneration || createDummyImage()}
-            onGenerate={async (params: A1111GenerationParams) => {
-              const imageToUse = selectedImageForGeneration || createDummyImage();
-              const customMetadata: Partial<BaseMetadata> = {
-                prompt: params.prompt,
-                negativePrompt: params.negativePrompt,
-                cfg_scale: params.cfgScale,
-                steps: params.steps,
-                seed: params.randomSeed ? -1 : params.seed,
-                width: params.width,
-                height: params.height,
-                model: params.model || imageToUse.metadata?.normalizedMetadata?.model,
-                ...(params.sampler ? { sampler: params.sampler } : {}),
-              };
-              await generateWithA1111(imageToUse, customMetadata, params.numberOfImages);
-              setIsA1111GenerateModalOpen(false);
-              setSelectedImageForGeneration(null);
-            }}
-            isGenerating={isGeneratingA1111}
-          />
-        )}
-
-        {isComfyUIGenerateModalOpen && (
-          <ComfyUIGenerateModal
-            isOpen={isComfyUIGenerateModalOpen}
-            onClose={() => {
-              setIsComfyUIGenerateModalOpen(false);
-              setSelectedImageForGeneration(null);
-            }}
-            image={selectedImageForGeneration || createDummyImage()}
-            onGenerate={async (params: ComfyUIGenerationParams) => {
-              const imageToUse = selectedImageForGeneration || createDummyImage();
-              const customMetadata: Partial<BaseMetadata> = {
-                prompt: params.prompt,
-                negativePrompt: params.negativePrompt,
-                cfg_scale: params.cfgScale,
-                steps: params.steps,
-                seed: params.randomSeed ? -1 : params.seed,
-                width: params.width,
-                height: params.height,
-                batch_size: params.numberOfImages,
-                ...(params.sampler ? { sampler: params.sampler } : {}),
-                ...(params.scheduler ? { scheduler: params.scheduler } : {}),
-              };
-              await generateWithComfyUI(imageToUse, {
-                customMetadata,
-                overrides: {
-                  model: params.model,
-                  loras: params.loras,
-                },
-              });
-              setIsComfyUIGenerateModalOpen(false);
-              setSelectedImageForGeneration(null);
-            }}
-            isGenerating={isGeneratingComfyUI}
-          />
-        )}
       </div>
     </div>
   );

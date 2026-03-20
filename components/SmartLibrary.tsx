@@ -3,8 +3,6 @@ import { Layers, Sparkles } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 
-import { useA1111ProgressContext } from '../contexts/A1111ProgressContext';
-import { useGenerationQueueStore } from '../store/useGenerationQueueStore';
 import { ImageCluster, IndexedImage } from '../types';
 import StackCard from './StackCard';
 import StackExpandedView from './StackExpandedView';
@@ -19,12 +17,10 @@ interface ClusterEntry {
 }
 
 interface SmartLibraryProps {
-  isQueueOpen?: boolean;
-  onToggleQueue?: () => void;
   onBatchExport: () => void;
 }
 
-const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onToggleQueue, onBatchExport }) => {
+const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
   const filteredImages = useImageStore((state) => state.filteredImages);
   const clusters = useImageStore((state) => state.clusters);
   const directories = useImageStore((state) => state.directories);
@@ -45,11 +41,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
 
   const { itemsPerPage, setItemsPerPage, viewMode, toggleViewMode } = useSettingsStore();
   // const { handleDeleteSelectedImages, clearSelection } = useImageSelection(); // Unused
-  const { progressState: a1111Progress } = useA1111ProgressContext();
-  const queueCount = useGenerationQueueStore((state) =>
-    state.items.filter((item) => item.status === 'waiting' || item.status === 'processing').length
-  );
-
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
 
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
@@ -310,10 +301,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ isQueueOpen = false, onTogg
         totalCount={selectionTotalImages}
         directoryCount={selectionDirectoryCount}
         enrichmentProgress={enrichmentProgress}
-        a1111Progress={a1111Progress}
-        queueCount={queueCount}
-        isQueueOpen={isQueueOpen}
-        onToggleQueue={onToggleQueue}
       />
     </section>
   );

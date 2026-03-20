@@ -5,8 +5,6 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { IndexedImage } from '../types';
 import ModelCard from './ModelCard';
 import Footer from './Footer';
-import { useA1111ProgressContext } from '../contexts/A1111ProgressContext';
-import { useGenerationQueueStore } from '../store/useGenerationQueueStore';
 
 interface ModelEntry {
   name: string;
@@ -15,13 +13,11 @@ interface ModelEntry {
 }
 
 interface ModelViewProps {
-  isQueueOpen?: boolean;
-  onToggleQueue?: () => void;
   onModelSelect: (modelName: string) => void;
 }
 
 
-export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onToggleQueue, onModelSelect }) => {
+export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
   const images = useImageStore((state) => state.images); // Use all images, not filtered ones
   const filteredImages = useImageStore((state) => state.filteredImages); // For footer stats
   const selectionTotalImages = useImageStore((state) => state.selectionTotalImages);
@@ -29,10 +25,6 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   
   const { itemsPerPage, setItemsPerPage, viewMode, toggleViewMode } = useSettingsStore();
-  const { progressState: a1111Progress } = useA1111ProgressContext();
-  const queueCount = useGenerationQueueStore((state) =>
-    state.items.filter((item) => item.status === 'waiting' || item.status === 'processing').length
-  );
 
   const [page, setPage] = useState(1);
   const [sortBy] = useState<'count' | 'name'>('count');
@@ -137,10 +129,6 @@ export const ModelView: React.FC<ModelViewProps> = ({ isQueueOpen = false, onTog
         totalCount={selectionTotalImages}
         directoryCount={selectionDirectoryCount}
         enrichmentProgress={enrichmentProgress}
-        a1111Progress={a1111Progress}
-        queueCount={queueCount}
-        isQueueOpen={isQueueOpen}
-        onToggleQueue={onToggleQueue}
         customText={`Showing ${modelEntries.length} models`}
       />
     </section>

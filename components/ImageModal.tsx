@@ -11,7 +11,6 @@ import {
   Folder,
   Download,
   Clipboard,
-  Sparkles,
   GitCompare,
   Star,
   X,
@@ -28,20 +27,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import { useCopyToA1111 } from "../hooks/useCopyToA1111";
-import { useGenerateWithA1111 } from "../hooks/useGenerateWithA1111";
-import { useCopyToComfyUI } from "../hooks/useCopyToComfyUI";
-import { useGenerateWithComfyUI } from "../hooks/useGenerateWithComfyUI";
 import { useImageComparison } from "../hooks/useImageComparison";
 import { useFeatureAccess } from "../hooks/useFeatureAccess";
-import {
-  A1111GenerateModal,
-  type GenerationParams as A1111GenerationParams,
-} from "./A1111GenerateModal";
-import {
-  ComfyUIGenerateModal,
-  type GenerationParams as ComfyUIGenerationParams,
-} from "./ComfyUIGenerateModal";
 import ProBadge from "./ProBadge";
 import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
@@ -687,9 +674,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }>({ x: 0, y: 0, visible: false });
   const [showDetails, setShowDetails] = useState(true);
   const [showPerformance, setShowPerformance] = useState(true);
-  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
-  const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] =
-    useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem("image_modal_sidebar_collapsed");
     return saved === "true";
@@ -711,30 +695,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // A1111 integration hooks
-  const { copyToA1111, isCopying, copyStatus } = useCopyToA1111();
-  const { generateWithA1111, isGenerating, generateStatus } =
-    useGenerateWithA1111();
-
-  // ComfyUI integration hooks
-  const {
-    copyToComfyUI,
-    isCopying: isCopyingComfyUI,
-    copyStatus: copyStatusComfyUI,
-  } = useCopyToComfyUI();
-  const {
-    generateWithComfyUI,
-    isGenerating: isGeneratingComfyUI,
-    generateStatus: generateStatusComfyUI,
-  } = useGenerateWithComfyUI();
-
   // Image comparison hook
   const { addImage, comparisonCount } = useImageComparison();
 
   // Feature access (license/trial gating)
   const {
-    canUseA1111,
-    canUseComfyUI,
     canUseComparison,
     showProModal,
     initialized,
@@ -2065,208 +2030,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </button>
           </div>
 
-          {/* A1111 Integration - Separate Buttons with Visual Hierarchy */}
-          {nMeta && !isVideo && (
-            <div className="mt-3 space-y-2">
-              {/* Generate with A1111 button REMOVED */}
-
-              {/* Utility Button: Copy to A1111 */}
-              <button
-                onClick={() => {
-                  if (!canUseA1111) {
-                    showProModal("a1111");
-                    return;
-                  }
-                  copyToA1111(image);
-                }}
-                disabled={canUseA1111 && (isCopying || !nMeta.prompt)}
-                className="w-full bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 disabled:bg-gray-100 dark:disabled:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all duration-200"
-              >
-                {isCopying && canUseA1111 ? (
-                  <>
-                    <svg
-                      className="animate-spin h-3 w-3"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    <span>Copying...</span>
-                  </>
-                ) : (
-                  <>
-                    <Clipboard className="w-3 h-3" />
-                    <span>Copy Parameters</span>
-                    {!canUseA1111 && initialized && <ProBadge size="sm" />}
-                  </>
-                )}
-              </button>
-
-              {/* Status messages */}
-              {(copyStatus || generateStatus) && (
-                <div
-                  className={`mt-2 p-2 rounded text-xs ${
-                    copyStatus?.success || generateStatus?.success
-                      ? "bg-green-900/50 border border-green-700 text-green-300"
-                      : "bg-red-900/50 border border-red-700 text-red-300"
-                  }`}
-                >
-                  {copyStatus?.message || generateStatus?.message}
-                </div>
-              )}
-
-              {/* Generate Variation Modal */}
-              {isGenerateModalOpen && nMeta && (
-                <A1111GenerateModal
-                  isOpen={isGenerateModalOpen}
-                  onClose={() => setIsGenerateModalOpen(false)}
-                  image={image}
-                  onGenerate={async (params: A1111GenerationParams) => {
-                    const customMetadata: Partial<BaseMetadata> = {
-                      prompt: params.prompt,
-                      negativePrompt: params.negativePrompt,
-                      cfg_scale: params.cfgScale,
-                      steps: params.steps,
-                      seed: params.randomSeed ? -1 : params.seed,
-                      width: params.width,
-                      height: params.height,
-                      model: params.model || nMeta?.model,
-                      ...(params.sampler ? { sampler: params.sampler } : {}),
-                    };
-                    await generateWithA1111(
-                      image,
-                      customMetadata,
-                      params.numberOfImages,
-                    );
-                    setIsGenerateModalOpen(false);
-                  }}
-                  isGenerating={isGenerating}
-                />
-              )}
-            </div>
-          )}
-
-          {/* ComfyUI Integration */}
-          {nMeta && !isVideo && (
-            <div className="mt-3 pt-3 border-t border-gray-700">
-              <h4 className="text-xs text-gray-400 uppercase tracking-wider mb-2">
-                ComfyUI
-              </h4>
-
-              {/* Generate with ComfyUI button REMOVED */}
-
-              {/* Copy Workflow Button */}
-              <button
-                onClick={() => {
-                  if (!canUseComfyUI) {
-                    showProModal("comfyui");
-                    return;
-                  }
-                  copyToComfyUI(image);
-                }}
-                disabled={canUseComfyUI && (isCopyingComfyUI || !nMeta.prompt)}
-                className="w-full bg-gray-50 hover:bg-gray-100 dark:bg-white/5 dark:hover:bg-white/10 disabled:bg-gray-100 dark:disabled:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-200 dark:border-white/10 hover:border-gray-300 dark:hover:border-white/20 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all duration-200"
-              >
-                {isCopyingComfyUI && canUseComfyUI ? (
-                  <>
-                    <svg
-                      className="animate-spin h-3 w-3"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                    <span>Copying...</span>
-                  </>
-                ) : (
-                  <>
-                    <Clipboard className="w-3 h-3" />
-                    <span>Copy Workflow JSON</span>
-                    {!canUseComfyUI && initialized && <ProBadge size="sm" />}
-                  </>
-                )}
-              </button>
-
-              {/* Status messages */}
-              {(copyStatusComfyUI || generateStatusComfyUI) && (
-                <div
-                  className={`mt-2 p-2 rounded text-xs ${
-                    copyStatusComfyUI?.success || generateStatusComfyUI?.success
-                      ? "bg-green-900/50 border border-green-700 text-green-300"
-                      : "bg-red-900/50 border border-red-700 text-red-300"
-                  }`}
-                >
-                  {copyStatusComfyUI?.message || generateStatusComfyUI?.message}
-                </div>
-              )}
-
-              {/* ComfyUI Generate Modal */}
-              {isComfyUIGenerateModalOpen && nMeta && (
-                <ComfyUIGenerateModal
-                  isOpen={isComfyUIGenerateModalOpen}
-                  onClose={() => setIsComfyUIGenerateModalOpen(false)}
-                  image={image}
-                  onGenerate={async (params: ComfyUIGenerationParams) => {
-                    const customMetadata: Partial<BaseMetadata> = {
-                      prompt: params.prompt,
-                      negativePrompt: params.negativePrompt,
-                      cfg_scale: params.cfgScale,
-                      steps: params.steps,
-                      seed: params.randomSeed ? -1 : params.seed,
-                      width: params.width,
-                      height: params.height,
-                      batch_size: params.numberOfImages,
-                      ...(params.sampler ? { sampler: params.sampler } : {}),
-                      ...(params.scheduler
-                        ? { scheduler: params.scheduler }
-                        : {}),
-                    };
-                    await generateWithComfyUI(image, {
-                      customMetadata,
-                      overrides: {
-                        model: params.model,
-                        loras: params.loras,
-                      },
-                    });
-                    setIsComfyUIGenerateModalOpen(false);
-                  }}
-                  isGenerating={isGeneratingComfyUI}
-                />
-              )}
-            </div>
-          )}
-
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-lg flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-blue-400" />
-                Generation Data
+                <h3 className="font-semibold text-lg flex items-center gap-2">
+                  Generation Data
                 {shadowMetadata && (
                   <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800">
                     EDITED

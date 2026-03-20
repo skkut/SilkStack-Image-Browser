@@ -17,10 +17,6 @@ import { Info, Copy, Folder, Download, Clipboard, Sparkles, GitCompare, Star, Sq
   Play
 } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
-import { useGenerateWithA1111 } from '../hooks/useGenerateWithA1111';
-import { useGenerateWithComfyUI } from '../hooks/useGenerateWithComfyUI';
-import { A1111GenerateModal, type GenerationParams as A1111GenerationParams } from './A1111GenerateModal';
-import { ComfyUIGenerateModal, type GenerationParams as ComfyUIGenerationParams } from './ComfyUIGenerateModal';
 import Toast from './Toast';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import ProBadge from './ProBadge';
@@ -808,9 +804,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     useImageStore.getState().clearAllThumbnails();
   }, [scrollKey]);
 
-  const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
-  const [isComfyUIGenerateModalOpen, setIsComfyUIGenerateModalOpen] = useState(false);
-  const [selectedImageForGeneration, setSelectedImageForGeneration] = useState<IndexedImage | null>(null);
   const [comparisonFirstImage, setComparisonFirstImage] = useState<IndexedImage | null>(null);
   const setComparisonImages = useImageStore((state) => state.setComparisonImages);
   const openComparisonModal = useImageStore((state) => state.openComparisonModal);
@@ -832,10 +825,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   }, [sensitiveTags]);
 
 
-
-  const { generateWithA1111, isGenerating } = useGenerateWithA1111();
-  const { generateWithComfyUI, isGenerating: isGeneratingComfyUI } = useGenerateWithComfyUI();
-
   const {
     contextMenu,
     showContextMenu,
@@ -847,33 +836,8 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     copyModel,
     showInFolder,
     exportImage,
-    copyMetadataToA1111,
     copyRawMetadata
   } = useContextMenu();
-
-  const openGenerateModal = useCallback(() => {
-    if (!contextMenu.image) return;
-    if (!canUseA1111) {
-      showProModal('a1111');
-      hideContextMenu();
-      return;
-    }
-    setSelectedImageForGeneration(contextMenu.image);
-    setIsGenerateModalOpen(true);
-    hideContextMenu();
-  }, [contextMenu.image, hideContextMenu, canUseA1111, showProModal]);
-
-  const openComfyUIGenerateModal = useCallback(() => {
-    if (!contextMenu.image) return;
-    if (!canUseComfyUI) {
-      showProModal('comfyui');
-      hideContextMenu();
-      return;
-    }
-    setSelectedImageForGeneration(contextMenu.image);
-    setIsComfyUIGenerateModalOpen(true);
-    hideContextMenu();
-  }, [contextMenu.image, hideContextMenu, canUseComfyUI, showProModal]);
 
   const selectForComparison = useCallback(() => {
     if (!contextMenu.image) return;
@@ -1414,72 +1378,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   );
 
   const modalsContent = (
-    <>
-      {/* Generate Variation Modal */}
-      {isGenerateModalOpen && selectedImageForGeneration && (
-        <A1111GenerateModal
-          isOpen={isGenerateModalOpen}
-          onClose={() => {
-            setIsGenerateModalOpen(false);
-            setSelectedImageForGeneration(null);
-          }}
-          image={selectedImageForGeneration}
-            onGenerate={async (params: A1111GenerationParams) => {
-              const customMetadata: Partial<BaseMetadata> = {
-                prompt: params.prompt,
-                negativePrompt: params.negativePrompt,
-                cfg_scale: params.cfgScale,
-                steps: params.steps,
-                seed: params.randomSeed ? -1 : params.seed,
-                width: params.width,
-                height: params.height,
-                model: params.model || selectedImageForGeneration.metadata?.normalizedMetadata?.model,
-                ...(params.sampler ? { sampler: params.sampler } : {}),
-              };
-            await generateWithA1111(selectedImageForGeneration, customMetadata, params.numberOfImages);
-            setIsGenerateModalOpen(false);
-            setSelectedImageForGeneration(null);
-          }}
-          isGenerating={isGenerating}
-        />
-      )}
-
-      {/* ComfyUI Generate Variation Modal */}
-      {isComfyUIGenerateModalOpen && selectedImageForGeneration && (
-        <ComfyUIGenerateModal
-          isOpen={isComfyUIGenerateModalOpen}
-          onClose={() => {
-            setIsComfyUIGenerateModalOpen(false);
-            setSelectedImageForGeneration(null);
-          }}
-          image={selectedImageForGeneration}
-          onGenerate={async (params: ComfyUIGenerationParams) => {
-            const customMetadata: Partial<BaseMetadata> = {
-              prompt: params.prompt,
-              negativePrompt: params.negativePrompt,
-              cfg_scale: params.cfgScale,
-              steps: params.steps,
-              seed: params.randomSeed ? -1 : params.seed,
-              width: params.width,
-              height: params.height,
-              batch_size: params.numberOfImages,
-              ...(params.sampler ? { sampler: params.sampler } : {}),
-              ...(params.scheduler ? { scheduler: params.scheduler } : {}),
-            };
-            await generateWithComfyUI(selectedImageForGeneration, {
-              customMetadata,
-              overrides: {
-                model: params.model,
-                loras: params.loras,
-              },
-            });
-            setIsComfyUIGenerateModalOpen(false);
-            setSelectedImageForGeneration(null);
-          }}
-          isGenerating={isGeneratingComfyUI}
-        />
-      )}
-    </>
+    <></>
   );
 
   // Decision of what to render is already handled above to support navigation hooks

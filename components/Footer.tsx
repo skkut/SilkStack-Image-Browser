@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ListChecks } from 'lucide-react';
-import { A1111ProgressState } from '../hooks/useA1111Progress';
-import { useFeatureAccess } from '../hooks/useFeatureAccess';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 interface FooterProps {
   currentPage: number;
@@ -17,10 +15,6 @@ interface FooterProps {
   totalCount?: number;
   directoryCount?: number;
   enrichmentProgress?: { processed: number; total: number } | null;
-  a1111Progress?: A1111ProgressState | null;
-  queueCount?: number;
-  isQueueOpen?: boolean;
-  onToggleQueue?: () => void;
 }
 
 const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
@@ -45,12 +39,7 @@ const Footer: React.FC<FooterProps> = ({
   totalCount,
   directoryCount,
   enrichmentProgress,
-  a1111Progress,
-  queueCount = 0,
-  isQueueOpen = false,
-  onToggleQueue
 }) => {
-  const { canUseA1111 } = useFeatureAccess();
   const [isEditingPage, setIsEditingPage] = useState(false);
   const [pageInput, setPageInput] = useState(currentPage.toString());
 
@@ -66,11 +55,9 @@ const Footer: React.FC<FooterProps> = ({
   const folderText = directoryCount === 1 ? 'folder' : 'folders';
   const showPageControls = totalPages > 1;
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
-  const hasA1111Job = canUseA1111 && a1111Progress && a1111Progress.isGenerating; // Only show if feature is available
-  const hasAnyJob = hasEnrichmentJob || hasA1111Job;
 
   return (
-    <footer className={`sticky bottom-0 px-6 flex items-center gap-4 bg-gray-900/90 backdrop-blur-md border-t border-gray-800/60 transition-all duration-300 shadow-footer-up ${hasAnyJob ? 'h-14 md:h-16' : 'h-12 md:h-14'}`}>
+    <footer className={`sticky bottom-0 px-6 flex items-center gap-4 bg-gray-900/90 backdrop-blur-md border-t border-gray-800/60 transition-all duration-300 shadow-footer-up ${hasEnrichmentJob ? 'h-14 md:h-16' : 'h-12 md:h-14'}`}>
       <div className="min-w-0 flex-1 flex items-center gap-3 text-xs">
         {customText ? (
            <Token>
@@ -106,25 +93,6 @@ const Footer: React.FC<FooterProps> = ({
             </div>
           </div>
         )}
-        {hasA1111Job && (
-          <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-xs shadow-sm animate-in fade-in slide-in-from-bottom-2">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-              </span>
-              <span className="font-medium">
-                {a1111Progress!.totalImages > 1
-                  ? `${a1111Progress!.currentImage}/${a1111Progress!.totalImages}`
-                  : `${Math.round(a1111Progress!.progress * 100)}%`
-                }
-              </span>
-            </div>
-            <div className="w-20 h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
-              <div className="h-full bg-green-500 transition-all duration-300 ease-out" style={{ width: `${a1111Progress!.progress * 100}%` }} />
-            </div>
-          </div>
-        )}
       </div>
       <nav className="flex items-center gap-4 text-xs">
         <div className="flex items-center gap-2">
@@ -137,30 +105,97 @@ const Footer: React.FC<FooterProps> = ({
             <option value={-1}>All</option>
           </select>
         </div>
+
+        {showPageControls && (
+          <div className="flex items-center gap-1 border-l border-gray-700/50 pl-4 h-6">
+            <div className="flex items-center gap-1 mr-2">
+              <button
+                onClick={() => onPageChange(1)}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
+                title="First Page"
+              >
+                <ChevronsLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onPageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
+                title="Previous Page"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 px-1">
+              {isEditingPage ? (
+                <input
+                  type="number"
+                  value={pageInput}
+                  onChange={(e) => setPageInput(e.target.value)}
+                  onBlur={() => {
+                    setIsEditingPage(false);
+                    const val = parseInt(pageInput, 10);
+                    if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                      onPageChange(val);
+                    } else {
+                      setPageInput(currentPage.toString());
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setIsEditingPage(false);
+                      const val = parseInt(pageInput, 10);
+                      if (!isNaN(val) && val >= 1 && val <= totalPages) {
+                        onPageChange(val);
+                      } else {
+                        setPageInput(currentPage.toString());
+                      }
+                    } else if (e.key === 'Escape') {
+                      setIsEditingPage(false);
+                      setPageInput(currentPage.toString());
+                    }
+                  }}
+                  className="w-12 bg-gray-800 border border-blue-500/50 rounded px-1 py-0.5 text-center text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  autoFocus
+                />
+              ) : (
+                <button
+                  onClick={() => setIsEditingPage(true)}
+                  className="px-2 py-0.5 rounded hover:bg-gray-800 transition-colors font-medium text-gray-200"
+                  title="Click to jump to page"
+                >
+                  Page <span className="text-blue-400">{currentPage}</span> of {totalPages}
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                onClick={() => onPageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
+                title="Next Page"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => onPageChange(totalPages)}
+                disabled={currentPage === totalPages}
+                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
+                title="Last Page"
+              >
+                <ChevronsRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
       </nav>
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>
           {viewMode === 'grid' ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}
         </button>
-        {onToggleQueue && (
-          <button
-            onClick={onToggleQueue}
-            className={`relative p-2 rounded-lg transition-all border ${
-              isQueueOpen
-                ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                : 'hover:bg-gray-800 text-gray-400 hover:text-white border-transparent hover:border-gray-700'
-            }`}
-            title="Toggle Queue"
-          >
-            <ListChecks className="h-4 w-4" />
-            {queueCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm">
-                {queueCount}
-              </span>
-            )}
-          </button>
-        )}
       </div>
     </footer>
   );
