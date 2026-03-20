@@ -403,6 +403,7 @@ function createWindow(startupDirectory = null) {
     height: 900,
     minWidth: 800,
     minHeight: 600,
+    backgroundColor: '#0a0a0a',
     icon: getIconPath(),
     webPreferences: {
       nodeIntegration: false,

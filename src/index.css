@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+html, body {
+  background-color: #0a0a0a;
+  margin: 0;
+  padding: 0;
+}
+
 
 
 .masonry-grid {
