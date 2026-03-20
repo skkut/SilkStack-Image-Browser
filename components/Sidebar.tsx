@@ -180,7 +180,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <img src="logo1.png" alt="AI Images Browser" className="h-10 w-10 rounded-xl shadow-2xl relative z-10" />
             </div>
             <div className="flex flex-col overflow-hidden">
-                <h1 className="text-lg font-bold tracking-tight text-white/90 truncate">AI Images Browser</h1>
+                <h1 className="text-lg font-bold tracking-tight text-gray-100 truncate">AI Images Browser</h1>
                 <span className="text-[10px] font-mono font-normal text-gray-500">{appVersion}</span>
             </div>
         </div>
@@ -189,7 +189,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Filters</h2>
             <button
             onClick={onToggleCollapse}
-            className="text-gray-400 hover:text-white transition-all duration-200 hover:shadow-lg hover:shadow-purple-500/20 bg-gray-800/40 hover:bg-gray-700/60 rounded-lg p-1.5"
+            className="text-gray-400 hover:text-gray-100 transition-all duration-200 hover:shadow-lg hover:shadow-purple-500/20 bg-gray-800/40 hover:bg-gray-700/60 rounded-lg p-1.5"
             title="Collapse sidebar"
             >
             <ChevronLeft className="w-4 h-4" />
@@ -505,7 +505,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-4 border-t border-gray-700">
           <button
             onClick={onClearAllFilters}
-            className="w-full text-red-400 hover:text-white hover:bg-red-900/30 border border-red-900/30 hover:border-red-500/50 px-4 py-2 rounded-lg text-sm transition-all duration-200"
+            className="w-full text-red-400 hover:text-gray-100 hover:bg-red-900/30 border border-red-900/30 hover:border-red-500/50 px-4 py-2 rounded-lg text-sm transition-all duration-200"
           >
             Clear All Filters
           </button>

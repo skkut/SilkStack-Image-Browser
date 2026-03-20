@@ -188,7 +188,7 @@ const Header: React.FC<HeaderProps> = ({
                      onClick={() => setEnableSafeMode(!enableSafeMode)}
                      className={`p-1.5 rounded-lg transition-all duration-200 ${
                          enableSafeMode
-                         ? 'text-gray-400 hover:text-white'
+                         ? 'text-gray-400 hover:text-gray-100'
                          : 'text-gray-600 hover:text-gray-400'
                      }`}
                      title={enableSafeMode ? 'Safe Mode on' : 'Safe Mode off'}
@@ -234,7 +234,7 @@ const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50">
             <button
               onClick={onOpenSettings}
-              className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-white transition-all hover:rotate-45"
+              className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"
               title="Open Settings"
             >
               <Settings size={16} />
