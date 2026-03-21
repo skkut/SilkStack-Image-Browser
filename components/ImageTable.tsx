@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { FixedSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { type IndexedImage } from '../types';
+import { getAspectRatio } from '../utils/imageUtils';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
 import { Copy, Folder, Download, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play } from 'lucide-react';
@@ -520,12 +521,22 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
       </div>
       <div className="px-3 py-2 text-gray-400 font-mono text-xs">
         {(() => {
+          const width = (image.metadata as any)?.width || (image.metadata as any)?.normalizedMetadata?.width;
+          const height = (image.metadata as any)?.height || (image.metadata as any)?.normalizedMetadata?.height;
+          const ratio = getAspectRatio(width, height);
+          
           const dims = image.dimensions ||
                       (image.metadata as any)?.dimensions ||
-                      ((image.metadata as any)?.width && (image.metadata as any)?.height 
-                        ? `${(image.metadata as any).width}×${(image.metadata as any).height}` 
-                        : null);
-          return dims || <span className="text-gray-600">—</span>;
+                      (width && height ? `${width}×${height}` : null);
+          
+          if (!dims) return <span className="text-gray-600">—</span>;
+          
+          return (
+            <span>
+              {dims}
+              {ratio && <span className="text-gray-500 ml-1">({ratio})</span>}
+            </span>
+          );
         })()}
       </div>
       <div className="px-3 py-2 text-gray-500 font-mono text-xs truncate" title={(image.seed || (image.metadata as any)?.seed || (image.metadata as any)?.normalizedMetadata?.seed)?.toString()}>

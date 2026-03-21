@@ -1,7 +1,7 @@
 import React, { useEffect, useState, FC, useCallback, useRef } from "react";
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
 import { FileOperations } from "../services/fileOperations";
-import { copyImageToClipboard, showInExplorer } from "../utils/imageUtils";
+import { copyImageToClipboard, showInExplorer, getAspectRatio } from "../utils/imageUtils";
 import {
   Copy,
   Pencil,
@@ -1725,12 +1725,21 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     label="Dimensions"
                     value={nMeta.width && nMeta.height ? `${nMeta.width}x${nMeta.height}` : undefined}
                   />
-                  {nMeta.width && nMeta.height && (
-                    <MetadataItem
-                      label="Megapixels"
-                      value={`${((nMeta.width * nMeta.height) / 1_000_000).toFixed(2)} MP`}
-                    />
-                  )}
+                  <MetadataItem
+                    label="Megapixels"
+                    value={
+                      effectiveMetadata.width && effectiveMetadata.height
+                        ? `${((effectiveMetadata.width * effectiveMetadata.height) / 1_000_000).toFixed(2)} MP`
+                        : undefined
+                    }
+                  />
+                  <MetadataItem
+                    label="Aspect Ratio"
+                    value={
+                      getAspectRatio(effectiveMetadata.width, effectiveMetadata.height) ||
+                      undefined
+                    }
+                  />
                 </div>
               </div>
 

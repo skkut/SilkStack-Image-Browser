@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Star, X, Zap, CheckCircle, ArrowUp } from 'l
 import { useImageStore } from '../store/useImageStore';
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from '../types';
 import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
+import { getAspectRatio } from '../utils/imageUtils';
 
 const TAG_SUGGESTION_LIMIT = 5;
 
@@ -546,6 +547,7 @@ const ImagePreviewSidebar: React.FC = () => {
                   <MetadataItem label="Seed" value={nMeta.seed} />
                   <MetadataItem label="Dimensions" value={nMeta.width && nMeta.height ? `${nMeta.width}x${nMeta.height}` : undefined} />
                   <MetadataItem label="Megapixels" value={nMeta.width && nMeta.height ? `${((nMeta.width * nMeta.height) / 1_000_000).toFixed(2)} MP` : undefined} />
+                  <MetadataItem label="Aspect Ratio" value={getAspectRatio(nMeta.width, nMeta.height) || undefined} />
                   <MetadataItem label="Sampler" value={nMeta.sampler} />
                   <MetadataItem label="Scheduler" value={nMeta.scheduler} />
                   {(nMeta as any).denoise != null && (nMeta as any).denoise < 1 && (

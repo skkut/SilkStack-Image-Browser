@@ -164,3 +164,23 @@ export const copyFilePathToClipboard = async (image: IndexedImage): Promise<Oper
     };
   }
 };
+
+/**
+ * Calculates the aspect ratio of an image and returns it as a string (e.g., "3:2")
+ * @param width - Image width
+ * @param height - Image height
+ * @returns Aspect ratio string or null if inputs are invalid
+ */
+export const getAspectRatio = (width?: number, height?: number): string | null => {
+  if (!width || !height || isNaN(width) || isNaN(height)) return null;
+
+  const gcd = (a: number, b: number): number => {
+    return b === 0 ? a : gcd(b, a % b);
+  };
+
+  const common = gcd(width, height);
+  const rWidth = width / common;
+  const rHeight = height / common;
+
+  return `${rWidth}:${rHeight}`;
+};
