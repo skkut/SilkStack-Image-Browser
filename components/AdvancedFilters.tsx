@@ -7,13 +7,15 @@ interface AdvancedFiltersProps {
   onAdvancedFiltersChange: (filters: any) => void;
   onClearAdvancedFilters: () => void;
   availableDimensions: string[];
+  availableAspectRatios: string[];
 }
 
 const AdvancedFilters: React.FC<AdvancedFiltersProps> = ({
   advancedFilters,
   onAdvancedFiltersChange,
   onClearAdvancedFilters,
-  availableDimensions
+  availableDimensions,
+  availableAspectRatios
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [localFilters, setLocalFilters] = useState(advancedFilters || {});
@@ -126,6 +128,23 @@ const AdvancedFilters: React.FC<AdvancedFiltersProps> = ({
                   <option value="">All dimensions</option>
                   {availableDimensions.map(dim => (
                     <option key={dim} value={dim}>{dim}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Aspect Ratio Filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Aspect Ratio
+                </label>
+                <select
+                  value={localFilters.aspectRatio || ''}
+                  onChange={(e) => updateFilter('aspectRatio', e.target.value || null)}
+                  className="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md p-2 text-sm"
+                >
+                  <option value="">All ratios</option>
+                  {availableAspectRatios.map(ratio => (
+                    <option key={ratio} value={ratio}>{ratio}</option>
                   ))}
                 </select>
               </div>

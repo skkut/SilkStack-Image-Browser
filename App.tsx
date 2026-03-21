@@ -68,6 +68,7 @@ export default function App() {
   const availableLoras = useImageStore((state) => state.availableLoras);
   const availableSchedulers = useImageStore((state) => state.availableSchedulers);
   const availableDimensions = useImageStore((state) => state.availableDimensions);
+  const availableAspectRatios = useImageStore((state) => state.availableAspectRatios);
   const selectedModels = useImageStore((state) => state.selectedModels);
   const selectedLoras = useImageStore((state) => state.selectedLoras);
   const selectedSchedulers = useImageStore((state) => state.selectedSchedulers);
@@ -716,6 +717,7 @@ export default function App() {
           onAdvancedFiltersChange={setAdvancedFilters}
           onClearAdvancedFilters={() => setAdvancedFilters({})}
           availableDimensions={availableDimensions}
+          availableAspectRatios={availableAspectRatios}
           onAddFolder={handleSelectFolder}
           isIndexing={indexingState === 'indexing' || indexingState === 'completed'}
           scanSubfolders={scanSubfolders}

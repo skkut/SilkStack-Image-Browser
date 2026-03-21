@@ -13,6 +13,7 @@ import { useLicenseStore } from './useLicenseStore';
 import { useSettingsStore } from './useSettingsStore';
 import { CLUSTERING_FREE_TIER_LIMIT, CLUSTERING_PREVIEW_LIMIT } from '../hooks/useFeatureAccess';
 import { normalizePath } from '../utils/pathUtils';
+import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
@@ -194,6 +195,7 @@ interface ImageState {
   availableLoras: string[];
   availableSchedulers: string[];
   availableDimensions: string[];
+  availableAspectRatios: string[];
   selectedModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
@@ -508,6 +510,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     const loras = new Set(state.availableLoras);
                     const schedulers = new Set(state.availableSchedulers);
                     const dimensions = new Set(state.availableDimensions);
+                    const aspectRatios = new Set(state.availableAspectRatios);
 
                     for (const img of updates.values()) {
                         img.models?.forEach(model => { if (typeof model === 'string' && model) models.add(model); });
@@ -523,6 +526,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                         }
                         if (img.dimensions) {
                             dimensions.add(img.dimensions);
+                            const [w, h] = img.dimensions.split('x').map(Number);
+                            if (w > 0 && h > 0) {
+                                const ar = getImageAspectRatio(w, h);
+                                if (ar) aspectRatios.add(ar);
+                            }
                         }
                     }
 
@@ -531,6 +539,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                         availableLoras: Array.from(loras),
                         availableSchedulers: Array.from(schedulers),
                         availableDimensions: Array.from(dimensions),
+                        availableAspectRatios: Array.from(aspectRatios),
                     };
                 } else {
                     nextFilteredImages = state.filteredImages.map(img => updates.get(img.id) ?? img);
@@ -602,6 +611,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         const loras = new Set<string>();
         const schedulers = new Set<string>();
         const dimensions = new Set<string>();
+        const aspectRatios = new Set<string>();
 
         for (const image of visibleImages) {
             image.models?.forEach(model => { if(typeof model === 'string' && model) models.add(model) });
@@ -613,7 +623,14 @@ export const useImageStore = create<ImageState>((set, get) => {
                 }
             });
             if (image.scheduler) schedulers.add(image.scheduler);
-            if (image.dimensions && image.dimensions !== '0x0') dimensions.add(image.dimensions);
+            if (image.dimensions && image.dimensions !== '0x0') {
+                dimensions.add(image.dimensions);
+                const [w, h] = image.dimensions.split('x').map(Number);
+                if (w > 0 && h > 0) {
+                    const ar = getImageAspectRatio(w, h);
+                    if (ar) aspectRatios.add(ar);
+                }
+            }
         }
 
         // Case-insensitive alphabetical comparator
@@ -630,6 +647,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const [aWidth, aHeight] = a.split('x').map(Number);
                 const [bWidth, bHeight] = b.split('x').map(Number);
                 return (aWidth * aHeight) - (bWidth * bHeight);
+            }),
+            availableAspectRatios: Array.from(aspectRatios).sort((a, b) => {
+                // Sort by ratio value (width/height)
+                const [aW, aH] = a.split(':').map(Number);
+                const [bW, bH] = b.split(':').map(Number);
+                return (aW / aH) - (bW / bH);
             }),
         };
     };
@@ -851,6 +874,14 @@ export const useImageStore = create<ImageState>((set, get) => {
                     return imageDim === filterDim;
                 });
             }
+            if (advancedFilters.aspectRatio) {
+                results = results.filter(image => {
+                    if (!image.dimensions) return false;
+                    const [w, h] = image.dimensions.split('x').map(Number);
+                    if (!w || !h) return false;
+                    return getImageAspectRatio(w, h) === advancedFilters.aspectRatio;
+                });
+            }
             if (advancedFilters.steps) {
                  results = results.filter(image => {
                     const steps = image.steps;
@@ -1025,6 +1056,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         availableLoras: [],
         availableSchedulers: [],
         availableDimensions: [],
+        availableAspectRatios: [],
         selectedModels: [],
         selectedLoras: [],
         selectedSchedulers: [],
@@ -2507,6 +2539,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             availableLoras: [],
             availableSchedulers: [],
             availableDimensions: [],
+            availableAspectRatios: [],
             selectedModels: [],
             selectedLoras: [],
             selectedSchedulers: [],

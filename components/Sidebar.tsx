@@ -13,6 +13,7 @@ interface SidebarProps {
   availableLoras: string[];
   availableSchedulers: string[];
   availableDimensions: string[];
+  availableAspectRatios: string[];
   selectedModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
@@ -43,6 +44,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   availableLoras,
   availableSchedulers,
   availableDimensions,
+  availableAspectRatios,
   selectedModels,
   selectedLoras,
   selectedSchedulers,
@@ -510,6 +512,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           onAdvancedFiltersChange={onAdvancedFiltersChange}
           onClearAdvancedFilters={onClearAdvancedFilters}
           availableDimensions={availableDimensions}
+          availableAspectRatios={availableAspectRatios}
         />
       </div>
 
