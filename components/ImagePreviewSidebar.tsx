@@ -1,8 +1,7 @@
 import React, { useEffect, useState, FC } from 'react';
-import { ChevronDown, ChevronRight, Star, X, Zap, CheckCircle, ArrowUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, Star, X, ArrowUp } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from '../types';
-import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
 import { getAspectRatio } from '../utils/imageUtils';
 
 const TAG_SUGGESTION_LIMIT = 5;
@@ -51,43 +50,7 @@ const formatLoRA = (lora: string | LoRAInfo): string => {
   return name;
 };
 
-// Helper function to format generation time: 87ms, 1.5s, or 2m 15s
-const formatGenerationTime = (ms: number): string => {
-  if (ms < 1000) return `${ms.toFixed(0)}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}m ${remainingSeconds}s`;
-};
 
-// Helper function to format VRAM: "8.0 GB / 24 GB (33%)" or "8.0 GB"
-const formatVRAM = (vramMb: number, gpuDevice?: string | null): string => {
-  const vramGb = vramMb / 1024;
-
-  // Known GPU VRAM mappings
-  const gpuVramMap: Record<string, number> = {
-    '4090': 24, '3090': 24, '3080': 10, '3070': 8, '3060': 12,
-    'A100': 40, 'A6000': 48, 'V100': 16,
-  };
-
-  let totalVramGb: number | null = null;
-  if (gpuDevice) {
-    for (const [model, vram] of Object.entries(gpuVramMap)) {
-      if (gpuDevice.includes(model)) {
-        totalVramGb = vram;
-        break;
-      }
-    }
-  }
-
-  if (totalVramGb !== null && vramGb <= totalVramGb) {
-    const percentage = ((vramGb / totalVramGb) * 100).toFixed(0);
-    return `${vramGb.toFixed(1)} GB / ${totalVramGb} GB (${percentage}%)`;
-  }
-
-  return `${vramGb.toFixed(1)} GB`;
-};
 
 const formatDurationSeconds = (seconds: number): string => {
   if (!Number.isFinite(seconds)) return '';
@@ -196,7 +159,7 @@ const ImagePreviewSidebar: React.FC = () => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
   const [showTagAutocomplete, setShowTagAutocomplete] = useState(false);
-  const [showPerformance, setShowPerformance] = useState(true);
+
 
   const activeImage = previewImageFromStore || previewImage;
   const isVideo = !!activeImage && isVideoFileName(activeImage.name, activeImage.fileType);
@@ -387,18 +350,7 @@ const ImagePreviewSidebar: React.FC = () => {
 
         {/* Metadata */}
         <div>
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 break-all">{activeImage.name}</h2>
-            {hasVerifiedTelemetry(activeImage) && (
-              <span
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 border border-green-500/30 shadow-sm shadow-green-500/20"
-                title="Verified Telemetry - Generated with MetaHub Save Node. Includes accurate performance metrics: generation time, VRAM usage, GPU device, and software versions."
-              >
-                <CheckCircle size={12} className="flex-shrink-0" />
-                <span className="whitespace-nowrap">Verified</span>
-              </span>
-            )}
-          </div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 break-all mb-1">{activeImage.name}</h2>
           <p className="text-xs text-blue-400 font-mono break-all">{new Date(activeImage.lastModified).toLocaleString()}</p>
         </div>
 
@@ -583,74 +535,8 @@ const ImagePreviewSidebar: React.FC = () => {
                </>
             )}
 
-            {/* MetaHub Save Node Notes */}
-            {nMeta.notes && (
-              <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50">
-                <p className="font-semibold text-purple-300 text-xs uppercase tracking-wider mb-2">Notes (MetaHub Save Node)</p>
-                <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm bg-gray-800/50 p-2 rounded">{nMeta.notes}</pre>
-              </div>
-            )}
 
-            {/* Performance Section - Collapsible */}
-            {nMeta && nMeta._analytics && (
-              <div>
-                <button
-                  onClick={() => setShowPerformance(!showPerformance)}
-                  className="text-gray-600 dark:text-gray-300 text-sm w-full text-left py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between hover:text-gray-900 dark:hover:text-white transition-colors"
-                >
-                  <span className="font-semibold flex items-center gap-2">
-                    <Zap size={16} className="text-yellow-400" />
-                    Performance
-                  </span>
-                  {showPerformance ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                </button>
 
-                {showPerformance && (
-                  <div className="space-y-3 mt-3">
-                    {/* Tier 1: CRITICAL */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {nMeta._analytics.generation_time_ms != null && nMeta._analytics.generation_time_ms > 0 && (
-                        <MetadataItem
-                          label="Generation Time"
-                          value={formatGenerationTime(nMeta._analytics.generation_time_ms)}
-                        />
-                      )}
-                      {nMeta._analytics.vram_peak_mb != null && (
-                        <MetadataItem
-                          label="VRAM Peak"
-                          value={formatVRAM(nMeta._analytics.vram_peak_mb, nMeta._analytics.gpu_device)}
-                        />
-                      )}
-                    </div>
-
-                    {nMeta._analytics.gpu_device && (
-                      <MetadataItem label="GPU Device" value={nMeta._analytics.gpu_device} />
-                    )}
-
-                    {/* Tier 2: VERY USEFUL */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {nMeta._analytics.steps_per_second != null && (
-                        <MetadataItem
-                          label="Speed"
-                          value={`${nMeta._analytics.steps_per_second.toFixed(2)} steps/s`}
-                        />
-                      )}
-                      {nMeta._analytics.comfyui_version && (
-                        <MetadataItem label="ComfyUI" value={nMeta._analytics.comfyui_version} />
-                      )}
-                    </div>
-
-                    {/* Tier 3: NICE-TO-HAVE (small text) */}
-                    {(nMeta._analytics.torch_version || nMeta._analytics.python_version) && (
-                      <div className="text-xs text-gray-400 dark:text-gray-500 border-t border-gray-200 dark:border-gray-700/50 pt-2 space-y-1">
-                        {nMeta._analytics.torch_version && <div>PyTorch: {nMeta._analytics.torch_version}</div>}
-                        {nMeta._analytics.python_version && <div>Python: {nMeta._analytics.python_version}</div>}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
 
           </>
         ) : (

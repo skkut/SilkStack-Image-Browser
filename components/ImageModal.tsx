@@ -15,7 +15,6 @@ import {
   Star,
   X,
   Zap,
-  CheckCircle,
   ArrowUp,
   Play,
   Pause,
@@ -34,7 +33,6 @@ import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 
-import { hasVerifiedTelemetry } from "../utils/telemetryDetection";
 import { useShadowMetadata } from "../hooks/useShadowMetadata";
 import { MetadataEditorModal } from "./MetadataEditorModal";
 
@@ -1468,17 +1466,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
             ) : (
               <h2 className="text-xl font-bold text-gray-100 break-all flex items-center gap-2 flex-wrap">
                 <span className="break-all">{image.name}</span>
-                {hasVerifiedTelemetry(image) && (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-400 border border-green-500/30 shadow-sm shadow-green-500/20"
-                    title="Verified Telemetry - Generated with MetaHub Save Node. Includes accurate performance metrics: generation time, VRAM usage, GPU device, and software versions."
-                  >
-                    <CheckCircle size={14} className="flex-shrink-0" />
-                    <span className="whitespace-nowrap">
-                      Verified Telemetry
-                    </span>
-                  </span>
-                )}
                 <button
                   onClick={() => setIsRenaming(true)}
                   disabled={isIndexing}
@@ -1651,20 +1638,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </div>
             </div>
           </div>
-
-          {/* MetaHub Save Node Notes - Only if present */}
-          {nMeta?.notes && (
-            <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700/50">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-semibold text-purple-600 dark:text-purple-300 uppercase tracking-wider">
-                  Notes (MetaHub Save Node)
-                </span>
-              </div>
-              <pre className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words font-mono text-sm bg-white dark:bg-gray-800/50 p-2 rounded border border-gray-200 dark:border-gray-700/50">
-                {nMeta.notes}
-              </pre>
-            </div>
-          )}
 
           {nMeta ? (
             <div className="space-y-4">

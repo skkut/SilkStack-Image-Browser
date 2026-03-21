@@ -8,7 +8,7 @@ import {
   bulkSaveAnnotations,
   getAllTags,
 } from '../services/imageAnnotationsStorage';
-import { hasVerifiedTelemetry } from '../utils/telemetryDetection';
+
 import { useLicenseStore } from './useLicenseStore';
 import { useSettingsStore } from './useSettingsStore';
 import { CLUSTERING_FREE_TIER_LIMIT, CLUSTERING_PREVIEW_LIMIT } from '../hooks/useFeatureAccess';
@@ -890,9 +890,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     return true;
                 });
             }
-            if (advancedFilters.hasVerifiedTelemetry === true) {
-                results = results.filter(image => hasVerifiedTelemetry(image));
-            }
+
         }
 
         const totalInScope = images.length; // Total absoluto de imagens indexadas

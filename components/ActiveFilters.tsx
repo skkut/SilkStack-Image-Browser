@@ -1,6 +1,6 @@
 import React from 'react';
 import { useImageStore } from '../store/useImageStore';
-import { X, CheckCircle, Calendar, Settings } from 'lucide-react';
+import { X, Calendar, Settings } from 'lucide-react';
 
 const ActiveFilters: React.FC = () => {
     const selectedModels = useImageStore((state) => state.selectedModels);
@@ -95,19 +95,6 @@ const ActiveFilters: React.FC = () => {
                 </div>
             )}
 
-            {/* Verified Telemetry Tag */}
-            {advancedFilters?.hasVerifiedTelemetry && (
-                <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-900/40 text-green-200 border border-green-700/50 flex-shrink-0 animate-fade-in">
-                    <CheckCircle size={10} />
-                    <span>Verified Only</span>
-                    <button
-                        onClick={() => removeAdvancedFilter('hasVerifiedTelemetry')}
-                        className="ml-1 hover:text-green-100 rounded-full hover:bg-green-800/50 p-0.5 transition-colors"
-                    >
-                        <X size={12} />
-                    </button>
-                </div>
-            )}
 
             {/* Dimensions Tag */}
             {advancedFilters?.dimension && (

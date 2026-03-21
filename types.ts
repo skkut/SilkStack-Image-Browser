@@ -593,19 +593,15 @@ export interface BaseMetadata {
   media_type?: "image" | "video";
   video?: VideoInfo | null;
   motion_model?: MotionModelInfo | null;
-  // MetaHub Save Node user inputs
-  tags?: string[]; // User-defined tags from MetaHub Save Node
-  notes?: string; // User notes from MetaHub Save Node
-  // Performance/benchmark metrics (from MetaHub Save Node analytics chunk)
+  tags?: string[]; // User-defined tags from image metadata
+  notes?: string; // User notes from image metadata
+  // Performance/benchmark metrics
   analytics?: {
-    // Tier 1: CRITICAL metrics
     vram_peak_mb?: number | null;
     gpu_device?: string | null;
     generation_time_ms?: number | null;
-    // Tier 2: VERY USEFUL metrics
     steps_per_second?: number | null;
     comfyui_version?: string | null;
-    // Tier 3: NICE-TO-HAVE metrics
     torch_version?: string | null;
     python_version?: string | null;
     // Legacy
