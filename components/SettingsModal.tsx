@@ -5,6 +5,7 @@ import { useLicenseStore } from '../store/useLicenseStore';
 import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
+import { useImageStore } from '../store/useImageStore';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -40,6 +41,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const setShowFullFilePath = useSettingsStore((state) => state.setShowFullFilePath);
   const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
   const setDoubleClickToOpen = useSettingsStore((state) => state.setDoubleClickToOpen);
+  const displayStarredFirst = useSettingsStore((state) => state.displayStarredFirst);
+  const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
   const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
   const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
@@ -289,6 +292,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                     type="checkbox"
                     checked={showFilenames}
                     onChange={(event) => setShowFilenames(event.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
+                <div>
+                  <p className="text-sm">Display Starred images first</p>
+                  <p className="text-xs text-gray-400">
+                    Always arrange starred (favorite) images at the beginning of the grid, sorting them according to the active sort order separately.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={displayStarredFirst}
+                    onChange={(event) => {
+                      setDisplayStarredFirst(event.target.checked);
+                      useImageStore.getState().filterAndSortImages();
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>

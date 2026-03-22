@@ -68,6 +68,7 @@ interface SettingsState {
   sensitiveTags: string[];
   blurSensitiveImages: boolean;
   enableSafeMode: boolean;
+  displayStarredFirst: boolean;
 
   // A1111 Integration settings
   a1111ServerUrl: string;
@@ -99,6 +100,7 @@ interface SettingsState {
   setSensitiveTags: (tags: string[]) => void;
   setBlurSensitiveImages: (value: boolean) => void;
   setEnableSafeMode: (value: boolean) => void;
+  setDisplayStarredFirst: (value: boolean) => void;
   setA1111ServerUrl: (url: string) => void;
   toggleA1111AutoStart: () => void;
   setA1111ConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
@@ -135,6 +137,7 @@ export const useSettingsStore = create<SettingsState>()(
       sensitiveTags: ['nsfw', 'private', 'hidden'],
       blurSensitiveImages: true,
       enableSafeMode: true,
+      displayStarredFirst: false,
 
       // A1111 Integration initial state
       a1111ServerUrl: 'http://127.0.0.1:7860',
@@ -178,6 +181,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
       setBlurSensitiveImages: (value) => set({ blurSensitiveImages: !!value }),
       setEnableSafeMode: (value) => set({ enableSafeMode: !!value }),
+      setDisplayStarredFirst: (value) => set({ displayStarredFirst: !!value }),
       updateKeybinding: (scope, action, keybinding) =>
         set((state) => ({
           keymap: {
@@ -219,6 +223,7 @@ export const useSettingsStore = create<SettingsState>()(
         sensitiveTags: ['nsfw', 'private', 'hidden'],
         blurSensitiveImages: true,
         enableSafeMode: true,
+        displayStarredFirst: false,
         a1111ServerUrl: 'http://127.0.0.1:7860',
         a1111AutoStart: false,
         a1111LastConnectionStatus: 'unknown',
@@ -253,6 +258,10 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.enableSafeMode !== 'boolean') {
           state.enableSafeMode = true;
+        }
+
+        if (state && typeof state.displayStarredFirst !== 'boolean') {
+          state.displayStarredFirst = false;
         }
       },
     }

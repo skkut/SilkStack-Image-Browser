@@ -784,7 +784,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         }
 
         // Step 3: Sensitive tags filter (safe mode)
-        const { sensitiveTags, blurSensitiveImages, enableSafeMode } = useSettingsStore.getState();
+        const { sensitiveTags, blurSensitiveImages, enableSafeMode, displayStarredFirst } = useSettingsStore.getState();
         const normalizedSensitiveTags = (sensitiveTags ?? [])
             .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
             .filter(Boolean);
@@ -988,6 +988,11 @@ export const useImageStore = create<ImageState>((set, get) => {
         };
 
         const sorted = [...results].sort((a, b) => {
+            if (displayStarredFirst) {
+                if (a.isFavorite && !b.isFavorite) return -1;
+                if (!a.isFavorite && b.isFavorite) return 1;
+            }
+
             if (sortOrder === 'asc') return compareByNameAsc(a, b);
             if (sortOrder === 'desc') return compareByNameDesc(a, b);
             if (sortOrder === 'date-asc') return compareByDateAsc(a, b);
