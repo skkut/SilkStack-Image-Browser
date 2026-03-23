@@ -403,7 +403,7 @@ function createWindow(startupDirectory = null) {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
     icon: getIconPath(),
     webPreferences: {
       nodeIntegration: false,
@@ -588,6 +588,7 @@ app.whenReady().then(async () => {
   // Listen for theme changes and notify renderer
   nativeTheme.on("updated", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff');
       mainWindow.webContents.send("theme-updated", {
         shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
       });

@@ -1264,7 +1264,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   return (
     <div
       className={`fixed inset-0 flex items-center justify-center z-50 transition-all duration-300 ${
-        isFullscreen ? "bg-black p-0" : "bg-black/90 backdrop-blur-md p-2"
+        isFullscreen ? "bg-gray-950 p-0" : "bg-gray-950/90 backdrop-blur-md p-2"
       }`}
       onClick={onClose}
     >
@@ -1272,7 +1272,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         className={`${
           isFullscreen
             ? "w-full h-full rounded-none"
-            : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-white/10"
+            : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-gray-50/10"
         } flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
         onClick={(e) => {
           e.stopPropagation();
@@ -1282,7 +1282,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Image Display Section */}
         <div
           id="image-zoom-container"
-          className={`w-full ${isFullscreen ? "h-full" : isSidebarCollapsed ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-black flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden transition-[width] duration-300`}
+          className={`w-full ${isFullscreen ? "h-full" : isSidebarCollapsed ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden transition-[width] duration-300`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
@@ -1325,7 +1325,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {onNavigatePrevious && (
             <button
               onClick={onNavigatePrevious}
-              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               ←
             </button>
@@ -1333,22 +1333,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {onNavigateNext && (
             <button
               onClick={onNavigateNext}
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-black/50 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               →
             </button>
           )}
 
-          <div className="absolute top-4 left-4 bg-black/60 text-white px-3 py-1 rounded-full text-sm font-medium backdrop-blur-sm border border-white/20">
+          <div className="absolute top-4 left-4 bg-gray-950/60 text-gray-50 px-3 py-1 rounded-full text-sm font-medium backdrop-blur-sm border border-gray-50/20">
             {currentIndex + 1} / {totalImages}
           </div>
 
           {!isVideo && (
-            <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-black/60 rounded-lg p-2 backdrop-blur-sm border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={handleZoomIn}
                 disabled={zoom >= 5}
-                className="text-white p-2 hover:bg-white/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 title="Zoom In"
               >
                 <svg
@@ -1365,13 +1365,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   />
                 </svg>
               </button>
-              <div className="text-white text-xs text-center font-mono">
+              <div className="text-gray-50 text-xs text-center font-mono">
                 {Math.round(zoom * 100)}%
               </div>
               <button
                 onClick={handleZoomOut}
                 disabled={zoom <= 1}
-                className="text-white p-2 hover:bg-white/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                 title="Zoom Out"
               >
                 <svg
@@ -1391,7 +1391,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               <button
                 onClick={handleResetZoom}
                 disabled={zoom <= 1}
-                className="text-white p-2 hover:bg-white/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs"
+                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs"
                 title="Reset Zoom"
               >
                 Reset
@@ -1402,14 +1402,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
           <div className="absolute top-4 right-4 flex items-center gap-2">
             <button
               onClick={toggleFullscreen}
-              className="bg-black/60 text-white rounded-full px-3 py-2 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              className="bg-gray-950/60 text-gray-50 rounded-full px-3 py-2 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
             >
               {isFullscreen ? "Exit" : "Fullscreen"}
             </button>
             {!isFullscreen && (
               <button
                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="bg-black/60 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
                 aria-label={
                   isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
                 }
@@ -1426,7 +1426,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             )}
             <button
               onClick={onClose}
-              className="bg-black/60 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
               aria-label="Close image"
               title="Close (Esc)"
             >
@@ -1446,19 +1446,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   type="text"
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  className="bg-gray-900 text-white border border-gray-600 rounded-lg px-2 py-1 w-full"
+                  className="bg-gray-900 text-gray-50 border border-gray-600 rounded-lg px-2 py-1 w-full"
                   autoFocus
                   onKeyDown={(e) => e.key === "Enter" && confirmRename()}
                 />
                 <button
                   onClick={confirmRename}
-                  className="bg-green-600 text-white px-3 py-1 rounded-lg"
+                  className="bg-green-600 text-gray-50 px-3 py-1 rounded-lg"
                 >
                   Save
                 </button>
                 <button
                   onClick={() => setIsRenaming(false)}
-                  className="bg-gray-600 text-white px-3 py-1 rounded-lg"
+                  className="bg-gray-600 text-gray-50 px-3 py-1 rounded-lg"
                 >
                   Cancel
                 </button>
@@ -1720,7 +1720,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               <div>
                 <button
                   onClick={() => setShowDetails(!showDetails)}
-                  className="text-gray-600 dark:text-gray-300 text-sm w-full text-left py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between hover:text-gray-900 dark:hover:text-white transition-colors"
+                  className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-white transition-colors"
                 >
                   <span className="font-semibold">Generation Details</span>
                   {showDetails ? (
@@ -1864,12 +1864,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 <div>
                   <button
                     onClick={() => setShowPerformance(!showPerformance)}
-                    className="text-gray-600 dark:text-gray-300 text-sm w-full text-left py-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between hover:text-gray-900 dark:hover:text-white transition-colors"
+                    className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-white transition-colors"
                   >
                     <span className="font-semibold flex items-center gap-2">
                       <Zap
                         size={16}
-                        className="text-yellow-600 dark:text-yellow-400"
+                        className="text-yellow-400"
                       />
                       Performance
                     </span>
@@ -1930,7 +1930,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       {/* Tier 3: NICE-TO-HAVE (small text) */}
                       {(nMeta._analytics.torch_version ||
                         nMeta._analytics.python_version) && (
-                        <div className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700/50 pt-2 space-y-1">
+                        <div className="text-xs text-gray-400 border-t border-gray-700/50 pt-2 space-y-1">
                           {nMeta._analytics.torch_version && (
                             <div>PyTorch: {nMeta._analytics.torch_version}</div>
                           )}
@@ -1953,7 +1953,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           <div className="grid grid-cols-2 gap-2 pt-2">
             <button
               onClick={() => copyToClipboard(nMeta?.prompt || "", "Prompt")}
-              className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
+              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
             >
               Copy Prompt
             </button>
@@ -1964,7 +1964,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   "Raw Metadata",
                 )
               }
-              className="w-full justify-center bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
+              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
             >
               Copy Raw Metadata
             </button>
@@ -1978,7 +1978,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 }
                 await showInExplorer(`${directoryPath}/${image.name}`);
               }}
-              className="w-full justify-center bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-white/10 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2"
+              className="w-full justify-center bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2"
             >
               Show in Folder
             </button>
@@ -1994,7 +1994,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 }
               }}
               disabled={canUseComparison && comparisonCount >= 2}
-              className="w-full justify-center bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/10 dark:hover:bg-purple-500/20 disabled:bg-gray-100 dark:disabled:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
+              className="w-full justify-center bg-purple-500/10 hover:bg-purple-500/20 disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-purple-300 border border-purple-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
               title={
                 !canUseComparison
                   ? "Comparison (Pro Feature)"

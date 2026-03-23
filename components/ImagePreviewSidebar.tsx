@@ -119,9 +119,9 @@ const MetadataItem: FC<{ label: string; value?: string | number | any[]; isPromp
   const displayValue = Array.isArray(value) ? value.join(', ') : String(value);
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-md border border-gray-200 dark:border-gray-700/50 relative group">
+    <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50 relative group">
       <div className="flex justify-between items-start">
-        <p className="font-semibold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">{label}</p>
+        <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider">{label}</p>
         {onCopy && (
             <button onClick={() => onCopy(displayValue)} className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-50" title={`Copy ${label}`}>
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 3a1 1 0 011-1h6a1 1 0 110 2H8a1 1 0 01-1-1zM5 5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2H5z"></path></svg>
@@ -129,9 +129,9 @@ const MetadataItem: FC<{ label: string; value?: string | number | any[]; isPromp
         )}
       </div>
       {isPrompt ? (
-        <pre className="text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">{displayValue}</pre>
+        <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">{displayValue}</pre>
       ) : (
-        <p className="text-gray-700 dark:text-gray-200 break-words font-mono text-sm mt-1">{displayValue}</p>
+        <p className="text-gray-200 break-words font-mono text-sm mt-1">{displayValue}</p>
       )}
     </div>
   );
@@ -314,10 +314,10 @@ const ImagePreviewSidebar: React.FC = () => {
     : [];
 
   return (
-    <div data-area="preview" tabIndex={-1} className="fixed right-0 top-0 h-full w-96 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 z-40 flex flex-col shadow-xl">
+    <div data-area="preview" tabIndex={-1} className="fixed right-0 top-0 h-full w-96 bg-gray-950 border-l border-gray-700 z-40 flex flex-col shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Image Preview</h2>
+      <div className="flex items-center justify-between p-4 border-b border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-200">Image Preview</h2>
         <button
           onClick={() => setPreviewImage(null)}
           className="text-gray-400 hover:text-gray-50 transition-colors"
@@ -330,7 +330,7 @@ const ImagePreviewSidebar: React.FC = () => {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto scrollbar-adaptive p-4 space-y-4">
         {/* Image */}
-        <div className="bg-black flex items-center justify-center rounded-lg">
+        <div className="bg-gray-950 flex items-center justify-center rounded-lg">
           {imageUrl ? (
             isVideo ? (
               <video
@@ -350,12 +350,12 @@ const ImagePreviewSidebar: React.FC = () => {
 
         {/* Metadata */}
         <div>
-          <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 break-all mb-1">{activeImage.name}</h2>
+          <h2 className="text-lg font-bold text-gray-100 break-all mb-1">{activeImage.name}</h2>
           <p className="text-xs text-blue-400 font-mono break-all">{new Date(activeImage.lastModified).toLocaleString()}</p>
         </div>
 
         {/* Annotations Section */}
-        <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700/50 space-y-2">
+        <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 space-y-2">
           {/* Favorite and Tags Row */}
           <div className="flex items-start gap-3">
             {/* Favorite Star - Discrete */}
@@ -412,7 +412,7 @@ const ImagePreviewSidebar: React.FC = () => {
                   }}
                   onFocus={() => tagInput && setShowTagAutocomplete(true)}
                   onBlur={() => setTimeout(() => setShowTagAutocomplete(false), 200)}
-                  className="w-full bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-200 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-400 dark:placeholder-gray-500"
+                  className="w-full bg-gray-700/50 text-gray-200 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
                 />
 
                 {/* Autocomplete Dropdown */}
@@ -443,7 +443,7 @@ const ImagePreviewSidebar: React.FC = () => {
                     <button
                       key={tag}
                       onClick={() => addTagToImage(activeImage.id, tag)}
-                      className="text-xs bg-gray-200 dark:bg-gray-700/30 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded hover:bg-gray-300 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-200"
+                      className="text-xs bg-gray-700/30 text-gray-400 px-1.5 py-0.5 rounded hover:bg-gray-600 hover:text-gray-200"
                     >
                       {tag}
                     </button>
@@ -483,7 +483,7 @@ const ImagePreviewSidebar: React.FC = () => {
 
         {nMeta ? (
           <>
-            <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-600 pb-2">Metadata</h3>
+            <h3 className="text-base font-semibold text-gray-300 border-b border-gray-600 pb-2">Metadata</h3>
             <div className="space-y-3">
               <MetadataItem label="Format" value={nMeta.format} onCopy={(v) => copyToClipboard(v, "Format")} />
               <MetadataItem label="Prompt" value={nMeta.prompt} isPrompt onCopy={(v) => copyToClipboard(v, "Prompt")} />
@@ -530,7 +530,7 @@ const ImagePreviewSidebar: React.FC = () => {
 
             {nMeta.loras && nMeta.loras.length > 0 && (
                <>
-                  <h3 className="text-base font-semibold text-gray-700 dark:text-gray-300 pt-2 border-b border-gray-200 dark:border-gray-600 pb-2">LoRAs</h3>
+                  <h3 className="text-base font-semibold text-gray-300 pt-2 border-b border-gray-600 pb-2">LoRAs</h3>
                   <MetadataItem label="LoRAs" value={nMeta.loras.map(formatLoRA).join(', ')} />
                </>
             )}
