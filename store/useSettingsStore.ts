@@ -56,7 +56,6 @@ interface SettingsState {
   cachePath: string | null;
 
   viewMode: 'grid' | 'list';
-  theme: 'light' | 'dark' | 'system' | 'dracula' | 'nord' | 'ocean';
   keymap: Keymap;
   lastViewedVersion: string | null;
   indexingConcurrency: number;
@@ -87,7 +86,6 @@ interface SettingsState {
   setCachePath: (path: string) => void;
 
   toggleViewMode: () => void;
-  setTheme: (theme: 'light' | 'dark' | 'system' | 'dracula' | 'nord' | 'ocean') => void;
   updateKeybinding: (scope: string, action: string, keybinding: string) => void;
   resetKeymap: () => void;
   setLastViewedVersion: (version: string) => void;
@@ -125,7 +123,6 @@ export const useSettingsStore = create<SettingsState>()(
       cachePath: null, // Default cache path, null means use app data dir
 
       viewMode: 'grid',
-      theme: 'system', // Default to system theme
       keymap: getDefaultKeymap(),
       lastViewedVersion: null,
       indexingConcurrency: defaultIndexingConcurrency,
@@ -160,7 +157,6 @@ export const useSettingsStore = create<SettingsState>()(
       setCachePath: (path) => set({ cachePath: path }),
 
       toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === 'grid' ? 'list' : 'grid' })),
-      setTheme: (theme) => set({ theme }),
       setLastViewedVersion: (version) => set({ lastViewedVersion: version }),
       setIndexingConcurrency: (value) =>
         set({
@@ -211,7 +207,6 @@ export const useSettingsStore = create<SettingsState>()(
         cachePath: null,
 
         viewMode: 'grid',
-        theme: 'system',
         keymap: getDefaultKeymap(),
         lastViewedVersion: null,
         indexingConcurrency: defaultIndexingConcurrency,

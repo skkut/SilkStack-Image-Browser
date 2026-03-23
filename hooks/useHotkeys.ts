@@ -37,8 +37,7 @@ export const useHotkeys = ({
 
   const { handleDeleteSelectedImages } = useImageSelection();
   const { handleSelectFolder, handleLoadFromStorage } = useImageLoader();
-  const { toggleViewMode, theme, setTheme, keymap } = useSettingsStore();
-
+  const { toggleViewMode, keymap } = useSettingsStore();
   const focusArea = (area: 'sidebar' | 'grid' | 'preview') => {
     const element = document.querySelector<HTMLElement>(`[data-area='${area}']`);
     if (element) {
@@ -166,10 +165,6 @@ export const useHotkeys = ({
   ]);
 
   const commands = useMemo(() => [
-    { id: 'toggle-theme', name: 'Toggle Theme', description: 'Switch between light and dark mode', action: () => {
-      const newTheme = theme === 'dark' ? 'light' : 'dark';
-      setTheme(newTheme);
-    }},
     { id: 'add-folder', name: 'Add Folder', description: 'Open a new folder', hotkey: 'Ctrl+O', action: handleSelectFolder },
     { id: 'toggle-view', name: 'Toggle List/Grid View', description: 'Switch between list and grid view', hotkey: 'Ctrl+L', action: toggleViewMode },
     ...directories.map(dir => ({
@@ -180,7 +175,7 @@ export const useHotkeys = ({
         useImageStore.getState().toggleDirectoryVisibility(dir.id);
       }
     }))
-  ], [directories, handleSelectFolder, toggleViewMode, theme, setTheme]);
+  ], [directories, handleSelectFolder, toggleViewMode]);
 
   return { commands, registeredHotkeys: hotkeyManager.getRegisteredHotkeys() };
 };

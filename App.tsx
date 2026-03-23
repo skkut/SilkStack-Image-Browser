@@ -126,7 +126,6 @@ export default function App() {
     setItemsPerPage,
     viewMode,
     toggleViewMode,
-    theme,
     setLastViewedVersion,
     globalAutoWatch,
   } = useSettingsStore();
@@ -135,7 +134,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'themes'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys'>('general');
   const [settingsSection, setSettingsSection] = useState<'license' | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -172,7 +171,7 @@ export default function App() {
     startTrial,
   } = useFeatureAccess();
 
-  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'themes' = 'general', section: 'license' | null = null) => {
+  const handleOpenSettings = (tab: 'general' | 'hotkeys' = 'general', section: 'license' | null = null) => {
     setSettingsTab(tab);
     setSettingsSection(section);
     setIsSettingsModalOpen(true);
@@ -227,36 +226,23 @@ export default function App() {
 
   // --- Effects ---
   useEffect(() => {
-    const applyTheme = (themeValue: string, systemShouldUseDark: boolean) => {
-      // Determine if we should be in "dark mode" for Tailwind utilities
-      const isDark =
-        themeValue === 'dark' ||
-        themeValue === 'dracula' ||
-        themeValue === 'nord' ||
-        themeValue === 'ocean' ||
-        (themeValue === 'system' && systemShouldUseDark);
-
-      if (isDark) {
+    const applyTheme = (systemShouldUseDark: boolean) => {
+      if (systemShouldUseDark) {
         document.documentElement.classList.add('dark');
+        document.documentElement.setAttribute('data-theme', 'dark');
       } else {
         document.documentElement.classList.remove('dark');
-      }
-
-      // Apply the data-theme attribute for CSS variables
-      if (themeValue === 'system') {
-        document.documentElement.setAttribute('data-theme', systemShouldUseDark ? 'dark' : 'light');
-      } else {
-        document.documentElement.setAttribute('data-theme', themeValue);
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     };
 
     if (window.electronAPI) {
       window.electronAPI.getTheme().then(({ shouldUseDarkColors }) => {
-        applyTheme(theme, shouldUseDarkColors);
+        applyTheme(shouldUseDarkColors);
       });
 
       const unsubscribe = window.electronAPI.onThemeUpdated(({ shouldUseDarkColors }) => {
-        applyTheme(theme, shouldUseDarkColors);
+        applyTheme(shouldUseDarkColors);
       });
 
       return () => {
@@ -264,9 +250,9 @@ export default function App() {
       };
     } else {
       // Fallback for browser
-      applyTheme(theme, window.matchMedia('(prefers-color-scheme: dark)').matches);
+      applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
     }
-  }, [theme]);
+  }, []);
 
   // Initialize the cache manager on startup
   useEffect(() => {
