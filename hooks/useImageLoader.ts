@@ -613,7 +613,6 @@ export function useImageLoader() {
         console.warn(
           `⚠️ No images found for directory ${directory.name}, skipping cache save`,
         );
-        setSuccess(`Loaded 0 images from ${directory.name}.`);
         if (!suppressIndexingState) {
           setLoading(false);
         } else {
@@ -635,9 +634,6 @@ export function useImageLoader() {
       }
 
       scheduleGlobalFilterRefresh(true);
-      setSuccess(
-        `Loaded ${finalDirectoryImages.length} images from ${directory.name}.`,
-      );
       if (!suppressIndexingState) {
         setLoading(false);
         setIndexingState("completed");
