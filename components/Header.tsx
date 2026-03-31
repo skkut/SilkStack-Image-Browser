@@ -3,6 +3,7 @@ import { Settings, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLef
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
+import SearchBar from './SearchBar';
 
 interface HeaderProps {
     onOpenSettings: () => void;
@@ -42,6 +43,7 @@ const Header: React.FC<HeaderProps> = ({
   const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
   const viewingStackPrompt = useImageStore((state) => state.viewingStackPrompt);
   const setViewingStackPrompt = useImageStore((state) => state.setViewingStackPrompt);
+  const searchQuery = useImageStore((state) => state.searchQuery);
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
 
   // Store hooks for Smart Library Actions
@@ -152,6 +154,16 @@ const Header: React.FC<HeaderProps> = ({
         {/* Right Side - Actions */}
         <div className="flex items-center gap-3 flex-1 justify-end">
             
+                   {/* Search Bar - Visible in Library views */}
+                   {libraryView && (
+                     <div className="flex items-center mr-2">
+                       <SearchBar
+                         value={searchQuery}
+                         onChange={setSearchQuery}
+                       />
+                     </div>
+                   )}
+
                    {/* Stacking Toggle - Only relevant for Library view */}
                    {libraryView === 'library' && (
                      <>

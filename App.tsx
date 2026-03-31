@@ -678,8 +678,6 @@ export default function App() {
         <Sidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
           availableModels={availableModels}
           availableLoras={availableLoras}
           availableSchedulers={availableSchedulers}

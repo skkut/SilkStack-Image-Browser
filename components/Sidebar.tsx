@@ -7,8 +7,6 @@ import { ChevronLeft, X, ChevronDown, Plus, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
-  searchQuery: string;
-  onSearchChange: (query: string) => void;
   availableModels: string[];
   availableLoras: string[];
   availableSchedulers: string[];
@@ -38,8 +36,6 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
-  searchQuery,
-  onSearchChange,
   availableModels,
   availableLoras,
   availableSchedulers,
@@ -210,14 +206,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             <ChevronLeft className="w-4 h-4" />
             </button>
         </div>
-      </div>
-
-      {/* Search Bar */}
-      <div className="p-4 border-b border-gray-700">
-        <SearchBar
-          value={searchQuery}
-          onChange={onSearchChange}
-        />
       </div>
 
       {/* Scrollable Content - includes DirectoryList AND Filters */}
