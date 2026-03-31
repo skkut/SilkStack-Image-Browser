@@ -19,10 +19,6 @@ type Tab = 'general' | 'hotkeys' | 'privacy';
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab = 'general' }) => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
-  const cachePath = useSettingsStore((state) => state.cachePath);
-
-  const setCachePath = useSettingsStore((state) => state.setCachePath);
-
   const indexingConcurrency = useSettingsStore((state) => state.indexingConcurrency);
   const setIndexingConcurrency = useSettingsStore((state) => state.setIndexingConcurrency);
   const showFilenames = useSettingsStore((state) => state.showFilenames);
@@ -42,8 +38,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
 
 
 
-  const [currentCachePath, setCurrentCachePath] = useState('');
-  const [defaultCachePath, setDefaultCachePath] = useState('');
 
   const hardwareConcurrency = typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number'
     ? navigator.hardwareConcurrency
@@ -51,45 +45,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const maxConcurrency = hardwareConcurrency ? Math.max(1, Math.min(16, Math.floor(hardwareConcurrency))) : 16;
 
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
+  const [cacheFolderPath, setCacheFolderPath] = useState('');
 
   useEffect(() => {
     if (isOpen) {
-      // Fetch the default path when the modal opens
       window.electronAPI?.getDefaultCachePath().then(result => {
-        if (result.success && result.path) {
-          setDefaultCachePath(result.path);
-          setCurrentCachePath(cachePath || result.path);
+        if (result?.success && result.path) {
+          // getDefaultCachePath returns the ImageMetaHubCache subfolder;
+          // strip one level to show the actual userData directory
+          const parts = result.path.replace(/[\\/]+$/, '').split(/[\\/]/);
+          parts.pop();
+          setCacheFolderPath(parts.join('\\'));
         }
-      }).catch(error => {
-        console.error('Failed to get default cache path:', error);
-      });
+      }).catch(() => {/* silently ignore */});
     }
-  }, [isOpen, cachePath]);
+  }, [isOpen]);
 
   useEffect(() => {
     setSensitiveTagsInput((sensitiveTags ?? []).join(', '));
   }, [sensitiveTags]);
-
-
-
-  const handleSelectCacheDirectory = async () => {
-    const result = await window.electronAPI?.showDirectoryDialog();
-    if (result && result.success && result.path) {
-      setCachePath(result.path);
-      setCurrentCachePath(result.path);
-    }
-  };
-
-  const handleResetCacheDirectory = () => {
-    setCachePath(defaultCachePath);
-    setCurrentCachePath(defaultCachePath);
-  };
-
-  const handleOpenCacheLocation = async () => {
-    if (currentCachePath) {
-      await window.electronAPI?.openCacheLocation(currentCachePath);
-    }
-  };
 
 
 
@@ -172,40 +146,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
 
         {activeTab === 'general' && (
           <div className="space-y-6">
-            {/* Cache Location Setting */}
-            <div>
-              <h3 className="text-lg font-semibold mb-2">Cache Location</h3>
-            <p className="text-sm text-gray-400 mb-2">
-              The directory where the image index cache is stored.
-            </p>
-            <div className="bg-gray-900 p-2 rounded-md text-sm truncate">
-              {currentCachePath || 'Loading...'}
-            </div>
-            <div className="flex items-center space-x-2 mt-2">
-              <button
-                onClick={handleSelectCacheDirectory}
-                className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Change Location
-              </button>
-              <button
-                onClick={handleOpenCacheLocation}
-                className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Open Location
-              </button>
-              <button
-                onClick={handleResetCacheDirectory}
-                disabled={currentCachePath === defaultCachePath}
-                className="bg-gray-600 hover:bg-gray-700 px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50"
-              >
-                Reset to Default
-              </button>
-            </div>
-             <p className="text-xs text-gray-500 mt-2">
-              Default: {defaultCachePath}
-            </p>
-          </div>
+
 
 
 
@@ -354,6 +295,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             <p className="text-xs text-gray-500 mt-2">
               This will delete indexed metadata but keep your image files intact.
             </p>
+            {cacheFolderPath && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-500 mb-1">Cache folder location:</p>
+                <div
+                  className="bg-gray-900 px-3 py-2 rounded-md text-xs text-gray-400 font-mono break-all select-all cursor-text border border-gray-700"
+                  title="Click to select all, then copy"
+                >
+                  {cacheFolderPath}
+                </div>
+              </div>
+            )}
           </div>
 
           </div>

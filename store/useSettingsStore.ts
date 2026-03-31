@@ -52,7 +52,6 @@ interface SettingsState {
   sortOrder: 'asc' | 'desc';
   scanSubfolders: boolean;
   imageSize: number;
-  cachePath: string | null;
 
   viewMode: 'grid' | 'list';
   keymap: Keymap;
@@ -81,7 +80,6 @@ interface SettingsState {
   setSortOrder: (order: 'asc' | 'desc') => void;
   toggleScanSubfolders: () => void;
   setImageSize: (size: number) => void;
-  setCachePath: (path: string) => void;
 
   toggleViewMode: () => void;
   updateKeybinding: (scope: string, action: string, keybinding: string) => void;
@@ -117,8 +115,7 @@ export const useSettingsStore = create<SettingsState>()(
       sortOrder: 'desc',
       scanSubfolders: true,
       imageSize: 320, // Default to maximum zoom
-      cachePath: null, // Default cache path, null means use app data dir
-
+    
       viewMode: 'grid',
       keymap: getDefaultKeymap(),
       lastViewedVersion: null,
@@ -146,8 +143,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSortOrder: (order) => set({ sortOrder: order }),
       toggleScanSubfolders: () => set((state) => ({ scanSubfolders: !state.scanSubfolders })),
       setImageSize: (size) => set({ imageSize: size }),
-      setCachePath: (path) => set({ cachePath: path }),
-
+    
       toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === 'grid' ? 'list' : 'grid' })),
       setLastViewedVersion: (version) => set({ lastViewedVersion: version }),
       setIndexingConcurrency: (value) =>
@@ -195,8 +191,7 @@ export const useSettingsStore = create<SettingsState>()(
         sortOrder: 'desc',
         scanSubfolders: true,
         imageSize: 320,
-        cachePath: null,
-
+      
         viewMode: 'grid',
         keymap: getDefaultKeymap(),
         lastViewedVersion: null,

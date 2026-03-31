@@ -254,10 +254,6 @@ export default function App() {
     const initializeCache = async () => {
       // Zustand persistence can be async, wait for it to rehydrate
       await useSettingsStore.persist.rehydrate();
-      let path = useSettingsStore.getState().cachePath;
-      if (!path && window.electronAPI) {
-        path = undefined;
-      }
       await cacheManager.init();
 
       // Validate cached images have valid file handles (for hot reload scenarios in browser)
