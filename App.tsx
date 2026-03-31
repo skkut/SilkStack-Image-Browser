@@ -732,7 +732,18 @@ export default function App() {
           onOpenLicense={handleOpenLicenseSettings}
           libraryView={libraryView}
           onLibraryViewChange={setLibraryView}
-        />
+        >
+          {hasDirectories && (
+            <GridToolbar
+              selectedImages={safeSelectedImages}
+              images={paginatedImages}
+              directories={safeDirectories}
+              onDeleteSelected={handleDeleteSelectedImages}
+              onBatchExport={handleOpenBatchExport}
+              onClearSelection={clearSelection}
+            />
+          )}
+        </Header>
 
         <main className="mx-auto pl-2 pr-4 py-0 flex-1 flex flex-col min-h-0 w-full">
           {error && (
@@ -782,15 +793,6 @@ export default function App() {
 
           {hasDirectories && (
             <>
-                <GridToolbar
-                  selectedImages={safeSelectedImages}
-                  images={paginatedImages}
-                  directories={safeDirectories}
-                  onDeleteSelected={handleDeleteSelectedImages}
-                  onBatchExport={handleOpenBatchExport}
-                  onClearSelection={clearSelection}
-                />
-
               <div className="flex-1 min-h-0">
                 {libraryView === 'library' ? (
                   viewMode === 'grid' ? (

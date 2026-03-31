@@ -11,6 +11,7 @@ interface HeaderProps {
     onOpenComfyUIGenerate?: () => void;
     libraryView?: 'library' | 'smart' | 'model';
     onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
+    children?: React.ReactNode;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
@@ -19,7 +20,8 @@ const Header: React.FC<HeaderProps> = ({
     onOpenA1111Generate, 
     onOpenComfyUIGenerate,
     libraryView,
-    onLibraryViewChange
+    onLibraryViewChange,
+    children
 }) => {
   const {
     canUseA1111,
@@ -103,8 +105,8 @@ const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center justify-between gap-4 w-full">
         
         {/* Left Side - Status Indicator - REMOVED */}
-        <div className="flex items-center gap-4 flex-1 justify-start">
-            {/* License button removed */}
+        <div className="flex items-center gap-4 flex-1 justify-start overflow-hidden">
+            {children}
         </div>
 
         {/* Center Side - View Controls (Only visible if libraryView is provided) */}
