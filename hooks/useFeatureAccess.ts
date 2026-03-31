@@ -5,7 +5,6 @@ import { useLicenseStore, TRIAL_DURATION_DAYS } from "../store/useLicenseStore";
 export type ProFeature =
   | "a1111"
   | "comfyui"
-  | "comparison"
   | "clustering"
   | "batch_export";
 
@@ -73,7 +72,6 @@ export const useFeatureAccess = () => {
   // Feature flags (all Pro features have same access requirements)
   const canUseA1111 = true;
   const canUseComfyUI = true;
-  const canUseComparison = true;
   const canUseBatchExport = true;
 
   // Trial countdown
@@ -103,7 +101,6 @@ export const useFeatureAccess = () => {
     // Feature flags
     canUseA1111,
     canUseComfyUI,
-    canUseComparison,
     canUseBatchExport,
 
     // Clustering limits

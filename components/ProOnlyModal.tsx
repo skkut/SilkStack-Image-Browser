@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Crown, Sparkles, GitCompare, CheckCircle2, Download } from 'lucide-react';
+import { X, Crown, Sparkles, CheckCircle2, Download } from 'lucide-react';
 import { ProFeature } from '../hooks/useFeatureAccess';
 import { TRIAL_DURATION_DAYS } from '../store/useLicenseStore';
 
@@ -36,17 +36,6 @@ const featureInfo = {
       'Real-time WebSocket progress tracking',
       'Workflow copy for manual editing',
       'Automatic metadata-rich saves',
-    ],
-  },
-  comparison: {
-    name: 'Image Comparison',
-    icon: GitCompare,
-    description: 'Side-by-side comparison of images with metadata diff',
-    benefits: [
-      'Compare two images side-by-side',
-      'Synchronized zoom and pan',
-      'Metadata differences highlighted',
-      'Quick image swapping',
     ],
   },
   clustering: {

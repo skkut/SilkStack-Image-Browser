@@ -11,7 +11,6 @@ import {
   Folder,
   Download,
   Clipboard,
-  GitCompare,
   Star,
   X,
   Zap,
@@ -26,7 +25,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import { useImageComparison } from "../hooks/useImageComparison";
 import { useFeatureAccess } from "../hooks/useFeatureAccess";
 import ProBadge from "./ProBadge";
 import hotkeyManager from "../services/hotkeyManager";
@@ -693,12 +691,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Image comparison hook
-  const { addImage, comparisonCount } = useImageComparison();
 
   // Feature access (license/trial gating)
   const {
-    canUseComparison,
+
     showProModal,
     initialized,
   } = useFeatureAccess();
@@ -1982,34 +1978,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             >
               Show in Folder
             </button>
-            <button
-              onClick={() => {
-                if (!canUseComparison) {
-                  showProModal("comparison");
-                  return;
-                }
-                const added = addImage(image);
-                if (added && comparisonCount === 1) {
-                  onClose(); // Close ImageModal, ComparisonModal will auto-open
-                }
-              }}
-              disabled={canUseComparison && comparisonCount >= 2}
-              className="w-full justify-center bg-purple-500/10 hover:bg-purple-500/20 disabled:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed text-purple-300 border border-purple-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5"
-              title={
-                !canUseComparison
-                  ? "Comparison (Pro Feature)"
-                  : comparisonCount >= 2
-                    ? "Comparison queue full"
-                    : "Add to comparison"
-              }
-            >
-              <GitCompare className="w-3 h-3" />
-              Add to Compare{" "}
-              {canUseComparison &&
-                comparisonCount > 0 &&
-                `(${comparisonCount}/2)`}
-              {!canUseComparison && initialized && <ProBadge size="sm" />}
-            </button>
+
           </div>
 
           <div>

@@ -7,7 +7,7 @@ import { type IndexedImage, type BaseMetadata, ImageStack } from '../types';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useContextMenu } from '../hooks/useContextMenu';
-import { Info, Copy, Folder, Download, Clipboard, Sparkles, GitCompare, Star, Square,  AlertCircle,
+import { Info, Copy, Folder, Download, Clipboard, Sparkles, Star, Square,  AlertCircle,
   Archive,
   Check,
   CheckSquare,
@@ -53,7 +53,7 @@ interface ImageCardProps {
   onImageLoad: (id: string, aspectRatio: number) => void;
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
   baseWidth: number;
-  isComparisonFirst?: boolean;
+
   registerCardRef?: (id: string, el: HTMLDivElement | null) => void;
   isMarkedBest?: boolean;       // For deduplication: marked as best to keep
   isMarkedArchived?: boolean;   // For deduplication: marked for archive
@@ -104,7 +104,7 @@ const releaseCachedFallbackUrl = (id: string) => {
   }
 };
 
-const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, isComparisonFirst, registerCardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
+const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     // Determine initial state safely before thumbnail hook runs
     const state = useSettingsStore.getState();
@@ -363,11 +363,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           </div>
         )}
 
-        {isComparisonFirst && (
-          <div className="absolute top-2 left-11 z-20 px-2 py-1 bg-purple-600 rounded-lg text-white text-xs font-bold shadow-lg">
-            Compare #1
-          </div>
-        )}
+
         <button
           onClick={handlePreviewClick}
           className="absolute top-11 left-2 z-10 p-1.5 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:opacity-100"
@@ -530,7 +526,7 @@ interface ImageGridRowData {
   focusedItemId: string | null;
   markedBestIds?: Set<string>;
   markedArchivedIds?: Set<string>;
-  comparisonFirstImage?: IndexedImage | null;
+
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   handleStackClick: (stack: ImageStack) => void;
   handleImageLoad: (id: string, aspectRatio: number) => void;
@@ -540,7 +536,7 @@ interface ImageGridRowData {
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
-  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, markedBestIds, markedArchivedIds, comparisonFirstImage, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, markedBestIds, markedArchivedIds, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
   const row = rows[index];
   if (!row) return null;
   
@@ -573,7 +569,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                                   onImageLoad={handleImageLoad}
                                   onContextMenu={handleContextMenu}
                                   baseWidth={itemWidth}
-                                  isComparisonFirst={false}
+
                                   registerCardRef={registerCardRef}
                                   isMarkedBest={markedBestIds?.has(item.coverImage.id)}
                                   isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
@@ -597,7 +593,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                           onImageLoad={handleImageLoad}
                           onContextMenu={handleContextMenu}
                           baseWidth={itemWidth}
-                          isComparisonFirst={comparisonFirstImage?.id === image.id}
+
                           registerCardRef={registerCardRef}
                           isMarkedBest={markedBestIds?.has(image.id)}
                           isMarkedArchived={markedArchivedIds?.has(image.id)}
@@ -804,9 +800,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     useImageStore.getState().clearAllThumbnails();
   }, [scrollKey]);
 
-  const [comparisonFirstImage, setComparisonFirstImage] = useState<IndexedImage | null>(null);
-  const setComparisonImages = useImageStore((state) => state.setComparisonImages);
-  const openComparisonModal = useImageStore((state) => state.openComparisonModal);
+
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
 
   // Drag-to-select states
@@ -814,7 +808,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
   const [initialSelectedImages, setInitialSelectedImages] = useState<Set<string>>(new Set());
-  const { canUseComparison, showProModal, canUseA1111, canUseComfyUI, canUseBatchExport, initialized, canUseDuringTrialOrPro } = useFeatureAccess();
+  const { canUseA1111, canUseComfyUI, canUseBatchExport, initialized, canUseDuringTrialOrPro } = useFeatureAccess();
   const selectedCount = selectedImages.size;
   const sensitiveTagSet = useMemo(() => {
     return new Set(
@@ -839,36 +833,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     copyRawMetadata
   } = useContextMenu();
 
-  const selectForComparison = useCallback(() => {
-    if (!contextMenu.image) return;
-    if (!canUseComparison) {
-      showProModal('comparison');
-      hideContextMenu();
-      return;
-    }
-
-    if (!comparisonFirstImage) {
-      // First image selected
-      setComparisonFirstImage(contextMenu.image);
-      // Show notification
-      const notification = document.createElement('div');
-      notification.className = 'fixed top-4 right-4 bg-purple-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
-      notification.textContent = 'Image 1 selected. Right-click another image to compare.';
-      document.body.appendChild(notification);
-      setTimeout(() => {
-        if (document.body.contains(notification)) {
-          document.body.removeChild(notification);
-        }
-      }, 3000);
-    } else {
-      // Second image selected - start comparison
-      setComparisonImages([comparisonFirstImage, contextMenu.image]);
-      openComparisonModal();
-      setComparisonFirstImage(null);
-    }
-
-    hideContextMenu();
-  }, [contextMenu.image, comparisonFirstImage, setComparisonImages, openComparisonModal, hideContextMenu, canUseComparison, showProModal]);
 
   const handleBatchExport = useCallback(() => {
     hideContextMenu();
@@ -1319,19 +1283,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
             Copy Model
           </button>
 
-          <div className="border-t border-gray-600 my-1"></div>
-
-          <button
-            onClick={selectForComparison}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            title={!canUseComparison && initialized ? 'Pro feature - start trial' : undefined}
-          >
-            <GitCompare className="w-4 h-4" />
-            <span className="flex-1">
-              {comparisonFirstImage ? 'Compare with this' : 'Select for Comparison'}
-            </span>
-            {!canUseDuringTrialOrPro && <ProBadge size="sm" />}
-          </button>
 
           <div className="border-t border-gray-600 my-1"></div>
 
@@ -1474,7 +1425,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     focusedItemId,
     markedBestIds,
     markedArchivedIds,
-    comparisonFirstImage,
+
     onImageClick,
     handleStackClick,
     handleImageLoad,
@@ -1490,7 +1441,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     focusedItemId,
     markedBestIds,
     markedArchivedIds,
-    comparisonFirstImage,
+
     onImageClick,
     handleStackClick,
     handleImageLoad,

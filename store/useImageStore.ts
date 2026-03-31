@@ -185,9 +185,7 @@ interface ImageState {
   viewingStackPrompt: string | null;  // For Back to Stacks navigation
   isFullscreenMode: boolean;
 
-  // Comparison State
-  comparisonImages: [IndexedImage | null, IndexedImage | null];
-  isComparisonModalOpen: boolean;
+
 
   // Filter & Sort State
   searchQuery: string;
@@ -315,14 +313,7 @@ interface ImageState {
   setAutoTaggingProgress: (progress: { current: number; total: number; message: string } | null) => void;
   restoreSmartLibraryCache: (directoryPath: string, scanSubfolders: boolean) => Promise<void>;
 
-  // Comparison Actions
-  setComparisonImages: (images: [IndexedImage | null, IndexedImage | null]) => void;
-  addImageToComparison: (image: IndexedImage) => void;
-  removeImageFromComparison: (index: 0 | 1) => void;
-  swapComparisonImages: () => void;
-  clearComparison: () => void;
-  openComparisonModal: () => void;
-  closeComparisonModal: () => void;
+
 
   // Annotations Actions
   loadAnnotations: () => Promise<void>;
@@ -1071,8 +1062,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         scanSubfolders: localStorage.getItem('image-metahub-scan-subfolders') !== 'false', // Default to true
         viewingStackPrompt: null,
         isFullscreenMode: false,
-        comparisonImages: [null, null],
-        isComparisonModalOpen: false,
+
 
         // Annotations initial values
         annotations: new Map(),
@@ -1977,40 +1967,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
         },
 
-        // Comparison Actions
-        setComparisonImages: (images) => set({ comparisonImages: images }),
 
-        addImageToComparison: (image) => set(state => {
-            const newImages: [IndexedImage | null, IndexedImage | null] = [...state.comparisonImages];
-
-            // Find first empty slot
-            const emptyIndex = newImages.findIndex(img => img === null);
-            if (emptyIndex !== -1) {
-                newImages[emptyIndex] = image;
-            }
-
-            return { comparisonImages: newImages };
-        }),
-
-        removeImageFromComparison: (index) => set(state => {
-            const newImages: [IndexedImage | null, IndexedImage | null] = [...state.comparisonImages];
-            newImages[index] = null;
-            return { comparisonImages: newImages };
-        }),
-
-        swapComparisonImages: () => set(state => {
-            const [left, right] = state.comparisonImages;
-            return { comparisonImages: [right, left] };
-        }),
-
-        clearComparison: () => set({
-            comparisonImages: [null, null],
-            isComparisonModalOpen: false
-        }),
-
-        openComparisonModal: () => set({ isComparisonModalOpen: true }),
-
-        closeComparisonModal: () => set({ isComparisonModalOpen: false }),
 
         // Annotations Actions
         loadAnnotations: async () => {
@@ -2556,8 +2513,6 @@ export const useImageStore = create<ImageState>((set, get) => {
             viewingStackPrompt: null,
             sortOrder: 'desc',
             isFullscreenMode: false,
-            comparisonImages: [null, null],
-            isComparisonModalOpen: false,
             annotations: new Map(),
             availableTags: [],
             availableAutoTags: [],

@@ -18,7 +18,7 @@ import Header from './components/Header';
 import Toast from './components/Toast';
 import SettingsModal from './components/SettingsModal';
 import ChangelogModal from './components/ChangelogModal';
-import ComparisonModal from './components/ComparisonModal';
+
 import Footer from './components/Footer';
 import cacheManager from './services/cacheManager';
 import DirectoryList from './components/DirectoryList';
@@ -80,7 +80,7 @@ export default function App() {
   const includeSubfolders = useImageStore((state) => state.includeSubfolders);
 
   // Modal state selectors
-  const isComparisonModalOpen = useImageStore((state) => state.isComparisonModalOpen);
+
   const isAnnotationsLoaded = useImageStore((state) => state.isAnnotationsLoaded);
   const refreshingDirectories = useImageStore((state) => state.refreshingDirectories);
 
@@ -103,9 +103,7 @@ export default function App() {
   const handleNavigatePrevious = useImageStore((state) => state.handleNavigatePrevious);
   const setClusterNavigationContext = useImageStore((state) => state.setClusterNavigationContext);
   const cleanupInvalidImages = useImageStore((state) => state.cleanupInvalidImages);
-  const closeComparisonModal = useImageStore((state) => state.closeComparisonModal);
-  const setComparisonImages = useImageStore((state) => state.setComparisonImages);
-  const openComparisonModal = useImageStore((state) => state.openComparisonModal);
+
 
 
   const initializeFolderSelection = useImageStore((state) => state.initializeFolderSelection);
@@ -667,10 +665,6 @@ export default function App() {
         focusSection={settingsSection}
       />
 
-      <ComparisonModal
-        isOpen={isComparisonModalOpen}
-        onClose={closeComparisonModal}
-      />
 
       <BatchExportModal
         isOpen={isBatchExportModalOpen}
@@ -793,10 +787,6 @@ export default function App() {
                   images={paginatedImages}
                   directories={safeDirectories}
                   onDeleteSelected={handleDeleteSelectedImages}
-                  onCompare={(images) => {
-                    setComparisonImages(images);
-                    openComparisonModal();
-                  }}
                   onBatchExport={handleOpenBatchExport}
                   onClearSelection={clearSelection}
                 />

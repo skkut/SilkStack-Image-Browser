@@ -4,7 +4,6 @@ import {
   Folder,
   Download,
   Star,
-  GitCompare,
   Trash2,
   X
 } from 'lucide-react';
@@ -21,7 +20,6 @@ interface GridToolbarProps {
   images: IndexedImage[];
   directories: { id: string; path: string }[];
   onDeleteSelected: () => void;
-  onCompare: (images: [IndexedImage, IndexedImage]) => void;
   onBatchExport: () => void;
   onClearSelection?: () => void;
 }
@@ -43,12 +41,11 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   images,
   directories,
   onDeleteSelected,
-  onCompare,
   onBatchExport,
   onClearSelection,
 }) => {
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
-  const { canUseComparison, showProModal } = useFeatureAccess();
+  const { showProModal } = useFeatureAccess();
 
 
   // ... (rest of the file)
@@ -119,15 +116,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
     selectedImagesList.forEach(img => toggleFavorite(img.id));
   };
 
-  const handleCompare = () => {
-    if (!canUseComparison) {
-      showProModal('comparison');
-      return;
-    }
-    if (selectedImagesList.length === 2) {
-      onCompare([selectedImagesList[0], selectedImagesList[1]]);
-    }
-  };
+
 
   const selectedModels = useImageStore((state) => state.selectedModels);
   const selectedLoras = useImageStore((state) => state.selectedLoras);
@@ -220,22 +209,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
                 <Star className={`w-4 h-4 ${allFavorites ? 'fill-current' : ''}`} />
               </button>
 
-              {/* Divider */}
-              <div className="w-px h-4 bg-gray-700 mx-1" />
 
-              {/* Compare (only with exactly 2 images) */}
-              <button
-                onClick={handleCompare}
-                className={`p-1.5 rounded transition-colors ${
-                  selectedCount === 2
-                    ? 'text-gray-400 hover:text-purple-400 hover:bg-gray-700'
-                    : 'text-gray-600 cursor-not-allowed'
-                }`}
-                title={selectedCount === 2 ? 'Compare Images' : 'Select exactly 2 images to compare'}
-                disabled={selectedCount !== 2}
-              >
-                <GitCompare className="w-4 h-4" />
-              </button>
 
               {/* Divider */}
               <div className="w-px h-4 bg-gray-700 mx-1" />
