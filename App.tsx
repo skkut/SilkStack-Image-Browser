@@ -120,8 +120,6 @@ export default function App() {
 
   // --- Settings Store State ---
   const {
-    itemsPerPage,
-    setItemsPerPage,
     viewMode,
     toggleViewMode,
     setLastViewedVersion,
@@ -129,7 +127,6 @@ export default function App() {
   } = useSettingsStore();
 
   // --- Local UI State ---
-  const [currentPage, setCurrentPage] = useState(1);
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys'>('general');
@@ -366,10 +363,6 @@ export default function App() {
 
       // Processar novos arquivos usando a função do useImageLoader
       await processNewWatchedFiles(directory, files);
-
-      if (sortOrder === 'date-desc') {
-        setCurrentPage(1);
-      }
     });
 
     return () => unsubscribe();
@@ -528,18 +521,9 @@ export default function App() {
 
   useEffect(() => {
     if (previousSearchQueryRef.current !== searchQuery) {
-      setCurrentPage(1);
       previousSearchQueryRef.current = searchQuery;
     }
   }, [searchQuery]);
-
-  // Reset page if current page exceeds available pages after filtering
-  useEffect(() => {
-    const totalPages = Math.ceil(safeFilteredImages.length / itemsPerPage);
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(1);
-    }
-  }, [safeFilteredImages.length, itemsPerPage, currentPage]);
 
 
   // Clean up selectedImage if its directory no longer exists
@@ -624,18 +608,6 @@ export default function App() {
   }, [canUseBatchExport, showProModal]);
 
   // --- Render Logic ---
-  const paginatedImages = useMemo(
-    () => {
-      if (itemsPerPage === -1) {
-        return safeFilteredImages;
-      }
-      return safeFilteredImages.slice(0, currentPage * itemsPerPage);
-    },
-    [safeFilteredImages, currentPage, itemsPerPage]
-  );
-  const totalPages = itemsPerPage === -1
-    ? 1
-    : Math.ceil(safeFilteredImages.length / itemsPerPage);
   const hasDirectories = safeDirectories.length > 0;
   const directoryPath = selectedImage ? safeDirectories.find(d => d.id === selectedImage.directoryId)?.path : undefined;
 
@@ -734,7 +706,7 @@ export default function App() {
           {hasDirectories && (
             <GridToolbar
               selectedImages={safeSelectedImages}
-              images={paginatedImages}
+              images={safeFilteredImages}
               directories={safeDirectories}
               onDeleteSelected={handleDeleteSelectedImages}
               onBatchExport={handleOpenBatchExport}
@@ -795,23 +767,17 @@ export default function App() {
                 {libraryView === 'library' ? (
                   viewMode === 'grid' ? (
                         <ImageGrid
-                          images={paginatedImages}
+                          images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
-                          currentPage={currentPage}
-                          totalPages={totalPages}
-                          onPageChange={setCurrentPage}
                           onBatchExport={handleOpenBatchExport}
                         />
                       ) : (
                         <ImageTable
-                          images={paginatedImages}
+                          images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
                           onBatchExport={handleOpenBatchExport}
-                          currentPage={currentPage}
-                          totalPages={totalPages}
-                          onPageChange={setCurrentPage}
                         />
                   )
                 ) : libraryView === 'model' ? (
@@ -830,11 +796,6 @@ export default function App() {
 
               {libraryView === 'library' && (
                 <Footer
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={setCurrentPage}
-                  itemsPerPage={itemsPerPage}
-                  onItemsPerPageChange={setItemsPerPage}
                   viewMode={viewMode}
                   onViewModeChange={toggleViewMode}
                   filteredCount={safeFilteredImages.length}

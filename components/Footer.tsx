@@ -3,11 +3,6 @@ import ImageSizeSlider from './ImageSizeSlider';
 import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 interface FooterProps {
-  currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
-  itemsPerPage: number;
-  onItemsPerPageChange: (items: number) => void;
   viewMode: 'grid' | 'list';
   onViewModeChange: (mode: 'grid' | 'list') => void;
   customText?: string;
@@ -27,11 +22,6 @@ const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ childr
 );
 
 const Footer: React.FC<FooterProps> = ({
-  currentPage,
-  totalPages,
-  onPageChange,
-  itemsPerPage,
-  onItemsPerPageChange,
   viewMode,
   onViewModeChange,
   customText,
@@ -40,20 +30,7 @@ const Footer: React.FC<FooterProps> = ({
   directoryCount,
   enrichmentProgress,
 }) => {
-  const [isEditingPage, setIsEditingPage] = useState(false);
-  const [pageInput, setPageInput] = useState(currentPage.toString());
-
-  useEffect(() => {
-    setPageInput(currentPage.toString());
-  }, [currentPage]);
-
-  const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
-    onItemsPerPageChange(parseInt(value, 10));
-  };
-
   const folderText = directoryCount === 1 ? 'folder' : 'folders';
-  const showPageControls = totalPages > 1;
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
 
   return (
@@ -94,103 +71,6 @@ const Footer: React.FC<FooterProps> = ({
           </div>
         )}
       </div>
-      <nav className="flex items-center gap-4 text-xs">
-        <div className="flex items-center gap-2">
-          <label htmlFor="items-per-page" className="text-gray-500 hidden md:inline font-medium">Show:</label>
-          <select id="items-per-page" value={itemsPerPage} onChange={handleItemsPerPageChange} className="bg-gray-800/80 border border-gray-700/60 rounded-lg px-2.5 py-1.5 text-gray-200 hover:bg-gray-700 hover:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all cursor-pointer">
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-            <option value={-1}>All</option>
-          </select>
-        </div>
-
-        {showPageControls && (
-          <div className="flex items-center gap-1 border-l border-gray-700/50 pl-4 h-6">
-            <div className="flex items-center gap-1 mr-2">
-              <button
-                onClick={() => onPageChange(1)}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
-                title="First Page"
-              >
-                <ChevronsLeft className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => onPageChange(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
-                title="Previous Page"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2 px-1">
-              {isEditingPage ? (
-                <input
-                  type="number"
-                  value={pageInput}
-                  onChange={(e) => setPageInput(e.target.value)}
-                  onBlur={() => {
-                    setIsEditingPage(false);
-                    const val = parseInt(pageInput, 10);
-                    if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                      onPageChange(val);
-                    } else {
-                      setPageInput(currentPage.toString());
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      setIsEditingPage(false);
-                      const val = parseInt(pageInput, 10);
-                      if (!isNaN(val) && val >= 1 && val <= totalPages) {
-                        onPageChange(val);
-                      } else {
-                        setPageInput(currentPage.toString());
-                      }
-                    } else if (e.key === 'Escape') {
-                      setIsEditingPage(false);
-                      setPageInput(currentPage.toString());
-                    }
-                  }}
-                  className="w-12 bg-gray-800 border border-blue-500/50 rounded px-1 py-0.5 text-center text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  autoFocus
-                />
-              ) : (
-                <button
-                  onClick={() => setIsEditingPage(true)}
-                  className="px-2 py-0.5 rounded hover:bg-gray-800 transition-colors font-medium text-gray-200"
-                  title="Click to jump to page"
-                >
-                  Page <span className="text-blue-400">{currentPage}</span> of {totalPages}
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1 ml-2">
-              <button
-                onClick={() => onPageChange(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
-                title="Next Page"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => onPageChange(totalPages)}
-                disabled={currentPage === totalPages}
-                className="p-1.5 rounded-md hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent text-gray-400 hover:text-white transition-all"
-                title="Last Page"
-              >
-                <ChevronsRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </nav>
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>

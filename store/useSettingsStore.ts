@@ -50,7 +50,6 @@ const defaultIndexingConcurrency = detectDefaultIndexingConcurrency();
 interface SettingsState {
   // App settings
   sortOrder: 'asc' | 'desc';
-  itemsPerPage: number;
   scanSubfolders: boolean;
   imageSize: number;
   cachePath: string | null;
@@ -80,7 +79,6 @@ interface SettingsState {
 
   // Actions
   setSortOrder: (order: 'asc' | 'desc') => void;
-  setItemsPerPage: (count: number) => void;
   toggleScanSubfolders: () => void;
   setImageSize: (size: number) => void;
   setCachePath: (path: string) => void;
@@ -117,7 +115,6 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       // Initial state
       sortOrder: 'desc',
-      itemsPerPage: -1, // Default to show all images
       scanSubfolders: true,
       imageSize: 320, // Default to maximum zoom
       cachePath: null, // Default cache path, null means use app data dir
@@ -147,11 +144,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       // Actions
       setSortOrder: (order) => set({ sortOrder: order }),
-      setItemsPerPage: (count) => {
-        // Ensure valid number, allow -1 for infinite, default to 100 for invalid values
-        const validCount = Number.isFinite(count) && (count > 0 || count === -1) ? count : 100;
-        set({ itemsPerPage: validCount });
-      },
       toggleScanSubfolders: () => set((state) => ({ scanSubfolders: !state.scanSubfolders })),
       setImageSize: (size) => set({ imageSize: size }),
       setCachePath: (path) => set({ cachePath: path }),
@@ -201,7 +193,6 @@ export const useSettingsStore = create<SettingsState>()(
 
       resetState: () => set({
         sortOrder: 'desc',
-        itemsPerPage: -1,
         scanSubfolders: true,
         imageSize: 320,
         cachePath: null,
@@ -230,10 +221,6 @@ export const useSettingsStore = create<SettingsState>()(
       name: 'image-metahub-settings',
       storage: createJSONStorage(() => isElectron ? electronStorage : localStorage),
       onRehydrateStorage: () => (state) => {
-        // Migration: Fix invalid itemsPerPage values from older versions
-        if (state && (typeof state.itemsPerPage !== 'number' || (state.itemsPerPage <= 0 && state.itemsPerPage !== -1) || state.itemsPerPage > 100)) {
-          state.itemsPerPage = 100;
-        }
 
         if (state && typeof state.showFilenames !== 'boolean') {
           state.showFilenames = false;

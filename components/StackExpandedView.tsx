@@ -12,9 +12,6 @@ interface StackExpandedViewProps {
   images: IndexedImage[];
   allImages: IndexedImage[];
   viewMode: 'grid' | 'list';
-  currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
   onBack: () => void;
   onBatchExport: () => void;
 }
@@ -24,9 +21,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
   images,
   allImages,
   viewMode,
-  currentPage,
-  totalPages,
-  onPageChange,
   onBack,
   onBatchExport,
 }) => {
@@ -175,9 +169,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
             images={images}
             onImageClick={handleImageClick}
             selectedImages={safeSelectedImages}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={onPageChange}
             onBatchExport={onBatchExport}
             markedBestIds={markedBestIds}
             markedArchivedIds={markedArchivedIds}

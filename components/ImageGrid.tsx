@@ -612,18 +612,14 @@ interface ImageGridProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
-  currentPage: number;
-  totalPages: number;
-  onPageChange: (page: number) => void;
   onBatchExport: () => void;
   // Deduplication support (optional)
   markedBestIds?: Set<string>;      // IDs of images marked as best
   markedArchivedIds?: Set<string>;  // IDs of images marked for archive
 }
 
-const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, currentPage, totalPages, onPageChange, onBatchExport, markedBestIds, markedArchivedIds }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, onBatchExport, markedBestIds, markedArchivedIds }) => {
   const imageSize = useSettingsStore((state) => state.imageSize);
-  const itemsPerPage = useSettingsStore((state) => state.itemsPerPage);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
   const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
@@ -1047,10 +1043,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
         nextIndex = currentIndex + 1;
         if (nextIndex < itemsToRender.length) {
            // Standard move right
-        } else if (currentPage < totalPages) {
-          onPageChange(currentPage + 1);
-          setFocusedImageIndex(0);
-          nextIndex = -1;
         } else {
             nextIndex = -1;
         }
@@ -1059,10 +1051,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
         nextIndex = currentIndex - 1;
         if (nextIndex >= 0) {
            // Standard move left
-        } else if (currentPage > 1) {
-          onPageChange(currentPage - 1);
-          setFocusedImageIndex(-1); 
-          nextIndex = -1;
         } else {
             nextIndex = -1;
         }
@@ -1115,30 +1103,12 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
         } else {
              nextIndex = -1; 
         }
-      } else if (e.key === 'PageDown') {
-        e.preventDefault();
-        if (currentPage < totalPages) {
-          onPageChange(currentPage + 1);
-          setFocusedImageIndex(0);
-          nextIndex = -1;
-        }
-      } else if (e.key === 'PageUp') {
-        e.preventDefault();
-        if (currentPage > 1) {
-          onPageChange(currentPage - 1);
-          setFocusedImageIndex(0);
-          nextIndex = -1;
-        }
       } else if (e.key === 'Home') {
         e.preventDefault();
-        onPageChange(1);
-        setFocusedImageIndex(0);
-        nextIndex = -1;
+        nextIndex = 0;
       } else if (e.key === 'End') {
         e.preventDefault();
-        onPageChange(totalPages);
-        setFocusedImageIndex(0);
-        nextIndex = -1;
+        nextIndex = itemsToRender.length - 1;
       }
 
       if (nextIndex !== -1 && nextIndex !== currentIndex) {
@@ -1157,7 +1127,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, currentPage, totalPages, onPageChange, rows]);
+  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, rows]);
 
   // Auto-scroll to focused image
   useEffect(() => {
@@ -1348,8 +1318,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   }, [setStackingEnabled, setViewingStackPrompt]);
 
   // Use itemsToRender for calculations
-  const isInfinite = itemsPerPage === -1;
-
   const isEmpty = itemsToRender.length === 0;
 
   const getDragPayload = useCallback((targetImage: IndexedImage) => {
@@ -1397,23 +1365,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const handleImageLoad = useCallback((id: string, aspectRatio: number) => {
     // No-op
   }, []);
-
-  const observer = useRef<IntersectionObserver | null>(null);
-  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
-    if (observer.current) observer.current.disconnect();
-    
-    if (node && onPageChange && currentPage !== undefined && totalPages !== undefined && currentPage < totalPages) {
-      observer.current = new IntersectionObserver(entries => {
-        if (entries[0].isIntersecting) {
-          onPageChange(currentPage + 1);
-        }
-      }, { rootMargin: '400px' });
-      
-      observer.current.observe(node);
-    }
-  }, [onPageChange, currentPage, totalPages]);
-
-
 
   // Ensure all hooks are called consistently before any conditional returns
   const itemData = useMemo<ImageGridRowData>(() => ({

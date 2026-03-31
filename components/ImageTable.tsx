@@ -14,9 +14,6 @@ interface ImageTableProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
   onBatchExport: () => void;
-  currentPage?: number;
-  totalPages?: number;
-  onPageChange?: (page: number) => void;
 }
 
 type SortField = 'filename' | 'model' | 'steps' | 'cfg' | 'size' | 'seed';
@@ -32,7 +29,7 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, onBatchExport, currentPage, totalPages, onPageChange }) => {
+const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, onBatchExport }) => {
   const directories = useImageStore((state) => state.directories);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -253,13 +250,6 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
                   width={width}
                   overscanCount={5}
                   itemKey={(index) => sortedImages[index]?.id ?? index}
-                  onItemsRendered={({ visibleStopIndex }) => {
-                    if (onPageChange && currentPage !== undefined && totalPages !== undefined) {
-                      if (visibleStopIndex >= sortedImages.length - 1 && currentPage < totalPages) {
-                        onPageChange(currentPage + 1);
-                      }
-                    }
-                  }}
                 >
                   {Row}
                 </List>

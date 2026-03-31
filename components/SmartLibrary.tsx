@@ -39,13 +39,11 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
 
-  const { itemsPerPage, setItemsPerPage, viewMode, toggleViewMode } = useSettingsStore();
+  const { viewMode, toggleViewMode } = useSettingsStore();
   // const { handleDeleteSelectedImages, clearSelection } = useImageSelection(); // Unused
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
 
   const [expandedClusterId, setExpandedClusterId] = useState<string | null>(null);
-  const [stackPage, setStackPage] = useState(1);
-  const [clusterPage, setClusterPage] = useState(1);
   const [sortBy, setSortBy] = useState<'count' | 'similarity'>('count');
 
   const imageMap = useMemo(() => {
@@ -107,17 +105,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
     return [...unlocked, ...lockedPreview];
   }, [clusterEntries, clusteringMetadata, sortBy]);
 
-  const stackTotalPages = Math.ceil(sortedEntries.length / itemsPerPage);
-  const paginatedEntries = useMemo(() => {
-    const start = (stackPage - 1) * itemsPerPage;
-    return sortedEntries.slice(start, start + itemsPerPage);
-  }, [sortedEntries, stackPage, itemsPerPage]);
 
-  useEffect(() => {
-    if (stackPage > stackTotalPages && stackTotalPages > 0) {
-      setStackPage(1);
-    }
-  }, [stackPage, stackTotalPages]);
 
   useEffect(() => {
     if (expandedClusterId && !clusterEntries.some((entry) => entry.cluster.id === expandedClusterId)) {
@@ -136,24 +124,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
     return [...activeCluster.images].sort((a, b) => (a.lastModified || 0) - (b.lastModified || 0));
   }, [activeCluster]);
 
-  const clusterTotalPages = Math.ceil(activeClusterImages.length / itemsPerPage);
-  const paginatedClusterImages = useMemo(() => {
-    const start = (clusterPage - 1) * itemsPerPage;
-    return activeClusterImages.slice(start, start + itemsPerPage);
-  }, [activeClusterImages, clusterPage, itemsPerPage]);
-
-  useEffect(() => {
-    if (clusterPage > clusterTotalPages && clusterTotalPages > 0) {
-      setClusterPage(1);
-    }
-  }, [clusterPage, clusterTotalPages]);
-
-  useEffect(() => {
-    if (expandedClusterId) {
-      setClusterPage(1);
-    }
-  }, [expandedClusterId]);
-
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
 
@@ -168,16 +138,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
   const handleGenerateAutoTags = () => {
     if (!primaryPath) return;
     startAutoTagging(primaryPath, scanSubfolders);
-  };
-
-  const currentPage = activeCluster ? clusterPage : stackPage;
-  const totalPages = activeCluster ? clusterTotalPages : stackTotalPages;
-  const handlePageChange = (page: number) => {
-    if (activeCluster) {
-      setClusterPage(page);
-    } else {
-      setStackPage(page);
-    }
   };
 
   return (
@@ -233,19 +193,16 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
         {activeCluster ? (
           <StackExpandedView
             cluster={activeCluster.cluster}
-            images={paginatedClusterImages}
+            images={activeClusterImages}
             allImages={activeClusterImages}
             onBack={() => {
               setClusterNavigationContext(null);
               setExpandedClusterId(null);
             }}
             viewMode={viewMode}
-            currentPage={clusterPage}
-            totalPages={clusterTotalPages}
-            onPageChange={setClusterPage}
             onBatchExport={onBatchExport}
           />
-        ) : paginatedEntries.length === 0 ? (
+        ) : sortedEntries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-gray-400">
             <div className="w-14 h-14 rounded-full bg-gray-800/60 flex items-center justify-center mb-3">
               <Layers className="w-6 h-6" />
@@ -258,7 +215,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
         ) : (
           <div className="min-h-0 pr-1">
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {paginatedEntries.map((entry) => {
+              {sortedEntries.map((entry) => {
                 // Check if majority of images in this cluster are locked
                 const lockedImageIds = clusteringMetadata?.lockedImageIds || new Set();
                 const lockedCount = entry.images.filter((img) => lockedImageIds.has(img.id)).length;
@@ -290,11 +247,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
       </div>
 
       <Footer
-        currentPage={currentPage}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-        itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={setItemsPerPage}
         viewMode={viewMode}
         onViewModeChange={toggleViewMode}
         filteredCount={safeFilteredImages.length}

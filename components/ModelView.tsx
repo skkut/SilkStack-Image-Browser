@@ -24,9 +24,8 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
   const selectionDirectoryCount = useImageStore((state) => state.selectionDirectoryCount);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   
-  const { itemsPerPage, setItemsPerPage, viewMode, toggleViewMode } = useSettingsStore();
+  const { viewMode, toggleViewMode } = useSettingsStore();
 
-  const [page, setPage] = useState(1);
   const [sortBy] = useState<'count' | 'name'>('count');
 
   const directories = useImageStore((state) => state.directories);
@@ -77,17 +76,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
     });
   }, [filteredImages, directories, sortBy]);
 
-  const totalPages = itemsPerPage === -1 ? 1 : Math.ceil(modelEntries.length / itemsPerPage);
-  
-  const paginatedEntries = useMemo(() => {
-    if (itemsPerPage === -1) return modelEntries;
-    const start = (page - 1) * itemsPerPage;
-    return modelEntries.slice(start, start + itemsPerPage);
-  }, [modelEntries, page, itemsPerPage]);
 
-  const handlePageChange = (newPage: number) => {
-    setPage(newPage);
-  };
 
   return (
     <section className="flex flex-col h-full min-h-0">
@@ -104,7 +93,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
           </div>
         ) : (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {paginatedEntries.map((entry) => (
+            {modelEntries.map((entry) => (
               <ModelCard
                 key={entry.name}
                 modelName={entry.name}
@@ -118,11 +107,6 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
       </div>
 
       <Footer
-        currentPage={page}
-        totalPages={totalPages}
-        onPageChange={handlePageChange}
-        itemsPerPage={itemsPerPage}
-        onItemsPerPageChange={setItemsPerPage}
         viewMode={viewMode}
         onViewModeChange={toggleViewMode}
         filteredCount={filteredImages.length} 
