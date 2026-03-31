@@ -690,6 +690,29 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Clamp pan so the image can't be dragged past its own edges.
+  // Uses actual rendered image size (object-contain may make it narrower/shorter
+  // than the container) for per-axis accuracy.
+  const clampPan = useCallback(
+    (x: number, y: number, currentZoom: number): { x: number; y: number } => {
+      if (!containerRef.current || !imgRef.current || currentZoom <= 1)
+        return { x: 0, y: 0 };
+      const { clientWidth: cw, clientHeight: ch } = containerRef.current;
+      const { clientWidth: iw, clientHeight: ih } = imgRef.current;
+      // The scaled image must stay large enough to fill the viewport edge-to-edge.
+      // maxPan = half of (scaled image size - container size), floored at 0.
+      const maxX = Math.max(0, (iw * currentZoom - cw) / 2);
+      const maxY = Math.max(0, (ih * currentZoom - ch) / 2);
+      return {
+        x: Math.max(-maxX, Math.min(maxX, x)),
+        y: Math.max(-maxY, Math.min(maxY, y)),
+      };
+    },
+    [],
+  );
 
 
   // Feature access (license/trial gating)
@@ -1018,12 +1041,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       setZoom(newZoom);
 
-      // Reset pan if zooming out to 1x
+      // Re-clamp the current pan to the new zoom level so edges don't escape
       if (newZoom === 1) {
         setPan({ x: 0, y: 0 });
+      } else {
+        setPan((prev) => clampPan(prev.x, prev.y, newZoom));
       }
     },
-    [zoom],
+    [zoom, clampPan],
   );
 
   // Pan handlers
@@ -1041,13 +1066,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (isDragging && zoom > 1) {
-        setPan({
-          x: e.clientX - dragStart.x,
-          y: e.clientY - dragStart.y,
-        });
+        const rawX = e.clientX - dragStart.x;
+        const rawY = e.clientY - dragStart.y;
+        setPan(clampPan(rawX, rawY, zoom));
       }
     },
-    [isDragging, dragStart, zoom],
+    [isDragging, dragStart, zoom, clampPan],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -1278,6 +1302,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Image Display Section */}
         <div
           id="image-zoom-container"
+          ref={containerRef}
           className={`w-full ${isFullscreen ? "h-full" : isSidebarCollapsed ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden transition-[width] duration-300`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
@@ -1302,6 +1327,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               />
             ) : (
               <img
+                ref={imgRef}
                 src={imageUrl}
                 alt={image.name}
                 className="max-w-full max-h-full object-contain select-none"
