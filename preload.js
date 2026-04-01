@@ -78,6 +78,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
 
+  onMenuOpenAbout: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('menu-open-about', handler);
+    return () => {
+      ipcRenderer.removeListener('menu-open-about', handler);
+    };
+  },
+
   onMenuToggleView: (callback) => {
     const handler = (event, ...args) => callback(...args);
     ipcRenderer.on('menu-toggle-view', handler);

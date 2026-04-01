@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLicenseStore } from '../store/useLicenseStore';
-import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { useImageStore } from '../store/useImageStore';
@@ -10,11 +10,11 @@ import { useImageStore } from '../store/useImageStore';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'hotkeys' | 'privacy';
+  initialTab?: 'general' | 'hotkeys' | 'privacy' | 'about';
   focusSection?: 'license' | null;
 }
 
-type Tab = 'general' | 'hotkeys' | 'privacy';
+type Tab = 'general' | 'hotkeys' | 'privacy' | 'about';
 
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab = 'general' }) => {
@@ -39,6 +39,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
 
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (isOpen) {
@@ -51,6 +58,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
           setCacheFolderPath(parts.join('\\'));
         }
       }).catch(() => {/* silently ignore */});
+      
+      window.electronAPI?.getAppVersion().then(setAppVersion).catch(() => {});
     }
   }, [isOpen]);
 
@@ -133,6 +142,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             >
               <Eye size={16} />
               <span>Privacy</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('about')}
+              className={`flex items-center space-x-2 px-4 py-2 text-sm font-medium ${activeTab === 'about' ? 'border-b-2 border-blue-500 text-gray-100' : 'text-gray-400 hover:text-gray-50'}`}
+            >
+              <Info size={16} />
+              <span>About</span>
             </button>
         </div>
 
@@ -322,6 +338,41 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                     <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                   </label>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'about' && (
+          <div className="space-y-6 flex flex-col items-center justify-center py-6">
+            <div className="bg-gray-900 border border-gray-700 rounded-xl p-8 max-w-sm w-full text-center space-y-4 shadow-xl">
+              <div className="mx-auto bg-blue-500/10 p-4 rounded-full w-24 h-24 flex items-center justify-center mb-6">
+                <img src="./logo1.png" alt="App Logo" className="w-16 h-16 object-contain" />
+              </div>
+              
+              <div>
+                <h3 className="text-2xl font-bold text-gray-100">AI Images Browser</h3>
+                <p className="text-blue-400 font-medium mt-1">v{appVersion}</p>
+              </div>
+              
+              <div className="pt-4 border-t border-gray-800">
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  A powerful tool for browsing and managing AI-generated images with metadata support for InvokeAI, ComfyUI, A1111, and more.
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => window.electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser')}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg text-sm text-gray-200 transition-colors"
+                >
+                  <Github size={16} />
+                  <span>GitHub Repository</span>
+                </button>
+              </div>
+              
+              <div className="pt-6 font-medium text-xs text-gray-500">
+                © 2025 skkut
               </div>
             </div>
           </div>

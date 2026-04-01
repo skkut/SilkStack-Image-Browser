@@ -374,14 +374,7 @@ function createApplicationMenu() {
           label: `About AI Images Browser`,
           click: () => {
             if (mainWindow) {
-              dialog.showMessageBox(mainWindow, {
-                type: "info",
-                title: "About AI Images Browser",
-                message: `AI Images Browser v${app.getVersion()}`,
-                detail:
-                  "A powerful tool for browsing and managing AI-generated images with metadata support for InvokeAI, ComfyUI, A1111, and more.\n\n© 2025 skkut",
-                buttons: ["OK"],
-              });
+              mainWindow.webContents.send("menu-open-about");
             }
           },
         },

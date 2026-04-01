@@ -226,6 +226,7 @@ export interface ElectronAPI {
   onLoadDirectoryFromCLI: (callback: (dirPath: string) => void) => () => void;
   onMenuAddFolder: (callback: () => void) => () => void;
   onMenuOpenSettings: (callback: () => void) => () => void;
+  onMenuOpenAbout: (callback: () => void) => () => void;
   onMenuToggleView: (callback: () => void) => () => void;
   onMenuShowChangelog: (callback: () => void) => () => void;
   testUpdateDialog: () => Promise<{

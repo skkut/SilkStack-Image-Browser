@@ -129,7 +129,7 @@ export default function App() {
   // --- Local UI State ---
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'privacy' | 'about'>('general');
   const [settingsSection, setSettingsSection] = useState<'license' | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -166,7 +166,7 @@ export default function App() {
     startTrial,
   } = useFeatureAccess();
 
-  const handleOpenSettings = (tab: 'general' | 'hotkeys' = 'general', section: 'license' | null = null) => {
+  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'privacy' | 'about' = 'general', section: 'license' | null = null) => {
     setSettingsTab(tab);
     setSettingsSection(section);
     setIsSettingsModalOpen(true);
@@ -496,7 +496,11 @@ export default function App() {
     });
 
     const unsubscribeOpenSettings = window.electronAPI.onMenuOpenSettings(() => {
-      setIsSettingsModalOpen(true);
+      handleOpenSettings('general');
+    });
+
+    const unsubscribeOpenAbout = window.electronAPI.onMenuOpenAbout(() => {
+      handleOpenSettings('about');
     });
 
     const unsubscribeToggleView = window.electronAPI.onMenuToggleView(() => {
@@ -510,6 +514,7 @@ export default function App() {
     return () => {
       unsubscribeAddFolder();
       unsubscribeOpenSettings();
+      unsubscribeOpenAbout();
       unsubscribeToggleView();
       unsubscribeShowChangelog();
     };
