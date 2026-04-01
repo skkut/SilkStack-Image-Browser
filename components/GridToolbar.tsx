@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Copy,
   Folder,
   Download,
   Star,
@@ -9,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import { copyImageToClipboard, showInExplorer } from '../utils/imageUtils';
+import { showInExplorer } from '../utils/imageUtils';
 import { type IndexedImage } from '../types';
 
 import ActiveFilters from './ActiveFilters';
@@ -56,15 +55,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   // Check if all selected images are favorites
   const allFavorites = selectedImagesList.length > 0 && selectedImagesList.every(img => img.isFavorite);
 
-  const handleCopyToClipboard = async () => {
-    if (!firstSelectedImage) return;
-    const result = await copyImageToClipboard(firstSelectedImage);
-    if (result.success) {
-      showNotification('Image copied to clipboard!');
-    } else {
-      showNotification(`Failed to copy: ${result.error}`, 'error');
-    }
-  };
+
 
   const handleShowInFolder = () => {
     if (!firstSelectedImage) return;
@@ -166,15 +157,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
                 </button>
               </div>
 
-              {/* Copy to Clipboard */}
-              <button
-                onClick={handleCopyToClipboard}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                title="Copy to Clipboard"
-                disabled={selectedCount !== 1}
-              >
-                <Copy className="w-4 h-4" />
-              </button>
+
 
               {/* Show in Folder */}
               <button
