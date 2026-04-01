@@ -600,7 +600,7 @@ export default function DirectoryList({
 
   if (isCollapsed) {
     return (
-      <ul className="flex flex-col items-center space-y-3 w-full px-1">
+      <ul className="flex flex-col items-center space-y-3 w-full px-1 pt-2">
         {directories
           .filter((dir) => dir.isConnected !== false)
           .map((dir) => {
@@ -638,10 +638,10 @@ export default function DirectoryList({
                     onDrop={(e) => handleDrop(e, path, rootDir.id)}
                     className={`p-2 rounded-xl transition-all ${
                       isSelected
-                        ? "bg-blue-600/40 shadow-lg shadow-blue-500/20 text-white"
+                        ? "bg-blue-600/40 shadow-lg shadow-blue-500/20 text-white ring-1 ring-blue-400/40"
                         : dropTarget === path
                           ? "bg-blue-500/40"
-                          : "hover:bg-gray-700/50 text-gray-400"
+                          : "bg-white/10 hover:bg-white/15 text-gray-400 ring-1 ring-gray-400/30 hover:ring-gray-300/50"
                     }`}
                     title={`${dir.name}${path !== dir.path ? ` > ${path.split(/[/\\]/).pop()}` : ""}`}
                   >
