@@ -1971,14 +1971,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               No normalized metadata available.
             </div>
           )}
-
           <div className="grid grid-cols-2 gap-2 pt-2">
-            <button
-              onClick={() => copyToClipboard(nMeta?.prompt || "", "Prompt")}
-              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
-            >
-              Copy Prompt
-            </button>
             <button
               onClick={() =>
                 copyToClipboard(
