@@ -237,7 +237,7 @@ const MetadataItem: FC<{
         {onCopy && (
           <button
             onClick={() => onCopy(displayValue)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white"
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-50"
             title={`Copy ${label}`}
           >
             <Copy className="w-4 h-4" />
@@ -1742,7 +1742,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               <div>
                 <button
                   onClick={() => setShowDetails(!showDetails)}
-                  className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-white transition-colors"
+                  className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-gray-50 transition-colors"
                 >
                   <span className="font-semibold">Generation Details</span>
                   {showDetails ? (
@@ -1886,7 +1886,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 <div>
                   <button
                     onClick={() => setShowPerformance(!showPerformance)}
-                    className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-white transition-colors"
+                    className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-gray-50 transition-colors"
                   >
                     <span className="font-semibold flex items-center gap-2">
                       <Zap
@@ -2022,7 +2022,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   <>
                     <button
                       onClick={() => setShowOriginal(!showOriginal)}
-                      className={`p-1.5 rounded-md transition-colors ${showOriginal ? "bg-blue-900/50 text-blue-300" : "bg-gray-800 text-gray-400 hover:text-white"}`}
+                      className={`p-1.5 rounded-md transition-colors ${showOriginal ? "bg-blue-900/50 text-blue-300" : "bg-gray-800 text-gray-400 hover:text-gray-50"}`}
                       title={showOriginal ? "Back to Edited" : "See Original"}
                     >
                       {showOriginal ? <EyeOff size={14} /> : <Eye size={14} />}
@@ -2046,14 +2046,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 )}
                 <button
                   onClick={() => setIsMetadataEditorOpen(true)}
-                  className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-400 hover:text-white"
+                  className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-400 hover:text-gray-50"
                   title="Edit Metadata (Shadow)"
                 >
                   <Pencil size={14} />
                 </button>
                 <button
                   onClick={() => setShowRawMetadata(!showRawMetadata)}
-                  className="text-xs text-gray-400 hover:text-white underline"
+                  className="text-xs text-gray-400 hover:text-gray-50 underline"
                 >
                   {showRawMetadata ? "Show Parsed" : "Show JSON"}
                 </button>
@@ -2088,7 +2088,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         >
           <button
             onClick={copyImage}
-            className={`w-full text-left px-4 py-2 text-sm text-gray-200 transition-colors flex items-center gap-2 ${isVideo ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-700 hover:text-white"}`}
+            className={`w-full text-left px-4 py-2 text-sm text-gray-200 transition-colors flex items-center gap-2 ${isVideo ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-700 hover:text-gray-50"}`}
             disabled={isVideo}
           >
             <Copy className="w-4 h-4" />
@@ -2099,7 +2099,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
           <button
             onClick={copyPrompt}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
             disabled={!nMeta?.prompt}
           >
             <Copy className="w-4 h-4" />
@@ -2107,7 +2107,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </button>
           <button
             onClick={copyNegativePrompt}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
             disabled={!nMeta?.negativePrompt}
           >
             <Copy className="w-4 h-4" />
@@ -2115,7 +2115,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </button>
           <button
             onClick={copySeed}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
             disabled={!nMeta?.seed}
           >
             <Copy className="w-4 h-4" />
@@ -2123,7 +2123,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </button>
           <button
             onClick={copyModel}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
             disabled={!nMeta?.model}
           >
             <Copy className="w-4 h-4" />
@@ -2134,7 +2134,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
           <button
             onClick={showInFolder}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
           >
             <Folder className="w-4 h-4" />
             Show in Folder
@@ -2142,7 +2142,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
           <button
             onClick={exportImage}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
           >
             <Download className="w-4 h-4" />
             Export Image
