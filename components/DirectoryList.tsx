@@ -228,12 +228,6 @@ export default function DirectoryList({
 
   const handleFolderClick = useCallback(
     (path: string, event: React.MouseEvent) => {
-      console.log(
-        "[DirectoryList] handleClick:",
-        path,
-        "isCollapsed:",
-        isCollapsed,
-      );
       event.stopPropagation();
       if (!onToggleFolderSelection) {
         console.log("[DirectoryList] onToggleFolderSelection is missing!");

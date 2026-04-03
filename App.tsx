@@ -201,13 +201,6 @@ export default function App() {
   const totalImagesCount = images.length;
 
   useEffect(() => {
-    console.log('[App] Images state changed:', {
-      filteredCount: safeFilteredImages.length,
-      totalCount: totalImagesCount,
-      directoriesCount: safeDirectories.length,
-      hasImages
-    });
-    
     // If total images exist but filtered is 0, and no filters are apparent, it's a folder selection issue
     if (totalImagesCount > 0 && safeFilteredImages.length === 0 && indexingState === 'idle') {
       console.warn('[App] Potential filtering issue detected: total images exist but none are filtered.');

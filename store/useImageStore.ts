@@ -427,14 +427,14 @@ export const useImageStore = create<ImageState>((set, get) => {
             const uniqueNewImages = queuedUnique.filter(img => !existingIdsLower.has(img.id.toLowerCase()));
 
             if (uniqueNewImages.length === 0) {
-                console.log('[store] No new images to flush (all duplicates)');
+
                 return state;
             }
             addedImages = uniqueNewImages;
             const allImages = [...state.images, ...uniqueNewImages];
-            console.log('[store] Flushing', uniqueNewImages.length, 'new images. Total images:', allImages.length);
+
             const newState = _updateState(state, allImages);
-            console.log('[store] After update - filteredImages:', newState.filteredImages.length);
+
             return newState;
         });
 
@@ -692,9 +692,9 @@ export const useImageStore = create<ImageState>((set, get) => {
         const combinedState = { ...currentState, ...newState };
 
         // First, get filtered images based on folder selection
-        console.log(`[Store] _updateState: images.length=${imagesWithAnnotations.length}`, combinedState);
+
         const filteredResult = filterAndSort(combinedState);
-        console.log(`[Store] _updateState: result.filteredImages.length=${filteredResult.filteredImages.length}`);
+
 
         // Then, recalculate available filters based on the filtered images (after folder selection)
         const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
@@ -709,11 +709,11 @@ export const useImageStore = create<ImageState>((set, get) => {
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
         const { images, searchQuery, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
-        console.log('[Store] filterAndSort: state.directories.length=', directories.length);
+
         const visibleDirectoryIds = new Set(
             directories.filter(dir => (dir.visible ?? true) && (dir.isConnected !== false)).map(dir => dir.id)
         );
-        console.log('[Store] filterAndSort: visibleDirectoryIds.size=', visibleDirectoryIds.size);
+
 
         const directoryPathMap = new Map<string, string>();
         directories.forEach(dir => {
@@ -1691,7 +1691,6 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         setPreviewImage: (image) => set({ previewImage: image }),
         setSelectedImage: (image) => {
-            console.log('[Store] setSelectedImage:', image ? image.id : 'null');
             set({ selectedImage: image });
         },
         setFocusedImageIndex: (index) => set({ focusedImageIndex: index }),
@@ -1828,7 +1827,6 @@ export const useImageStore = create<ImageState>((set, get) => {
             import('../services/clusteringEngine').then(({ removeImagesFromClusters }) => {
                 const updatedClusters = removeImagesFromClusters(deletedImageIds, clusters);
                 set({ clusters: updatedClusters });
-                console.log(`Clusters updated after ${deletedImageIds.length} image deletions`);
             });
         },
 

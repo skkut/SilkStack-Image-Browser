@@ -255,8 +255,4 @@ if (typeof window !== 'undefined' && window.location) {
   // Make functions available globally for console usage
   (window as any).resetAllCaches = resetAllCaches;
   (window as any).completeFreshStart = completeFreshStart;
-
-  console.log('💡 Cache reset utilities loaded!');
-  console.log('   • Run resetAllCaches() to clear app caches');
-  console.log('   • Run completeFreshStart() for nuclear reset + reload');
 }

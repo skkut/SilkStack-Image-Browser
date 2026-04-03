@@ -967,7 +967,7 @@ export function useImageLoader() {
 
         const totalNewFiles = diff.newAndModifiedFiles.length;
         setProgress({ current: 0, total: totalNewFiles });
-        console.log(`[loadDirectory] Progress set to 0/${totalNewFiles}`);
+
 
         const sortedFiles =
           totalNewFiles > 0
