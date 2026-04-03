@@ -697,7 +697,7 @@ export default function App() {
       
       <ImagePreviewSidebar />
 
-      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-16' : 'ml-80') : 'ml-0'} ${previewImage ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
+      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-14' : 'ml-80') : 'ml-0'} ${previewImage ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
         <Header
           onOpenSettings={() => handleOpenSettings()}
           onOpenLicense={handleOpenLicenseSettings}

@@ -600,7 +600,7 @@ export default function DirectoryList({
 
   if (isCollapsed) {
     return (
-      <ul className="flex flex-col items-center space-y-3 w-full px-1 pt-2">
+      <ul className="flex flex-col items-center space-y-5 w-full px-1 pt-4">
         {directories
           .filter((dir) => dir.isConnected !== false)
           .map((dir) => {
@@ -636,17 +636,17 @@ export default function DirectoryList({
                     onDragOver={(e) => handleDragOver(e, path)}
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, path, rootDir.id)}
-                    className={`p-2 rounded-xl transition-all ${
+                    className={`p-2 rounded-xl transition-all duration-300 ${
                       isSelected
-                        ? "bg-blue-600/40 shadow-lg shadow-blue-500/20 text-white ring-1 ring-blue-400/40"
+                        ? "bg-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.25)] text-blue-400 ring-1 ring-blue-500/40"
                         : dropTarget === path
                           ? "bg-blue-500/40"
-                          : "bg-white/10 hover:bg-white/15 text-gray-400 ring-1 ring-gray-400/30 hover:ring-gray-300/50"
+                          : "bg-gray-800/40 hover:bg-gray-800/60 text-gray-400 ring-1 ring-white/5 hover:ring-white/20 hover:shadow-lg hover:shadow-black/20"
                     }`}
                     title={`${dir.name}${path !== dir.path ? ` > ${path.split(/[/\\]/).pop()}` : ""}`}
                   >
                     <Folder
-                      className="w-6 h-6 transition-transform group-hover:scale-110"
+                      className="w-5 h-5 transition-transform duration-300 group-hover:scale-110"
                       style={{ color: pref?.color || "#9ca3af" }}
                     />
                   </button>
