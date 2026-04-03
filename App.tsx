@@ -630,15 +630,6 @@ export default function App() {
     <div className="flex flex-col h-screen overflow-hidden bg-gray-900 text-gray-100 font-sans selection:bg-blue-500/30">
       <BrowserCompatibilityWarning />
       
-      <TopMenuBar 
-        onOpenSettings={() => handleOpenSettings()}
-        onAddFolder={handleSelectFolder}
-        onToggleView={toggleViewMode}
-        onShowChangelog={() => setIsChangelogModalOpen(true)}
-        isSidebarCollapsed={isSidebarCollapsed}
-        hasDirectories={hasDirectories}
-      />
-      
       {/* Spacer for fixed TopMenuBar */}
       <div className="h-8 shrink-0 w-full" />
 
@@ -886,6 +877,15 @@ export default function App() {
         isOpen={isHotkeyHelpOpen}
         onClose={() => setIsHotkeyHelpOpen(false)}
         onOpenSettings={handleOpenHotkeySettings}
+      />
+
+      <TopMenuBar 
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onAddFolder={handleSelectFolder}
+        onToggleView={toggleViewMode}
+        onShowChangelog={() => setIsChangelogModalOpen(true)}
+        isSidebarCollapsed={isSidebarCollapsed}
+        hasDirectories={hasDirectories}
       />
     </div>
   );
