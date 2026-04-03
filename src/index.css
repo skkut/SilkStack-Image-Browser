@@ -8,6 +8,11 @@ html, body {
   padding: 0;
 }
 
+:root {
+  --sidebar-width: 320px;
+  --sidebar-collapsed-width: 56px;
+}
+
 
 
 .masonry-grid {

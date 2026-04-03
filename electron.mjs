@@ -405,7 +405,12 @@ function createWindow(startupDirectory = null) {
       webSecurity: true,
       preload: path.join(__dirname, "preload.js"),
     },
-    titleBarStyle: "default",
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f3f4f6',
+      symbolColor: nativeTheme.shouldUseDarkColors ? '#ffffff' : '#000000',
+      height: 32, // Match our header height (approx)
+    },
     show: false, // Don't show until ready
   });
 
@@ -581,9 +586,18 @@ app.whenReady().then(async () => {
   // Listen for theme changes and notify renderer
   nativeTheme.on("updated", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff');
+      const isDark = nativeTheme.shouldUseDarkColors;
+      mainWindow.setBackgroundColor(isDark ? '#0a0a0a' : '#ffffff');
+      
+      // Update title bar overlay to match new theme
+      mainWindow.setTitleBarOverlay({
+        color: isDark ? '#1a1a1a' : '#f3f4f6',
+        symbolColor: isDark ? '#ffffff' : '#000000',
+        height: 32
+      });
+
       mainWindow.webContents.send("theme-updated", {
-        shouldUseDarkColors: nativeTheme.shouldUseDarkColors,
+        shouldUseDarkColors: isDark,
       });
     }
   });
@@ -1055,6 +1069,37 @@ function setupFileOperationHandlers() {
     } catch (error) {
       console.error("Error restarting app:", error);
       return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("exit-app", () => {
+    app.quit();
+  });
+
+  ipcMain.handle("minimize-window", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.minimize();
+  });
+
+  ipcMain.handle("close-window", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) win.close();
+  });
+
+  ipcMain.handle("execute-edit-action", (event, action) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    switch (action) {
+      case "undo": win.webContents.undo(); break;
+      case "redo": win.webContents.redo(); break;
+      case "cut": win.webContents.cut(); break;
+      case "copy": win.webContents.copy(); break;
+      case "paste": win.webContents.paste(); break;
+      case "selectAll": win.webContents.selectAll(); break;
+      case "toggleDevTools": win.webContents.toggleDevTools(); break;
+      case "zoomIn": adjustZoom(ZOOM_STEP); break;
+      case "zoomOut": adjustZoom(-ZOOM_STEP); break;
+      case "resetZoom": resetZoom(); break;
     }
   });
 
@@ -1723,10 +1768,36 @@ function setupFileOperationHandlers() {
   // Handle toggling fullscreen
   ipcMain.handle("toggle-fullscreen", () => {
     if (mainWindow) {
-      mainWindow.setFullScreen(!mainWindow.isFullScreen());
-      return { success: true, isFullscreen: mainWindow.isFullScreen() };
+      const isFullscreen = !mainWindow.isFullScreen();
+      mainWindow.setFullScreen(isFullscreen);
+      return { success: true, isFullscreen };
     }
     return { success: false, error: "Main window not available" };
+  });
+
+  // Handle setting window controls visibility
+  ipcMain.handle("set-window-controls-visibility", (event, visible) => {
+    if (!mainWindow) return { success: false, error: "Main window not available" };
+
+    if (process.platform === "darwin") {
+      mainWindow.setWindowButtonVisibility(visible);
+    } else if (process.platform === "win32") {
+      if (visible) {
+        mainWindow.setTitleBarOverlay({
+          height: 32,
+          color: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f3f4f6',
+          symbolColor: nativeTheme.shouldUseDarkColors ? '#ffffff' : '#000000',
+        });
+      } else {
+        // Decide to hide it completely by setting height to 0 and colors to transparent
+        mainWindow.setTitleBarOverlay({
+          height: 0,
+          color: '#00000000', // Using ARGB/RGBA transparent hex if supported, or 'transparent'
+          symbolColor: '#00000000',
+        });
+      }
+    }
+    return { success: true };
   });
 
   // Handle reading multiple files in a batch

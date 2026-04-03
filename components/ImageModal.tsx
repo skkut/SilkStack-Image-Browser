@@ -642,11 +642,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // Global cleanup when component unmounts entirely
   useEffect(() => {
+    // Hide window controls when modal opens
+    if (window.electronAPI?.setWindowControlsVisibility) {
+      window.electronAPI.setWindowControlsVisibility(false);
+    }
+
     return () => {
-      // This effect runs once on mount, and the cleanup runs on unmount
-      // We can't access the *latest* imageCache here in the cleanup unless we include it in deps,
-      // but if we include it in deps, it runs every time cache changes.
-      // Instead, since React 18, we can use a ref to track the cache for cleanup.
+      // Show window controls when modal closes
+      if (window.electronAPI?.setWindowControlsVisibility) {
+        window.electronAPI.setWindowControlsVisibility(true);
+      }
     };
   }, []);
 
@@ -1125,6 +1130,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Old useEffect removed. Logic moved to the main loading/preloading effect.
   // Kept Empty for diff cleanliness, correct implementation is above.
 
+  // Handle native window controls visibility
+  useEffect(() => {
+    if (window.electronAPI?.setWindowControlsVisibility) {
+      window.electronAPI.setWindowControlsVisibility(false);
+    }
+    return () => {
+      if (window.electronAPI?.setWindowControlsVisibility) {
+        window.electronAPI.setWindowControlsVisibility(true);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Don't handle navigation keys if hotkeys are paused (e.g., GenerateModal is open)
@@ -1283,9 +1300,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-50 transition-all duration-300 ${
+      className={`fixed inset-0 flex items-center justify-center z-[1000] transition-all duration-300 ${
         isFullscreen ? "bg-gray-950 p-0" : "bg-gray-950/90 backdrop-blur-md p-2"
       }`}
+      style={{ WebkitAppRegion: "no-drag" } as any}
       onClick={onClose}
     >
       <div

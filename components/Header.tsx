@@ -10,6 +10,9 @@ interface HeaderProps {
     onOpenLicense: () => void;
     onOpenA1111Generate?: () => void;
     onOpenComfyUIGenerate?: () => void;
+    onAddFolder?: () => void;
+    onToggleView?: () => void;
+    onShowChangelog?: () => void;
     libraryView?: 'library' | 'smart' | 'model';
     onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
     children?: React.ReactNode;
@@ -20,10 +23,14 @@ const Header: React.FC<HeaderProps> = ({
     onOpenLicense, 
     onOpenA1111Generate, 
     onOpenComfyUIGenerate,
+    onAddFolder,
+    onToggleView,
+    onShowChangelog,
     libraryView,
     onLibraryViewChange,
     children
 }) => {
+  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
   const {
     canUseA1111,
     canUseComfyUI,
@@ -103,17 +110,20 @@ const Header: React.FC<HeaderProps> = ({
   })();
 
   return (
-    <header className="bg-gray-900/80 backdrop-blur-md sticky top-0 z-30 pl-2 pr-4 py-2 border-b border-gray-800/60 shadow-lg transition-all duration-300">
+    <header 
+      className="h-14 bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 px-6 flex items-center shrink-0 z-20 justify-between transition-all duration-300 shadow-sm"
+      style={{ WebkitAppRegion: 'drag' } as any}
+    >
       <div className="flex items-center justify-between gap-4 w-full">
         
-        {/* Left Side - Status Indicator - REMOVED */}
-        <div className="flex items-center gap-4 flex-1 justify-start overflow-hidden">
+        {/* Left Side - Toolbars */}
+        <div className="flex items-center gap-2 flex-1 justify-start h-full min-w-[100px] overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
             {children}
         </div>
 
         {/* Center Side - View Controls (Only visible if libraryView is provided) */}
         {libraryView && onLibraryViewChange && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3" style={{ WebkitAppRegion: 'no-drag' } as any}>
                 <div className="flex items-center bg-gray-800/50 rounded-full p-1 border border-gray-700/50">
                     <button
                         onClick={() => onLibraryViewChange('library')}
@@ -152,7 +162,7 @@ const Header: React.FC<HeaderProps> = ({
 
 
         {/* Right Side - Actions */}
-        <div className="flex items-center gap-3 flex-1 justify-end">
+        <div className="flex items-center gap-3 flex-1 justify-end" style={{ WebkitAppRegion: 'no-drag' } as any}>
             
                    {/* Search Bar - Visible in Library views */}
                    {libraryView && (

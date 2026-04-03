@@ -189,7 +189,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
   // TEST ONLY: Simulate update dialog
-  testUpdateDialog: () => ipcRenderer.invoke('test-update-dialog')
+  testUpdateDialog: () => ipcRenderer.invoke('test-update-dialog'),
+
+  // Custom Menu Actions
+  exitApp: () => ipcRenderer.invoke('exit-app'),
+  minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
+  closeWindow: () => ipcRenderer.invoke('close-window'),
+  setWindowControlsVisibility: (visible) => ipcRenderer.invoke('set-window-controls-visibility', visible),
+  executeEditAction: (action) => ipcRenderer.invoke('execute-edit-action', action),
 });
 
 // DEBUG: Log that preload script has loaded

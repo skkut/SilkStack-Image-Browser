@@ -692,7 +692,9 @@ export const useImageStore = create<ImageState>((set, get) => {
         const combinedState = { ...currentState, ...newState };
 
         // First, get filtered images based on folder selection
+        console.log(`[Store] _updateState: images.length=${imagesWithAnnotations.length}`, combinedState);
         const filteredResult = filterAndSort(combinedState);
+        console.log(`[Store] _updateState: result.filteredImages.length=${filteredResult.filteredImages.length}`);
 
         // Then, recalculate available filters based on the filtered images (after folder selection)
         const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
@@ -707,10 +709,11 @@ export const useImageStore = create<ImageState>((set, get) => {
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
         const { images, searchQuery, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
-
+        console.log('[Store] filterAndSort: state.directories.length=', directories.length);
         const visibleDirectoryIds = new Set(
             directories.filter(dir => (dir.visible ?? true) && (dir.isConnected !== false)).map(dir => dir.id)
         );
+        console.log('[Store] filterAndSort: visibleDirectoryIds.size=', visibleDirectoryIds.size);
 
         const directoryPathMap = new Map<string, string>();
         directories.forEach(dir => {
@@ -1687,7 +1690,10 @@ export const useImageStore = create<ImageState>((set, get) => {
         }),
 
         setPreviewImage: (image) => set({ previewImage: image }),
-        setSelectedImage: (image) => set({ selectedImage: image }),
+        setSelectedImage: (image) => {
+            console.log('[Store] setSelectedImage:', image ? image.id : 'null');
+            set({ selectedImage: image });
+        },
         setFocusedImageIndex: (index) => set({ focusedImageIndex: index }),
         setFullscreenMode: (isFullscreen) => set({ isFullscreenMode: isFullscreen }),
 
@@ -1973,18 +1979,16 @@ export const useImageStore = create<ImageState>((set, get) => {
                             : null;
 
                         set(state => {
-                            const updateList = (list: IndexedImage[]) => list.map(img => {
+                            const newImages = state.images.map(img => {
                                 if (!tagMap.has(img.id)) return img;
                                 const tags = tagMap.get(img.id) ?? [];
                                 return { ...img, autoTags: tags, autoTagsGeneratedAt: autoTagCache.lastGenerated };
                             });
 
-                            return {
+                            return _updateState({
                                 ...state,
-                                images: updateList(state.images),
-                                filteredImages: updateList(state.filteredImages),
                                 tfidfModel: tfidfModel ?? state.tfidfModel,
-                            };
+                            }, newImages);
                         });
                         console.log(`Restored auto-tags for ${tagMap.size} images from cache`);
                     }

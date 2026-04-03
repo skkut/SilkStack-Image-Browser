@@ -29,6 +29,7 @@ import ProOnlyModal from './components/ProOnlyModal';
 import SmartLibrary from './components/SmartLibrary';
 import { ModelView } from './components/ModelView';
 import GridToolbar from './components/GridToolbar';
+import TopMenuBar from './components/TopMenuBar';
 import BatchExportModal from './components/BatchExportModal';
 // Ensure the correct path to ImageTable
 import ImageTable from './components/ImageTable'; // Verify this file exists or adjust the path
@@ -194,8 +195,24 @@ export default function App() {
     }
   }, [loadAnnotations, isAnnotationsLoaded]);
 
-  const primaryPath = safeDirectories[0]?.path;
+  const primaryPath = safeDirectories.length > 0 ? safeDirectories[0].path : null;
   const hasImages = safeFilteredImages.length > 0;
+  const images = useImageStore((state) => state.images);
+  const totalImagesCount = images.length;
+
+  useEffect(() => {
+    console.log('[App] Images state changed:', {
+      filteredCount: safeFilteredImages.length,
+      totalCount: totalImagesCount,
+      directoriesCount: safeDirectories.length,
+      hasImages
+    });
+    
+    // If total images exist but filtered is 0, and no filters are apparent, it's a folder selection issue
+    if (totalImagesCount > 0 && safeFilteredImages.length === 0 && indexingState === 'idle') {
+      console.warn('[App] Potential filtering issue detected: total images exist but none are filtered.');
+    }
+  }, [safeFilteredImages.length, totalImagesCount, safeDirectories.length, hasImages, indexingState]);
 
   // Restore auto-tags from cache after images are loaded
   // This runs early so tags are visible without needing to open Smart Library first
@@ -612,20 +629,230 @@ export default function App() {
   const hasDirectories = safeDirectories.length > 0;
   const directoryPath = selectedImage ? safeDirectories.find(d => d.id === selectedImage.directoryId)?.path : undefined;
 
+  const layoutOffset = hasDirectories 
+    ? (isSidebarCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)') 
+    : '0px';
+
   return (
-    <div className="min-h-screen bg-gradient-to-r from-gray-950 to-gray-900 text-gray-200 font-sans">
+    <div className="flex flex-col h-screen overflow-hidden bg-gray-900 text-gray-100 font-sans selection:bg-blue-500/30">
       <BrowserCompatibilityWarning />
-
-      <CommandPalette
-        isOpen={isCommandPaletteOpen}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        commands={commands}
+      
+      <TopMenuBar 
+        onOpenSettings={() => handleOpenSettings()}
+        onAddFolder={handleSelectFolder}
+        onToggleView={toggleViewMode}
+        onShowChangelog={() => setIsChangelogModalOpen(true)}
+        isSidebarCollapsed={isSidebarCollapsed}
+        hasDirectories={hasDirectories}
       />
+      
+      {/* Spacer for fixed TopMenuBar */}
+      <div className="h-8 shrink-0 w-full" />
 
-      <HotkeyHelp
-        isOpen={isHotkeyHelpOpen}
-        onClose={() => setIsHotkeyHelpOpen(false)}
-        onOpenSettings={handleOpenHotkeySettings}
+      <div className="flex flex-1 overflow-hidden relative">
+        {hasDirectories && (
+          <Sidebar
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            availableModels={availableModels}
+            availableLoras={availableLoras}
+            availableSchedulers={availableSchedulers}
+            selectedModels={selectedModels}
+            selectedLoras={selectedLoras}
+            selectedSchedulers={selectedSchedulers}
+            onModelChange={(models) => setSelectedFilters({ models })}
+            onLoraChange={(loras) => setSelectedFilters({ loras })}
+            onSchedulerChange={(schedulers) => setSelectedFilters({ schedulers })}
+            onClearAllFilters={() => {
+              setSelectedFilters({ models: [], loras: [], schedulers: [] });
+              setAdvancedFilters({});
+            }}
+            advancedFilters={advancedFilters}
+            onAdvancedFiltersChange={setAdvancedFilters}
+            onClearAdvancedFilters={() => setAdvancedFilters({})}
+            availableDimensions={availableDimensions}
+            availableAspectRatios={availableAspectRatios}
+            onAddFolder={handleSelectFolder}
+            isIndexing={indexingState === 'indexing' || indexingState === 'completed'}
+            scanSubfolders={scanSubfolders}
+            excludedFolders={excludedFolders}
+            onExcludeFolder={addExcludedFolder}
+            sortOrder={sortOrder}
+            onSortOrderChange={imageStoreSetSortOrder}
+            onReshuffle={reshuffle}
+          >
+            <DirectoryList
+              directories={safeDirectories}
+              onRemoveDirectory={handleRemoveDirectory}
+              onUpdateDirectory={handleUpdateFolder}
+              refreshingDirectories={refreshingDirectories}
+              onToggleFolderSelection={toggleFolderSelection}
+              onClearFolderSelection={clearFolderSelection}
+              isFolderSelected={isFolderSelected}
+              selectedFolders={selectedFolders}
+              includeSubfolders={includeSubfolders}
+              onToggleIncludeSubfolders={toggleIncludeSubfolders}
+              isIndexing={indexingState === 'indexing' || indexingState === 'paused' || indexingState === 'completed'}
+              scanSubfolders={scanSubfolders}
+            />
+          </Sidebar>
+        )}
+        
+        <ImagePreviewSidebar />
+
+        <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${previewImage ? 'mr-96' : 'mr-0'}`}
+             style={{ marginLeft: layoutOffset }}>
+          <Header
+            onOpenSettings={() => handleOpenSettings()}
+            onOpenLicense={handleOpenLicenseSettings}
+            onAddFolder={handleSelectFolder}
+            onToggleView={toggleViewMode}
+            onShowChangelog={() => setIsChangelogModalOpen(true)}
+            libraryView={libraryView}
+            onLibraryViewChange={setLibraryView}
+          >
+            {hasDirectories && (
+              <GridToolbar
+                selectedImages={safeSelectedImages}
+                images={safeFilteredImages}
+                directories={safeDirectories}
+                onDeleteSelected={handleDeleteSelectedImages}
+                onBatchExport={() => setIsBatchExportModalOpen(true)}
+                onClearSelection={clearSelection}
+              />
+            )}
+          </Header>
+
+          <main className="flex-1 overflow-hidden relative flex flex-col">
+
+            <div className="flex-1 overflow-y-auto min-h-0 bg-gray-900/40">
+              {error && (
+                <div className="mx-6 bg-red-900/50 text-red-300 p-3 rounded-lg my-4 flex items-center justify-between font-medium">
+                  <span>{error}</span>
+                  <button
+                    onClick={() => setError(null)}
+                    className="ml-4 p-1 hover:bg-red-800/50 rounded transition-colors"
+                    title="Dismiss message"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+              
+              {success && (
+                <Toast
+                  message={success}
+                  onDismiss={() => setSuccess(null)}
+                />
+              )}
+
+              {newImagesToast && (
+                <div className="fixed bottom-4 right-4 z-50 animate-slide-in-right">
+                  <div className="bg-blue-900/90 backdrop-blur-sm text-blue-100 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] border border-blue-700/50">
+                    <div className="flex items-center gap-2 flex-1">
+                      <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
+                      <span className="text-sm">
+                        <span className="font-semibold">{newImagesToast.count}</span> new image{newImagesToast.count !== 1 ? 's' : ''} detected in <span className="font-semibold">{newImagesToast.directoryName}</span>
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setNewImagesToast(null)}
+                      className="p-1 hover:bg-blue-800/50 rounded transition-colors flex-shrink-0"
+                      title="Dismiss"
+                      aria-label="Dismiss notification"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {indexingState === 'indexing' && (
+                <div className="mx-6 p-4 mb-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm text-gray-300 font-medium flex items-center gap-2">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      Indexing library...
+                    </span>
+                    <span className="text-sm text-gray-400 font-mono">
+                      {progress.current} / {progress.total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden shadow-inner">
+                    <div 
+                      className="bg-blue-500 h-full transition-all duration-300 shadow-[0_0_10px_rgba(59,130,246,0.5)]" 
+                      style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {!hasDirectories ? (
+                <div className="h-full px-6 flex items-center justify-center">
+                  <FolderSelector onSelectFolder={handleSelectFolder} />
+                </div>
+              ) : (
+                <div className="h-full">
+                  {libraryView === 'smart' ? (
+                    <SmartLibrary 
+                      onBatchExport={() => setIsBatchExportModalOpen(true)}
+                    />
+                  ) : libraryView === 'model' ? (
+                    <ModelView 
+                      onModelSelect={(modelName) => {
+                        setSelectedFilters({ models: [modelName] });
+                        setLibraryView('library');
+                      }}
+                    />
+                  ) : (
+                    <ImageGrid
+                      images={safeFilteredImages}
+                      onImageClick={handleImageSelection}
+                      selectedImages={safeSelectedImages}
+                      onBatchExport={() => setIsBatchExportModalOpen(true)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </main>
+          
+          {libraryView === 'library' && (
+            <Footer
+              viewMode={viewMode}
+              onViewModeChange={toggleViewMode}
+              filteredCount={safeFilteredImages.length}
+              totalCount={selectionTotalImages}
+              directoryCount={selectionDirectoryCount}
+              enrichmentProgress={enrichmentProgress}
+            />
+          )}
+        </div>
+      </div>
+
+      {selectedImage && (
+        <ImageModal
+          image={selectedImage}
+          onClose={handleCloseImageModal}
+          onImageDeleted={handleImageDeleted}
+          onImageRenamed={handleImageRenamed}
+          currentIndex={getCurrentImageIndex()}
+          totalImages={safeFilteredImages.length}
+          onNavigateNext={handleImageModalNavigateNext}
+          onNavigatePrevious={handleImageModalNavigatePrevious}
+          directoryPath={directoryPath || ''}
+          isIndexing={indexingState === 'indexing'}
+          nextImage={safeFilteredImages[(getCurrentImageIndex() + 1) % safeFilteredImages.length]}
+          previousImage={safeFilteredImages[(getCurrentImageIndex() - 1 + safeFilteredImages.length) % safeFilteredImages.length]}
+        />
+      )}
+
+      <BatchExportModal
+        isOpen={isBatchExportModalOpen}
+        onClose={() => setIsBatchExportModalOpen(false)}
+        selectedImageIds={safeSelectedImages}
+        filteredImages={safeFilteredImages}
+        directories={safeDirectories}
       />
 
       <SettingsModal
@@ -638,213 +865,35 @@ export default function App() {
         focusSection={settingsSection}
       />
 
-
-      <BatchExportModal
-        isOpen={isBatchExportModalOpen}
-        onClose={() => setIsBatchExportModalOpen(false)}
-        selectedImageIds={safeSelectedImages}
-        filteredImages={safeFilteredImages}
-        directories={safeDirectories}
+      <ChangelogModal 
+        isOpen={isChangelogModalOpen}
+        onClose={() => setIsChangelogModalOpen(false)} 
+        currentVersion={currentVersion}
       />
 
-      {hasDirectories && (
-        <Sidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-          availableModels={availableModels}
-          availableLoras={availableLoras}
-          availableSchedulers={availableSchedulers}
-          selectedModels={selectedModels}
-          selectedLoras={selectedLoras}
-          selectedSchedulers={selectedSchedulers}
-          onModelChange={(models) => setSelectedFilters({ models })}
-          onLoraChange={(loras) => setSelectedFilters({ loras })}
-          onSchedulerChange={(schedulers) => setSelectedFilters({ schedulers })}
-          onClearAllFilters={() => {
-            setSelectedFilters({ models: [], loras: [], schedulers: [] });
-            setAdvancedFilters({});
-          }}
-          advancedFilters={advancedFilters}
-          onAdvancedFiltersChange={setAdvancedFilters}
-          onClearAdvancedFilters={() => setAdvancedFilters({})}
-          availableDimensions={availableDimensions}
-          availableAspectRatios={availableAspectRatios}
-          onAddFolder={handleSelectFolder}
-          isIndexing={indexingState === 'indexing' || indexingState === 'completed'}
-          scanSubfolders={scanSubfolders}
-          excludedFolders={excludedFolders}
-          onExcludeFolder={addExcludedFolder}
-          sortOrder={sortOrder}
-          onSortOrderChange={imageStoreSetSortOrder}
-          onReshuffle={reshuffle}
-        >
-          <DirectoryList
-            directories={safeDirectories}
-            onRemoveDirectory={handleRemoveDirectory}
-            onUpdateDirectory={handleUpdateFolder}
-            refreshingDirectories={refreshingDirectories}
-            onToggleFolderSelection={toggleFolderSelection}
-            onClearFolderSelection={clearFolderSelection}
-            isFolderSelected={isFolderSelected}
-            selectedFolders={selectedFolders}
-            includeSubfolders={includeSubfolders}
-            onToggleIncludeSubfolders={toggleIncludeSubfolders}
-            isIndexing={indexingState === 'indexing' || indexingState === 'paused' || indexingState === 'completed'}
-            scanSubfolders={scanSubfolders}
-          />
-        </Sidebar>
-      )}
-      
-      <ImagePreviewSidebar />
+      <ProOnlyModal
+        isOpen={proModalOpen}
+        onClose={closeProModal}
+        feature={proModalFeature}
+        isTrialActive={isTrialActive}
+        daysRemaining={trialDaysRemaining}
+        canStartTrial={canStartTrial}
+        isExpired={isExpired}
+        isPro={isPro}
+        onStartTrial={startTrial}
+      />
 
-      <div className={`${hasDirectories ? (isSidebarCollapsed ? 'ml-14' : 'ml-80') : 'ml-0'} ${previewImage ? 'mr-96' : 'mr-0'} h-screen flex flex-col transition-all duration-300 ease-in-out`}>
-        <Header
-          onOpenSettings={() => handleOpenSettings()}
-          onOpenLicense={handleOpenLicenseSettings}
-          libraryView={libraryView}
-          onLibraryViewChange={setLibraryView}
-        >
-          {hasDirectories && (
-            <GridToolbar
-              selectedImages={safeSelectedImages}
-              images={safeFilteredImages}
-              directories={safeDirectories}
-              onDeleteSelected={handleDeleteSelectedImages}
-              onBatchExport={handleOpenBatchExport}
-              onClearSelection={clearSelection}
-            />
-          )}
-        </Header>
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        commands={commands}
+      />
 
-        <main className="mx-auto pl-2 pr-4 py-0 flex-1 flex flex-col min-h-0 w-full">
-          {error && (
-            <div className="bg-red-900/50 text-red-300 p-3 rounded-lg my-4 flex items-center justify-between">
-              <span>{error}</span>
-              <button
-                onClick={() => setError(null)}
-                className="ml-4 p-1 hover:bg-red-800/50 rounded transition-colors"
-                title="Dismiss message"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          )}
-          
-          {/* Toast Notification */}
-          {success && (
-            <Toast
-              message={success}
-              onDismiss={() => setSuccess(null)}
-            />
-          )}
-
-          {/* New Images Toast */}
-          {newImagesToast && (
-            <div className="fixed bottom-4 right-4 z-50 animate-slide-in-right">
-              <div className="bg-blue-900/90 backdrop-blur-sm text-blue-100 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] border border-blue-700/50">
-                <div className="flex items-center gap-2 flex-1">
-                  <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse"></div>
-                  <span className="text-sm">
-                    <span className="font-semibold">{newImagesToast.count}</span> new image{newImagesToast.count !== 1 ? 's' : ''} detected in <span className="font-semibold">{newImagesToast.directoryName}</span>
-                  </span>
-                </div>
-                <button
-                  onClick={() => setNewImagesToast(null)}
-                  className="p-1 hover:bg-blue-800/50 rounded transition-colors flex-shrink-0"
-                  title="Dismiss"
-                  aria-label="Dismiss notification"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!isLoading && !hasDirectories && <FolderSelector onSelectFolder={handleSelectFolder} />}
-
-          {hasDirectories && (
-            <>
-              <div className="flex-1 min-h-0">
-                {libraryView === 'library' ? (
-                  viewMode === 'grid' ? (
-                        <ImageGrid
-                          images={safeFilteredImages}
-                          onImageClick={handleImageSelection}
-                          selectedImages={safeSelectedImages}
-                          onBatchExport={handleOpenBatchExport}
-                        />
-                      ) : (
-                        <ImageTable
-                          images={safeFilteredImages}
-                          onImageClick={handleImageSelection}
-                          selectedImages={safeSelectedImages}
-                          onBatchExport={handleOpenBatchExport}
-                        />
-                  )
-                ) : libraryView === 'model' ? (
-                  <ModelView
-                    onModelSelect={(modelName) => {
-                      setSelectedFilters({ models: [modelName] });
-                      setLibraryView('library');
-                    }}
-                  />
-                ) : (
-                  <SmartLibrary
-                    onBatchExport={handleOpenBatchExport}
-                  />
-                )}
-              </div>
-
-              {libraryView === 'library' && (
-                <Footer
-                  viewMode={viewMode}
-                  onViewModeChange={toggleViewMode}
-                  filteredCount={safeFilteredImages.length}
-                  totalCount={selectionTotalImages}
-                  directoryCount={selectionDirectoryCount}
-                  enrichmentProgress={enrichmentProgress}
-                />
-              )}
-            </>
-          )}
-        </main>
-
-        {selectedImage && directoryPath && (
-          <ImageModal
-            image={selectedImage}
-            onClose={handleCloseImageModal}
-            onImageDeleted={handleImageDeleted}
-            onImageRenamed={handleImageRenamed}
-            currentIndex={getCurrentImageIndex()}
-            totalImages={safeFilteredImages.length}
-            onNavigateNext={handleImageModalNavigateNext}
-            onNavigatePrevious={handleImageModalNavigatePrevious}
-            directoryPath={directoryPath}
-            isIndexing={progress && progress.total > 0 && progress.current < progress.total}
-            nextImage={safeFilteredImages[(getCurrentImageIndex() + 1) % safeFilteredImages.length]}
-            previousImage={safeFilteredImages[(getCurrentImageIndex() - 1 + safeFilteredImages.length) % safeFilteredImages.length]}
-          />
-        )}
-
-        <ChangelogModal
-          isOpen={isChangelogModalOpen}
-          onClose={() => setIsChangelogModalOpen(false)}
-          currentVersion={currentVersion}
-        />
-
-        <ProOnlyModal
-          isOpen={proModalOpen}
-          onClose={closeProModal}
-          feature={proModalFeature}
-          isTrialActive={isTrialActive}
-          daysRemaining={trialDaysRemaining}
-          canStartTrial={canStartTrial}
-          onStartTrial={startTrial}
-          isExpired={isExpired}
-          isPro={isPro}
-        />
-
-      </div>
+      <HotkeyHelp
+        isOpen={isHotkeyHelpOpen}
+        onClose={() => setIsHotkeyHelpOpen(false)}
+        onOpenSettings={handleOpenHotkeySettings}
+      />
     </div>
   );
 }

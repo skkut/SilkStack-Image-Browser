@@ -140,7 +140,10 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   }
 
   return (
-    <div className="flex items-center gap-2 w-full h-full min-w-0">
+    <div 
+      className="flex items-center gap-2 w-full h-full min-w-0"
+      style={{ WebkitAppRegion: 'no-drag' } as any}
+    >
       {/* Selection Context Toolbar - Centered or justified as needed */}
       <div className="flex items-center gap-1 flex-1 overflow-hidden">
           {selectedCount > 0 && (

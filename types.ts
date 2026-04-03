@@ -280,6 +280,9 @@ export interface ElectronAPI {
 
   // External Apps
 
+  setWindowControlsVisibility: (
+    visible: boolean,
+  ) => Promise<{ success: boolean; error?: string }>;
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 }
 

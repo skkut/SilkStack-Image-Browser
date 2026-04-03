@@ -136,15 +136,18 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div
         data-area="sidebar"
         tabIndex={-1}
-        className="fixed left-0 top-0 h-full w-14 bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-lg shadow-black/20">
+        className="fixed left-0 top-0 h-full bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-lg shadow-black/20"
+        style={{ width: 'var(--sidebar-collapsed-width)' }}
+      >
         
         {/* Header section for the logo/toggle button - structure exactly matches expanded sidebar height and vertical padding */}
         <div className="flex flex-col border-b border-gray-800/60 bg-gray-900/40">
-          <div className="flex flex-col items-center pt-6 pb-4 px-2">
+          <div className="flex flex-col items-center pt-6 pb-4 px-2" style={{ WebkitAppRegion: 'drag' } as any}>
             <button
               onClick={onToggleCollapse}
               className="relative group"
               title="Expand sidebar"
+              style={{ WebkitAppRegion: 'no-drag' } as any}
             >
                 <div className="absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <img src="logo1.png" alt="Expand" className="h-9 w-9 rounded-xl shadow-lg relative z-10 transition-transform duration-200 group-hover:scale-105" />
@@ -182,9 +185,11 @@ const Sidebar: React.FC<SidebarProps> = ({
     <div
       data-area="sidebar"
       tabIndex={-1}
-      className="fixed left-0 top-0 h-full w-80 bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-2xl shadow-black/40">
+      className="fixed left-0 top-0 h-full bg-gray-900/90 backdrop-blur-md border-r border-gray-800/60 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-2xl shadow-black/40"
+      style={{ width: 'var(--sidebar-width)' }}
+    >
       {/* Header with collapse button */}
-      <div className="flex flex-col border-b border-gray-800/60 bg-gray-900/40">
+      <div className="flex flex-col border-b border-gray-800/60 bg-gray-900/40" style={{ WebkitAppRegion: 'drag' } as any}>
         <div className="flex items-center gap-3 p-4 pb-2">
             <div className="relative flex-shrink-0">
                 <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full opacity-50" />
@@ -202,6 +207,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onClick={onToggleCollapse}
             className="text-gray-400 hover:text-gray-100 transition-all duration-200 hover:shadow-lg hover:shadow-purple-500/20 bg-gray-800/40 hover:bg-gray-700/60 rounded-lg p-1.5"
             title="Collapse sidebar"
+            style={{ WebkitAppRegion: 'no-drag' } as any}
             >
             <ChevronLeft className="w-4 h-4" />
             </button>
