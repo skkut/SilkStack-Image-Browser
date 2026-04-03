@@ -789,12 +789,23 @@ export default function App() {
                       }}
                     />
                   ) : (
-                    <ImageGrid
-                      images={safeFilteredImages}
-                      onImageClick={handleImageSelection}
-                      selectedImages={safeSelectedImages}
-                      onBatchExport={() => setIsBatchExportModalOpen(true)}
-                    />
+                    <div className="h-full">
+                      {viewMode === 'grid' ? (
+                        <ImageGrid
+                          images={safeFilteredImages}
+                          onImageClick={handleImageSelection}
+                          selectedImages={safeSelectedImages}
+                          onBatchExport={() => setIsBatchExportModalOpen(true)}
+                        />
+                      ) : (
+                        <ImageTable
+                          images={safeFilteredImages}
+                          onImageClick={handleImageSelection}
+                          selectedImages={safeSelectedImages}
+                          onBatchExport={() => setIsBatchExportModalOpen(true)}
+                        />
+                      )}
+                    </div>
                   )}
                 </div>
               )}
