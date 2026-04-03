@@ -246,6 +246,7 @@ interface ImageState {
   removeExcludedFolder: (path: string) => void;
   isFolderSelected: (path: string) => boolean;
   setFolderColor: (path: string, color: string | undefined) => Promise<void>;
+  setFolderEmoji: (path: string, emoji: string | undefined) => Promise<void>;
   toggleIncludeSubfolders: () => void;
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { current: number; total: number } | null) => void;
@@ -1277,15 +1278,41 @@ export const useImageStore = create<ImageState>((set, get) => {
         setFolderColor: async (path, color) => {
             const normalizedPath = normalizePath(path);
             const { folderPreferences } = get();
+            const existingPref = folderPreferences.get(normalizedPath);
             
             const pref: FolderPreference = {
                 path: normalizedPath,
-                color
+                color,
+                emoji: existingPref?.emoji
             };
 
             set(state => {
                 const newPrefs = new Map(state.folderPreferences);
-                if (color) {
+                if (color || pref.emoji) {
+                    newPrefs.set(normalizedPath, pref);
+                } else {
+                    newPrefs.delete(normalizedPath);
+                }
+                return { folderPreferences: newPrefs };
+            });
+
+            await saveFolderPreference(pref);
+        },
+
+        setFolderEmoji: async (path, emoji) => {
+            const normalizedPath = normalizePath(path);
+            const { folderPreferences } = get();
+            const existingPref = folderPreferences.get(normalizedPath);
+            
+            const pref: FolderPreference = {
+                path: normalizedPath,
+                color: existingPref?.color,
+                emoji
+            };
+
+            set(state => {
+                const newPrefs = new Map(state.folderPreferences);
+                if (emoji || pref.color) {
                     newPrefs.set(normalizedPath, pref);
                 } else {
                     newPrefs.delete(normalizedPath);

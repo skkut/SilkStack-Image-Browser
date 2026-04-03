@@ -7,6 +7,7 @@ const STORE_NAME = "folderPreferences";
 export interface FolderPreference {
   path: string; // The absolute path of the folder, used as the key
   color?: string; // The hex color code
+  emoji?: string; // The emoji
 }
 
 export async function loadFolderPreferences(): Promise<FolderPreference[]> {
