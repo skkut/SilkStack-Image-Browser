@@ -44,10 +44,9 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
             {/* Layer 2: Interactive Content Layer (Pinned above the drag handle) */}
             <div 
                 className="relative z-10 flex items-center h-full w-full pl-1" 
-                style={{ WebkitAppRegion: 'no-drag' } as any}
             >
                 {/* Menu Items */}
-                <div className="flex items-center h-full">
+                <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as any}>
                     <CustomMenuBar 
                         onOpenSettings={onOpenSettings}
                         onAddFolder={onAddFolder}
