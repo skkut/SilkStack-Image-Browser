@@ -1310,7 +1310,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           isFullscreen
             ? "w-full h-full rounded-none"
             : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-gray-50/10"
-        } flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
+        } relative group/modal flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
         onClick={(e) => {
           e.stopPropagation();
           hideContextMenu();
@@ -1364,7 +1364,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {onNavigatePrevious && (
             <button
               onClick={onNavigatePrevious}
-              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
             >
               ←
             </button>
@@ -1372,7 +1372,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {onNavigateNext && (
             <button
               onClick={onNavigateNext}
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-gray-950/50 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
             >
               →
             </button>
@@ -1383,7 +1383,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </div>
 
           {!isVideo && (
-            <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover/modal:opacity-100 transition-opacity">
               <button
                 onClick={handleZoomIn}
                 disabled={zoom >= 5}
@@ -1438,17 +1438,17 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </div>
           )}
 
-          <div className="absolute top-4 right-4 flex items-center gap-2">
+          <div className={`absolute top-4 ${isSidebarCollapsed ? "right-14" : "right-4"} flex items-center gap-2`}>
             <button
               onClick={toggleFullscreen}
-              className="bg-gray-950/60 text-gray-50 rounded-full px-3 py-2 text-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              className="bg-gray-950/60 text-gray-50 rounded-full px-3 py-2 text-sm opacity-0 group-hover/modal:opacity-100 transition-opacity"
             >
               {isFullscreen ? "Exit" : "Fullscreen"}
             </button>
             {!isFullscreen && (
               <button
                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
                 aria-label={
                   isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
                 }
@@ -1463,14 +1463,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 )}
               </button>
             )}
-            <button
-              onClick={onClose}
-              className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity"
-              aria-label="Close image"
-              title="Close (Esc)"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
         </div>
 
@@ -2075,6 +2067,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </pre>
             )}
           </div>
+        </div>
+
+        {/* Modal Close Group - Positioned at far top corner */}
+        <div className="absolute top-4 right-4 z-[60]">
+          <button
+            onClick={onClose}
+            className="bg-gray-950/60 text-gray-50 rounded-full p-2 transition-opacity"
+            aria-label="Close image"
+            title="Close (Esc)"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

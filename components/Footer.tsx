@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff } from 'lucide-react';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 interface FooterProps {
   viewMode: 'grid' | 'list';
@@ -30,6 +31,8 @@ const Footer: React.FC<FooterProps> = ({
   directoryCount,
   enrichmentProgress,
 }) => {
+  const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
+  const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
   const folderText = directoryCount === 1 ? 'folder' : 'folders';
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
 
@@ -71,6 +74,17 @@ const Footer: React.FC<FooterProps> = ({
           </div>
         )}
       </div>
+      <button
+        onClick={() => setEnableSafeMode(!enableSafeMode)}
+        className={`p-1.5 rounded-lg transition-all duration-200 ${
+          enableSafeMode
+            ? 'text-gray-400 hover:text-gray-100'
+            : 'text-gray-600 hover:text-gray-400'
+        }`}
+        title={enableSafeMode ? 'Safe Mode on' : 'Safe Mode off'}
+      >
+        {enableSafeMode ? <Eye size={16} /> : <EyeOff size={16} />}
+      </button>
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>

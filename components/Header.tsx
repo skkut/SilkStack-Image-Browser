@@ -44,8 +44,6 @@ const Header: React.FC<HeaderProps> = ({
   } = useFeatureAccess();
 
   // Store hooks for View Controls
-  const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
-  const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
   const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
   const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
   const viewingStackPrompt = useImageStore((state) => state.viewingStackPrompt);
@@ -207,18 +205,7 @@ const Header: React.FC<HeaderProps> = ({
                      </>
                    )}
 
-                   {/* Safe Mode Toggle */}
-                   <button
-                     onClick={() => setEnableSafeMode(!enableSafeMode)}
-                     className={`p-1.5 rounded-lg transition-all duration-200 ${
-                         enableSafeMode
-                         ? 'text-gray-400 hover:text-gray-100'
-                         : 'text-gray-600 hover:text-gray-400'
-                     }`}
-                     title={enableSafeMode ? 'Safe Mode on' : 'Safe Mode off'}
-                   >
-                     {enableSafeMode ? <Eye size={16} /> : <EyeOff size={16} />}
-                   </button>
+
            
           {/* Smart Library Actions (Contextual) */}
           {libraryView === 'smart' && (
