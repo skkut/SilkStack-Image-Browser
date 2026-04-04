@@ -253,6 +253,12 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
         totalCount={selectionTotalImages}
         directoryCount={selectionDirectoryCount}
         enrichmentProgress={enrichmentProgress}
+        showSmartActions={true}
+        onCluster={handleGenerateClusters}
+        onAutoTag={handleGenerateAutoTags}
+        isClustering={isClustering}
+        isAutoTagging={isAutoTagging}
+        hasDirectories={hasDirectories}
       />
     </section>
   );

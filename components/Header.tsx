@@ -55,23 +55,6 @@ const Header: React.FC<HeaderProps> = ({
   const directories = useImageStore((state) => state.directories);
   const scanSubfolders = useImageStore((state) => state.scanSubfolders);
   const isClustering = useImageStore((state) => state.isClustering);
-  const isAutoTagging = useImageStore((state) => state.isAutoTagging);
-  const startClustering = useImageStore((state) => state.startClustering);
-  const startAutoTagging = useImageStore((state) => state.startAutoTagging);
-
-  const primaryPath = directories[0]?.path ?? '';
-  const hasDirectories = directories.length > 0;
-  const DEFAULT_SIMILARITY_THRESHOLD = 0.88;
-
-  const handleGenerateClusters = () => {
-    if (!primaryPath) return;
-    startClustering(primaryPath, scanSubfolders, DEFAULT_SIMILARITY_THRESHOLD);
-  };
-
-  const handleGenerateAutoTags = () => {
-    if (!primaryPath) return;
-    startAutoTagging(primaryPath, scanSubfolders);
-  };
 
   const statusConfig = (() => {
     if (!initialized) {
@@ -186,34 +169,6 @@ const Header: React.FC<HeaderProps> = ({
                    )}
 
             
-           {/* Smart Library Actions (Contextual) */}
-           {libraryView === 'smart' && (
-              <div className="flex items-center gap-2 mr-2 animate-in fade-in duration-300">
-                 <button
-                     onClick={handleGenerateClusters}
-                     disabled={!hasDirectories || isClustering}
-                     className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                         isClustering ? 'text-blue-400/50 cursor-wait' : 'text-blue-400 hover:bg-blue-500/10 hover:text-blue-300'
-                     }`}
-                     title="Generate Clusters"
-                 >
-                     <Layers size={14} className={isClustering ? 'animate-pulse' : ''}/>
-                     <span className="hidden xl:inline">Cluster</span>
-                 </button>
-                 <button
-                     onClick={handleGenerateAutoTags}
-                     disabled={!hasDirectories || isAutoTagging}
-                     className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                         isAutoTagging ? 'text-purple-400/50 cursor-wait' : 'text-purple-400 hover:bg-purple-500/10 hover:text-purple-300'
-                     }`}
-                     title="Generate Auto-Tags"
-                 >
-                     <Sparkles size={14} className={isAutoTagging ? 'animate-pulse' : ''}/>
-                     <span className="hidden xl:inline">Auto-Tag</span>
-                 </button>
-                  <div className="w-px h-5 bg-gray-700/50 mx-1"></div>
-              </div>
-           )}
 
           
           <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50">

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2 } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 
@@ -13,6 +13,12 @@ interface FooterProps {
   directoryCount?: number;
   enrichmentProgress?: { processed: number; total: number } | null;
   showStackingToggle?: boolean;
+  showSmartActions?: boolean;
+  onCluster?: () => void;
+  onAutoTag?: () => void;
+  isClustering?: boolean;
+  isAutoTagging?: boolean;
+  hasDirectories?: boolean;
 }
 
 const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
@@ -33,6 +39,12 @@ const Footer: React.FC<FooterProps> = ({
   directoryCount,
   enrichmentProgress,
   showStackingToggle = false,
+  showSmartActions = false,
+  onCluster,
+  onAutoTag,
+  isClustering = false,
+  isAutoTagging = false,
+  hasDirectories = false,
 }) => {
   const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
   const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
@@ -93,6 +105,35 @@ const Footer: React.FC<FooterProps> = ({
           >
             {isStackingEnabled ? <Layers2 size={16} /> : <Layers size={16} />}
           </button>
+        )}
+
+        {/* Smart Library Actions */}
+        {showSmartActions && (
+          <div className="flex items-center gap-2 mr-2">
+            <button
+              onClick={onCluster}
+              disabled={!hasDirectories || isClustering}
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                isClustering ? 'text-blue-400/50 cursor-wait' : 'text-blue-400 hover:bg-blue-500/10 hover:text-blue-300'
+              }`}
+              title="Generate Clusters"
+            >
+              <Layers size={14} className={isClustering ? 'animate-pulse' : ''}/>
+              <span className="hidden xl:inline">Cluster</span>
+            </button>
+            <button
+              onClick={onAutoTag}
+              disabled={!hasDirectories || isAutoTagging}
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                isAutoTagging ? 'text-purple-400/50 cursor-wait' : 'text-purple-400 hover:bg-purple-500/10 hover:text-purple-300'
+              }`}
+              title="Generate Auto-Tags"
+            >
+              <Sparkles size={14} className={isAutoTagging ? 'animate-pulse' : ''}/>
+              <span className="hidden xl:inline">Auto-Tag</span>
+            </button>
+            <div className="w-px h-5 bg-gray-700/50 mx-1"></div>
+          </div>
         )}
 
         {/* Safe Mode Toggle */}
