@@ -1,92 +1,30 @@
-import React, { useState } from 'react';
-import { Settings, Sparkles, ChevronDown, Layers, Layers2, Eye, EyeOff, ArrowLeft } from 'lucide-react';
-import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import { useSettingsStore } from '../store/useSettingsStore';
+import React from 'react';
+import { Settings } from 'lucide-react';
+
 import { useImageStore } from '../store/useImageStore';
 import SearchBar from './SearchBar';
 
 interface HeaderProps {
     onOpenSettings: () => void;
-    onOpenLicense: () => void;
-    onOpenA1111Generate?: () => void;
-    onOpenComfyUIGenerate?: () => void;
     onAddFolder?: () => void;
     onToggleView?: () => void;
     onShowChangelog?: () => void;
     libraryView?: 'library' | 'smart' | 'model';
     onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
-    children?: React.ReactNode;
 }
 
 const Header: React.FC<HeaderProps> = ({ 
     onOpenSettings, 
-    onOpenLicense, 
-    onOpenA1111Generate, 
-    onOpenComfyUIGenerate,
     onAddFolder,
     onToggleView,
     onShowChangelog,
     libraryView,
     onLibraryViewChange,
-    children
 }) => {
-  const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
-  const {
-    canUseA1111,
-    canUseComfyUI,
-    showProModal,
-    isTrialActive,
-    trialDaysRemaining,
-    isPro,
-    initialized,
-    isExpired,
-    isFree,
-  } = useFeatureAccess();
-
-  // Store hooks for View Controls
-  const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
-  const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
-  const viewingStackPrompt = useImageStore((state) => state.viewingStackPrompt);
-  const setViewingStackPrompt = useImageStore((state) => state.setViewingStackPrompt);
   const searchQuery = useImageStore((state) => state.searchQuery);
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
 
-  // Store hooks for Smart Library Actions
-  const directories = useImageStore((state) => state.directories);
-  const scanSubfolders = useImageStore((state) => state.scanSubfolders);
-  const isClustering = useImageStore((state) => state.isClustering);
 
-  const statusConfig = (() => {
-    if (!initialized) {
-      return {
-        label: 'Status: Checking license…',
-        classes: 'text-gray-300 bg-gray-800/70 border-gray-700',
-      };
-    }
-    if (isPro) {
-      return {
-        label: 'Status: Pro License',
-        classes: 'text-green-300 bg-green-900/30 border-green-600/50',
-      };
-    }
-    if (isTrialActive) {
-      const daysLabel = `${trialDaysRemaining} ${trialDaysRemaining === 1 ? 'day' : 'days'} left`;
-      return {
-        label: `Status: Pro Trial (${daysLabel})`,
-        classes: 'text-amber-400 bg-amber-900/30 border-amber-500/50',
-      };
-    }
-    if (isExpired) {
-      return {
-        label: 'Status: Trial expired',
-        classes: 'text-red-300 bg-red-900/30 border-red-600/50',
-      };
-    }
-    return {
-      label: 'Status: Free Version',
-      classes: 'text-gray-300 bg-gray-800/60 border-gray-700',
-    };
-  })();
 
   return (
     <header 
@@ -95,10 +33,8 @@ const Header: React.FC<HeaderProps> = ({
     >
       <div className="flex items-center justify-between gap-4 w-full">
         
-        {/* Left Side - Toolbars */}
-        <div className="flex items-center gap-2 flex-1 justify-start h-full min-w-[100px] overflow-hidden" style={{ WebkitAppRegion: 'no-drag' } as any}>
-            {children}
-        </div>
+        {/* Left Side - Spacer */}
+        <div className="flex-1" />
 
         {/* Center Side - View Controls (Only visible if libraryView is provided) */}
         {libraryView && onLibraryViewChange && (
@@ -153,20 +89,7 @@ const Header: React.FC<HeaderProps> = ({
                      </div>
                    )}
 
-                   {/* Back from Stack Button */}
-                   {libraryView === 'library' && viewingStackPrompt && (
-                       <button
-                           onClick={() => {
-                           setSearchQuery('');
-                           setStackingEnabled(true);
-                           setViewingStackPrompt(null);
-                           }}
-                           className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-colors text-xs font-medium mr-2"
-                       >
-                           <ArrowLeft size={12} />
-                           Back
-                       </button>
-                   )}
+
 
             
 

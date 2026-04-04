@@ -7,7 +7,7 @@ import { useImageSelection } from './hooks/useImageSelection';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useFeatureAccess } from './hooks/useFeatureAccess';
 import { Directory } from './types';
-import { X } from 'lucide-react';
+import { X, ArrowLeft } from 'lucide-react';
 
 import FolderSelector from './components/FolderSelector';
 import ImageGrid from './components/ImageGrid';
@@ -80,6 +80,10 @@ export default function App() {
 
   // Modal state selectors
 
+  const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
+  const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
+  const viewingStackPrompt = useImageStore((state) => state.viewingStackPrompt);
+  const setViewingStackPrompt = useImageStore((state) => state.setViewingStackPrompt);
   const isAnnotationsLoaded = useImageStore((state) => state.isAnnotationsLoaded);
   const refreshingDirectories = useImageStore((state) => state.refreshingDirectories);
 
@@ -683,7 +687,6 @@ export default function App() {
              style={{ marginLeft: layoutOffset }}>
           <Header
             onOpenSettings={() => handleOpenSettings()}
-            onOpenLicense={handleOpenLicenseSettings}
             onAddFolder={handleSelectFolder}
             onToggleView={toggleViewMode}
             onShowChangelog={() => setIsChangelogModalOpen(true)}
@@ -692,6 +695,25 @@ export default function App() {
           />
 
           <main className="flex-1 overflow-hidden relative flex flex-col">
+            {/* Back from Stack Button - Now outside header */}
+            {libraryView === 'library' && viewingStackPrompt && (
+              <div className="px-6 py-2 bg-gray-900/40 border-b border-gray-800/40 flex items-center shrink-0">
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setStackingEnabled(true);
+                    setViewingStackPrompt(null);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-all text-xs font-medium border border-blue-500/20 shadow-sm"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Back to all stacks</span>
+                </button>
+                <div className="ml-3 text-xs text-gray-400 truncate">
+                  Viewing stack: <span className="text-gray-200 font-mono">{viewingStackPrompt}</span>
+                </div>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto min-h-0 bg-gray-900/40">
               {error && (
