@@ -263,6 +263,8 @@ function createApplicationMenu() {
             }
           },
         },
+        { role: "reload" },
+        { role: "forceReload" },
         { type: "separator" },
         {
           label: "Settings",
@@ -283,18 +285,7 @@ function createApplicationMenu() {
         },
       ],
     },
-    {
-      label: "Edit",
-      submenu: [
-        { role: "undo" },
-        { role: "redo" },
-        { type: "separator" },
-        { role: "cut" },
-        { role: "copy" },
-        { role: "paste" },
-        { role: "selectAll" },
-      ],
-    },
+
     {
       label: "View",
       submenu: [
@@ -308,8 +299,6 @@ function createApplicationMenu() {
           },
         },
         { type: "separator" },
-        { role: "reload" },
-        { role: "forceReload" },
         { role: "toggleDevTools" },
         { type: "separator" },
         ...zoomMenuItems,
@@ -317,22 +306,7 @@ function createApplicationMenu() {
         { role: "togglefullscreen" },
       ],
     },
-    {
-      label: "Window",
-      submenu: [
-        { role: "minimize" },
-        { type: "separator" },
-        ...zoomMenuItems,
-        ...(process.platform === "darwin"
-          ? [
-              { type: "separator" },
-              { role: "front" },
-              { type: "separator" },
-              { role: "window" },
-            ]
-          : [{ role: "close" }]),
-      ],
-    },
+
     {
       label: "Help",
       submenu: [

@@ -55,48 +55,29 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
       label: 'File',
       items: [
         { label: 'Add Folder...', shortcut: 'Ctrl+O', onClick: () => onAddFolder() },
+        { label: 'Reload', shortcut: 'Ctrl+R', onClick: () => window.location.reload() },
         { type: 'separator' } as MenuItem,
         { label: 'Settings', shortcut: 'Ctrl+,', onClick: () => onOpenSettings('general') },
         { type: 'separator' } as MenuItem,
         { label: 'Exit', shortcut: 'Alt+F4', onClick: () => (window as any).electronAPI?.exitApp() },
       ],
     },
-    {
-      label: 'Edit',
-      items: [
-        { label: 'Undo', shortcut: 'Ctrl+Z', onClick: () => (window as any).electronAPI?.executeEditAction('undo') },
-        { label: 'Redo', shortcut: 'Ctrl+Y', onClick: () => (window as any).electronAPI?.executeEditAction('redo') },
-        { type: 'separator' } as MenuItem,
-        { label: 'Cut', shortcut: 'Ctrl+X', onClick: () => (window as any).electronAPI?.executeEditAction('cut') },
-        { label: 'Copy', shortcut: 'Ctrl+C', onClick: () => (window as any).electronAPI?.executeEditAction('copy') },
-        { label: 'Paste', shortcut: 'Ctrl+V', onClick: () => (window as any).electronAPI?.executeEditAction('paste') },
-        { type: 'separator' } as MenuItem,
-        { label: 'Select All', shortcut: 'Ctrl+A', onClick: () => (window as any).electronAPI?.executeEditAction('selectAll') },
-      ],
-    },
+
     {
       label: 'View',
       items: [
         { label: 'Toggle Grid/List', shortcut: 'Ctrl+L', onClick: () => onToggleView() },
         { type: 'separator' } as MenuItem,
-        { label: 'Reload', shortcut: 'Ctrl+R', onClick: () => window.location.reload() },
         { label: 'Toggle DevTools', shortcut: 'F12', onClick: () => (window as any).electronAPI?.executeEditAction('toggleDevTools') },
-        { type: 'separator' } as MenuItem,
-        { label: 'Toggle Fullscreen', shortcut: 'F11', onClick: () => (window as any).electronAPI?.toggleFullscreen() },
-      ],
-    },
-    {
-      label: 'Window',
-      items: [
-        { label: 'Minimize', shortcut: 'Ctrl+M', onClick: () => (window as any).electronAPI?.minimizeWindow() },
         { type: 'separator' } as MenuItem,
         { label: 'Reset Zoom', shortcut: 'Ctrl+0', onClick: () => (window as any).electronAPI?.executeEditAction('resetZoom') }, 
         { label: 'Zoom In', shortcut: 'Ctrl+=', onClick: () => (window as any).electronAPI?.executeEditAction('zoomIn') },
         { label: 'Zoom Out', shortcut: 'Ctrl+-', onClick: () => (window as any).electronAPI?.executeEditAction('zoomOut') },
         { type: 'separator' } as MenuItem,
-        { label: 'Close', shortcut: 'Ctrl+W', onClick: () => (window as any).electronAPI?.closeWindow() },
+        { label: 'Toggle Fullscreen', shortcut: 'F11', onClick: () => (window as any).electronAPI?.toggleFullscreen() },
       ],
     },
+
     {
       label: 'Help',
       items: [
