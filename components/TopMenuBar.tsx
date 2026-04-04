@@ -39,8 +39,9 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
 
     return (
         <div 
-            className="h-10 bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 fixed top-0 right-0 z-[100] select-none shadow-sm flex items-center transition-all duration-300"
+            className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 fixed top-0 right-0 z-[100] select-none shadow-sm flex items-center pt-0.5 pb-0.5 transition-all duration-300"
             style={{ 
+                height: 'var(--header-height, 44px)',
                 left: offset,
                 width: `calc(100% - ${offset})`,
                 WebkitAppRegion: 'drag'
@@ -62,7 +63,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50 overflow-hidden pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <button
                             onClick={() => onLibraryViewChange('library')}
-                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
                                 libraryView === 'library' 
                                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -72,7 +73,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         </button>
                         <button
                             onClick={() => onLibraryViewChange('smart')}
-                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
                                 libraryView === 'smart' 
                                 ? 'bg-purple-600 text-white shadow-md shadow-purple-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -82,7 +83,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         </button>
                         <button
                             onClick={() => onLibraryViewChange('model')}
-                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
                                 libraryView === 'model' 
                                 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -98,7 +99,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
             <div className="flex items-center gap-2 shrink-0 pr-1 ml-auto">
                 {/* Search Bar */}
                 {libraryView && (
-                    <div className="origin-right mr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                    <div className="flex items-center h-full mr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <SearchBar
                             value={searchQuery}
                             onChange={setSearchQuery}
@@ -113,7 +114,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     title="Open Settings"
                     style={{ WebkitAppRegion: 'no-drag' } as any}
                 >
-                    <Settings size={18} />
+                    <Settings size={20} />
                 </button>
             </div>
 

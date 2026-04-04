@@ -109,7 +109,7 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
       {menuData.map((section) => (
         <div key={section.label} className="relative h-full flex items-center">
           <button
-            className={`px-2.5 h-full flex items-center text-sm font-normal transition-all duration-150 ${
+            className={`px-3 h-full flex items-center text-[14px] font-medium transition-all duration-150 ${
               activeMenu === section.label ? 'bg-blue-500 text-white' : 'text-gray-400 hover:bg-blue-500 hover:text-white'
             }`}
             style={{ WebkitAppRegion: 'no-drag' } as any}
@@ -126,8 +126,8 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -5 }}
                 transition={{ duration: 0.1 }}
-                className="absolute top-full left-0 mt-0.5 min-w-[12rem] w-max bg-gray-900 border border-gray-800 rounded-lg shadow-2xl overflow-hidden py-1.5 z-50"
-                style={{ WebkitAppRegion: 'no-drag' } as any}
+                className="absolute top-full left-0 mt-0.5 min-w-[10rem] w-max bg-gray-900 border border-gray-800 rounded-lg shadow-2xl overflow-hidden py-1 z-50"
+                style={{ WebkitAppRegion: 'no-drag', '--header-height': 'env(titlebar-area-height, 44px)' } as any}
               >
                 {section.items.map((item, idx) => (
                   item.type === 'separator' ? (

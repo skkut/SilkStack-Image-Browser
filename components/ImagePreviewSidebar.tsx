@@ -314,7 +314,16 @@ const ImagePreviewSidebar: React.FC = () => {
     : [];
 
   return (
-    <div data-area="preview" tabIndex={-1} className="fixed right-0 top-0 h-full w-96 bg-gray-950 border-l border-gray-700 z-40 flex flex-col shadow-xl">
+    <div 
+      data-area="preview" 
+      tabIndex={-1} 
+      className="fixed right-0 bg-gray-950 border-l border-gray-700 z-40 flex flex-col shadow-xl transition-all duration-300"
+      style={{ 
+        top: 'var(--header-height, 44px)', 
+        height: 'calc(100% - var(--header-height, 44px))',
+        width: '24rem' // w-96
+      }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-700">
         <h2 className="text-lg font-semibold text-gray-200">Image Preview</h2>

@@ -630,7 +630,7 @@ export default function App() {
       <BrowserCompatibilityWarning />
       
       {/* Spacer for fixed TopMenuBar */}
-      <div className="h-10 shrink-0 w-full" />
+      <div className="shrink-0 w-full" style={{ height: 'var(--header-height, 44px)' }} />
 
       <div className="flex flex-1 overflow-hidden relative">
         {hasDirectories && (

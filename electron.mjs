@@ -383,7 +383,7 @@ function createWindow(startupDirectory = null) {
     titleBarOverlay: {
       color: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f3f4f6',
       symbolColor: nativeTheme.shouldUseDarkColors ? '#ffffff' : '#000000',
-      height: 32, // Match our header height (approx)
+      height: 44,
     },
     show: false, // Don't show until ready
   });
