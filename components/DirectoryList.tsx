@@ -10,7 +10,6 @@ import {
   FolderTree,
   X,
   EyeOff,
-  Palette,
   Smile,
 } from "lucide-react";
 import { normalizePath } from "../utils/pathUtils";
@@ -94,15 +93,13 @@ export default function DirectoryList({
     y: number;
     path: string;
   } | null>(null);
-  const [activeColorPicker, setActiveColorPicker] = useState<string | null>(
-    null,
-  );
+
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(
     null,
   );
   const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].name);
 
-  const { folderPreferences, setFolderColor, setFolderEmoji } = useImageStore();
+  const { folderPreferences, setFolderEmoji } = useImageStore();
 
   const loadSubfolders = useCallback(
     async (nodeKey: string, nodePath: string, rootDirectory: Directory) => {
@@ -385,46 +382,7 @@ export default function DirectoryList({
     [onUpdateDirectory],
   );
 
-  const PREDEFINED_COLORS = [
-    { name: "None", value: undefined },
-    { name: "Pearl", value: "#f1f5f9" },
-    { name: "Slate", value: "#64748b" },
-    { name: "Tan", value: "#d6d3d1" },
-    { name: "Coffee", value: "#44403c" },
-    { name: "Deep Red", value: "#991b1b" },
-    { name: "Red", value: "#ef4444" },
-    { name: "Orange", value: "#f97316" },
-    { name: "Gold", value: "#b45309" },
-    { name: "Yellow", value: "#facc15" },
-    { name: "Lime", value: "#a3e635" },
-    { name: "Green", value: "#22c55e" },
-    { name: "Forest", value: "#166534" },
-    { name: "Teal", value: "#14b8a6" },
-    { name: "Sky", value: "#0ea5e9" },
-    { name: "Blue", value: "#2563eb" },
-    { name: "Navy", value: "#1e3a8a" },
-    { name: "Violet", value: "#8b5cf6" },
-    { name: "Magenta", value: "#d946ef" },
-    { name: "Pink", value: "#fb7185" },
-  ];
 
-  const renderColorPicker = (path: string) => (
-    <div className="absolute right-0 top-full mt-1 bg-gray-800 border border-gray-600 rounded-md shadow-xl z-[100] p-2 grid grid-cols-5 gap-1.5 w-40">
-      {PREDEFINED_COLORS.map((color) => (
-        <button
-          key={color.name}
-          onClick={(e) => {
-            e.stopPropagation();
-            setFolderColor(path, color.value);
-            setActiveColorPicker(null);
-          }}
-          className={`w-4 h-4 rounded-full border border-gray-500 hover:scale-110 transition-transform ${!color.value ? 'bg-transparent relative after:content-["/"] after:absolute after:inset-0 after:flex after:items-center after:justify-center after:text-[10px] after:text-gray-400' : ""}`}
-          style={{ backgroundColor: color.value }}
-          title={color.name}
-        />
-      ))}
-    </div>
-  );
 
   const renderEmojiPicker = (path: string) => {
     const categories = EMOJI_CATEGORIES;
@@ -548,14 +506,8 @@ export default function DirectoryList({
                   {folderPreferences.get(normalizePath(child.path))?.emoji}
                 </span>
               ) : (
-                <Folder
-                  className="w-3 h-3 mr-2"
-                  style={{
-                    color:
-                      folderPreferences.get(normalizePath(child.path))?.color ||
-                      "#9ca3af",
-                  }}
-                />
+                <Folder className="w-3 h-3 mr-2 text-gray-400" />
+
               )}
               <span className="text-sm text-gray-300 truncate flex-1">
                 {child.name}
@@ -570,7 +522,6 @@ export default function DirectoryList({
                       setActiveEmojiPicker(
                         activeEmojiPicker === child.path ? null : child.path,
                       );
-                      setActiveColorPicker(null);
                     }}
                     className={`p-1 rounded transition-colors ${
                       activeEmojiPicker === child.path
@@ -585,27 +536,7 @@ export default function DirectoryList({
                     renderEmojiPicker(child.path)}
                 </div>
 
-                <div className="flex items-center">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setActiveColorPicker(
-                        activeColorPicker === child.path ? null : child.path,
-                      );
-                      setActiveEmojiPicker(null);
-                    }}
-                    className={`p-1 rounded transition-colors ${
-                      activeColorPicker === child.path
-                        ? "text-blue-400 bg-gray-600"
-                        : "text-gray-400 hover:text-white hover:bg-gray-600"
-                    }`}
-                    title="Set folder color"
-                  >
-                    <Palette className="w-3 h-3" />
-                  </button>
-                  {activeColorPicker === child.path &&
-                    renderColorPicker(child.path)}
-                </div>
+
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -735,8 +666,7 @@ export default function DirectoryList({
                       </span>
                     ) : (
                       <Folder
-                        className="w-5 h-5 transition-transform duration-300 group-hover:scale-110"
-                        style={{ color: pref?.color || "#9ca3af" }}
+                        className="w-5 h-5 transition-transform duration-300 group-hover:scale-110 text-gray-400"
                       />
                     )}
                   </button>
@@ -889,12 +819,7 @@ export default function DirectoryList({
                           </span>
                         ) : (
                           <FolderOpen
-                            className="w-4 h-4 flex-shrink-0 ml-1"
-                            style={{
-                              color:
-                                folderPreferences.get(normalizePath(dir.path))
-                                  ?.color || "#9ca3af",
-                            }}
+                            className="w-4 h-4 flex-shrink-0 ml-1 text-gray-400"
                           />
                         )}
                         <button
@@ -920,7 +845,6 @@ export default function DirectoryList({
                                   ? null
                                   : dir.path,
                               );
-                              setActiveColorPicker(null);
                             }}
                             className={`p-1 rounded transition-colors ${
                               activeEmojiPicker === dir.path
@@ -935,29 +859,7 @@ export default function DirectoryList({
                             renderEmojiPicker(dir.path)}
                         </div>
 
-                        <div className="flex items-center">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActiveColorPicker(
-                                activeColorPicker === dir.path
-                                  ? null
-                                  : dir.path,
-                              );
-                              setActiveEmojiPicker(null);
-                            }}
-                            className={`p-1 rounded transition-colors ${
-                              activeColorPicker === dir.path
-                                ? "text-blue-400 bg-gray-700/50"
-                                : "text-gray-400 hover:text-white hover:bg-gray-700/50"
-                            }`}
-                            title="Set folder color"
-                          >
-                            <Palette className="w-4 h-4" />
-                          </button>
-                          {activeColorPicker === dir.path &&
-                            renderColorPicker(dir.path)}
-                        </div>
+
                         <button
                           onClick={() => {
                             onUpdateDirectory(dir.id);
