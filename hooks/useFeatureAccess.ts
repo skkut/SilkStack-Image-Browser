@@ -1,6 +1,4 @@
-import { useEffect, useMemo } from "react";
-import { create } from "zustand";
-import { useLicenseStore, TRIAL_DURATION_DAYS } from "../store/useLicenseStore";
+import { useMemo } from "react";
 
 export type ProFeature =
   | "a1111"
@@ -8,94 +6,21 @@ export type ProFeature =
   | "clustering"
   | "batch_export";
 
-export const CLUSTERING_FREE_TIER_LIMIT = 300;
-export const CLUSTERING_PREVIEW_LIMIT = 500; // Process extra for blurred preview
+export const CLUSTERING_FREE_TIER_LIMIT = Infinity;
+export const CLUSTERING_PREVIEW_LIMIT = Infinity;
 
-type ProModalState = {
-  proModalOpen: boolean;
-  proModalFeature: ProFeature;
-  openProModal: (feature: ProFeature) => void;
-  closeProModal: () => void;
-};
-
-export const useProModalStore = create<ProModalState>((set) => ({
-  proModalOpen: false,
-  proModalFeature: "a1111",
-  openProModal: (feature) =>
-    set({ proModalOpen: true, proModalFeature: feature }),
-  closeProModal: () => set({ proModalOpen: false }),
-}));
-
-// Helper: Check if trial has expired
-const isTrialExpired = (trialStartDate: number | null): boolean => {
-  if (!trialStartDate) return false;
-
-  const now = Date.now();
-  const trialEnd = trialStartDate + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
-
-  // Clock rollback or expired
-  return now < trialStartDate || now > trialEnd;
-};
-
-// Helper: Calculate days remaining in trial
-const calculateDaysRemaining = (trialStartDate: number | null): number => {
-  if (!trialStartDate) return 0;
-
-  const now = Date.now();
-  const trialEnd = trialStartDate + TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000;
-  const msRemaining = trialEnd - now;
-
-  return Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000)));
-};
-
+/**
+ * useFeatureAccess hook
+ * Simplified version: all features are unlocked by default.
+ */
 export const useFeatureAccess = () => {
-  const licenseStore = useLicenseStore();
-  const proModalOpen = useProModalStore((state) => state.proModalOpen);
-  const proModalFeature = useProModalStore((state) => state.proModalFeature);
-  const openProModal = useProModalStore((state) => state.openProModal);
-  const closeProModal = useProModalStore((state) => state.closeProModal);
-
-  // Dev override: localStorage flag to bypass all checks
-  // Force Pro features for this custom browser
+  // All features are unlocked in this version
   const isPro = true;
 
-  const isTrialActive = false;
-  const isExpired = false;
-  const isFree = false;
-  const trialUsed = false;
-  const canStartTrial = false;
-
-  // During initialization, keep features open to avoid flicker
-  const allowDuringInit = true; // Always allow
-  const canUseDuringTrialOrPro = true; // Always allow
-
-  // Feature flags (all Pro features have same access requirements)
+  // Feature flags
   const canUseA1111 = true;
   const canUseComfyUI = true;
   const canUseBatchExport = true;
-
-  // Trial countdown
-  const trialDaysRemaining = 0;
-
-  // Modal control
-  const showProModal = (feature: ProFeature) => {
-    // No-op: Pro modal should never be shown
-    console.log("Pro modal suppressed", feature);
-  };
-
-  // Optional derived label for status indicators
-  const statusLabel = useMemo(() => {
-    return ""; // No status label needed for fully unlocked version
-  }, []);
-
-  const startTrial = () => {
-    // No-op
-  };
-
-  // Log dev override
-  useEffect(() => {
-    // console.log('🔓 [IMH] Custom Browser: All features unlocked');
-  }, []);
 
   return {
     // Feature flags
@@ -108,25 +33,27 @@ export const useFeatureAccess = () => {
     canUseDuringTrialOrPro: true,
     clusteringImageLimit: Infinity,
 
-    // Status
-    isTrialActive,
-    isExpired,
-    isFree,
-    isPro,
-    canStartTrial,
-    trialUsed,
+    // Status (mocked as Pro)
+    isTrialActive: false,
+    isExpired: false,
+    isFree: false,
+    isPro: true,
+    canStartTrial: false,
+    trialUsed: false,
     licenseStatus: "pro",
     initialized: true,
-    statusLabel,
+    statusLabel: "",
 
-    // Trial info
-    trialDaysRemaining,
-    startTrial,
+    // Trial info (unused)
+    trialDaysRemaining: 0,
+    startTrial: () => {},
 
-    // Modal control
-    proModalOpen,
-    proModalFeature,
-    showProModal, // Kept to satisfy interface but wont do anything useful
-    closeProModal,
+    // Modal control (no-ops)
+    proModalOpen: false,
+    proModalFeature: "a1111" as ProFeature,
+    showProModal: (feature: ProFeature) => {
+      console.log("Pro feature used:", feature);
+    },
+    closeProModal: () => {},
   };
 };

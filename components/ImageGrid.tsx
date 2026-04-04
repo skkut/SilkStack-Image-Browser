@@ -19,7 +19,6 @@ import { Info, Copy, Folder, Download, Clipboard, Sparkles, Star, Square,  Alert
 import { useThumbnail } from '../hooks/useThumbnail';
 
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import ProBadge from './ProBadge';
 import { useImageStacking } from '../hooks/useImageStacking';
 import { Layers, Layers2 } from 'lucide-react';
 
@@ -1268,7 +1267,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
               >
                 <Package className="w-4 h-4" />
                 <span className="flex-1">Batch Export Selected ({selectedCount})</span>
-                {!canUseDuringTrialOrPro && <ProBadge size="sm" />}
               </button>
             )}
 

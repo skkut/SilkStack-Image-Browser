@@ -25,14 +25,12 @@ import DirectoryList from './components/DirectoryList';
 import ImagePreviewSidebar from './components/ImagePreviewSidebar';
 import CommandPalette from './components/CommandPalette';
 import HotkeyHelp from './components/HotkeyHelp';
-import ProOnlyModal from './components/ProOnlyModal';
 import SmartLibrary from './components/SmartLibrary';
 import { ModelView } from './components/ModelView';
 import GridToolbar from './components/GridToolbar';
 import TopMenuBar from './components/TopMenuBar';
 import BatchExportModal from './components/BatchExportModal';
-// Ensure the correct path to ImageTable
-import ImageTable from './components/ImageTable'; // Verify this file exists or adjust the path
+import ImageTable from './components/ImageTable';
 
 export default function App() {
   // --- Hooks ---
@@ -153,9 +151,6 @@ export default function App() {
 
   // --- License/Trial Hook ---
   const {
-    proModalOpen,
-    proModalFeature,
-    closeProModal,
     isTrialActive,
     trialDaysRemaining,
     canStartTrial,
@@ -866,17 +861,6 @@ export default function App() {
         currentVersion={currentVersion}
       />
 
-      <ProOnlyModal
-        isOpen={proModalOpen}
-        onClose={closeProModal}
-        feature={proModalFeature}
-        isTrialActive={isTrialActive}
-        daysRemaining={trialDaysRemaining}
-        canStartTrial={canStartTrial}
-        isExpired={isExpired}
-        isPro={isPro}
-        onStartTrial={startTrial}
-      />
 
       <CommandPalette
         isOpen={isCommandPaletteOpen}

@@ -26,7 +26,6 @@ import {
   PanelRightOpen,
 } from "lucide-react";
 import { useFeatureAccess } from "../hooks/useFeatureAccess";
-import ProBadge from "./ProBadge";
 import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
