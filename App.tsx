@@ -875,7 +875,7 @@ export default function App() {
       />
 
       <TopMenuBar 
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenSettings={(tab) => handleOpenSettings(tab || 'general')}
         onAddFolder={handleSelectFolder}
         onToggleView={toggleViewMode}
         onShowChangelog={() => setIsChangelogModalOpen(true)}

@@ -2,7 +2,7 @@ import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 
 interface TopMenuBarProps {
-    onOpenSettings: () => void;
+    onOpenSettings: (tab?: 'general' | 'hotkeys' | 'privacy' | 'about') => void;
     onAddFolder: () => void;
     onToggleView: () => void;
     onShowChangelog: () => void;
