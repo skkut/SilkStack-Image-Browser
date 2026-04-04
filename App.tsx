@@ -689,18 +689,7 @@ export default function App() {
             onShowChangelog={() => setIsChangelogModalOpen(true)}
             libraryView={libraryView}
             onLibraryViewChange={setLibraryView}
-          >
-            {hasDirectories && (
-              <GridToolbar
-                selectedImages={safeSelectedImages}
-                images={safeFilteredImages}
-                directories={safeDirectories}
-                onDeleteSelected={handleDeleteSelectedImages}
-                onBatchExport={() => setIsBatchExportModalOpen(true)}
-                onClearSelection={clearSelection}
-              />
-            )}
-          </Header>
+          />
 
           <main className="flex-1 overflow-hidden relative flex flex-col">
 
@@ -815,7 +804,18 @@ export default function App() {
               totalCount={selectionTotalImages}
               enrichmentProgress={enrichmentProgress}
               showStackingToggle={true}
-            />
+            >
+              {hasDirectories && (
+                <GridToolbar
+                  selectedImages={safeSelectedImages}
+                  images={safeFilteredImages}
+                  directories={safeDirectories}
+                  onDeleteSelected={handleDeleteSelectedImages}
+                  onBatchExport={() => setIsBatchExportModalOpen(true)}
+                  onClearSelection={clearSelection}
+                />
+              )}
+            </Footer>
           )}
         </div>
       </div>

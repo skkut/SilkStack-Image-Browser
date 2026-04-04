@@ -18,6 +18,7 @@ interface FooterProps {
   isClustering?: boolean;
   isAutoTagging?: boolean;
   hasDirectories?: boolean;
+  children?: React.ReactNode;
 }
 
 const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
@@ -43,6 +44,7 @@ const Footer: React.FC<FooterProps> = ({
   isClustering = false,
   isAutoTagging = false,
   hasDirectories = false,
+  children,
 }) => {
   const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
   const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
@@ -66,7 +68,9 @@ const Footer: React.FC<FooterProps> = ({
                 <span className="text-gray-600 mx-1">/</span>
                 <span className="text-gray-400">{totalCount.toLocaleString()}</span>
               </Token>
-           )}
+            )}
+            {children && <div className="w-px h-4 bg-gray-700/50 mx-1" />}
+            {children}
           </>
         )}
         {hasEnrichmentJob && (
@@ -84,7 +88,8 @@ const Footer: React.FC<FooterProps> = ({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 ml-auto">
+        <div className="w-px h-4 bg-gray-700/50 mx-2" />
         {/* Stacking Toggle */}
         {showStackingToggle && (
           <button
@@ -145,7 +150,7 @@ const Footer: React.FC<FooterProps> = ({
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>
-          {viewMode === 'grid' ? <List className="h-4 w-4" /> : <Grid3X3 className="h-4 w-4" />}
+          {viewMode === 'grid' ? <List size={18} /> : <Grid3X3 size={18} />}
         </button>
       </div>
     </footer>
