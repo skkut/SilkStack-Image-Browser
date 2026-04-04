@@ -10,7 +10,6 @@ interface FooterProps {
   customText?: string;
   filteredCount?: number;
   totalCount?: number;
-  directoryCount?: number;
   enrichmentProgress?: { processed: number; total: number } | null;
   showStackingToggle?: boolean;
   showSmartActions?: boolean;
@@ -36,7 +35,6 @@ const Footer: React.FC<FooterProps> = ({
   customText,
   filteredCount,
   totalCount,
-  directoryCount,
   enrichmentProgress,
   showStackingToggle = false,
   showSmartActions = false,
@@ -50,7 +48,7 @@ const Footer: React.FC<FooterProps> = ({
   const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
   const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
   const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
-  const folderText = directoryCount === 1 ? 'folder' : 'folders';
+
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
 
   return (
@@ -68,12 +66,7 @@ const Footer: React.FC<FooterProps> = ({
                 <span className="text-gray-600 mx-1">/</span>
                 <span className="text-gray-400">{totalCount.toLocaleString()}</span>
               </Token>
-            )}
-            {directoryCount !== undefined && directoryCount > 0 && (
-              <Token title="Number of folders">
-                <span className="font-medium text-gray-200">{directoryCount}</span> <span className="text-gray-400 ml-1">{folderText}</span>
-              </Token>
-            )}
+           )}
           </>
         )}
         {hasEnrichmentJob && (

@@ -111,7 +111,6 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
         onViewModeChange={toggleViewMode}
         filteredCount={filteredImages.length} 
         totalCount={selectionTotalImages}
-        directoryCount={selectionDirectoryCount}
         enrichmentProgress={enrichmentProgress}
         customText={`Showing ${modelEntries.length} models`}
       />

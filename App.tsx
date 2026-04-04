@@ -813,7 +813,6 @@ export default function App() {
               onViewModeChange={toggleViewMode}
               filteredCount={safeFilteredImages.length}
               totalCount={selectionTotalImages}
-              directoryCount={selectionDirectoryCount}
               enrichmentProgress={enrichmentProgress}
               showStackingToggle={true}
             />

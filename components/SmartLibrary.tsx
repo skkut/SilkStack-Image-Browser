@@ -251,7 +251,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
         onViewModeChange={toggleViewMode}
         filteredCount={safeFilteredImages.length}
         totalCount={selectionTotalImages}
-        directoryCount={selectionDirectoryCount}
         enrichmentProgress={enrichmentProgress}
         showSmartActions={true}
         onCluster={handleGenerateClusters}
