@@ -79,8 +79,8 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
 
 
   return (
-    <section className="flex flex-col h-full min-h-0">
-      <div className="flex-1 min-h-0 overflow-auto pr-1">
+    <section className="flex flex-col h-full min-h-0 pt-3">
+      <div className="flex-1 min-h-0 overflow-auto pl-3 pr-2">
         {modelEntries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-gray-400">
             <div className="w-14 h-14 rounded-full bg-gray-800/60 flex items-center justify-center mb-3">

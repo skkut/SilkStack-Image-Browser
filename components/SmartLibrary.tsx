@@ -141,7 +141,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
   };
 
   return (
-    <section className="flex flex-col h-full min-h-0">
+    <section className="flex flex-col h-full min-h-0 pt-3">
       {(clusteringProgress || autoTaggingProgress) && (
         <div className="grid gap-2 mb-3 mt-2">
           {clusteringProgress && (
@@ -213,7 +213,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
             </p>
           </div>
         ) : (
-          <div className="min-h-0 pr-1">
+          <div className="min-h-0 pl-3 pr-2">
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {sortedEntries.map((entry) => {
                 // Check if majority of images in this cluster are locked
