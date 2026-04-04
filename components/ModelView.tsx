@@ -24,7 +24,7 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
   const selectionDirectoryCount = useImageStore((state) => state.selectionDirectoryCount);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   
-  const { viewMode, toggleViewMode } = useSettingsStore();
+  const { viewMode, toggleViewMode, imageSize } = useSettingsStore();
 
   const [sortBy] = useState<'count' | 'name'>('count');
 
@@ -92,7 +92,10 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          <div 
+            className="grid gap-4"
+            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(350, Math.max(250, imageSize))}px, 1fr))` }}
+          >
             {modelEntries.map((entry) => (
               <ModelCard
                 key={entry.name}

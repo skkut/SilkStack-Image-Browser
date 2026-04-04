@@ -39,7 +39,7 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
 
-  const { viewMode, toggleViewMode } = useSettingsStore();
+  const { viewMode, toggleViewMode, imageSize } = useSettingsStore();
   // const { handleDeleteSelectedImages, clearSelection } = useImageSelection(); // Unused
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
 
@@ -214,7 +214,10 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
           </div>
         ) : (
           <div className="min-h-0 pl-3 pr-2">
-            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <div 
+              className="grid gap-4"
+              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(350, Math.max(250, imageSize))}px, 1fr))` }}
+            >
               {sortedEntries.map((entry) => {
                 // Check if majority of images in this cluster are locked
                 const lockedImageIds = clusteringMetadata?.lockedImageIds || new Set();
