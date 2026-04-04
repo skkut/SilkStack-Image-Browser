@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2 } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useImageStore } from '../store/useImageStore';
 
 interface FooterProps {
   viewMode: 'grid' | 'list';
@@ -11,6 +12,7 @@ interface FooterProps {
   totalCount?: number;
   directoryCount?: number;
   enrichmentProgress?: { processed: number; total: number } | null;
+  showStackingToggle?: boolean;
 }
 
 const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
@@ -30,9 +32,12 @@ const Footer: React.FC<FooterProps> = ({
   totalCount,
   directoryCount,
   enrichmentProgress,
+  showStackingToggle = false,
 }) => {
   const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
   const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
+  const isStackingEnabled = useImageStore((state) => state.isStackingEnabled);
+  const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
   const folderText = directoryCount === 1 ? 'folder' : 'folders';
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
 
@@ -74,17 +79,35 @@ const Footer: React.FC<FooterProps> = ({
           </div>
         )}
       </div>
-      <button
-        onClick={() => setEnableSafeMode(!enableSafeMode)}
-        className={`p-1.5 rounded-lg transition-all duration-200 ${
-          enableSafeMode
-            ? 'text-gray-400 hover:text-gray-100'
-            : 'text-gray-600 hover:text-gray-400'
-        }`}
-        title={enableSafeMode ? 'Safe Mode on' : 'Safe Mode off'}
-      >
-        {enableSafeMode ? <Eye size={16} /> : <EyeOff size={16} />}
-      </button>
+      <div className="flex items-center gap-2">
+        {/* Stacking Toggle */}
+        {showStackingToggle && (
+          <button
+            onClick={() => setStackingEnabled(!isStackingEnabled)}
+            className={`p-1.5 rounded-lg transition-all duration-200 ${
+              isStackingEnabled 
+                ? 'text-blue-400 bg-blue-500/10' 
+                : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+            }`}
+            title={isStackingEnabled ? "Disable stacking" : "Stack items by identical prompt"}
+          >
+            {isStackingEnabled ? <Layers2 size={16} /> : <Layers size={16} />}
+          </button>
+        )}
+
+        {/* Safe Mode Toggle */}
+        <button
+          onClick={() => setEnableSafeMode(!enableSafeMode)}
+          className={`p-1.5 rounded-lg transition-all duration-200 ${
+            enableSafeMode
+              ? 'text-gray-400 hover:text-gray-100'
+              : 'text-gray-600 hover:text-gray-400'
+          }`}
+          title={enableSafeMode ? 'Safe Mode on' : 'Safe Mode off'}
+        >
+          {enableSafeMode ? <Eye size={16} /> : <EyeOff size={16} />}
+        </button>
+      </div>
       <div className="flex items-center gap-3 border-l border-gray-700/50 pl-3">
         <ImageSizeSlider />
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>

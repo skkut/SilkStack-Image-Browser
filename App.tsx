@@ -815,6 +815,7 @@ export default function App() {
               totalCount={selectionTotalImages}
               directoryCount={selectionDirectoryCount}
               enrichmentProgress={enrichmentProgress}
+              showStackingToggle={true}
             />
           )}
         </div>

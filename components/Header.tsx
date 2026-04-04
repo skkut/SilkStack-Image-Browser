@@ -59,8 +59,6 @@ const Header: React.FC<HeaderProps> = ({
   const startClustering = useImageStore((state) => state.startClustering);
   const startAutoTagging = useImageStore((state) => state.startAutoTagging);
 
-
-
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
   const DEFAULT_SIMILARITY_THRESHOLD = 0.88;
@@ -172,75 +170,51 @@ const Header: React.FC<HeaderProps> = ({
                      </div>
                    )}
 
-                   {/* Stacking Toggle - Only relevant for Library view */}
-                   {libraryView === 'library' && (
-                     <>
-                        <button
-                          onClick={() => setStackingEnabled(!isStackingEnabled)}
-                          className={`p-1.5 rounded-lg transition-all duration-200 ${
-                              isStackingEnabled 
-                              ? 'text-blue-400 bg-blue-500/10' 
-                              : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
-                          }`}
-                          title={isStackingEnabled ? "Disable stacking" : "Stack items by identical prompt"}
-                        >
-                          {isStackingEnabled ? <Layers2 size={16} /> : <Layers size={16} />}
-                        </button>
-                        
-                         {/* Back from Stack Button */}
-                        {viewingStackPrompt && (
-                            <button
-                                onClick={() => {
-                                setSearchQuery('');
-                                setStackingEnabled(true);
-                                setViewingStackPrompt(null);
-                                }}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-colors text-xs font-medium"
-                            >
-                                <ArrowLeft size={12} />
-                                Back
-                            </button>
-                        )}
-                        <div className="w-px h-4 bg-gray-700/50 mx-1"></div>
-                     </>
+                   {/* Back from Stack Button */}
+                   {libraryView === 'library' && viewingStackPrompt && (
+                       <button
+                           onClick={() => {
+                           setSearchQuery('');
+                           setStackingEnabled(true);
+                           setViewingStackPrompt(null);
+                           }}
+                           className="flex items-center gap-1 px-2 py-1 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-colors text-xs font-medium mr-2"
+                       >
+                           <ArrowLeft size={12} />
+                           Back
+                       </button>
                    )}
 
+            
+           {/* Smart Library Actions (Contextual) */}
+           {libraryView === 'smart' && (
+              <div className="flex items-center gap-2 mr-2 animate-in fade-in duration-300">
+                 <button
+                     onClick={handleGenerateClusters}
+                     disabled={!hasDirectories || isClustering}
+                     className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         isClustering ? 'text-blue-400/50 cursor-wait' : 'text-blue-400 hover:bg-blue-500/10 hover:text-blue-300'
+                     }`}
+                     title="Generate Clusters"
+                 >
+                     <Layers size={14} className={isClustering ? 'animate-pulse' : ''}/>
+                     <span className="hidden xl:inline">Cluster</span>
+                 </button>
+                 <button
+                     onClick={handleGenerateAutoTags}
+                     disabled={!hasDirectories || isAutoTagging}
+                     className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                         isAutoTagging ? 'text-purple-400/50 cursor-wait' : 'text-purple-400 hover:bg-purple-500/10 hover:text-purple-300'
+                     }`}
+                     title="Generate Auto-Tags"
+                 >
+                     <Sparkles size={14} className={isAutoTagging ? 'animate-pulse' : ''}/>
+                     <span className="hidden xl:inline">Auto-Tag</span>
+                 </button>
+                  <div className="w-px h-5 bg-gray-700/50 mx-1"></div>
+              </div>
+           )}
 
-           
-          {/* Smart Library Actions (Contextual) */}
-          {libraryView === 'smart' && (
-             <div className="flex items-center gap-2 mr-2 animate-in fade-in duration-300">
-                <button
-                    onClick={handleGenerateClusters}
-                    disabled={!hasDirectories || isClustering}
-                    className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                        isClustering ? 'text-blue-400/50 cursor-wait' : 'text-blue-400 hover:bg-blue-500/10 hover:text-blue-300'
-                    }`}
-                    title="Generate Clusters"
-                >
-                    <Layers size={14} className={isClustering ? 'animate-pulse' : ''}/>
-                    <span className="hidden xl:inline">Cluster</span>
-                </button>
-                <button
-                    onClick={handleGenerateAutoTags}
-                    disabled={!hasDirectories || isAutoTagging}
-                    className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                        isAutoTagging ? 'text-purple-400/50 cursor-wait' : 'text-purple-400 hover:bg-purple-500/10 hover:text-purple-300'
-                    }`}
-                    title="Generate Auto-Tags"
-                >
-                    <Sparkles size={14} className={isAutoTagging ? 'animate-pulse' : ''}/>
-                    <span className="hidden xl:inline">Auto-Tag</span>
-                </button>
-                 <div className="w-px h-5 bg-gray-700/50 mx-1"></div>
-             </div>
-          )}
-
-
-
-{/* Generate Dropdown REMOVED */}
-          
-          {/* Get Pro link REMOVED */}
           
           <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50">
             <button
