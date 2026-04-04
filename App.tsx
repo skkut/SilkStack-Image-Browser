@@ -14,7 +14,7 @@ import ImageGrid from './components/ImageGrid';
 import ImageModal from './components/ImageModal';
 import Sidebar from './components/Sidebar';
 import BrowserCompatibilityWarning from './components/BrowserCompatibilityWarning';
-import Header from './components/Header';
+
 import Toast from './components/Toast';
 import SettingsModal from './components/SettingsModal';
 import ChangelogModal from './components/ChangelogModal';
@@ -630,7 +630,7 @@ export default function App() {
       <BrowserCompatibilityWarning />
       
       {/* Spacer for fixed TopMenuBar */}
-      <div className="h-8 shrink-0 w-full" />
+      <div className="h-10 shrink-0 w-full" />
 
       <div className="flex flex-1 overflow-hidden relative">
         {hasDirectories && (
@@ -685,15 +685,6 @@ export default function App() {
 
         <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${previewImage ? 'mr-96' : 'mr-0'}`}
              style={{ marginLeft: layoutOffset }}>
-          <Header
-            onOpenSettings={() => handleOpenSettings()}
-            onAddFolder={handleSelectFolder}
-            onToggleView={toggleViewMode}
-            onShowChangelog={() => setIsChangelogModalOpen(true)}
-            libraryView={libraryView}
-            onLibraryViewChange={setLibraryView}
-          />
-
           <main className="flex-1 overflow-hidden relative flex flex-col">
             {/* Back from Stack Button - Now outside header */}
             {libraryView === 'library' && viewingStackPrompt && (
@@ -903,6 +894,10 @@ export default function App() {
         onShowChangelog={() => setIsChangelogModalOpen(true)}
         isSidebarCollapsed={isSidebarCollapsed}
         hasDirectories={hasDirectories}
+        libraryView={libraryView}
+        onLibraryViewChange={setLibraryView}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
       />
     </div>
   );

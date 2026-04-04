@@ -1,11 +1,17 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
+import SearchBar from './SearchBar';
+import { Settings } from 'lucide-react';
 
 interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'privacy' | 'about') => void;
     onAddFolder: () => void;
     onToggleView: () => void;
     onShowChangelog: () => void;
+    libraryView?: 'library' | 'smart' | 'model';
+    onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
+    searchQuery: string;
+    setSearchQuery: (query: string) => void;
     isSidebarCollapsed?: boolean;
     hasDirectories?: boolean;
 }
@@ -15,6 +21,10 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     onAddFolder,
     onToggleView,
     onShowChangelog,
+    libraryView,
+    onLibraryViewChange,
+    searchQuery,
+    setSearchQuery,
     isSidebarCollapsed = false,
     hasDirectories = false
 }) => {
@@ -29,38 +39,86 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
 
     return (
         <div 
-            className="h-8 bg-gray-900 border-b border-gray-800/60 fixed top-0 right-0 z-[100] select-none shadow-sm flex items-center transition-all duration-300"
+            className="h-10 bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 fixed top-0 right-0 z-[100] select-none shadow-sm flex items-center transition-all duration-300"
             style={{ 
                 left: offset,
-                width: `calc(100% - ${offset})`
+                width: `calc(100% - ${offset})`,
+                WebkitAppRegion: 'drag'
             } as any}
         >
-            {/* Layer 1: Dedicated Background Drag Handle (No children to prevent hit-test masking) */}
-            <div 
-                className="absolute inset-0 z-0" 
-                style={{ WebkitAppRegion: 'drag' } as any} 
-            />
-
-            {/* Layer 2: Interactive Content Layer (Pinned above the drag handle) */}
-            <div 
-                className="relative z-10 flex items-center h-full w-full pl-1" 
-            >
-                {/* Menu Items */}
-                <div className="flex items-center h-full" style={{ WebkitAppRegion: 'no-drag' } as any}>
-                    <CustomMenuBar 
-                        onOpenSettings={onOpenSettings}
-                        onAddFolder={onAddFolder}
-                        onToggleView={onToggleView}
-                        onShowChangelog={onShowChangelog}
-                    />
-                </div>
-
-                {/* Flexible Space (Click through to drag handle) */}
-                <div className="flex-grow h-full" />
-
-                {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
-                <div className="w-[140px] flex-shrink-0 h-full" />
+            {/* Menu Items */}
+            <div className="flex items-center h-full shrink-0 px-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                <CustomMenuBar 
+                    onOpenSettings={onOpenSettings}
+                    onAddFolder={onAddFolder}
+                    onToggleView={onToggleView}
+                    onShowChangelog={onShowChangelog}
+                />
             </div>
+
+            {/* Center Side - View Controls */}
+            {libraryView && onLibraryViewChange && (
+                <div className="flex-1 flex justify-center pointer-events-none">
+                    <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50 overflow-hidden pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                        <button
+                            onClick={() => onLibraryViewChange('library')}
+                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                                libraryView === 'library' 
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20' 
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            Library
+                        </button>
+                        <button
+                            onClick={() => onLibraryViewChange('smart')}
+                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                                libraryView === 'smart' 
+                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/20' 
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            Smart Library
+                        </button>
+                        <button
+                            onClick={() => onLibraryViewChange('model')}
+                            className={`px-4 py-1 text-xs font-semibold rounded-full transition-all duration-200 ${
+                                libraryView === 'model' 
+                                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/20' 
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            Model View
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Right Side - Actions (Search & Settings) */}
+            <div className="flex items-center gap-2 shrink-0 pr-1 ml-auto">
+                {/* Search Bar */}
+                {libraryView && (
+                    <div className="origin-right mr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                        <SearchBar
+                            value={searchQuery}
+                            onChange={setSearchQuery}
+                        />
+                    </div>
+                )}
+                
+                {/* Settings Button */}
+                <button
+                    onClick={() => onOpenSettings()}
+                    className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"
+                    title="Open Settings"
+                    style={{ WebkitAppRegion: 'no-drag' } as any}
+                >
+                    <Settings size={18} />
+                </button>
+            </div>
+
+            {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
+            <div className="w-[140px] flex-shrink-0 h-full" />
         </div>
     );
 };
