@@ -1483,7 +1483,30 @@ export const useImageStore = create<ImageState>((set, get) => {
                     }
                     return img;
                 });
-                return _updateState(state, nextImages);
+                
+                let nextPreviewImage = state.previewImage;
+                if (nextPreviewImage && (nextPreviewImage.thumbnailStatus === 'ready' || nextPreviewImage.thumbnailUrl)) {
+                    nextPreviewImage = {
+                        ...nextPreviewImage,
+                        thumbnailStatus: undefined as any,
+                        thumbnailUrl: undefined
+                    };
+                }
+
+                let nextSelectedImage = state.selectedImage;
+                if (nextSelectedImage && (nextSelectedImage.thumbnailStatus === 'ready' || nextSelectedImage.thumbnailUrl)) {
+                    nextSelectedImage = {
+                        ...nextSelectedImage,
+                        thumbnailStatus: undefined as any,
+                        thumbnailUrl: undefined
+                    };
+                }
+
+                return {
+                    ..._updateState(state, nextImages),
+                    previewImage: nextPreviewImage,
+                    selectedImage: nextSelectedImage
+                };
             });
         },
 

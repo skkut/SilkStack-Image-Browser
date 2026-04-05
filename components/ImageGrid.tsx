@@ -188,11 +188,14 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
     };
 
     // If we already have a cached URL or thumbnail, we don't need to fetch fallback
-    if (!getCachedFallbackUrl(image.id)) {
+    const cachedFallback = getCachedFallbackUrl(image.id);
+    if (!cachedFallback) {
       // Debounce heavy fallback fetch; if thumbnail becomes ready meanwhile, this effect will rerun and cancel
       fallbackTimer = setTimeout(() => {
         void loadFallback();
       }, 180);
+    } else {
+      setImageUrl(cachedFallback);
     }
 
     return () => {
@@ -776,10 +779,15 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     }
   }, [scrollKey, setFolderScrollPosition, rows.length, itemsToRender.length]);
 
-  // Prevent object URL memory leaks when changing folders
+  // Prevent object URL memory leaks when changing folders, but skip on initial mount
+  // to avoid destroying the cache when returning from another view
+  const prevScrollKeyRef = useRef(scrollKey);
   useEffect(() => {
-    import('../services/thumbnailManager').then(m => m.thumbnailManager.clearAllUrls());
-    useImageStore.getState().clearAllThumbnails();
+    if (prevScrollKeyRef.current !== scrollKey) {
+      prevScrollKeyRef.current = scrollKey;
+      import('../services/thumbnailManager').then(m => m.thumbnailManager.clearAllUrls());
+      useImageStore.getState().clearAllThumbnails();
+    }
   }, [scrollKey]);
 
 
