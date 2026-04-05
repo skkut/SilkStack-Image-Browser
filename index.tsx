@@ -4,16 +4,14 @@ import App from './App.tsx';
 import ErrorBoundary from './components/ErrorBoundary';
 import './src/index.css';
 import './src/styles/themes.css';
-import { useLicenseStore } from './store/useLicenseStore';
 import { useImageStore } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
 
 // Expose stores globally for debugging
 if (process.env.NODE_ENV === 'development') {
-  (window as any).useLicenseStore = useLicenseStore;
   (window as any).useImageStore = useImageStore;
   (window as any).useSettingsStore = useSettingsStore;
-  console.log('🔧 [DEV] Stores exposed globally: useLicenseStore, useImageStore, useSettingsStore');
+  console.log('🔧 [DEV] Stores exposed globally: useImageStore, useSettingsStore');
 }
 
 const rootElement = document.getElementById('root');

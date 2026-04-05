@@ -9,11 +9,9 @@ import {
   getAllTags,
 } from '../services/imageAnnotationsStorage';
 
-import { useLicenseStore } from './useLicenseStore';
-import { useSettingsStore } from './useSettingsStore';
-import { CLUSTERING_FREE_TIER_LIMIT, CLUSTERING_PREVIEW_LIMIT } from '../hooks/useFeatureAccess';
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
+import { useSettingsStore } from './useSettingsStore';
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
@@ -219,12 +217,6 @@ interface ImageState {
   clusteringWorker: Worker | null;
   isClustering: boolean;
   clusterNavigationContext: IndexedImage[] | null; // Images from currently opened cluster for modal navigation
-  clusteringMetadata: {
-    processedCount: number;
-    remainingCount: number;
-    isLimited: boolean;
-    lockedImageIds: Set<string>; // IDs of images in the "preview locked" range
-  } | null;
 
   // Auto-Tagging State (Phase 3)
   tfidfModel: TFIDFModel | null;
@@ -1085,7 +1077,6 @@ export const useImageStore = create<ImageState>((set, get) => {
         clusteringWorker: null,
         isClustering: false,
         clusterNavigationContext: null,
-        clusteringMetadata: null,
 
         // Auto-Tagging initial values (Phase 3)
         tfidfModel: null,
@@ -1728,37 +1719,8 @@ export const useImageStore = create<ImageState>((set, get) => {
                 existingWorker.terminate();
             }
 
-            // Force Pro status for clustering
-            // const licenseStore = useLicenseStore.getState();
-            const isPro = true;
-            const isTrialActive = false;
-
-            // Filter images with prompts
-            const imagesWithPrompts = images.filter(img => img.prompt && img.prompt.trim().length > 0);
-
-            // For free users: process CLUSTERING_PREVIEW_LIMIT (1500) images
-            // - First 1000: shown normally
-            // - Next 500: shown blurred (locked preview)
-            const processingLimit = (isPro || isTrialActive) ? Infinity : CLUSTERING_PREVIEW_LIMIT;
-            const limitedImages = imagesWithPrompts.slice(0, processingLimit);
-            const remainingCount = Math.max(0, imagesWithPrompts.length - processingLimit);
-
-            // Track which images are in the "locked preview" range (1001-1500)
-            const lockedImageIds = new Set<string>();
-            if (!isPro && !isTrialActive && imagesWithPrompts.length > CLUSTERING_FREE_TIER_LIMIT) {
-                const lockedImages = imagesWithPrompts.slice(CLUSTERING_FREE_TIER_LIMIT, processingLimit);
-                lockedImages.forEach(img => lockedImageIds.add(img.id));
-            }
-
-            // Store metadata for banner display and locked preview
-            set({
-                clusteringMetadata: {
-                    processedCount: Math.min(limitedImages.length, CLUSTERING_FREE_TIER_LIMIT),
-                    remainingCount: remainingCount,
-                    isLimited: remainingCount > 0,
-                    lockedImageIds,
-                }
-            });
+            const imagesWithPrompts = images.filter(img => img.prompt && img.prompt.trim());
+            const limitedImages = imagesWithPrompts;
 
             // Create new worker
             const worker = new Worker(

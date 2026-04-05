@@ -6,7 +6,6 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { ImageCluster, IndexedImage } from '../types';
 import StackCard from './StackCard';
 import StackExpandedView from './StackExpandedView';
-import ClusterUpgradeBanner from './ClusterUpgradeBanner';
 import Footer from './Footer';
 
 const DEFAULT_SIMILARITY_THRESHOLD = 0.88;
@@ -26,7 +25,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = () => {
   const scanSubfolders = useImageStore((state) => state.scanSubfolders);
   const isClustering = useImageStore((state) => state.isClustering);
   const clusteringProgress = useImageStore((state) => state.clusteringProgress);
-  const clusteringMetadata = useImageStore((state) => state.clusteringMetadata);
   const isAutoTagging = useImageStore((state) => state.isAutoTagging);
   const autoTaggingProgress = useImageStore((state) => state.autoTaggingProgress);
   const startClustering = useImageStore((state) => state.startClustering);
@@ -61,48 +59,18 @@ const SmartLibrary: React.FC<SmartLibraryProps> = () => {
   }, [clusters, imageMap]);
 
   const sortedEntries = useMemo(() => {
-    // Separate locked and unlocked clusters
-    const lockedImageIds = clusteringMetadata?.lockedImageIds || new Set();
-    const unlocked: ClusterEntry[] = [];
-    const locked: ClusterEntry[] = [];
-
-    clusterEntries.forEach((entry) => {
-      // Count how many images in this cluster are locked
-      const lockedCount = entry.images.filter((img) => lockedImageIds.has(img.id)).length;
-      const lockedPercentage = entry.images.length > 0 ? lockedCount / entry.images.length : 0;
-
-      // If more than 50% of images are locked, mark cluster as locked
-      if (lockedPercentage > 0.5) {
-        locked.push(entry);
-      } else {
-        unlocked.push(entry);
-      }
-    });
-
-    // Sort function based on selected sort mode
-    const sortFunction = (a: ClusterEntry, b: ClusterEntry) => {
+    return [...clusterEntries].sort((a, b) => {
       if (sortBy === 'similarity') {
-        // Sort by similarity (higher similarity first)
         return b.cluster.similarityThreshold - a.cluster.similarityThreshold;
       } else {
-        // Sort by count (more images first)
         const imageCountDelta = b.images.length - a.images.length;
         if (imageCountDelta !== 0) {
           return imageCountDelta;
         }
         return b.cluster.size - a.cluster.size;
       }
-    };
-
-    unlocked.sort(sortFunction);
-    locked.sort(sortFunction);
-
-    // Limit locked preview to only 5 clusters (for teaser effect)
-    const lockedPreview = locked.slice(0, 5);
-
-    // Return unlocked first, then limited locked preview
-    return [...unlocked, ...lockedPreview];
-  }, [clusterEntries, clusteringMetadata, sortBy]);
+    });
+  }, [clusterEntries, sortBy]);
 
 
 
@@ -217,32 +185,18 @@ const SmartLibrary: React.FC<SmartLibraryProps> = () => {
               style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${Math.min(350, Math.max(250, imageSize))}px, 1fr))` }}
             >
               {sortedEntries.map((entry) => {
-                // Check if majority of images in this cluster are locked
-                const lockedImageIds = clusteringMetadata?.lockedImageIds || new Set();
-                const lockedCount = entry.images.filter((img) => lockedImageIds.has(img.id)).length;
-                const lockedPercentage = entry.images.length > 0 ? lockedCount / entry.images.length : 0;
-                const isLocked = lockedPercentage > 0.5;
-
                 return (
                   <StackCard
                     key={entry.cluster.id}
                     cluster={entry.cluster}
                     images={entry.images}
                     onOpen={() => setExpandedClusterId(entry.cluster.id)}
-                    isLocked={isLocked}
                   />
                 );
               })}
             </div>
 
-            {/* Upgrade banner */}
-            {clusteringMetadata && clusteringMetadata.isLimited && (
-              <ClusterUpgradeBanner
-                processedCount={clusteringMetadata.processedCount}
-                remainingCount={clusteringMetadata.remainingCount}
-                clusterCount={sortedEntries.length}
-              />
-            )}
+
           </div>
         )}
       </div>

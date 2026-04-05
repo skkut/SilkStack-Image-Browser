@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useImageStore } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
-import { useLicenseStore } from './store/useLicenseStore';
 import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
 import { useHotkeys } from './hooks/useHotkeys';
-import { useFeatureAccess } from './hooks/useFeatureAccess';
 import { Directory } from './types';
 import { X, ArrowLeft } from 'lucide-react';
 
@@ -133,7 +131,6 @@ export default function App() {
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'privacy' | 'about'>('general');
-  const [settingsSection, setSettingsSection] = useState<'license' | null>(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
@@ -152,32 +149,16 @@ export default function App() {
     setIsSettingsModalOpen,
   });
 
-  // --- License/Trial Hook ---
-  const {
-    isTrialActive,
-    trialDaysRemaining,
-    canStartTrial,
-    isExpired,
-    isFree,
-    isPro,
-    canUseBatchExport,
-    showProModal,
-    startTrial,
-  } = useFeatureAccess();
 
-  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'privacy' | 'about' = 'general', section: 'license' | null = null) => {
+
+  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'privacy' | 'about' = 'general') => {
     setSettingsTab(tab);
-    setSettingsSection(section);
     setIsSettingsModalOpen(true);
   };
 
   const handleOpenHotkeySettings = () => {
     setIsHotkeyHelpOpen(false);
     handleOpenSettings('hotkeys');
-  };
-
-  const handleOpenLicenseSettings = () => {
-    handleOpenSettings('general', 'license');
   };
 
   useEffect(() => {
@@ -213,19 +194,7 @@ export default function App() {
     }
   }, [primaryPath, hasImages, indexingState, scanSubfolders, restoreSmartLibraryCache]);
 
-  // Initialize license and keep trial opt-in
-  useEffect(() => {
-    const initializeLicense = async () => {
-      // 1. Rehydrate Zustand store from persistent storage
-      await useLicenseStore.persist.rehydrate();
-      const licenseState = useLicenseStore.getState();
 
-      // 2. Check current status (defaults to free until user opts into trial)
-      licenseState.checkLicenseStatus();
-    };
-
-    initializeLicense();
-  }, []);
 
   // --- Effects ---
   useEffect(() => {
@@ -840,10 +809,8 @@ export default function App() {
         isOpen={isSettingsModalOpen}
         onClose={() => {
           setIsSettingsModalOpen(false);
-          setSettingsSection(null);
         }}
         initialTab={settingsTab}
-        focusSection={settingsSection}
       />
 
       <ChangelogModal 

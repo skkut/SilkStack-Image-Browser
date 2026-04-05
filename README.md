@@ -110,8 +110,8 @@ Image MetaHub parses metadata from:
 
 When using the MetaHub Save Node, Image MetaHub automatically provides:
 
-- **Auto-import tags** - Tags from `imh_pro.user_tags` are automatically imported for filtering
-- **Notes display** - Notes from `imh_pro.notes` shown as read-only metadata
+- **Auto-import tags** - Tags from user metadata are automatically imported for filtering
+- **Notes display** - Notes from metadata shown as read-only metadata
 - **Performance metrics** - GPU analytics including VRAM usage, generation time, steps/second, and system versions
 - **Verified telemetry badges** - Visual badges and filters for images with verified performance data
 - **LoRA weights** - Complete LoRA information with weights (e.g., "style_lora_v1.safetensors (0.8)")
@@ -122,9 +122,9 @@ If a tool writes prompt / settings in a consistent way, Image MetaHub can usuall
 
 ---
 
-## Automatic1111 integration (Pro)
+## Automatic1111 integration
 
-With Pro enabled, Image MetaHub can talk directly to a running Automatic1111 instance with full-featured generation controls:
+Image MetaHub can talk directly to a running Automatic1111 instance with full-featured generation controls:
 
 - **Model and LoRA selection** - Browse and select from your installed models and LoRAs with search filters
 - **Image size controls** - Set custom width and height for generation
@@ -142,9 +142,9 @@ For step-by-step instructions, see the dedicated docs in this repo.
 
 ---
 
-## ComfyUI integration (Pro)
+## ComfyUI integration
 
-With Pro enabled, Image MetaHub can generate variations of your images by sending workflows directly to your ComfyUI instance via API with complete workflow-based generation.
+Image MetaHub can generate variations of your images by sending workflows directly to your ComfyUI instance via API with complete workflow-based generation.
 
 **Requirements:**
 
@@ -252,7 +252,7 @@ This simplified workflow approach ensures:
 
 ---
 
-## Compare panel (Pro)
+## Compare panel
 
 The compare panel lets you:
 
@@ -268,7 +268,7 @@ The compare panel lets you:
 
 ---
 
-## Analytics dashboard (Pro)
+## Analytics dashboard
 
 The analytics dashboard gives you a high-level view of your generation patterns and performance metrics:
 
@@ -393,12 +393,12 @@ For detailed issues and planned work, check the [Issues](https://github.com/skku
 
 Image MetaHub is built and maintained by **Lucas (skkut)**, with feedback and contributions from the community.
 
-If you find it useful and want to support development, consider upgrading to Pro or starring the repo on GitHub.
+If you find it useful and want to support development, consider starring the repo on GitHub.
 
 ---
 
 ## Links
 
 - Website: [https://imagemetahub.com](https://imagemetahub.com)
-- Get Pro on Gumroad: [https://lucasphere4660.gumroad.com/l/qmjima](https://lucasphere4660.gumroad.com/l/qmjima)
+
 - Support on Ko-fi: [https://ko-fi.com/lucaspierri](https://ko-fi.com/lucaspierri)

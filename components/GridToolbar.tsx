@@ -5,7 +5,6 @@ import {
   X
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
-import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { type IndexedImage } from '../types';
 
 import ActiveFilters from './ActiveFilters';
@@ -39,7 +38,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   onClearSelection,
 }) => {
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
-  const { showProModal } = useFeatureAccess();
+
 
 
   // ... (rest of the file)

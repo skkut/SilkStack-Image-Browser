@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useLicenseStore } from '../store/useLicenseStore';
 import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
@@ -10,7 +9,6 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: 'general' | 'hotkeys' | 'privacy' | 'about';
-  focusSection?: 'license' | null;
 }
 
 type Tab = 'general' | 'hotkeys' | 'privacy' | 'about';

@@ -19,7 +19,6 @@ import {
   Archive,
   Check,
   CheckSquare,
-  Crown,
   EyeOff,
   Package,
   Play,
@@ -30,7 +29,6 @@ import {
   Layers2
 } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
-import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { useImageStacking } from '../hooks/useImageStacking';
 
 class GridErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
@@ -779,7 +777,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const [selectionStart, setSelectionStart] = useState<{ x: number; y: number } | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{ x: number; y: number } | null>(null);
   const [initialSelectedImages, setInitialSelectedImages] = useState<Set<string>>(new Set());
-  const { canUseA1111, canUseComfyUI, canUseBatchExport, initialized, canUseDuringTrialOrPro } = useFeatureAccess();
+
   const selectedCount = selectedImages.size;
   const sensitiveTagSet = useMemo(() => {
     return new Set(

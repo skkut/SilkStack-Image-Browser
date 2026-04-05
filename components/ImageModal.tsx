@@ -25,7 +25,6 @@ import {
   PanelRightClose,
   PanelRightOpen,
 } from "lucide-react";
-import { useFeatureAccess } from "../hooks/useFeatureAccess";
 import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
@@ -719,12 +718,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   );
 
 
-  // Feature access (license/trial gating)
-  const {
 
-    showProModal,
-    initialized,
-  } = useFeatureAccess();
 
   // Annotations hooks
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
@@ -1802,12 +1796,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                         value={motionModel.hash}
                       />
                     )}
-                    {(nMeta as any)?._metahub_pro?.project_name && (
-                      <MetadataItem
-                        label="Project"
-                        value={(nMeta as any)._metahub_pro.project_name}
-                      />
-                    )}
+
                     {shadowMetadata?.notes && (
                       <div className="col-span-2 pt-2 border-t border-gray-700/50 mt-2">
                         <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-1">
