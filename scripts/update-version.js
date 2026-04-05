@@ -79,8 +79,8 @@ updateFile(
 // ============================================================
 updateFile(
   'components/Header.tsx',
-  /AI Images Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?/,
-  `AI Images Browser v${NEW_VERSION}`,
+  /SilkStack Image Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?/,
+  `SilkStack Image Browser v${NEW_VERSION}`,
   'Header.tsx main title'
 );
 
@@ -109,8 +109,8 @@ updateFile(
 // ============================================================
 updateFile(
   'index.html',
-  /<title>AI Images Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?<\/title>/,
-  `<title>AI Images Browser v${NEW_VERSION}</title>`,
+  /<title>SilkStack Image Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?<\/title>/,
+  `<title>SilkStack Image Browser v${NEW_VERSION}</title>`,
   'index.html page title'
 );
 
@@ -119,8 +119,8 @@ updateFile(
 // ============================================================
 updateFile(
   'electron.mjs',
-  /mainWindow\.setTitle\('AI Images Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?'\)/,
-  `mainWindow.setTitle('AI Images Browser v${NEW_VERSION}')`,
+  /mainWindow\.setTitle\('SilkStack Image Browser v\d+\.\d+\.\d+(-[a-z0-9.-]+)?'\)/,
+  `mainWindow.setTitle('SilkStack Image Browser v${NEW_VERSION}')`,
   'electron.mjs window title fallback'
 );
 
@@ -151,8 +151,8 @@ updateFile(
 // for the description text based on the release content
 const changelogUpdated = updateFile(
   'components/ChangelogModal.tsx',
-  /AI Images Browser \d+\.\d+\.\d+(-[a-z0-9.-]+)? is here/,
-  `AI Images Browser ${NEW_VERSION} is here`,
+  /SilkStack Image Browser \d+\.\d+\.\d+(-[a-z0-9.-]+)? is here/,
+  `SilkStack Image Browser ${NEW_VERSION} is here`,
   'ChangelogModal.tsx version reference'
 );
 

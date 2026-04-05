@@ -101,7 +101,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose, curren
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div>
             <h2 className="text-2xl font-bold text-gray-100">What's New</h2>
-            <p className="text-gray-400 text-sm mt-1">AI Images Browser v{currentVersion}</p>
+            <p className="text-gray-400 text-sm mt-1">SilkStack Image Browser v{currentVersion}</p>
           </div>
           <button
             onClick={onClose}
@@ -124,7 +124,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose, curren
               <div className="mb-6 p-4 bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-blue-500/30 rounded-lg">
                 <h3 className="text-lg font-semibold text-blue-300 mb-3">Message from the Dev</h3>
                 <div className="text-gray-300 space-y-3 text-sm leading-relaxed">
-                  <p>Hey, I'm Lucas, the solo dev behind AI Images Browser.</p>
+                  <p>Hey, I'm Lucas, the solo dev behind SilkStack Image Browser.</p>
 
                   <p>Video support is finally starting to land! This update lays the critical foundation for video management. It is still early days, but you can now start indexing, previewing, and organizing your motion generations right alongside your images.</p>
 
@@ -132,11 +132,11 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ isOpen, onClose, curren
 
                   <p>I want to take a quick moment to be transparent about the project itself.</p>
 
-                  <p>AI Images Browser is not a side project or a weekend hobby for me. This is my full-time job. I am at my desk every single day, committed to building the best possible tool for local AI organization. The rapid pace of updates and bug fixes is possible because I am dedicating all my time to this.</p>
+                  <p>SilkStack Image Browser is not a side project or a weekend hobby for me. This is my full-time job. I am at my desk every single day, committed to building the best possible tool for local AI organization. The rapid pace of updates and bug fixes is possible because I am dedicating all my time to this.</p>
 
                   <p>However, being an independent developer means I don't have investors or a corporate safety net—I only have you, the community.</p>
 
-                  <p className="font-medium mt-4">If you find this tool useful, consider supporting the project on Ko-fi or GitHub. It validates the work and allows me to keep focusing 100% on making AI Images Browser better for everyone.</p>
+                  <p className="font-medium mt-4">If you find this tool useful, consider supporting the project on Ko-fi or GitHub. It validates the work and allows me to keep focusing 100% on making SilkStack Image Browser better for everyone.</p>
 
                   <p className="mt-4">Enjoy the update!</p>
 

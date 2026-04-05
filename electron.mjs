@@ -345,7 +345,7 @@ function createApplicationMenu() {
         },
         { type: "separator" },
         {
-          label: `About AI Images Browser`,
+          label: `About SilkStack Image Browser`,
           click: () => {
             if (mainWindow) {
               mainWindow.webContents.send("menu-open-about");
@@ -397,16 +397,16 @@ function createWindow(startupDirectory = null) {
   // Set window title to include version (keeps it accurate across builds)
   try {
     const appVersion = app.getVersion();
-    mainWindow.setTitle(`AI Images Browser`);
+    mainWindow.setTitle(`SilkStack Image Browser`);
   } catch (e) {
     // Fallback if app.getVersion is not available
-    mainWindow.setTitle("AI Images Browser");
+    mainWindow.setTitle("SilkStack Image Browser");
   }
 
   // Add Dev indicator to title
   if (isDev) {
     console.log("🔧 Setting initial dev title");
-    mainWindow.setTitle("AI Images Browser - Dev");
+    mainWindow.setTitle("SilkStack Image Browser - Dev");
   }
 
   // Prevent index.html title from overriding the Dev suffix

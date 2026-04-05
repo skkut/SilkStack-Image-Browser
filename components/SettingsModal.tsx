@@ -342,13 +342,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
               </div>
               
               <div>
-                <h3 className="text-2xl font-bold text-gray-100">AI Images Browser</h3>
+                <h3 className="text-2xl font-bold text-gray-100">SilkStack Image Browser</h3>
                 <p className="text-blue-400 font-medium mt-1">v{appVersion}</p>
               </div>
               
               <div className="pt-4 border-t border-gray-800">
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  A powerful tool for browsing and managing AI-generated images with metadata support for ComfyUI, and more.
+                  A powerful Image Browser for AI-generated images with ComfyUI metadata support, and more.
                 </p>
               </div>
 

@@ -1,14 +1,14 @@
-# AI Images Browser
+# SilkStack Image Browser
 
 [![Support on Ko-fi](https://img.shields.io/badge/Support-Ko%E2%80%91fi-ff5f5f)](https://ko-fi.com/lucaspierri)
 
 _Local AI image browser and metadata hub for AI images from Stable Diffusion and related tools._
 
-![AI Images Browser main UI](assets/screenshot-hero-grid.webp)
+![SilkStack Image Browser main UI](assets/screenshot-hero-grid.webp)
 
-## What is AI Images Browser?
+## What is SilkStack Image Browser?
 
-**AI Images Browser** is a **local image browser and manager** focused on AI-generated images.
+**SilkStack Image Browser** is a **local image browser and manager** focused on AI-generated images.
 It scans your folders, parses metadata from popular tools (Automatic1111, ComfyUI, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney / Nijijourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all **offline**, on your machine.
 
 It is open-source (MPL 2.0) and free to use.

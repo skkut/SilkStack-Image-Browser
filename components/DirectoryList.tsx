@@ -214,7 +214,7 @@ export default function DirectoryList({
         await (window as any).electronAPI.showItemInFolder(path);
       } else {
         alert(
-          "This feature requires the desktop app. Please use the AI Images Browser application.",
+          "This feature requires the desktop app. Please use the SilkStack Image Browser application.",
         );
       }
     } catch (error) {

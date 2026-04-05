@@ -1,6 +1,6 @@
 {
   "appId": "com.skkut.ai-images-browser",
-  "productName": "AI Images Browser",
+  "productName": "SilkStack Image Browser",
   "directories": {
     "output": "dist-electron"
   },

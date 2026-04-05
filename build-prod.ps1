@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 Write-Host "Closing Running Application Instances..."
-Get-Process -Name "AI Images Browser" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "SilkStack Image Browser" -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-Process -Name "ai-images-browser" -ErrorAction SilentlyContinue | Stop-Process -Force
 
 
@@ -22,14 +22,14 @@ if ($LASTEXITCODE -ne 0) {
 
 
 
-Write-Host "Deploying to C:\Programs\AI Images Browser..."
+Write-Host "Deploying to C:\Programs\SilkStack Image Browser..."
 $BuildOutput = Get-ChildItem -Path "release-builds" -Directory | Select-Object -First 1
 if ($null -eq $BuildOutput) {
     Write-Error "Could not find build output directory in release-builds!"
     exit 1
 }
 
-$DestPath = "C:\Programs\AI Images Browser"
+$DestPath = "C:\Programs\SilkStack Image Browser"
 if (!(Test-Path $DestPath)) {
     New-Item -ItemType Directory -Path $DestPath -Force
 }
