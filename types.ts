@@ -1065,8 +1065,6 @@ export interface SmartCollectionQuery {
  */
 export interface ClusterPreference {
   clusterId: string; // Primary key
-  bestImageIds: string[]; // User-marked best images
-  archivedImageIds: string[]; // Suggested for deletion
   isExpanded: boolean; // UI state persistence
   notes?: string; // User notes about cluster
   updatedAt: number;

@@ -4,7 +4,6 @@ import { ImageCluster, IndexedImage, ClusterPreference } from '../types';
 import { useImageStore } from '../store/useImageStore';
 import ImageGrid from './ImageGrid';
 import ImageTable from './ImageTable';
-import DeduplicationHelper from './DeduplicationHelper';
 import { getClusterPreference } from '../services/imageAnnotationsStorage';
 
 interface StackExpandedViewProps {
@@ -76,20 +75,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
     return cluster.basePrompt || allImages[0]?.prompt || 'Untitled stack';
   }, [cluster.basePrompt, allImages]);
 
-  // Create Sets for deduplication markers
-  const markedBestIds = useMemo(() => {
-    if (!clusterPreference || !clusterPreference.bestImageIds) {
-      return undefined;
-    }
-    return new Set(clusterPreference.bestImageIds);
-  }, [clusterPreference]);
-
-  const markedArchivedIds = useMemo(() => {
-    if (!clusterPreference || !clusterPreference.archivedImageIds) {
-      return undefined;
-    }
-    return new Set(clusterPreference.archivedImageIds);
-  }, [clusterPreference]);
 
   const handleImageClick = useCallback(
     (image: IndexedImage, event: React.MouseEvent) => {
@@ -151,24 +136,12 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
         <h3 className="text-sm font-semibold text-gray-100 mb-1">Cluster prompt</h3>
         <p className="text-xs text-gray-300 leading-relaxed">{promptLabel}</p>
       </div>
-      {!preferenceLoading && (
-        <div className="flex-shrink-0">
-          <DeduplicationHelper
-            cluster={cluster}
-            images={allImages}
-            existingPreference={clusterPreference}
-            onPreferenceUpdated={handlePreferenceUpdated}
-          />
-        </div>
-      )}
       <div className="flex-1 min-h-0 overflow-auto">
         {viewMode === 'grid' ? (
           <ImageGrid
             images={images}
             onImageClick={handleImageClick}
             selectedImages={safeSelectedImages}
-            markedBestIds={markedBestIds}
-            markedArchivedIds={markedArchivedIds}
           />
         ) : (
           <ImageTable

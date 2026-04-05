@@ -66,11 +66,10 @@
 - **Clustering Worker (`services/workers/clusteringWorker.ts`)** runs clustering off the main thread and streams progress updates for large datasets.
 - **Cluster Cache (`services/clusterCacheManager.ts`)** persists stack results with atomic writes and Electron `userData` fallbacks for crash-safe storage.
 
-### Auto-Tagging & Deduplication
+### Auto-Tagging
 
 - **Auto-Tagging Engine (`services/autoTaggingEngine.ts`)** builds a TF-IDF model and emits suggested tags, persisted alongside indexed images.
 - **Auto-Tagging Worker (`services/workers/autoTaggingWorker.ts`)** handles long-running tag generation with cancellation support.
-- **Deduplication Engine (`services/deduplicationEngine.ts`)** scores images for keep/archive suggestions (favorites -> file size -> creation date), surfaced in `components/DeduplicationHelper.tsx`.
 
 ### ComfyUI Parser Architecture (Recent Refactoring)
 

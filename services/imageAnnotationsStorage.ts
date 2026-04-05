@@ -678,53 +678,6 @@ export async function getAllClusterPreferences(): Promise<ClusterPreference[]> {
   });
 }
 
-/**
- * Mark images as best in a cluster
- */
-export async function markAsBest(clusterId: string, imageIds: string[]): Promise<void> {
-  const existing = await getClusterPreference(clusterId);
-
-  const preference: ClusterPreference = existing || {
-    clusterId,
-    bestImageIds: [],
-    archivedImageIds: [],
-    isExpanded: false,
-    updatedAt: Date.now(),
-  };
-
-  // Add to best images (avoid duplicates)
-  preference.bestImageIds = [...new Set([...preference.bestImageIds, ...imageIds])];
-
-  // Remove from archived if present
-  preference.archivedImageIds = preference.archivedImageIds.filter(
-    (id) => !imageIds.includes(id)
-  );
-
-  await saveClusterPreference(preference);
-}
-
-/**
- * Mark images for archival in a cluster
- */
-export async function markForArchive(clusterId: string, imageIds: string[]): Promise<void> {
-  const existing = await getClusterPreference(clusterId);
-
-  const preference: ClusterPreference = existing || {
-    clusterId,
-    bestImageIds: [],
-    archivedImageIds: [],
-    isExpanded: false,
-    updatedAt: Date.now(),
-  };
-
-  // Add to archived (avoid duplicates)
-  preference.archivedImageIds = [...new Set([...preference.archivedImageIds, ...imageIds])];
-
-  // Remove from best if present
-  preference.bestImageIds = preference.bestImageIds.filter((id) => !imageIds.includes(id));
-
-  await saveClusterPreference(preference);
-}
 
 // ===== Smart Collections Functions (Phase 1) =====
 

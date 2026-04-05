@@ -65,8 +65,6 @@ interface ImageCardProps {
   baseWidth: number;
 
   registerCardRef?: (id: string, el: HTMLDivElement | null) => void;
-  isMarkedBest?: boolean;       // For deduplication: marked as best to keep
-  isMarkedArchived?: boolean;   // For deduplication: marked for archive
   isBlurred?: boolean;
   getDragPayload?: (image: IndexedImage) => { sourcePath: string; name: string }[];
 }
@@ -114,7 +112,7 @@ const releaseCachedFallbackUrl = (id: string) => {
   }
 };
 
-const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isMarkedBest, isMarkedArchived, isBlurred, getDragPayload }) => {
+const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     // Determine initial state safely before thumbnail hook runs
     const state = useSettingsStore.getState();
@@ -354,23 +352,6 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           )}
         </button>
 
-        {/* Deduplication: Best badge */}
-        {isMarkedBest && (
-          <div className="absolute top-2 left-11 z-20 px-2 py-1 bg-yellow-500/90 rounded-lg text-white text-xs font-bold shadow-lg flex items-center gap-1">
-            <Crown className="h-3.5 w-3.5" />
-            Best
-          </div>
-        )}
-
-        {/* Deduplication: Archived badge */}
-        {isMarkedArchived && (
-          <div className="absolute top-2 left-11 z-20 px-2 py-1 bg-gray-600/90 rounded-lg text-white text-xs font-bold shadow-lg flex items-center gap-1">
-            <Archive className="h-3.5 w-3.5" />
-            Archive
-          </div>
-        )}
-
-
         <button
           onClick={handlePreviewClick}
           className="absolute top-11 left-2 z-10 p-1.5 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:opacity-100"
@@ -524,9 +505,6 @@ interface ImageGridRowData {
   blurSensitiveImages: boolean;
   selectedImages: Set<string>;
   focusedItemId: string | null;
-  markedBestIds?: Set<string>;
-  markedArchivedIds?: Set<string>;
-
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   handleStackClick: (stack: ImageStack) => void;
   handleImageLoad: (id: string, aspectRatio: number) => void;
@@ -536,7 +514,7 @@ interface ImageGridRowData {
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
-  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, markedBestIds, markedArchivedIds, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
   const row = rows[index];
   if (!row) return null;
   
@@ -571,8 +549,6 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                                   baseWidth={itemWidth}
 
                                   registerCardRef={registerCardRef}
-                                  isMarkedBest={markedBestIds?.has(item.coverImage.id)}
-                                  isMarkedArchived={markedArchivedIds?.has(item.coverImage.id)}
                                   isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
                                   getDragPayload={getDragPayload}
                               />
@@ -595,8 +571,6 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                           baseWidth={itemWidth}
 
                           registerCardRef={registerCardRef}
-                          isMarkedBest={markedBestIds?.has(image.id)}
-                          isMarkedArchived={markedArchivedIds?.has(image.id)}
                           isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
                           getDragPayload={getDragPayload}
                       />
@@ -612,12 +586,9 @@ interface ImageGridProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
-  // Deduplication support (optional)
-  markedBestIds?: Set<string>;      // IDs of images marked as best
-  markedArchivedIds?: Set<string>;  // IDs of images marked for archive
 }
 
-const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, markedBestIds, markedArchivedIds }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages }) => {
   const imageSize = useSettingsStore((state) => state.imageSize);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
@@ -1346,8 +1317,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     blurSensitiveImages,
     selectedImages,
     focusedItemId,
-    markedBestIds,
-    markedArchivedIds,
 
     onImageClick,
     handleStackClick,
@@ -1362,8 +1331,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     blurSensitiveImages,
     selectedImages,
     focusedItemId,
-    markedBestIds,
-    markedArchivedIds,
 
     onImageClick,
     handleStackClick,
