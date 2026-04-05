@@ -88,14 +88,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
 
-  onMenuShowChangelog: (callback) => {
-    const handler = (event, ...args) => callback(...args);
-    ipcRenderer.on('menu-show-changelog', handler);
-    return () => {
-      ipcRenderer.removeListener('menu-show-changelog', handler);
-    };
-  },
-
   onFullscreenChanged: (callback) => {
     const handler = (event, ...args) => callback(...args);
     ipcRenderer.on('fullscreen-changed', handler);

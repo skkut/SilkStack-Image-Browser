@@ -311,17 +311,6 @@ function createApplicationMenu() {
       label: "Help",
       submenu: [
         {
-          label: `What's New (v${app.getVersion()})`,
-          accelerator: "F1",
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send("menu-show-changelog");
-            }
-          },
-        },
-
-        { type: "separator" },
-        {
           label: "Documentation",
           click: async () => {
             await shell.openExternal(
