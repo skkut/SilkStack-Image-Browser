@@ -1,5 +1,5 @@
 {
-  "name": "ai-images-browser",
+  "name": "silkstack",
   "description": "SilkStack Image Browser",
   "author": "skkut <github.com/skkut>",
   "private": true,
@@ -30,7 +30,7 @@
     "cli:index": "tsx scripts/cli.ts index"
   },
   "bin": {
-    "imagemetahub-cli": "./scripts/cli.ts"
+    "silkstack-cli": "./scripts/cli.ts"
   },
   "dependencies": {
     "archiver": "^7.0.1",

@@ -1,5 +1,5 @@
 {
-  "appId": "com.skkut.ai-images-browser",
+  "appId": "com.skkut.silkstack",
   "productName": "SilkStack Image Browser",
   "directories": {
     "output": "dist-electron"
@@ -12,16 +12,18 @@
     "public/logo1.png"
   ],
   "win": {
+    "executableName": "silkstack",
     "icon": "public/icon.ico",
     "target": [
       "nsis",
       "zip"
     ],
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "SilkStack-${version}-${os}-${arch}.${ext}",
     "cscLink": null,
     "cscKeyPassword": null
   },
   "mac": {
+    "executableName": "silkstack",
     "icon": "public/logo1.png",
     "target": [
       {
@@ -37,6 +39,7 @@
     "identity": null
   },
   "linux": {
+    "executableName": "silkstack",
     "icon": "public/logo1.png",
     "target": [
       {
@@ -53,7 +56,7 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "artifactName": "AIImagesBrowser-Setup-${version}.${ext}"
+    "artifactName": "SilkStack-Setup-${version}.${ext}"
   },
   "publish": {
     "provider": "github",
