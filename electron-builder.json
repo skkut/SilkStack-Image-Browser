@@ -7,7 +7,6 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
-    "src/services/fileWatcher.mjs",
     "public/icon.ico",
     "public/logo1.png"
   ],
@@ -61,7 +60,7 @@
   "publish": {
     "provider": "github",
     "owner": "skkut",
-    "repo": "ai-images-browser",
+    "repo": "silkstack",
     "releaseType": "release"
   },
   "generateUpdatesFilesForAllChannels": true

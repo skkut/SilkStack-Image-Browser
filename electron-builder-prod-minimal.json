@@ -1,13 +1,12 @@
 {
-  "appId": "com.skkut.ai-images-browser",
+  "appId": "com.skkut.silkstack",
   "directories": {
     "output": "release"
   },
   "files": [
     "dist/**/*",
-    "electron.mjs",
-    "preload.js",
-    "services/**/*",
+    "electron/**/*",
+    "src/services/fileWatcher.mjs",
     "public/icon.ico",
     "public/logo1.png"
   ],

@@ -72,7 +72,7 @@ Executa:
 npm run auto-release 0.11.2
 
 # 3. Aguarde ~10-15 minutos para o GitHub Actions completar
-# 4. Verifique a release em: https://github.com/skkut/AI-Images-Browser/releases
+# 4. Verifique a release em: https://github.com/skkut/silkstack/releases
 ```
 
 ### Para releases de teste (RC/beta):
@@ -135,7 +135,7 @@ Antes de rodar `npm run auto-release`:
 - Certifique-se que o CHANGELOG tem uma seção: `## [0.11.2] - YYYY-MM-DD`
 
 ### GitHub Actions não iniciou
-- Verifique em: https://github.com/skkut/AI-Images-Browser/actions
+- Verifique em: https://github.com/skkut/silkstack/actions
 - Pode levar alguns segundos/minutos para iniciar
 - Certifique-se que o push da tag foi bem-sucedido
 
@@ -188,5 +188,5 @@ npm run auto-release 0.11.2
 
 ## Suporte
 
-- Issues: https://github.com/skkut/AI-Images-Browser/issues
+- Issues: https://github.com/skkut/silkstack/issues
 - Documentação: README.md, ARCHITECTURE.md, AGENTS.md

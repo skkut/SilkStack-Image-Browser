@@ -222,11 +222,11 @@ Apache-2.0
 
 ## Repository
 
-https://github.com/skkut/AI-Images-Browser/tree/main/packages/metadata-engine
+https://github.com/skkut/silkstack/tree/main/packages/metadata-engine
 
 ## Related Projects
 
-- [Image MetaHub](https://github.com/skkut/AI-Images-Browser) - Desktop app using this engine
+- [Image MetaHub](https://github.com/skkut/silkstack) - Desktop app using this engine
 - Issues and contributions welcome!
 
 ## Examples
@@ -295,6 +295,6 @@ Contributions welcome! Please:
 
 ## Credits
 
-Built by the [Image MetaHub](https://github.com/skkut/AI-Images-Browser) team.
+Built by the [Image MetaHub](https://github.com/skkut/silkstack) team.
 
 Special thanks to the AI image generation community for format documentation.

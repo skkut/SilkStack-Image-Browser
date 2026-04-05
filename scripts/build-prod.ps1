@@ -2,6 +2,8 @@ $ErrorActionPreference = "Stop"
 Write-Host "Closing Running Application Instances..."
 Get-Process -Name "SilkStack Image Browser" -ErrorAction SilentlyContinue | Stop-Process -Force
 Get-Process -Name "ai-images-browser" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "silkstack" -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name "SilkStack" -ErrorAction SilentlyContinue | Stop-Process -Force
 
 
 Write-Host "Clearing previous build artifacts..."
@@ -32,6 +34,10 @@ if ($null -eq $BuildOutput) {
 $DestPath = "C:\Programs\SilkStack Image Browser"
 if (!(Test-Path $DestPath)) {
     New-Item -ItemType Directory -Path $DestPath -Force
+} else {
+    # Clear destination folder to avoid keeping old executables/files
+    Write-Host "Cleaning destination folder $DestPath..."
+    Remove-Item -Path "$DestPath\*" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 Copy-Item -Path "$($BuildOutput.FullName)\*" -Destination $DestPath -Recurse -Force

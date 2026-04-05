@@ -39,7 +39,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/skkut/AI-Images-Browser.git",
+    "url": "https://github.com/skkut/silkstack.git",
     "directory": "packages/metadata-engine"
   },
   "author": "skkut",

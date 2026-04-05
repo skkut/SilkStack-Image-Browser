@@ -462,7 +462,7 @@ Mozilla Public License Version 2.0 (MPL-2.0)
 
 ## Support
 
-- GitHub Issues: https://github.com/skkut/AI-Images-Browser/issues
+- GitHub Issues: https://github.com/skkut/silkstack/issues
 
 ---
 

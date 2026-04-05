@@ -18,7 +18,7 @@ import fsSync from "fs";
 import crypto from "crypto";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
-import * as fileWatcher from "../src/services/fileWatcher.mjs";
+import * as fileWatcher from "./fileWatcher.mjs";
 import archiver from "archiver";
 import { createRequire } from "module";
 
@@ -325,7 +325,7 @@ function createApplicationMenu() {
           label: "Documentation",
           click: async () => {
             await shell.openExternal(
-              "https://github.com/skkut/AI-Images-Browser#readme",
+              "https://github.com/skkut/silkstack#readme",
             );
           },
         },
@@ -333,14 +333,14 @@ function createApplicationMenu() {
           label: "Report Bug",
           click: async () => {
             await shell.openExternal(
-              "https://github.com/skkut/AI-Images-Browser/issues/new",
+              "https://github.com/skkut/silkstack/issues/new",
             );
           },
         },
         {
           label: "View on GitHub",
           click: async () => {
-            await shell.openExternal("https://github.com/skkut/AI-Images-Browser");
+            await shell.openExternal("https://github.com/skkut/silkstack");
           },
         },
         { type: "separator" },

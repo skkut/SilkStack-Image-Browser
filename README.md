@@ -40,7 +40,7 @@ The goal is to keep the tool open and useful for everyone.
 - **[Release Guide](docs/RELEASE-GUIDE.md)**: Release workflow for maintainers
 - **[CLI Docs](docs/CLI-README.md)**: CLI tool documentation
 - **[CLI-README](docs/CLI-README.md)**: CLI tool documentation
-  - Go to the [Releases](https://github.com/skkut/AI-Images-Browser/releases) page and grab the installer for your platform (Windows / Linux / macOS).
+  - Go to the [Releases](https://github.com/skkut/silkstack/releases) page and grab the installer for your platform (Windows / Linux / macOS).
 
 2. **Install and run**
    - Launch Image MetaHub.
@@ -383,7 +383,7 @@ _Long-term_
 - Background workers and progress streaming for clustering and auto-tags
 - Cache reliability improvements (atomic writes, userData fallbacks)
 
-For detailed issues and planned work, check the [Issues](https://github.com/skkut/AI-Images-Browser/issues) and project board.
+For detailed issues and planned work, check the [Issues](https://github.com/skkut/silkstack/issues) and project board.
 
 ---
 
