@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Folder,
   Download,
   Star,
   Trash2,
@@ -8,7 +7,6 @@ import {
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
-import { showInExplorer } from '../utils/imageUtils';
 import { type IndexedImage } from '../types';
 
 import ActiveFilters from './ActiveFilters';
@@ -57,15 +55,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
 
 
 
-  const handleShowInFolder = () => {
-    if (!firstSelectedImage) return;
-    const directory = directories.find(d => d.id === firstSelectedImage.directoryId);
-    if (!directory) {
-      showNotification('Cannot determine file location', 'error');
-      return;
-    }
-    showInExplorer(`${directory.path}/${firstSelectedImage.name}`);
-  };
+
 
   const handleExport = async () => {
     if (selectedCount > 1) {
@@ -162,15 +152,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
 
 
 
-              {/* Show in Folder */}
-              <button
-                onClick={handleShowInFolder}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                title="Show in Folder"
-                disabled={selectedCount !== 1}
-              >
-                <Folder className="w-4 h-4" />
-              </button>
+
 
               {/* Export */}
               <button
