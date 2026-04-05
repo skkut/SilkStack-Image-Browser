@@ -1341,10 +1341,30 @@ export function useImageLoader() {
     const { removeDirectory: removeDirectoryFromStore } =
       useImageStore.getState();
 
+    const shouldScanSubfolders = useImageStore.getState().scanSubfolders;
+
+    if (getIsElectron()) {
+      try {
+        // 1. Fetch cached images for this directory to get their IDs
+        const cachedData = await cacheManager.getCachedData(directoryId, shouldScanSubfolders);
+        let imageIds: string[] = [];
+        if (cachedData && cachedData.metadata) {
+          imageIds = cachedData.metadata.map((m: any) => m.id);
+        }
+
+        // 2. Clear json cache
+        await cacheManager.clearDirectoryCache(directoryId, shouldScanSubfolders);
+
+        // 3. Clear thumbnails for these IDs
+        if (imageIds.length > 0) {
+          await cacheManager.deleteThumbnails(imageIds);
+        }
+      } catch (err) {
+        console.warn(`Failed to clear cache for directory ${directoryId}`, err);
+      }
+    }
+
     // Remove from store (this removes images from view and updates localStorage)
-    // NOTE: We intentionally DO NOT clear the cache here!
-    // This allows users to temporarily hide folders without losing the expensive indexing work
-    // The cache will be reused when the folder is added back
     removeDirectoryFromStore(directoryId);
 
     // Update allowed paths

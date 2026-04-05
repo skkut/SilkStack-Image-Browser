@@ -972,6 +972,23 @@ function setupFileOperationHandlers() {
     }
   });
 
+  ipcMain.handle("delete-thumbnails-batch", async (event, thumbnailIds) => {
+    try {
+      if (!Array.isArray(thumbnailIds)) return { success: false, error: "Invalid argument" };
+      let deletedCount = 0;
+      for (const id of thumbnailIds) {
+        const filePath = await getThumbnailCachePath(id);
+        await fs.unlink(filePath).catch(err => {
+          if (err.code !== "ENOENT") console.warn(`Failed to delete thumbnail ${id}:`, err);
+        });
+        deletedCount++;
+      }
+      return { success: true, deletedCount };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle("clear-metadata-cache", async () => {
     try {
       const rootPath = await getCacheRootPath();

@@ -493,6 +493,21 @@ class CacheManager {
     return null;
   }
 
+  async deleteThumbnails(imageIds: string[]): Promise<void> {
+    if (!this.isElectron) return;
+    if (!imageIds || imageIds.length === 0) return;
+    
+    // Process in batches of 50 to avoid overloading IPC
+    const BATCH_SIZE = 50;
+    for (let i = 0; i < imageIds.length; i += BATCH_SIZE) {
+      const batch = imageIds.slice(i, i + BATCH_SIZE);
+      const result = await window.electronAPI.deleteThumbnailsBatch(batch);
+      if (!result.success) {
+        console.error("Failed to delete thumbnails batch:", result.error);
+      }
+    }
+  }
+
   
   // Deletes the JSON cache file via IPC
   async clearDirectoryCache(directoryPath: string, scanSubfolders: boolean): Promise<void> {
