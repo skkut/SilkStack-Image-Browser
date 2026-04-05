@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLicenseStore } from '../store/useLicenseStore';
@@ -35,8 +34,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const setBlurSensitiveImages = useSettingsStore((state) => state.setBlurSensitiveImages);
 
 
-
-
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
   const [appVersion, setAppVersion] = useState('');
@@ -66,7 +63,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   useEffect(() => {
     setSensitiveTagsInput((sensitiveTags ?? []).join(', '));
   }, [sensitiveTags]);
-
 
 
   const handleClearCache = async () => {
@@ -103,7 +99,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
       }
     }
   };
-
 
 
   if (!isOpen) {
@@ -152,34 +147,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             </button>
         </div>
 
-
         {activeTab === 'general' && (
           <div className="space-y-6">
 
-
-
-
-          {/* Auto-watch Setting */}
-          <div>
-            <h3 className="text-lg font-semibold mb-2">File Monitoring</h3>
-            <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
-              <div>
-                <p className="text-sm">Monitor changes in real-time</p>
-                <p className="text-xs text-gray-400">
-                  Automatically watch directories for new or modified images. Disable this if you have very large folders or a slower PC.
-                </p>
+            {/* Auto-watch Setting */}
+            <div>
+              <h3 className="text-lg font-semibold mb-2">File Monitoring</h3>
+              <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
+                <div>
+                  <p className="text-sm">Monitor changes in real-time</p>
+                  <p className="text-xs text-gray-400">
+                    Automatically watch directories for new or modified images. Disable this if you have very large folders or a slower PC.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={globalAutoWatch}
+                    onChange={toggleGlobalAutoWatch}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={globalAutoWatch}
-                  onChange={toggleGlobalAutoWatch}
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
             </div>
-          </div>
 
           {/* Display */}
           <div>
@@ -357,7 +348,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
               
               <div className="pt-4 border-t border-gray-800">
                 <p className="text-sm text-gray-300 leading-relaxed">
-                  A powerful tool for browsing and managing AI-generated images with metadata support for InvokeAI, ComfyUI, A1111, and more.
+                  A powerful tool for browsing and managing AI-generated images with metadata support for ComfyUI, and more.
                 </p>
               </div>
 
