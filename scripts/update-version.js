@@ -68,7 +68,7 @@ updateFile(
 // 2. ARCHITECTURE.md - Current Version section
 // ============================================================
 updateFile(
-  'ARCHITECTURE.md',
+  'docs/ARCHITECTURE.md',
   /- \*\*Version:\*\*\s*\d+\.\d+\.\d+(-[a-z0-9.-]+)?/,
   `- **Version:** ${NEW_VERSION}`,
   'ARCHITECTURE.md current version'
@@ -164,7 +164,7 @@ if (changelogUpdated) {
 // 11. Sync CHANGELOG.md to public/ (if needed for build)
 // ============================================================
 try {
-  const changelog = readFileSync('CHANGELOG.md', 'utf8');
+  const changelog = readFileSync('docs/CHANGELOG.md', 'utf8');
   writeFileSync('public/CHANGELOG.md', changelog, 'utf8');
   console.log(`✅ [${++updatedCount}] Synced CHANGELOG.md to public/`);
 } catch (error) {

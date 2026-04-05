@@ -35,13 +35,11 @@ The development is done in Windows, so use Windows-specific tools and commands w
 └── public/                # Static assets
 ```
 
-## Important Documentation
-
-- **README.md**: User-facing documentation and features
-- **ARCHITECTURE.md**: Technical architecture and design decisions
-- **CHANGELOG.md**: Version history and changes
-- **RELEASE-GUIDE.md**: Release workflow for maintainers
-- **CLI-README.md**: CLI tool documentation
+- **README.md**: [README.md](README.md) (User-facing documentation and features)
+- **ARCHITECTURE.md**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Technical architecture and design decisions)
+- **CHANGELOG.md**: [docs/CHANGELOG.md](docs/CHANGELOG.md) (Version history and changes)
+- **RELEASE-GUIDE.md**: [docs/RELEASE-GUIDE.md](docs/RELEASE-GUIDE.md) (Release workflow for maintainers)
+- **CLI-README.md**: [docs/CLI-README.md](docs/CLI-README.md) (CLI tool documentation)
 
 ## Development Workflow
 

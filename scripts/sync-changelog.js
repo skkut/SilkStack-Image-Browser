@@ -22,8 +22,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const rootChangelog = join(__dirname, 'CHANGELOG.md');
-const publicChangelog = join(__dirname, 'public', 'CHANGELOG.md');
+const rootChangelog = join(__dirname, '..', 'docs', 'CHANGELOG.md');
+const publicChangelog = join(__dirname, '..', 'public', 'CHANGELOG.md');
 
 const direction = process.argv[2] || '--to-public';
 

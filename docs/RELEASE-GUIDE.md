@@ -9,7 +9,7 @@ The project now includes automated tools to generate professional release notes 
 ## Available Scripts
 
 ### `npm run generate-release <version>`
-Generates rich release notes for a specific version from CHANGELOG.md.
+Generates rich release notes for a specific version from docs/CHANGELOG.md.
 
 ```bash
 npm run generate-release 1.7.4
@@ -18,7 +18,7 @@ npm run generate-release 1.7.4
 ### `npm run release-workflow <version>`
 Complete automated workflow that:
 - Updates package.json version
-- Updates ARCHITECTURE.md version
+- Updates docs/ARCHITECTURE.md version
 - Generates release notes
 - Commits changes
 - Creates and pushes git tag
@@ -32,7 +32,7 @@ npm run release-workflow 1.7.4
 
 ### Option 1: Automated Workflow (Recommended)
 
-1. **Update CHANGELOG.md** with the new version section
+1. **Update docs/CHANGELOG.md** with the new version section
 2. **Run the automated workflow**:
    ```bash
    npm run release-workflow 1.7.4
@@ -46,7 +46,7 @@ npm run release-workflow 1.7.4
    # Update package.json
    npm version 1.7.4 --no-git-tag-version
 
-   # Update ARCHITECTURE.md manually
+   # Update docs/ARCHITECTURE.md manually
    ```
 
 2. **Generate release notes**:
@@ -100,9 +100,7 @@ The generated release notes include:
 [Links to README, etc.]
 ```
 
-## CHANGELOG.md Format
-
-Keep your CHANGELOG.md following this structure:
+Keep your docs/CHANGELOG.md following this structure:
 
 ```markdown
 ## [1.7.4] - 2025-09-24
@@ -124,10 +122,10 @@ Keep your CHANGELOG.md following this structure:
 
 ### Files Updated Automatically:
 - `package.json` - Version number
-- `ARCHITECTURE.md` - Version number
+- `docs/ARCHITECTURE.md` - Version number
 
 ### Files to Update Manually:
-- `CHANGELOG.md` - Add new version section before release
+- `docs/CHANGELOG.md` - Add new version section before release
 
 ## Customization
 
@@ -148,11 +146,10 @@ You can customize the release template by editing `generate-release.js`:
 
 ## Troubleshooting
 
-### "Version not found in CHANGELOG.md"
-- Ensure the version exists in CHANGELOG.md with format `## [1.7.4] - YYYY-MM-DD`
+- Ensure the version exists in docs/CHANGELOG.md with format `## [1.7.4] - YYYY-MM-DD`
 
 ### Release notes look wrong
-- Check CHANGELOG.md formatting
+- Check docs/CHANGELOG.md formatting
 - Verify version number is correct
 
 ### GitHub Actions fails

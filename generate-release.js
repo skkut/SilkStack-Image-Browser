@@ -16,7 +16,7 @@ if (!VERSION) {
 }
 
 // Read CHANGELOG.md
-const changelog = readFileSync('CHANGELOG.md', 'utf8');
+const changelog = readFileSync('docs/CHANGELOG.md', 'utf8');
 
 // Extract the specific version section
 const lines = changelog.split('\n');
@@ -99,8 +99,8 @@ Choose the appropriate installer for your operating system:
 ## Documentation
 
 - [README](https://github.com/skkut/AI-Images-Browser/blob/main/README.md)
-- [Architecture](https://github.com/skkut/AI-Images-Browser/blob/main/ARCHITECTURE.md)
-- [Changelog](https://github.com/skkut/AI-Images-Browser/blob/CHANGELOG.md)
+- [Architecture](https://github.com/skkut/AI-Images-Browser/blob/main/docs/ARCHITECTURE.md)
+- [Changelog](https://github.com/skkut/AI-Images-Browser/blob/main/docs/CHANGELOG.md)
 
 ## Known Issues
 

@@ -36,11 +36,12 @@ Below sections go into more detail - but if you just want to try it, jump to **G
 
 The goal is to keep the tool open and useful for everyone.
 
----
-
-## Getting started
-
-1. **Download the latest release**
+- **README.md**: User-facing documentation and features
+- **[Architecture](docs/ARCHITECTURE.md)**: Technical architecture and design decisions
+- **[Changelog](docs/CHANGELOG.md)**: Version history and changes
+- **[Release Guide](docs/RELEASE-GUIDE.md)**: Release workflow for maintainers
+- **[CLI Docs](docs/CLI-README.md)**: CLI tool documentation
+- **[CLI-README](docs/CLI-README.md)**: CLI tool documentation
    - Go to the [Releases](https://github.com/skkut/AI-Images-Browser/releases) page and grab the installer for your platform (Windows / Linux / macOS).
 
 2. **Install and run**

@@ -196,7 +196,7 @@ When updating the application version, the following files must be updated to en
 7. **cli.ts** (around line 15)
    - Update CLI version: `.version('{VERSION}')`
 
-8. **CHANGELOG.md**
+8. **docs/CHANGELOG.md**
    - Add or update the version section header: `## [{VERSION}] - YYYY-MM-DD`
    - Document all changes in appropriate sections (Added, Changed, Fixed, etc.)
 
@@ -205,10 +205,10 @@ When updating the application version, the following files must be updated to en
    - Update description text to reflect changes in the new version
 
 10. **public/CHANGELOG.md**
-    - Synchronize with main CHANGELOG.md using: `cp CHANGELOG.md public/CHANGELOG.md`
+    - Synchronize with main docs/CHANGELOG.md using: `cp docs/CHANGELOG.md public/CHANGELOG.md`
     - This file is used by the build process and GitHub releases
 
-11. **ARCHITECTURE.md** (line 8)
+11. **docs/ARCHITECTURE.md** (line 8)
     - Update "Current Version" section to reflect new version
 
 ### Version Update Checklist
@@ -218,10 +218,10 @@ When updating the application version, the following files must be updated to en
 - [ ] Update index.html page title
 - [ ] Update electron.mjs window title and mock update info
 - [ ] Update cli.ts version
-- [ ] Update or add CHANGELOG.md section for new version
+- [ ] Update or add docs/CHANGELOG.md section for new version
 - [ ] Update ChangelogModal.tsx message from dev
 - [ ] Synchronize public/CHANGELOG.md
-- [ ] Update ARCHITECTURE.md current version
+- [ ] Update docs/ARCHITECTURE.md current version
 - [ ] Verify all changes with search: `grep -r "OLD_VERSION" .`
 
 ### Automated Search Command
@@ -238,4 +238,4 @@ After updating all version references:
 
 1. Commit changes with message: `chore: bump version to {VERSION}`
 2. Create release using GitHub workflow or `npm run auto-release`
-3. GitHub Actions will build binaries and create release with CHANGELOG.md content
+3. GitHub Actions will build binaries and create release with docs/CHANGELOG.md content
