@@ -1,7 +1,5 @@
 # SilkStack Image Browser
 
-[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko%E2%80%91fi-ff5f5f)](https://ko-fi.com/lucaspierri)
-
 _Local AI image browser and metadata hub for AI images from Stable Diffusion and related tools._
 
 ![SilkStack Image Browser main UI](assets/screenshot-hero-grid.webp)
@@ -42,7 +40,7 @@ The goal is to keep the tool open and useful for everyone.
 - **[Release Guide](docs/RELEASE-GUIDE.md)**: Release workflow for maintainers
 - **[CLI Docs](docs/CLI-README.md)**: CLI tool documentation
 - **[CLI-README](docs/CLI-README.md)**: CLI tool documentation
-   - Go to the [Releases](https://github.com/skkut/AI-Images-Browser/releases) page and grab the installer for your platform (Windows / Linux / macOS).
+  - Go to the [Releases](https://github.com/skkut/AI-Images-Browser/releases) page and grab the installer for your platform (Windows / Linux / macOS).
 
 2. **Install and run**
    - Launch Image MetaHub.
@@ -400,5 +398,3 @@ If you find it useful and want to support development, consider starring the rep
 ## Links
 
 - Website: [https://imagemetahub.com](https://imagemetahub.com)
-
-- Support on Ko-fi: [https://ko-fi.com/lucaspierri](https://ko-fi.com/lucaspierri)

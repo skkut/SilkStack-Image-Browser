@@ -23,7 +23,7 @@ export default defineConfig({
         // Copy CHANGELOG.md and logo to dist folder after build
         try {
           copyFileSync(
-            resolve(__dirname, 'CHANGELOG.md'),
+            resolve(__dirname, 'docs/CHANGELOG.md'),
             resolve(__dirname, 'dist/CHANGELOG.md')
           )
           console.log('✅ CHANGELOG.md copied to dist/')

@@ -6,9 +6,8 @@
   },
   "files": [
     "dist/**/*",
-    "electron.mjs",
-    "preload.js",
-    "services/**/*",
+    "electron/**/*",
+    "src/services/fileWatcher.mjs",
     "public/icon.ico",
     "public/logo1.png"
   ],

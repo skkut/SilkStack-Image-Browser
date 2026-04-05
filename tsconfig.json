@@ -20,12 +20,18 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
+  "include": [
+    "src/**/*",
+    "electron/**/*",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
   "exclude": [
     "__tests__/**/*",
     "release/**/*",

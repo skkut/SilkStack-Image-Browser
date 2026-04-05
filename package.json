@@ -5,7 +5,7 @@
   "private": true,
   "version": "3.6.0",
   "type": "module",
-  "main": "electron.mjs",
+  "main": "electron/main.mjs",
   "homepage": "./",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
@@ -20,17 +20,17 @@
     "electron-dist": "npm run build && electron-builder --publish=never",
     "package-win": "npm run build && npx electron-packager . --overwrite --asar --platform=win32 --arch=x64 --prune=true --out=release-builds --ignore=\"^/(release-builds|dist-packager|\\.electron-cache|src|scripts|\\.git|\\.github|tests|__tests__|\\.vscode)\"",
     "release": "npm run build && electron-builder --publish=always",
-    "generate-release": "node generate-release.js",
+    "generate-release": "node scripts/generate-release.js",
     "release-workflow": "node scripts/release-workflow.js",
     "auto-release": "node scripts/auto-release.js",
     "reset-cache": "node scripts/reset-cache.js",
     "sync-changelog": "node scripts/sync-changelog.js",
     "test": "vitest",
-    "cli:parse": "tsx cli.ts parse",
-    "cli:index": "tsx cli.ts index"
+    "cli:parse": "tsx scripts/cli.ts parse",
+    "cli:index": "tsx scripts/cli.ts index"
   },
   "bin": {
-    "imagemetahub-cli": "./cli.ts"
+    "imagemetahub-cli": "./scripts/cli.ts"
   },
   "dependencies": {
     "archiver": "^7.0.1",

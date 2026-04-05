@@ -18,12 +18,12 @@ import fsSync from "fs";
 import crypto from "crypto";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
-import * as fileWatcher from "./services/fileWatcher.mjs";
+import * as fileWatcher from "../src/services/fileWatcher.mjs";
 import archiver from "archiver";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const pkg = require("./package.json");
+const pkg = require("../package.json");
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -52,10 +52,10 @@ const PARSER_VERSION = 4; // v4: Added Eff. Loader SDXL, DF_Text_Box, and Unpack
 // Get platform-specific icon
 function getIconPath() {
   if (process.platform === "win32") {
-    return path.join(__dirname, "public", "icon.ico");
+    return path.join(__dirname, "..", "public", "icon.ico");
   } else {
     // macOS and Linux prefer PNG
-    return path.join(__dirname, "public", "logo1.png");
+    return path.join(__dirname, "..", "public", "logo1.png");
   }
 }
 
@@ -423,7 +423,7 @@ function createWindow(startupDirectory = null) {
     startUrl = "http://localhost:5173";
   } else {
     // In production, files are directly in the app directory
-    startUrl = `file://${path.join(__dirname, "dist", "index.html")}`;
+    startUrl = `file://${path.join(__dirname, "..", "dist", "index.html")}`;
   }
 
   // console.log('Loading URL:', startUrl);
