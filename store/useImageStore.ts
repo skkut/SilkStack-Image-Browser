@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, ImageCluster, TFIDFModel, AutoTag } from '../types';
 import { loadSelectedFolders, saveSelectedFolders, loadExcludedFolders, saveExcludedFolders } from '../services/folderSelectionStorage';
-import { loadFolderPreferences, saveFolderPreference, FolderPreference } from '../services/folderPreferencesStorage';
+import { loadFolderPreferences, saveFolderPreference, deleteFolderPreference, FolderPreference } from '../services/folderPreferencesStorage';
 import {
   loadAllAnnotations,
   saveAnnotation,
@@ -1298,7 +1298,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return { folderPreferences: newPrefs };
             });
 
-            await saveFolderPreference(pref);
+            if (emoji) {
+                await saveFolderPreference(pref);
+            } else {
+                await deleteFolderPreference(normalizedPath);
+            }
         },
 
         toggleIncludeSubfolders: () => {
@@ -1311,7 +1315,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         removeDirectory: (directoryId) => {
-            const { directories, images, selectedFolders } = get();
+            const { directories, images, selectedFolders, folderPreferences } = get();
             const targetDirectory = directories.find(d => d.id === directoryId);
             const newDirectories = directories.filter(d => d.id !== directoryId);
             if (window.electronAPI) {
@@ -1321,6 +1325,8 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             // Remove all selected folders belonging to this directory
             const updatedSelection = new Set(selectedFolders);
+            const updatedPrefs = new Map(folderPreferences);
+
             if (targetDirectory) {
                 const normalizedPath = normalizePath(targetDirectory.path);
                 for (const folderPath of Array.from(updatedSelection)) {
@@ -1330,10 +1336,20 @@ export const useImageStore = create<ImageState>((set, get) => {
                         updatedSelection.delete(folderPath);
                     }
                 }
+
+                for (const [folderPath, pref] of Array.from(updatedPrefs.entries())) {
+                    const normalizedFolder = normalizePath(folderPath);
+                    if (normalizedFolder === normalizedPath || normalizedFolder.startsWith(normalizedPath + '/') || normalizedFolder.startsWith(normalizedPath + '\\')) {
+                        updatedPrefs.delete(folderPath);
+                        deleteFolderPreference(folderPath).catch(err => {
+                            console.error('Failed to delete folder preference for', folderPath, err);
+                        });
+                    }
+                }
             }
 
             set(state => {
-                const baseState = { ...state, directories: newDirectories, selectedFolders: updatedSelection };
+                const baseState = { ...state, directories: newDirectories, selectedFolders: updatedSelection, folderPreferences: updatedPrefs };
                 return _updateState(baseState, newImages);
             });
 

@@ -214,6 +214,9 @@ export interface ElectronAPI {
     thumbnailId: string;
     data: Uint8Array;
   }) => Promise<{ success: boolean; error?: string; errorCode?: string }>;
+  deleteThumbnailsBatch: (
+    thumbnailIds: string[],
+  ) => Promise<{ success: boolean; deletedCount?: number; error?: string }>;
   clearMetadataCache: () => Promise<{ success: boolean; error?: string }>;
   clearThumbnailCache: () => Promise<{ success: boolean; error?: string }>;
   deleteCacheFolder: () => Promise<{

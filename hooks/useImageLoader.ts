@@ -1349,7 +1349,7 @@ export function useImageLoader() {
         const cachedData = await cacheManager.getCachedData(directoryId, shouldScanSubfolders);
         let imageIds: string[] = [];
         if (cachedData && cachedData.metadata) {
-          imageIds = cachedData.metadata.map((m: any) => m.id);
+          imageIds = cachedData.metadata.map((m: any) => `${m.id}-${m.lastModified}`);
         }
 
         // 2. Clear json cache
