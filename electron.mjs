@@ -567,7 +567,7 @@ app.whenReady().then(async () => {
       mainWindow.setTitleBarOverlay({
         color: isDark ? '#1a1a1a' : '#f3f4f6',
         symbolColor: isDark ? '#ffffff' : '#000000',
-        height: 32
+        height: 44
       });
 
       mainWindow.webContents.send("theme-updated", {

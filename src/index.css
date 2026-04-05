@@ -11,7 +11,7 @@ html, body {
 :root {
   --sidebar-width: 320px;
   --sidebar-collapsed-width: 56px;
-  --header-height: env(titlebar-area-height, 52px);
+  --header-height: env(titlebar-area-height, 44px);
 }
 
 
