@@ -13,7 +13,6 @@ interface StackExpandedViewProps {
   allImages: IndexedImage[];
   viewMode: 'grid' | 'list';
   onBack: () => void;
-  onBatchExport: () => void;
 }
 
 const StackExpandedView: React.FC<StackExpandedViewProps> = ({
@@ -22,7 +21,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
   allImages,
   viewMode,
   onBack,
-  onBatchExport,
 }) => {
   const selectedImage = useImageStore((state) => state.selectedImage);
   const selectedImages = useImageStore((state) => state.selectedImages);
@@ -169,7 +167,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
             images={images}
             onImageClick={handleImageClick}
             selectedImages={safeSelectedImages}
-            onBatchExport={onBatchExport}
             markedBestIds={markedBestIds}
             markedArchivedIds={markedArchivedIds}
           />
@@ -178,7 +175,6 @@ const StackExpandedView: React.FC<StackExpandedViewProps> = ({
             images={images}
             onImageClick={handleImageClick}
             selectedImages={safeSelectedImages}
-            onBatchExport={onBatchExport}
           />
         )}
       </div>

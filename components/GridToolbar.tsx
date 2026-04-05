@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Download,
   Star,
   Trash2,
   X
@@ -17,7 +16,6 @@ interface GridToolbarProps {
   images: IndexedImage[];
   directories: { id: string; path: string }[];
   onDeleteSelected: () => void;
-  onBatchExport: () => void;
   onClearSelection?: () => void;
 }
 
@@ -38,7 +36,6 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   images,
   directories,
   onDeleteSelected,
-  onBatchExport,
   onClearSelection,
 }) => {
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
@@ -56,42 +53,6 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
 
 
 
-
-  const handleExport = async () => {
-    if (selectedCount > 1) {
-      onBatchExport();
-      return;
-    }
-    if (!firstSelectedImage) return;
-    const directory = directories.find(d => d.id === firstSelectedImage.directoryId);
-    if (!directory) return;
-
-    if (!window.electronAPI) {
-      showNotification('Export only available in desktop app', 'error');
-      return;
-    }
-
-    try {
-      const destResult = await window.electronAPI.showDirectoryDialog();
-      if (destResult.canceled || !destResult.path) return;
-
-      const sourcePathResult = await window.electronAPI.joinPaths(directory.path, firstSelectedImage.name);
-      if (!sourcePathResult.success || !sourcePathResult.path) throw new Error('Failed to construct source path');
-
-      const destPathResult = await window.electronAPI.joinPaths(destResult.path, firstSelectedImage.name);
-      if (!destPathResult.success || !destPathResult.path) throw new Error('Failed to construct destination path');
-
-      const readResult = await window.electronAPI.readFile(sourcePathResult.path);
-      if (!readResult.success || !readResult.data) throw new Error('Failed to read file');
-
-      const writeResult = await window.electronAPI.writeFile(destPathResult.path, readResult.data);
-      if (!writeResult.success) throw new Error('Failed to write file');
-
-      showNotification('Image exported successfully!');
-    } catch (error: any) {
-      showNotification(`Export failed: ${error.message}`, 'error');
-    }
-  };
 
   const handleToggleFavorites = () => {
     selectedImagesList.forEach(img => toggleFavorite(img.id));
@@ -154,15 +115,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
 
 
 
-              {/* Export */}
-              <button
-                onClick={handleExport}
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                title={selectedCount > 1 ? 'Export selected images' : 'Export'}
-                disabled={selectedCount === 0}
-              >
-                <Download className="w-4 h-4" />
-              </button>
+
 
               {/* Favorites */}
               <button

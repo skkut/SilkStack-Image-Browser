@@ -29,7 +29,7 @@ import SmartLibrary from './components/SmartLibrary';
 import { ModelView } from './components/ModelView';
 import GridToolbar from './components/GridToolbar';
 import TopMenuBar from './components/TopMenuBar';
-import BatchExportModal from './components/BatchExportModal';
+
 import ImageTable from './components/ImageTable';
 
 export default function App() {
@@ -141,7 +141,6 @@ export default function App() {
   const [currentVersion, setCurrentVersion] = useState<string>('0.10.0');
   const [libraryView, setLibraryView] = useState<'library' | 'smart' | 'model'>('library');
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
-  const [isBatchExportModalOpen, setIsBatchExportModalOpen] = useState(false);
 
   // --- Hotkeys Hook ---
   const { commands } = useHotkeys({
@@ -609,14 +608,6 @@ export default function App() {
     handleNavigatePrevious();
   }, [handleNavigatePrevious]);
 
-  const handleOpenBatchExport = useCallback(() => {
-    if (!canUseBatchExport) {
-      showProModal('batch_export');
-      return;
-    }
-    setIsBatchExportModalOpen(true);
-  }, [canUseBatchExport, showProModal]);
-
   // --- Render Logic ---
   const hasDirectories = safeDirectories.length > 0;
   const directoryPath = selectedImage ? safeDirectories.find(d => d.id === selectedImage.directoryId)?.path : undefined;
@@ -775,9 +766,7 @@ export default function App() {
               ) : (
                 <div className="h-full">
                   {libraryView === 'smart' ? (
-                    <SmartLibrary 
-                      onBatchExport={() => setIsBatchExportModalOpen(true)}
-                    />
+                    <SmartLibrary />
                   ) : libraryView === 'model' ? (
                     <ModelView 
                       onModelSelect={(modelName) => {
@@ -792,14 +781,12 @@ export default function App() {
                           images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
-                          onBatchExport={() => setIsBatchExportModalOpen(true)}
                         />
                       ) : (
                         <ImageTable
                           images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
-                          onBatchExport={() => setIsBatchExportModalOpen(true)}
                         />
                       )}
                     </div>
@@ -824,7 +811,6 @@ export default function App() {
                   images={safeFilteredImages}
                   directories={safeDirectories}
                   onDeleteSelected={handleDeleteSelectedImages}
-                  onBatchExport={() => setIsBatchExportModalOpen(true)}
                   onClearSelection={clearSelection}
                 />
               )}
@@ -849,14 +835,6 @@ export default function App() {
           previousImage={safeFilteredImages[(getCurrentImageIndex() - 1 + safeFilteredImages.length) % safeFilteredImages.length]}
         />
       )}
-
-      <BatchExportModal
-        isOpen={isBatchExportModalOpen}
-        onClose={() => setIsBatchExportModalOpen(false)}
-        selectedImageIds={safeSelectedImages}
-        filteredImages={safeFilteredImages}
-        directories={safeDirectories}
-      />
 
       <SettingsModal
         isOpen={isSettingsModalOpen}

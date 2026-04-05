@@ -1,13 +1,3 @@
-export interface ExportBatchProgress {
-  exportId: string | null;
-  mode: "folder" | "zip";
-  total: number;
-  processed: number;
-  exportedCount: number;
-  failedCount: number;
-  stage: "copying" | "finalizing" | "done";
-}
-
 export interface ElectronAPI {
   trashFile: (
     filename: string,
@@ -106,26 +96,7 @@ export interface ElectronAPI {
     filePath: string,
     data: any,
   ) => Promise<{ success: boolean; error?: string }>;
-  exportBatchToFolder: (args: {
-    files: { directoryPath: string; relativePath: string }[];
-    destDir: string;
-    exportId?: string;
-  }) => Promise<{
-    success: boolean;
-    exportedCount: number;
-    failedCount: number;
-    error?: string;
-  }>;
-  exportBatchToZip: (args: {
-    files: { directoryPath: string; relativePath: string }[];
-    destZipPath: string;
-    exportId?: string;
-  }) => Promise<{
-    success: boolean;
-    exportedCount: number;
-    failedCount: number;
-    error?: string;
-  }>;
+
   moveFiles: (args: {
     files: { sourcePath: string; name: string }[];
     targetDir: string;
@@ -252,9 +223,7 @@ export interface ElectronAPI {
   onFullscreenStateCheck: (
     callback: (state: { isFullscreen: boolean }) => void,
   ) => () => void;
-  onExportBatchProgress: (
-    callback: (progress: ExportBatchProgress) => void,
-  ) => () => void;
+
 
   // File watching
   startWatchingDirectory: (args: {

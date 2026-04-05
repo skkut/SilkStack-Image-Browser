@@ -17,10 +17,9 @@ interface ClusterEntry {
 }
 
 interface SmartLibraryProps {
-  onBatchExport: () => void;
 }
 
-const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
+const SmartLibrary: React.FC<SmartLibraryProps> = () => {
   const filteredImages = useImageStore((state) => state.filteredImages);
   const clusters = useImageStore((state) => state.clusters);
   const directories = useImageStore((state) => state.directories);
@@ -200,7 +199,6 @@ const SmartLibrary: React.FC<SmartLibraryProps> = ({ onBatchExport }) => {
               setExpandedClusterId(null);
             }}
             viewMode={viewMode}
-            onBatchExport={onBatchExport}
           />
         ) : sortedEntries.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-gray-400">

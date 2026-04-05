@@ -955,74 +955,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
     showInExplorer(`${directoryPath}/${image.name}`);
   };
 
-  const exportImage = async () => {
-    hideContextMenu();
-
-    if (!window.electronAPI) {
-      alert("Export feature is only available in the desktop app version.");
-      return;
-    }
-
-    if (!directoryPath) {
-      alert("Cannot export image: source directory path is missing.");
-      return;
-    }
-
-    try {
-      // 1. Ask user for destination directory
-      const destResult = await window.electronAPI.showDirectoryDialog();
-      if (destResult.canceled || !destResult.path) {
-        return; // User cancelled
-      }
-      const destDir = destResult.path;
-      // Get safe paths using joinPaths
-      const sourcePathResult = await window.electronAPI.joinPaths(
-        directoryPath,
-        image.name,
-      );
-      if (!sourcePathResult.success || !sourcePathResult.path) {
-        throw new Error(
-          `Failed to construct source path: ${sourcePathResult.error}`,
-        );
-      }
-      const destPathResult = await window.electronAPI.joinPaths(
-        destDir,
-        image.name,
-      );
-      if (!destPathResult.success || !destPathResult.path) {
-        throw new Error(
-          `Failed to construct destination path: ${destPathResult.error}`,
-        );
-      }
-
-      const sourcePath = sourcePathResult.path;
-      const destPath = destPathResult.path;
-
-      // 2. Read the source file
-      const readResult = await window.electronAPI.readFile(sourcePath);
-      if (!readResult.success || !readResult.data) {
-        alert(`Failed to read original file: ${readResult.error}`);
-        return;
-      }
-
-      // 3. Write the new file
-      const writeResult = await window.electronAPI.writeFile(
-        destPath,
-        readResult.data,
-      );
-      if (!writeResult.success) {
-        alert(`Failed to export image: ${writeResult.error}`);
-        return;
-      }
-
-      // 4. Success!
-      alert(`Image exported successfully to: ${destPath}`);
-    } catch (error) {
-      console.error("Export error:", error);
-      alert(`An unexpected error occurred during export: ${error.message}`);
-    }
-  };
-
   // Reset zoom and pan when image changes
   useEffect(() => {
     setZoom(1);
@@ -2152,14 +2084,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
           >
             <Folder className="w-4 h-4" />
             Show in Folder
-          </button>
-
-          <button
-            onClick={exportImage}
-            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-gray-50 transition-colors flex items-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Export Image
           </button>
         </div>
       )}

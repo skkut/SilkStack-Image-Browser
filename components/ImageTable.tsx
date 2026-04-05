@@ -5,7 +5,7 @@ import { type IndexedImage } from '../types';
 import { getAspectRatio } from '../utils/imageUtils';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
-import { Copy, Folder, Download, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play } from 'lucide-react';
+import { Copy, Folder, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useSettingsStore } from '../store/useSettingsStore';
 
@@ -13,7 +13,6 @@ interface ImageTableProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
-  onBatchExport: () => void;
 }
 
 type SortField = 'filename' | 'model' | 'steps' | 'cfg' | 'size' | 'seed';
@@ -29,7 +28,7 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, onBatchExport }) => {
+const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages }) => {
   const directories = useImageStore((state) => state.directories);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -45,7 +44,6 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     copyImage,
     copyModel,
     showInFolder,
-    exportImage,
     copyRawMetadata
   } = useContextMenu();
 
@@ -56,10 +54,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     showContextMenu(e, image, directoryPath);
   };
 
-  const handleBatchExport = () => {
-    hideContextMenu();
-    onBatchExport();
-  };
+
 
   // Function to apply sorting based on current field and direction
   // Memoized for performance - avoids recreating sort function on every render
@@ -328,22 +323,8 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
             Show in Folder
           </button>
 
-            <button
-              onClick={exportImage}
-              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export Image
-            </button>
-            {selectedCount > 1 && (
-              <button
-                onClick={handleBatchExport}
-                className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-              >
-                <Package className="w-4 h-4" />
-                Batch Export Selected ({selectedCount})
-              </button>
-            )}
+
+
           </div>
         )}
     </div>

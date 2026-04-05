@@ -7,20 +7,31 @@ import { type IndexedImage, type BaseMetadata, ImageStack } from '../types';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useContextMenu } from '../hooks/useContextMenu';
-import { Info, Copy, Folder, Download, Clipboard, Sparkles, Star, Square,  AlertCircle,
+import { 
+  Info, 
+  Copy, 
+  Folder, 
+  Clipboard, 
+  Sparkles, 
+  Star, 
+  Square,  
+  AlertCircle,
   Archive,
   Check,
   CheckSquare,
   Crown,
   EyeOff,
   Package,
-  Play
+  Play,
+  Trash2,
+  ExternalLink,
+  Maximize2,
+  Layers,
+  Layers2
 } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
-
 import { useFeatureAccess } from '../hooks/useFeatureAccess';
 import { useImageStacking } from '../hooks/useImageStacking';
-import { Layers, Layers2 } from 'lucide-react';
 
 class GridErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: React.ReactNode}) {
@@ -601,13 +612,12 @@ interface ImageGridProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
-  onBatchExport: () => void;
   // Deduplication support (optional)
   markedBestIds?: Set<string>;      // IDs of images marked as best
   markedArchivedIds?: Set<string>;  // IDs of images marked for archive
 }
 
-const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, onBatchExport, markedBestIds, markedArchivedIds }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages, markedBestIds, markedArchivedIds }) => {
   const imageSize = useSettingsStore((state) => state.imageSize);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
@@ -818,15 +828,11 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     copyImage,
     copyModel,
     showInFolder,
-    exportImage,
     copyRawMetadata
   } = useContextMenu();
 
 
-  const handleBatchExport = useCallback(() => {
-    hideContextMenu();
-    onBatchExport();
-  }, [hideContextMenu, onBatchExport]);
+
 
   // Drag-to-select handlers
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -1259,24 +1265,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
             Show in Folder
           </button>
 
-            <button
-              onClick={exportImage}
-              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export Image
-            </button>
 
-            {selectedCount > 1 && (
-              <button
-                onClick={handleBatchExport}
-                className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
-                title={!canUseBatchExport && initialized ? 'Pro feature - start trial' : undefined}
-              >
-                <Package className="w-4 h-4" />
-                <span className="flex-1">Batch Export Selected ({selectedCount})</span>
-              </button>
-            )}
 
         </div>
   );
