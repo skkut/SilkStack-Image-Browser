@@ -756,13 +756,13 @@ export default function App() {
                       Indexing library...
                     </span>
                     <span className="text-sm text-gray-400 font-mono">
-                      {progress.current} / {progress.total}
+                      {progress?.current ?? 0} / {progress?.total ?? 0}
                     </span>
                   </div>
                   <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden shadow-inner">
                     <div 
                       className="bg-blue-500 h-full transition-all duration-300 shadow-[0_0_10px_rgba(59,130,246,0.5)]" 
-                      style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}
+                      style={{ width: `${((progress?.current ?? 0) / (progress?.total || 1)) * 100}%` }}
                     />
                   </div>
                 </div>

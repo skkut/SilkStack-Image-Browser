@@ -1341,9 +1341,18 @@ export const useImageStore = create<ImageState>((set, get) => {
                     const normalizedFolder = normalizePath(folderPath);
                     if (normalizedFolder === normalizedPath || normalizedFolder.startsWith(normalizedPath + '/') || normalizedFolder.startsWith(normalizedPath + '\\')) {
                         updatedPrefs.delete(folderPath);
+                        
+                        // Delete both the raw key and the normalized key to ensure we catch old stored records
+                        // that didn't apply normalizePath before saving.
                         deleteFolderPreference(folderPath).catch(err => {
                             console.error('Failed to delete folder preference for', folderPath, err);
                         });
+                        
+                        if (folderPath !== normalizedFolder) {
+                            deleteFolderPreference(normalizedFolder).catch(err => {
+                                console.error('Failed to delete folder preference for', normalizedFolder, err);
+                            });
+                        }
                     }
                 }
             }
