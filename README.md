@@ -46,11 +46,13 @@ The goal is to create a beautiful, fast, and useful image browser for AI-generat
 SilkStack Image Browser can automatically monitor your output folders and detect new images in real-time as they're generated:
 
 - **Individual folder toggles** - Enable/disable watching per directory with eye icon
+- **Support Removable Drives** - Watchers automatically restored on drive re-connection
 - **Real-time detection** - Instant image detection using intelligent file monitoring
 - **Background processing** - Silent updates without notifications or interruptions
 - **State persistence** - Watchers automatically restored on app restart
 - **Multiple formats** - Supports PNG, JPG, JPEG, and WEBP
 - **Smart filtering** - Automatically filters cache folders and system directories
+- **Emoji Icons** - Apply custom emoji icons to folders and display them in the collapsed sidebar for easy access.
 
 Perfect for monitoring ComfyUI or Automatic1111 output folders during active generation sessions.
 

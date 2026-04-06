@@ -191,10 +191,15 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* Header with collapse button */}
       <div className="flex flex-col border-b border-gray-800/60 bg-gray-900/40" style={{ WebkitAppRegion: 'drag' } as any}>
         <div className="flex items-center gap-3 p-4 pb-2">
-            <div className="relative flex-shrink-0">
-                <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full opacity-50" />
-                <img src="logo1.png" alt="SilkStack Image Browser" className="h-10 w-10 rounded-xl shadow-2xl relative z-10" />
-            </div>
+            <button
+              onClick={onToggleCollapse}
+              className="relative flex-shrink-0 group focus:outline-none"
+              title="Collapse sidebar"
+              style={{ WebkitAppRegion: 'no-drag' } as any}
+            >
+                <div className="absolute inset-0 bg-blue-500/20 blur-xl rounded-full opacity-50 group-hover:opacity-80 transition-opacity duration-300" />
+                <img src="logo1.png" alt="SilkStack Image Browser" className="h-10 w-10 rounded-xl shadow-2xl relative z-10 transition-transform duration-200 group-hover:scale-105" />
+            </button>
             <div className="flex flex-col overflow-hidden">
                 <h1 className="text-lg font-bold tracking-tight text-gray-100 truncate">SilkStack Image Browser</h1>
                 <span className="text-[10px] font-mono font-normal text-gray-500">{appVersion}</span>
