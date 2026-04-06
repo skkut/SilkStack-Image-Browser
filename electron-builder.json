@@ -61,7 +61,7 @@
   "publish": {
     "provider": "github",
     "owner": "skkut",
-    "repo": "silkstack",
+    "repo": "SilkStack-Image-Browser",
     "releaseType": "release"
   },
   "generateUpdatesFilesForAllChannels": true
