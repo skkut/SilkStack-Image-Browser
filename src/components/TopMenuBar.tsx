@@ -7,7 +7,6 @@ interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'privacy' | 'about') => void;
     onAddFolder: () => void;
     onToggleView: () => void;
-    onShowChangelog: () => void;
     libraryView?: 'library' | 'smart' | 'model';
     onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
     searchQuery: string;
@@ -20,7 +19,6 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     onOpenSettings,
     onAddFolder,
     onToggleView,
-    onShowChangelog,
     libraryView,
     onLibraryViewChange,
     searchQuery,
@@ -53,7 +51,6 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     onOpenSettings={onOpenSettings}
                     onAddFolder={onAddFolder}
                     onToggleView={onToggleView}
-                    onShowChangelog={onShowChangelog}
                 />
             </div>
 

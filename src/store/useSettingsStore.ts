@@ -55,7 +55,6 @@ interface SettingsState {
 
   viewMode: 'grid' | 'list';
   keymap: Keymap;
-  lastViewedVersion: string | null;
   indexingConcurrency: number;
   disableThumbnails: boolean;
   showFilenames: boolean;
@@ -84,7 +83,6 @@ interface SettingsState {
   toggleViewMode: () => void;
   updateKeybinding: (scope: string, action: string, keybinding: string) => void;
   resetKeymap: () => void;
-  setLastViewedVersion: (version: string) => void;
   setIndexingConcurrency: (value: number) => void;
   setDisableThumbnails: (value: boolean) => void;
   setShowFilenames: (value: boolean) => void;
@@ -118,7 +116,6 @@ export const useSettingsStore = create<SettingsState>()(
     
       viewMode: 'grid',
       keymap: getDefaultKeymap(),
-      lastViewedVersion: null,
       indexingConcurrency: defaultIndexingConcurrency,
       disableThumbnails: false,
       showFilenames: false,
@@ -145,7 +142,6 @@ export const useSettingsStore = create<SettingsState>()(
       setImageSize: (size) => set({ imageSize: size }),
     
       toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === 'grid' ? 'list' : 'grid' })),
-      setLastViewedVersion: (version) => set({ lastViewedVersion: version }),
       setIndexingConcurrency: (value) =>
         set({
           indexingConcurrency: Number.isFinite(value)
@@ -194,7 +190,6 @@ export const useSettingsStore = create<SettingsState>()(
       
         viewMode: 'grid',
         keymap: getDefaultKeymap(),
-        lastViewedVersion: null,
         indexingConcurrency: defaultIndexingConcurrency,
         disableThumbnails: false,
         showFilenames: false,

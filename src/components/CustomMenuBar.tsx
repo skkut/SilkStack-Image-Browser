@@ -18,14 +18,12 @@ interface CustomMenuBarProps {
   onOpenSettings: (tab?: string) => void;
   onAddFolder: () => void;
   onToggleView: () => void;
-  onShowChangelog: () => void;
 }
 
 const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
   onOpenSettings,
   onAddFolder,
   onToggleView,
-  onShowChangelog,
 }) => {
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -81,8 +79,6 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
     {
       label: 'Help',
       items: [
-        { label: "What's New", shortcut: 'F1', onClick: () => onShowChangelog() },
-        { type: 'separator' } as MenuItem,
         { label: 'Documentation', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser#readme') },
         { label: 'Report Bug', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser/issues/new') },
         { label: 'View on GitHub', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser') },
