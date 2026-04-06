@@ -18,8 +18,8 @@ const __dirname = dirname(__filename);
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
 
 program
-  .name('imagemetahub-cli')
-  .description('Image MetaHub CLI - Parse AI-generated image metadata')
+  .name('SilkStack-cli')
+  .description('SilkStack CLI - Parse AI-generated image metadata')
   .version(pkg.version);
 
 type ParseOptions = { json: boolean; pretty: boolean; raw?: boolean; quiet?: boolean };

@@ -27,14 +27,6 @@ It is open-source (MPL 2.0) and free to use.
 
 The goal is to create a beautiful, fast, and useful image browser for AI-generated images.
 
-- **README.md**: User-facing documentation and features
-- **[Architecture](docs/ARCHITECTURE.md)**: Technical architecture and design decisions. To be updated soon.
-- **[Changelog](docs/CHANGELOG.md)**: Version history and changes. To be updated soon.
-- **[Release Guide](docs/RELEASE-GUIDE.md)**: Release workflow for maintainers. To be updated soon.
-- **[CLI Docs](docs/CLI-README.md)**: CLI tool documentation
-- **[CLI-README](docs/CLI-README.md)**: CLI tool documentation
-  - Go to the [Releases](https://github.com/skkut/silkstack/releases) page and grab the installer for your platform (Windows / Linux / macOS).
-
 2. **Install and run**
    - Launch SilkStack Image Browser.
 

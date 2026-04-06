@@ -12,7 +12,7 @@
     "public/SilkStack 512.png"
   ],
   "win": {
-    "executableName": "silkstack",
+    "executableName": "SilkStack",
     "icon": "public/icon.ico",
     "target": [
       "nsis",
@@ -23,7 +23,7 @@
     "cscKeyPassword": null
   },
   "mac": {
-    "executableName": "silkstack",
+    "executableName": "SilkStack",
     "icon": "public/SilkStack 1024.png",
     "target": [
       {
@@ -39,7 +39,7 @@
     "identity": null
   },
   "linux": {
-    "executableName": "silkstack",
+    "executableName": "SilkStack",
     "icon": "public/SilkStack 512.png",
     "target": [
       {

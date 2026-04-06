@@ -1,5 +1,5 @@
 {
-  "name": "silkstack",
+  "name": "SilkStack",
   "description": "SilkStack Image Browser",
   "author": "skkut <github.com/skkut>",
   "private": true,
@@ -30,7 +30,7 @@
     "cli:index": "tsx scripts/cli.ts index"
   },
   "bin": {
-    "silkstack-cli": "./scripts/cli.ts"
+    "SilkStack-cli": "./scripts/cli.ts"
   },
   "dependencies": {
     "archiver": "^7.0.1",
