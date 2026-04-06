@@ -13,16 +13,6 @@ It is open-source (MPL 2.0) and free to use.
 
 > It is a fork of **"Image MetaHub v0.13.0"**.
 
-I have added a lot of new features to this project, notably:
-
-- ** An adaptive Image Grid** that automatically adjusts images based on the aspect ratio of the images and reduces white spaces.
-- ** Collapsible UI** that focuses on providing the best user experience for viewing images.
-- ** New Window layout** that is more compact and easier to navigate.
-- ** Easier Themes** - Removed the need to apply themes manually. The app will now automatically apply the system theme (Light/Dark).
-- ** Navigation improvements** - Added folders to the sidebar for easier navigation. You can also add emoji icons to folders 😉.
-- ** Support for Removable Drives** - You can add folders from removable drives (USB drives, SD cards, mount encrypted drives etc.) to the sidebar and the app will automatically restore the folders when the drive is reconnected.
-- ** & A lot of usability improvements** - Just try it out 😉.
-
 ---
 
 ## Key features (overview)
@@ -34,6 +24,16 @@ I have added a lot of new features to this project, notably:
 - **Powerful search & filters** by prompt text, model, steps, CFG, sampler, seed, etc.
 - **Smart Library** with clustering stacks and collections
 - **Auto-tags and manual tags** for faster organization and discovery
+
+I have added a lot of new features to this project, notably:
+
+- **An adaptive Image Grid** that automatically adjusts images based on the aspect ratio of the images and reduces white spaces.
+- **Collapsible UI** that focuses on providing the best user experience for viewing images.
+- **New Window layout** that is more compact and easier to navigate.
+- **Easier Themes** - Removed the need to apply themes manually. The app will now automatically apply the system theme (Light/Dark).
+- **Navigation improvements** - Added folders to the sidebar for easier navigation. You can also add emoji icons to folders 😉.
+- **Support for Removable Drives** - You can add folders from removable drives (USB drives, SD cards, mount encrypted drives etc.) to the sidebar and the app will automatically restore the folders when the drive is reconnected.
+- **& A lot of usability improvements** - Just try it out 😉.
 
 The goal is to create a beautiful, fast, and useful image browser for AI-generated images.
 
