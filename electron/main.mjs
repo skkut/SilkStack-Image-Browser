@@ -51,11 +51,16 @@ const PARSER_VERSION = 4; // v4: Added Eff. Loader SDXL, DF_Text_Box, and Unpack
 
 // Get platform-specific icon
 function getIconPath() {
+  const root = app.getAppPath();
   if (process.platform === "win32") {
-    return path.join(__dirname, "..", "public", "icon.ico");
+    // For Windows, use the .ico file
+    return path.join(root, "public", "icon.ico");
+  } else if (process.platform === "darwin") {
+    // macOS prefers high-resolution PNG or ICNS
+    return path.join(root, "public", "SilkStack 1024.png");
   } else {
-    // macOS and Linux prefer PNG
-    return path.join(__dirname, "..", "public", "logo1.png");
+    // Linux and others
+    return path.join(root, "public", "SilkStack 512.png");
   }
 }
 

@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-**Image MetaHub** is a React + Electron desktop application for browsing large collections of AI generated images. The app focuses on fast indexing, rich metadata filters, and fully local processing so that libraries remain private.
+**SilkStack Image Browser** is a React + Electron desktop application for browsing large collections of AI generated images. The app focuses on fast indexing, rich metadata filters, and fully local processing so that libraries remain private.
 
 ### Current Version
 
-- **Version:** 0.3.0
-- **Frontend:** React 18 + TypeScript with Tailwind CSS 3.4
+- **Version:** 3.6.0
+- **Frontend:** React 18 + TypeScript with Vanilla CSS
 - **Desktop Shell:** Electron 38 with auto-update hooks and CLI entry point
 - **State Management:** Zustand stores for both image data and application settings
 - **Build Tooling:** Vite 5 for development and bundling, Vitest for unit tests, ESLint 9 for linting
@@ -29,7 +29,7 @@
 - **Sidebar (`components/Sidebar.tsx`)** hosts the directory tree, metadata filters, and provides a scroll container shared across both areas.
 - **Directory Tree (`components/DirectoryList.tsx`)** renders folders with tri-state checkboxes. Each node lazily requests subfolders through the Electron preload bridge and applies inherited selection state to descendants.
 - **Folder Selector (`components/FolderSelector.tsx`)** is shown before any directory is loaded. It enables recursive scanning on mount and introduces the refreshed logo artwork during onboarding.
-- **Status surfaces** such as `components/Header.tsx` and `components/StatusBar.tsx` expose the unified `v0.9.5` version information for quick sanity checks.
+- **Status surfaces** such as `components/Header.tsx` and `components/StatusBar.tsx` expose the unified `v3.6.0` version information for quick sanity checks.
 - **Performance Patterns (v0.10.5)**: Critical components like `ImageCard` and `ImageTableRow` use `React.memo` with custom comparison functions to prevent unnecessary re-renders. Expensive operations like drag-to-select use `requestAnimationFrame` throttling, and filter inputs are debounced (300ms) to reduce computational overhead.
 - **Shadow Metadata Editor (v0.13.0)**: The `ImageModal` now supports a "Shadow Metadata" mode, allowing users to edit metadata without modifying the actual file. It uses a `shadowMetadata` property on the image object to store overrides, with UI controls to view original vs. edited values and revert changes.
 
@@ -97,9 +97,9 @@ The ComfyUI parser (`services/parsers/comfyui/`) underwent major architectural i
 
 ### Desktop Integration
 
-- **Electron Main Process (`electron.mjs`)** configures the BrowserWindow title (`Image MetaHub v0.9.5`), wires IPC handlers for file operations, and manages auto-update prompts.
+- **Electron Main Process (`electron.mjs`)** configures the BrowserWindow title (`SilkStack Image Browser v3.6.0`), wires IPC handlers for file operations, and manages auto-update prompts.
 - **Preload Bridge (`preload.js`)** exposes a sandboxed `electronAPI` with directory listing, file stats, and shell helpers used by the directory tree.
-- **CLI (`cli.ts`)** provides command-line indexing utilities with the same version stamp (`0.9.5-rc`) displayed in the desktop UI.
+- **CLI (`cli.ts`)** provides command-line indexing utilities with the same version stamp (`v3.6.0`) displayed in the desktop UI.
 
 ### A1111 Integration
 
@@ -153,7 +153,12 @@ The application provides bidirectional workflow with Automatic1111 WebUI, enabli
 │   ├── useImageStore.ts
 │   └── useSettingsStore.ts
 ├── public/
-│   ├── logo1.svg
+│   ├── SilkStack 64.png
+│   ├── SilkStack 128.png
+│   ├── SilkStack 256.png
+│   ├── SilkStack 512.png
+│   ├── SilkStack 1024.png
+│   ├── logo1.png
 │   └── icon.ico
 └── ...
 ```
@@ -175,7 +180,7 @@ When updating the application version, the following files must be updated to en
    - This is the canonical version used by Electron's `app.getVersion()`
 
 2. **components/Header.tsx** (around line 67)
-   - Update the header title: `Image MetaHub v{VERSION}`
+   - Update header title: `SilkStack Image Browser v{VERSION}`
    - This displays in the main application header
 
 3. **components/StatusBar.tsx** (around line 24)
@@ -183,14 +188,14 @@ When updating the application version, the following files must be updated to en
    - Appears in the footer status bar
 
 4. **components/FolderSelector.tsx** (around lines 20-21)
-   - Update welcome screen title: `Welcome to Image MetaHub v{VERSION}`
+   - Update welcome screen title: `Welcome to SilkStack Image Browser v{VERSION}`
    - Update version display: `v{VERSION}`
 
 5. **index.html** (line 10)
-   - Update page title: `<title>Image MetaHub v{VERSION}</title>`
+   - Update page title: `<title>SilkStack Image Browser v{VERSION}</title>`
 
 6. **electron.mjs** (around lines 520 and 1230-1231)
-   - Update window title fallback: `Image MetaHub v{VERSION}`
+   - Update window title fallback: `SilkStack Image Browser v{VERSION}`
    - Update mockUpdateInfo version and release notes header
 
 7. **cli.ts** (around line 15)

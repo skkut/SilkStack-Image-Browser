@@ -7,20 +7,20 @@
 ## What is SilkStack Image Browser?
 
 **SilkStack Image Browser** is a **local image browser and manager** focused on AI-generated images.
-It scans your folders, parses metadata from popular tools (Automatic1111, ComfyUI, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney / Nijijourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all **offline**, on your machine.
+It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney / Nijijourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all offline, on your machine.
 
 It is open-source (MPL 2.0) and free to use.
 
-> It is a fork of **"Image MetaHub"**.
+> It is a fork of **"Image MetaHub v0.13.0"**.
 
 ---
 
 ## Key features (overview)
 
 - **Fast local browser** for AI images (no accounts, no cloud, no telemetry)
-- **Rich metadata parsing** for Stable Diffusion / A1111 / ComfyUI and other tools, including WebP format
-- **Beautuful Image Grid** with adaptive layout and smooth scrolling
-- **Auto-Watch functionality** for real-time monitoring of output folders during generation
+- **Rich metadata parsing** for Stable Diffusion / A1111 / ComfyUI and other tools, including WebP format.
+- **Beautuful Image Grid** with adaptive layout and smooth scrolling.
+- **Auto-Watch functionality** for real-time monitoring of output folders during generation.
 - **Powerful search & filters** by prompt text, model, steps, CFG, sampler, seed, etc.
 - **Smart Library** with clustering stacks and collections
 - **Auto-tags and manual tags** for faster organization and discovery
@@ -126,4 +126,4 @@ SilkStack Image Browser is designed to be **local-first**:
 
 ## Credits
 
-SilkStack Image Browser is built and maintained by **Saravana Karthikeyan (skkut)**, feedback and contributions from the community are welcome.
+SilkStack Image Browser is built by **Saravana (skkut)** using AI and Vibe Coding, feedback from the community is welcome.

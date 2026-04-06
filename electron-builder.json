@@ -8,7 +8,8 @@
     "dist/**/*",
     "electron/**/*",
     "public/icon.ico",
-    "public/logo1.png"
+    "public/SilkStack 1024.png",
+    "public/SilkStack 512.png"
   ],
   "win": {
     "executableName": "silkstack",
@@ -23,7 +24,7 @@
   },
   "mac": {
     "executableName": "silkstack",
-    "icon": "public/logo1.png",
+    "icon": "public/SilkStack 1024.png",
     "target": [
       {
         "target": "dmg",
@@ -39,7 +40,7 @@
   },
   "linux": {
     "executableName": "silkstack",
-    "icon": "public/logo1.png",
+    "icon": "public/SilkStack 512.png",
     "target": [
       {
         "target": "AppImage",

@@ -22,8 +22,6 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-
-
 Write-Host "Deploying to C:\Programs\SilkStack Image Browser..."
 $BuildOutput = Get-ChildItem -Path "release-builds" -Directory | Select-Object -First 1
 if ($null -eq $BuildOutput) {
@@ -34,7 +32,8 @@ if ($null -eq $BuildOutput) {
 $DestPath = "C:\Programs\SilkStack Image Browser"
 if (!(Test-Path $DestPath)) {
     New-Item -ItemType Directory -Path $DestPath -Force
-} else {
+}
+else {
     # Clear destination folder to avoid keeping old executables/files
     Write-Host "Cleaning destination folder $DestPath..."
     Remove-Item -Path "$DestPath\*" -Recurse -Force -ErrorAction SilentlyContinue
