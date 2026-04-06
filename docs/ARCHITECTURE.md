@@ -6,7 +6,7 @@
 
 ### Current Version
 
-- **Version:** 3.6.0
+- **Version:** 1.0.0
 - **Frontend:** React 18 + TypeScript with Vanilla CSS
 - **Desktop Shell:** Electron 38 with auto-update hooks and CLI entry point
 - **State Management:** Zustand stores for both image data and application settings
@@ -177,56 +177,22 @@ When updating the application version, the following files must be updated to en
 
 1. **package.json** (line 6)
    - Update the `"version"` field to the new version number
-   - This is the canonical version used by Electron's `app.getVersion()`
+   - This is the canonical version used by Vite (`import.meta.env.VITE_APP_VERSION`), Electron (`app.getVersion()`), and CLI.
 
-2. **components/Header.tsx** (around line 67)
-   - Update header title: `SilkStack Image Browser v{VERSION}`
-   - This displays in the main application header
-
-3. **components/StatusBar.tsx** (around line 24)
-   - Update the status bar version: `v{VERSION}`
-   - Appears in the footer status bar
-
-4. **components/FolderSelector.tsx** (around lines 20-21)
-   - Update welcome screen title: `Welcome to SilkStack Image Browser v{VERSION}`
-   - Update version display: `v{VERSION}`
-
-5. **index.html** (line 10)
-   - Update page title: `<title>SilkStack Image Browser v{VERSION}</title>`
-
-6. **electron.mjs** (around lines 520 and 1230-1231)
-   - Update window title fallback: `SilkStack Image Browser v{VERSION}`
-   - Update mockUpdateInfo version and release notes header
-
-7. **cli.ts** (around line 15)
-   - Update CLI version: `.version('{VERSION}')`
-
-8. **docs/CHANGELOG.md**
+2. **docs/CHANGELOG.md**
    - Add or update the version section header: `## [{VERSION}] - YYYY-MM-DD`
    - Document all changes in appropriate sections (Added, Changed, Fixed, etc.)
 
-9. **components/ChangelogModal.tsx** (around lines 129-131)
-   - Update "Message from the Dev" section with new version number
-   - Update description text to reflect changes in the new version
-
-10. **public/CHANGELOG.md**
-    - Synchronize with main docs/CHANGELOG.md using: `cp docs/CHANGELOG.md public/CHANGELOG.md`
-    - This file is used by the build process and GitHub releases
-
-11. **docs/ARCHITECTURE.md** (line 8)
-    - Update "Current Version" section to reflect new version
+3. **docs/ARCHITECTURE.md** (line 9)
+   - Update "Current Version" section to reflect new version
 
 ### Version Update Checklist
 
-- [ ] Update package.json version
-- [ ] Update all UI component version displays (Header, StatusBar, FolderSelector)
-- [ ] Update index.html page title
-- [ ] Update electron.mjs window title and mock update info
-- [ ] Update cli.ts version
-- [ ] Update or add docs/CHANGELOG.md section for new version
-- [ ] Update ChangelogModal.tsx message from dev
-- [ ] Synchronize public/CHANGELOG.md
-- [ ] Update docs/ARCHITECTURE.md current version
+- [ ] Update `docs/CHANGELOG.md` with release notes for the new version
+- [ ] Run automated script: `npm run update-version <VERSION>`
+- [ ] Verify `package.json` and `docs/ARCHITECTURE.md` are updated
+- [ ] Verify `public/CHANGELOG.md` is synchronized
+- [ ] Check `npm run dev` to ensure UI version reflects the change
 - [ ] Verify all changes with search: `grep -r "OLD_VERSION" .`
 
 ### Automated Search Command

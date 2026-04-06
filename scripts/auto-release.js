@@ -31,11 +31,11 @@ try {
 
 // Step 2: Update version across ALL files
 console.log('📝 Updating version across all files...');
-execSync(`node update-version.js ${VERSION}`, { stdio: 'inherit' });
+execSync(`node scripts/update-version.js ${VERSION}`, { stdio: 'inherit' });
 
 // Step 3: Generate release notes
 console.log('📝 Generating release notes...');
-execSync(`node generate-release.js ${VERSION}`, { stdio: 'inherit' });
+execSync(`node scripts/generate-release.js ${VERSION}`, { stdio: 'inherit' });
 
 // Step 4: Commit all changes
 console.log('💾 Committing all changes...');

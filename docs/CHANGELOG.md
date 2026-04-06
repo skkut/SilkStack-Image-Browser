@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-04-07
+
+### Added
+
+- **An adaptive Image Grid** that automatically adjusts images based on the aspect ratio of the images and reduces white spaces.
+- **Collapsible UI** that focuses on providing the best user experience for viewing images.
+- **New Window layout** that is more compact and easier to navigate.
+- **Easier Themes** - Removed the need to apply themes manually. The app will now automatically apply the system theme (Light/Dark).
+- **Navigation improvements** - Added folders to the sidebar for easier navigation. You can also add emoji icons to folders 😉.
+- **Support for Removable Drives** - You can add folders from removable drives (USB drives, SD cards, mount encrypted drives etc.) to the sidebar and the app will automatically restore the folders when the drive is reconnected.
+- **& A lot of usability improvements** - Just try it out 😉.
+
 ## [0.13.0] - 2026-02-03
 
 ### Added
