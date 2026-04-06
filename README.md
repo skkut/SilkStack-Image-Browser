@@ -7,11 +7,21 @@
 ## What is SilkStack Image Browser?
 
 **SilkStack Image Browser** is a **local image browser and manager** focused on AI-generated images.
-It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney / Nijijourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all offline, on your machine.
+It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all offline, on your machine.
 
 It is open-source (MPL 2.0) and free to use.
 
 > It is a fork of **"Image MetaHub v0.13.0"**.
+
+I have added a lot of new features to this project, notably:
+
+- ** An adaptive Image Grid** that automatically adjusts images based on the aspect ratio of the images and reduces white spaces.
+- ** Collapsible UI** that focuses on providing the best user experience for viewing images.
+- ** New Window layout** that is more compact and easier to navigate.
+- ** Easier Themes** - Removed the need to apply themes manually. The app will now automatically apply the system theme (Light/Dark).
+- ** Navigation improvements** - Added folders to the sidebar for easier navigation. You can also add emoji icons to folders 😉.
+- ** Support for Removable Drives** - You can add folders from removable drives (USB drives, SD cards, mount encrypted drives etc.) to the sidebar and the app will automatically restore the folders when the drive is reconnected.
+- ** & A lot of usability improvements** - Just try it out 😉.
 
 ---
 
@@ -73,7 +83,7 @@ The Smart Library groups similar images into stacks using prompt similarity, so 
 SilkStack Image Browser parses metadata from:
 
 - Stable Diffusion / Automatic1111 images (PNG, JPEG, WebP)
-- ComfyUI (**full coverage** with [MetaHub Save Node](https://github.com/skkut/ImageMetaHub-ComfyUI-Save) - [ComfyUI Registry](https://registry.comfy.org/publishers/image-metahub/nodes/imagemetahub-comfyui-save); partial coverage for legacy workflows)
+- ComfyUI
 - Fooocus
 - SD.Next
 - Forge
