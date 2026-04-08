@@ -150,7 +150,7 @@ async function generateVideoThumbnailBlob(file: File): Promise<Blob | null> {
       );
 
       const blob = await new Promise<Blob | null>((resolve) =>
-        finalCanvas.toBlob(resolve, "image/webp", 0.9),
+        finalCanvas.toBlob(resolve, "image/webp", 0.7),
       );
       return blob;
     } else {
@@ -159,7 +159,7 @@ async function generateVideoThumbnailBlob(file: File): Promise<Blob | null> {
       canvas.height = targetHeight;
       ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
       const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/webp", 0.9),
+        canvas.toBlob(resolve, "image/webp", 0.7),
       );
       return blob;
     }
@@ -255,7 +255,7 @@ async function generateThumbnailBlob(file: File): Promise<Blob | null> {
       );
 
       const blob = await new Promise<Blob | null>((resolve) =>
-        finalCanvas.toBlob(resolve, "image/webp", 0.9),
+        finalCanvas.toBlob(resolve, "image/webp", 0.7),
       );
       bitmap.close();
       return blob;
@@ -267,7 +267,7 @@ async function generateThumbnailBlob(file: File): Promise<Blob | null> {
       bitmap.close();
 
       const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/webp", 0.9),
+        canvas.toBlob(resolve, "image/webp", 0.7),
       );
       return blob;
     }
