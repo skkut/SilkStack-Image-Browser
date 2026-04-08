@@ -92,6 +92,7 @@ export default function DirectoryList({
     x: number;
     y: number;
     path: string;
+    mode?: 'menu' | 'emoji';
   } | null>(null);
 
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(
@@ -210,7 +211,9 @@ export default function DirectoryList({
     try {
       const isElectron =
         typeof window !== "undefined" && (window as any).electronAPI;
-      if (isElectron && (window as any).electronAPI.showItemInFolder) {
+      if (isElectron && (window as any).electronAPI.openDirectory) {
+        await (window as any).electronAPI.openDirectory(path);
+      } else if (isElectron && (window as any).electronAPI.showItemInFolder) {
         await (window as any).electronAPI.showItemInFolder(path);
       } else {
         alert(
@@ -244,6 +247,7 @@ export default function DirectoryList({
         x: event.clientX,
         y: event.clientY,
         path,
+        mode: 'menu',
       });
     },
     [],
@@ -253,9 +257,8 @@ export default function DirectoryList({
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
     if (contextMenu) {
-      window.addEventListener("click", handleClickOutside, true);
-      return () =>
-        window.removeEventListener("click", handleClickOutside, true);
+      window.addEventListener("click", handleClickOutside);
+      return () => window.removeEventListener("click", handleClickOutside);
     }
   }, [contextMenu]);
 
@@ -613,10 +616,132 @@ export default function DirectoryList({
     ],
   );
 
+  const renderContextMenuBlock = () => {
+    if (!contextMenu) return null;
+
+    if (contextMenu.mode === 'emoji') {
+       const categories = EMOJI_CATEGORIES;
+       const currentCategory =
+         categories.find((c) => c.name === emojiCategory) || categories[0];
+
+       return (
+          <div
+            className="fixed bg-gray-900 border border-gray-700 rounded-lg shadow-2xl z-[100] w-64 overflow-hidden flex flex-col"
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Categories Tab */}
+            <div className="flex border-b border-gray-800 overflow-x-auto scrollbar-hide bg-gray-800/50">
+              {categories.map((cat) => (
+                <button
+                  key={cat.name}
+                  onClick={() => setEmojiCategory(cat.name)}
+                  className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                    emojiCategory === cat.name
+                      ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                      : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+
+            {/* Emoji Grid */}
+            <div className="p-2 grid grid-cols-6 gap-1 h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+              <button
+                onClick={() => {
+                  setFolderEmoji(contextMenu.path, undefined);
+                  setContextMenu(null);
+                }}
+                className="col-span-6 py-1.5 mb-1 text-[10px] text-gray-400 hover:text-white hover:bg-red-500/20 rounded transition-colors border border-dashed border-gray-700"
+              >
+                Clear Emoji
+              </button>
+              {currentCategory.emojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => {
+                    setFolderEmoji(contextMenu.path, emoji);
+                    setContextMenu(null);
+                  }}
+                  className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 hover:scale-110 transition-all text-lg"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+       );
+    }
+
+    return (
+      <div
+        className="fixed bg-gray-800 border border-gray-600 rounded shadow-lg z-50 py-1 min-w-[180px]"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+          onClick={() => {
+            setContextMenu({ ...contextMenu, mode: "emoji" });
+          }}
+        >
+          <Smile className="w-4 h-4" />
+          Set Folder Emoji
+        </button>
+
+        <button
+          className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+          onClick={() => {
+            handleOpenInExplorer(contextMenu.path);
+            setContextMenu(null);
+          }}
+        >
+          <FolderOpen className="w-4 h-4" />
+          Open Folder
+        </button>
+
+        <button
+          className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+          onClick={() => {
+            const rootDir = directories.find((d) =>
+              contextMenu.path.startsWith(d.path),
+            );
+            if (rootDir) {
+              onUpdateDirectory(rootDir.id, contextMenu.path);
+            } else {
+              console.warn("Could not find root directory for", contextMenu.path);
+            }
+            setContextMenu(null);
+          }}
+          disabled={isIndexing}
+        >
+          <RotateCcw className={`w-4 h-4 ${isIndexing ? "text-gray-600" : ""}`} />
+          Refresh Folder
+        </button>
+
+        {onExcludeFolder && (
+          <button
+            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
+            onClick={() => {
+              onExcludeFolder(normalizePath(contextMenu.path));
+              setContextMenu(null);
+            }}
+          >
+            <EyeOff className="w-4 h-4" />
+            Exclude Folder
+          </button>
+        )}
+      </div>
+    );
+  };
+
   if (isCollapsed) {
     return (
-      <ul className="flex flex-col items-center space-y-5 w-full px-1 pt-4">
-        {directories
+      <>
+        <ul className="flex flex-col items-center space-y-5 w-full px-1 pt-4">
+          {directories
           .filter((dir) => dir.isConnected !== false)
           .map((dir) => {
             // Recursive helper to render icons for the root directory and its expanded subfolders
@@ -687,7 +812,9 @@ export default function DirectoryList({
 
             return renderCollapsedIcons(dir.path, dir);
           })}
-      </ul>
+        </ul>
+        {renderContextMenuBlock()}
+      </>
     );
   }
 
@@ -942,64 +1069,7 @@ export default function DirectoryList({
       )}
 
       {/* Context Menu */}
-      {contextMenu && (
-        <div
-          className="fixed bg-gray-800 border border-gray-600 rounded shadow-lg z-50 py-1 min-w-[180px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
-            onClick={() => {
-              handleOpenInExplorer(contextMenu.path);
-              setContextMenu(null);
-            }}
-          >
-            <FolderOpen className="w-4 h-4" />
-            Open in Explorer
-          </button>
-
-          <button
-            className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
-            onClick={() => {
-              // Find root directory for this path to trigger refresh
-              const rootDir = directories.find((d) =>
-                contextMenu.path.startsWith(d.path),
-              );
-              if (rootDir) {
-                onUpdateDirectory(rootDir.id, contextMenu.path);
-              } else {
-                // Fallback or specific logic if needed
-                console.warn(
-                  "Could not find root directory for",
-                  contextMenu.path,
-                );
-              }
-              setContextMenu(null);
-            }}
-            disabled={isIndexing}
-          >
-            <RotateCcw
-              className={`w-4 h-4 ${isIndexing ? "text-gray-600" : ""}`}
-            />
-            Refresh Folder
-          </button>
-
-          {onExcludeFolder && (
-            <button
-              className="w-full px-4 py-2 text-left text-sm text-gray-300 hover:bg-gray-700 flex items-center gap-2"
-              onClick={() => {
-                // No confirmation dialog as requested
-                onExcludeFolder(normalizePath(contextMenu.path));
-                setContextMenu(null);
-              }}
-            >
-              <EyeOff className="w-4 h-4" />
-              Exclude Folder
-            </button>
-          )}
-        </div>
-      )}
+      {renderContextMenuBlock()}
     </div>
   );
 }

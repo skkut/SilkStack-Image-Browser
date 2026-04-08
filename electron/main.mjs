@@ -1403,6 +1403,49 @@ function setupFileOperationHandlers() {
     }
   });
 
+  // Handle open directory directly
+  ipcMain.handle("open-directory", async (event, dirPath) => {
+    try {
+      if (!isPathAllowed(dirPath)) {
+        console.error(
+          "SECURITY VIOLATION: Attempted to open directory outside of allowed directories.",
+        );
+        return {
+          success: false,
+          error:
+            "Access denied: Cannot open directories outside of the allowed directories.",
+        };
+      }
+
+      const normalizedPath = path.normalize(dirPath);
+      console.log("📂 Attempting to open directory:", normalizedPath);
+
+      // Verify the directory exists before trying to open it
+      try {
+        const stats = await fs.stat(normalizedPath);
+        if (!stats.isDirectory()) {
+          return { success: false, error: "Path is not a directory" };
+        }
+      } catch (accessError) {
+        return {
+          success: false,
+          error: `Directory does not exist: ${normalizedPath}`,
+        };
+      }
+
+      const errorMessage = await shell.openPath(normalizedPath);
+      if (errorMessage) {
+        return { success: false, error: errorMessage };
+      }
+      console.log("✅ shell.openPath called for:", normalizedPath);
+
+      return { success: true };
+    } catch (error) {
+      console.error("❌ Error opening directory:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // Handle open cache location (without security restrictions since it's app's internal cache)
   ipcMain.handle("open-cache-location", async (event, cachePath) => {
     try {
