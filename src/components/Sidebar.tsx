@@ -116,19 +116,26 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const [appVersion, setAppVersion] = useState<string>('v0.0.0');
+  const [isDev, setIsDev] = useState<boolean>(false);
 
   useEffect(() => {
-    const fetchVersion = async () => {
+    const fetchInfo = async () => {
       try {
-        if (typeof window !== 'undefined' && window.electronAPI?.getAppVersion) {
-          const version = await window.electronAPI.getAppVersion();
-          setAppVersion(`v${version}`);
+        if (typeof window !== 'undefined' && window.electronAPI) {
+          if (window.electronAPI.getAppVersion) {
+            const version = await window.electronAPI.getAppVersion();
+            setAppVersion(`v${version}`);
+          }
+          if (window.electronAPI.isDev) {
+            const devStatus = await window.electronAPI.isDev();
+            setIsDev(devStatus);
+          }
         }
       } catch (error) {
-        console.error('Failed to fetch app version:', error);
+        console.error('Failed to fetch app info:', error);
       }
     };
-    fetchVersion();
+    fetchInfo();
   }, []);
 
   if (isCollapsed) {
@@ -149,8 +156,11 @@ const Sidebar: React.FC<SidebarProps> = ({
               title="Expand sidebar"
               style={{ WebkitAppRegion: 'no-drag' } as any}
             >
-                <div className="absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                <div className={`absolute inset-0 bg-blue-500/20 blur-md rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${isDev ? 'ring-2 ring-amber-500/30' : ''}`} />
                 <img src="logo1.png" alt="Expand" className="h-9 w-9 rounded-xl shadow-lg relative z-10 transition-transform duration-200 group-hover:scale-105" />
+                {isDev && (
+                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-500 rounded-full border-2 border-gray-900 z-20 shadow-[0_0_8px_rgba(245,158,11,0.6)]" title="Development Mode" />
+                )}
             </button>
           </div>
           {/* Row matching the 'Filters' label row height in expanded sidebar using relative classes */}
@@ -202,7 +212,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             </button>
             <div className="flex flex-col overflow-hidden">
                 <h1 className="text-lg font-bold tracking-tight text-gray-100 truncate">SilkStack Image Browser</h1>
-                <span className="text-[10px] font-mono font-normal text-gray-500">{appVersion}</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-normal text-gray-500">{appVersion}</span>
+                    {isDev && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.25 bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded uppercase tracking-tighter shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                            Dev
+                        </span>
+                    )}
+                </div>
             </div>
         </div>
 

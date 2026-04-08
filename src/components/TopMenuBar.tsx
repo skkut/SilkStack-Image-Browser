@@ -26,6 +26,22 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     isSidebarCollapsed = false,
     hasDirectories = false
 }) => {
+    const [isDev, setIsDev] = React.useState<boolean>(false);
+
+    React.useEffect(() => {
+        const fetchInfo = async () => {
+            try {
+                if (typeof window !== 'undefined' && window.electronAPI?.isDev) {
+                    const devStatus = await window.electronAPI.isDev();
+                    setIsDev(devStatus);
+                }
+            } catch (error) {
+                console.error('Failed to fetch dev status:', error);
+            }
+        };
+        fetchInfo();
+    }, []);
+
     // Only show in Electron (desktop app)
     const isDesktop = !!window.electronAPI;
     
@@ -105,14 +121,20 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                 )}
                 
                 {/* Settings Button */}
-                <button
-                    onClick={() => onOpenSettings()}
-                    className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"
-                    title="Open Settings"
-                    style={{ WebkitAppRegion: 'no-drag' } as any}
-                >
-                    <Settings size={20} />
-                </button>
+                <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                    {isDev && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded uppercase tracking-tighter shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                            Dev
+                        </span>
+                    )}
+                    <button
+                        onClick={() => onOpenSettings()}
+                        className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"
+                        title="Open Settings"
+                    >
+                        <Settings size={20} />
+                    </button>
+                </div>
             </div>
 
             {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}

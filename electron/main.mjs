@@ -1446,6 +1446,8 @@ function setupFileOperationHandlers() {
     }
   });
 
+  ipcMain.handle("is-dev", () => isDev);
+
   // Handle open cache location (without security restrictions since it's app's internal cache)
   ipcMain.handle("open-cache-location", async (event, cachePath) => {
     try {

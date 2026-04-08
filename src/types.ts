@@ -256,6 +256,7 @@ export interface ElectronAPI {
     visible: boolean,
   ) => Promise<{ success: boolean; error?: string }>;
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+  isDev: () => Promise<boolean>;
 }
 
 declare global {

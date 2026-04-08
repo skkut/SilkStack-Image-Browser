@@ -184,6 +184,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.invoke('close-window'),
   setWindowControlsVisibility: (visible) => ipcRenderer.invoke('set-window-controls-visibility', visible),
   executeEditAction: (action) => ipcRenderer.invoke('execute-edit-action', action),
+  isDev: () => ipcRenderer.invoke('is-dev'),
 });
 
 // DEBUG: Log that preload script has loaded
