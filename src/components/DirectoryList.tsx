@@ -786,7 +786,7 @@ export default function DirectoryList({
                     title={`${dir.name}${path !== dir.path ? ` > ${path.split(/[/\\]/).pop()}` : ""}`}
                   >
                     {pref?.emoji ? (
-                      <span className="w-5 h-5 flex items-center justify-center text-lg transition-transform duration-300 group-hover:scale-110">
+                      <span className="w-5 h-5 flex items-center justify-center text-2xl transition-transform duration-300 group-hover:scale-110">
                         {pref.emoji}
                       </span>
                     ) : (
