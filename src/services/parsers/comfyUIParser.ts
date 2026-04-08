@@ -594,10 +594,17 @@ function findTerminalNode(graph: Graph): ParserNode | null {
         const nodeDef = NodeRegistry[node.class_type];
 
         if (nodeDef?.roles.includes('SINK')) {
-            // Prioritize KSampler variants and workflow sampler nodes (main generation nodes)
-            if (node.class_type.includes('KSampler') || node.class_type.includes('Sampler')) {
+            // Priority list for terminal nodes
+            if (node.class_type === 'SaveImageWithMetaData') {
+                return node; // Highest priority
+            }
+            
+            // Prioritize KSampler variants and workflow sampler nodes
+            if (node.class_type.includes('KSampler') || node.class_type.includes('Sampler') || node.class_type === 'FaceDetailer') {
+              if (!kSamplerNode || node.class_type === 'KSampler (Efficient)') {
                 kSamplerNode = node;
-            } else if (!terminalNode) {
+              }
+            } else if (!terminalNode || node.class_type === 'SaveImage' || node.class_type === 'UltimateSDUpscale') {
                 terminalNode = node;
             }
         }
@@ -606,7 +613,55 @@ function findTerminalNode(graph: Graph): ParserNode | null {
     // Return KSampler if found, otherwise return any SINK node
     const result = kSamplerNode || terminalNode;
     return result;
-}/**
+}
+
+/**
+ * Fallback: Scans the entire graph for any nodes that might contain prompt text.
+ * Used when standard graph traversal fails.
+ */
+function collectAllPossiblePrompts(graph: Graph): { positive: string[]; negative: string[] } {
+  const positive: string[] = [];
+  const negative: string[] = [];
+
+  for (const nodeId in graph) {
+    const node = graph[nodeId];
+    if (!node.class_type || node.mode === 2 || node.mode === 4) continue;
+
+    // 1. Check for CLIPTextEncode / Flux nodes
+    if (node.class_type.includes('CLIPTextEncode')) {
+      // Try to find the text widget/input
+      const text = node.inputs?.text || node.inputs?.clip_l || node.inputs?.t5xxl || 
+                   node.widgets_values?.[0] || node.widgets_values?.[node.widgets_values.length - 1];
+      
+      if (typeof text === 'string' && text.length > 3) {
+        // Simple heuristic: if it contains words common in negative prompts, it might be negative
+        const lower = text.toLowerCase();
+        const isLikelyNegative = lower.includes('blurry') || lower.includes('bad quality') || lower.includes('lowres') || lower.includes('watermark');
+        
+        if (isLikelyNegative) negative.push(text);
+        else positive.push(text);
+      }
+    }
+
+    // 2. Check for specialized Text/String nodes
+    if (['ShowText', 'String Literal', 'PrimitiveString', 'SimpleText', 'Text Concatenate'].includes(node.class_type)) {
+      const text = node.widgets_values?.[0] || node.inputs?.text || node.inputs?.string || node.inputs?.value;
+      if (typeof text === 'string' && text.length > 10) {
+        positive.push(text);
+      }
+    }
+  }
+
+  return { positive, negative };
+}
+
+function selectBestFallbackPrompt(candidates: string[]): string | null {
+  if (candidates.length === 0) return null;
+  // Pick the longest string as it's likely the actual prompt
+  return candidates.sort((a, b) => b.length - a.length)[0];
+}
+
+/**
  * Ponto de entrada principal. Resolve todos os parâmetros de metadados de um grafo.
  */
 export function resolvePromptFromGraph(workflow: any, prompt: any): Record<string, any> {
@@ -641,6 +696,21 @@ export function resolvePromptFromGraph(workflow: any, prompt: any): Record<strin
     graph: graph,
     params: ['prompt', 'negativePrompt', 'seed', 'steps', 'cfg', 'model', 'sampler_name', 'scheduler', 'lora', 'vae', 'denoise']
   });
+
+  // --- GLOBAL FALLBACK ---
+  // If standard traversal failed to find a prompt, use the global graph scanner
+  if (!results.prompt || (typeof results.prompt === 'string' && results.prompt.length < 3)) {
+    const fallback = collectAllPossiblePrompts(graph);
+    const bestPositive = selectBestFallbackPrompt(fallback.positive);
+    if (bestPositive) {
+      results.prompt = bestPositive;
+      telemetry.warnings.push('Prompt extracted via global graph fallback (standard traversal failed)');
+    }
+    
+    if (!results.negativePrompt && fallback.negative.length > 0) {
+      results.negativePrompt = selectBestFallbackPrompt(fallback.negative);
+    }
+  }
 
   // Post-processing: deduplicate arrays BEFORE cleaning prompts
   if (results.lora && Array.isArray(results.lora)) {

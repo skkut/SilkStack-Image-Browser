@@ -244,3 +244,87 @@ describe('ComfyUI Parser - Error Handling', () => {
     expect(result._telemetry.warnings).toContain('No terminal node found');
   });
 });
+
+describe('ComfyUI Parser - Global Fallback', () => {
+  it('should find prompt from orphaned CLIPTextEncode node when standard traversal fails', () => {
+    const workflow = {
+      nodes: [
+        { id: 1, type: 'SaveImage', mode: 0, inputs: { images: [2, 0] } },
+        { id: 2, type: 'VAEDecode', mode: 0, inputs: { samples: [3, 0], vae: [4, 0] } },
+        { id: 3, type: 'KSampler', mode: 0, inputs: { model: [5, 0], latent_image: [6, 0] } },
+        {
+          id: 10,
+          type: 'CLIPTextEncode',
+          mode: 0,
+          widgets_values: ['A beautiful anime girl with white hair and a tennis racket, wearing a t-shirt that says "babes"'],
+        }
+      ]
+    };
+
+    const result = resolvePromptFromGraph(workflow, {});
+    expect(result.prompt).toBe('A beautiful anime girl with white hair and a tennis racket, wearing a t-shirt that says "babes"');
+    expect(result._telemetry.warnings).toContain('Prompt extracted via global graph fallback (standard traversal failed)');
+  });
+
+  it('should prioritize the longest candidate in fallback', () => {
+    const workflow = {
+      nodes: [
+        { id: 1, type: 'SaveImage', mode: 0, inputs: { images: [] } },
+        { id: 2, type: 'CLIPTextEncode', mode: 0, widgets_values: ['short prompt'] },
+        { id: 3, type: 'CLIPTextEncode', mode: 0, widgets_values: ['this is a much longer and more detailed prompt for the fallback test'] }
+      ]
+    };
+
+    const result = resolvePromptFromGraph(workflow, {});
+    expect(result.prompt).toBe('this is a much longer and more detailed prompt for the fallback test');
+  });
+
+  it('should detect negative prompts via heuristics in fallback', () => {
+    const workflow = {
+      nodes: [
+        { id: 1, type: 'CLIPTextEncode', mode: 0, widgets_values: ['blurry, low quality, watermark, bad anatomy'] }
+      ]
+    };
+
+    const result = resolvePromptFromGraph(workflow, {});
+    expect(result.negativePrompt).toBe('blurry, low quality, watermark, bad anatomy');
+  });
+});
+
+describe('ComfyUI Parser - SDXL and Utility Nodes', () => {
+  it('should parse CLIPTextEncodeSDXL with text_g and text_l', () => {
+    const prompt = {
+      "10": {
+        "class_type": "CLIPTextEncodeSDXL",
+        "inputs": {
+          "text_g": "global positive prompt",
+          "text_l": "local negative prompt"
+        }
+      },
+      "20": {
+        "class_type": "KSampler",
+        "inputs": {
+          "positive": ["10", 0],
+          "negative": ["10", 1]
+        }
+      }
+    };
+    
+    const result = resolvePromptFromGraph({}, prompt);
+    expect(result.prompt).toBe('global positive prompt');
+    expect(result.negativePrompt).toBe('local negative prompt');
+  });
+
+  it('should support ShowText and String Concatenate nodes', () => {
+    const prompt = {
+      "5": {
+        "class_type": "ShowText",
+        "widgets_values": ["Extracted from ShowText node"]
+      }
+    };
+    
+    // Should be found via global fallback since there's no sampler
+    const result = resolvePromptFromGraph({}, prompt);
+    expect(result.prompt).toBe('Extracted from ShowText node');
+  });
+});

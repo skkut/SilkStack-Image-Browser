@@ -177,6 +177,25 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
     pass_through_rules: [{ from_input: 'image', to_output: 'IMAGE' }],
     widget_order: ['seed', 'steps', 'cfg', 'sampler_name', 'scheduler', 'denoise']
   },
+  CLIPTextEncodeSDXL: {
+    category: 'CONDITIONING', roles: ['SOURCE'],
+    inputs: { clip: { type: 'CLIP' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: {
+      prompt: { source: 'widget', key: 'text_g' },
+      negativePrompt: { source: 'widget', key: 'text_l' }
+    },
+    widget_order: ['width', 'height', 'crop_w', 'crop_h', 'target_width', 'target_height', 'text_g', 'text_l']
+  },
+  CLIPTextEncodeSDXLRefiner: {
+    category: 'CONDITIONING', roles: ['SOURCE'],
+    inputs: { clip: { type: 'CLIP' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: {
+      prompt: { source: 'widget', key: 'text' }
+    },
+    widget_order: ['ascore', 'width', 'height', 'text']
+  },
 
   // --- TRANSFORM & PASS-THROUGH NODES ---
   CLIPTextEncode: {
@@ -228,6 +247,34 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
     outputs: { CONDITIONING: { type: 'CONDITIONING' } },
     param_mapping: { prompt: { source: 'trace', input: 'conditioning' }, negativePrompt: { source: 'trace', input: 'conditioning' }, },
     pass_through_rules: [{ from_input: 'conditioning', to_output: 'CONDITIONING' }],
+  },
+  ConditioningAverage: {
+    category: 'CONDITIONING', roles: ['TRANSFORM'],
+    inputs: { conditioning_to: { type: 'CONDITIONING' }, conditioning_from: { type: 'CONDITIONING' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: { prompt: { source: 'trace', input: 'conditioning_to' } },
+    pass_through_rules: [{ from_input: 'conditioning_to', to_output: 'CONDITIONING' }]
+  },
+  ConditioningCombine: {
+    category: 'CONDITIONING', roles: ['TRANSFORM'],
+    inputs: { conditioning_1: { type: 'CONDITIONING' }, conditioning_2: { type: 'CONDITIONING' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: { prompt: { source: 'trace', input: 'conditioning_1' } },
+    pass_through_rules: [{ from_input: 'conditioning_1', to_output: 'CONDITIONING' }]
+  },
+  ConditioningSetArea: {
+    category: 'CONDITIONING', roles: ['TRANSFORM'],
+    inputs: { conditioning: { type: 'CONDITIONING' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: { prompt: { source: 'trace', input: 'conditioning' } },
+    pass_through_rules: [{ from_input: 'conditioning', to_output: 'CONDITIONING' }]
+  },
+  ConditioningConcat: {
+    category: 'CONDITIONING', roles: ['TRANSFORM'],
+    inputs: { conditioning_to: { type: 'CONDITIONING' }, conditioning_from: { type: 'CONDITIONING' } },
+    outputs: { CONDITIONING: { type: 'CONDITIONING' } },
+    param_mapping: { prompt: { source: 'trace', input: 'conditioning_to' } },
+    pass_through_rules: [{ from_input: 'conditioning_to', to_output: 'CONDITIONING' }]
   },
   LoraLoader: {
     category: 'LOADING', roles: ['TRANSFORM'],
@@ -315,6 +362,24 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
   PreviewImage: {
     category: 'IO', roles: ['SINK'],
     inputs: { images: { type: 'IMAGE' } }, outputs: {},
+  },
+  ShowText: {
+    category: 'UTILS', roles: ['SOURCE'],
+    inputs: { text: { type: 'STRING' } }, outputs: { STRING: { type: 'STRING' } },
+    param_mapping: { prompt: { source: 'widget', key: 'text' } },
+    widget_order: ['text']
+  },
+  'Text Concatenate': {
+    category: 'UTILS', roles: ['SOURCE'],
+    inputs: { text1: { type: 'STRING' }, text2: { type: 'STRING' } },
+    outputs: { STRING: { type: 'STRING' } },
+    param_mapping: { prompt: { source: 'input', key: 'text1' } }
+  },
+  'String Concatenate': {
+    category: 'UTILS', roles: ['SOURCE'],
+    inputs: { string1: { type: 'STRING' }, string2: { type: 'STRING' } },
+    outputs: { STRING: { type: 'STRING' } },
+    param_mapping: { prompt: { source: 'input', key: 'string1' } }
   },
 
   // --- UTILS & PRIMITIVES ---
