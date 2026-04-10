@@ -2224,7 +2224,6 @@ function setupFileOperationHandlers() {
 
   ipcMain.on("start-file-drag", async (event, args) => {
     const { files, directoryPath, relativePath } = args;
-    console.log('[Main] start-file-drag requested');
     
     let filePaths = [];
     
@@ -2237,7 +2236,6 @@ function setupFileOperationHandlers() {
     if (filePaths.length === 0) return;
     
     const primaryFile = filePaths[0];
-    console.log('[Main] Dragging files:', filePaths.length, primaryFile);
     
     // Create icon with robust fallback (using primary file)
     let icon;
@@ -2261,8 +2259,6 @@ function setupFileOperationHandlers() {
     }
 
     try {
-        console.log('[Main] Calling startDrag with files:', filePaths.length);
-        
         // Electron startDrag API requires 'files' for arrays and 'file' for single string
         // Note: 'files' was added in newer Electron versions, but 'file' taking array is deprecated/invalid
         const dragOptions = { icon };
@@ -2281,7 +2277,6 @@ function setupFileOperationHandlers() {
         }
 
         event.sender.startDrag(dragOptions);
-        console.log('[Main] native startDrag call completed successfully');
     } catch (err) {
         console.error('[Main] Failed to start native drag:', err);
     }
