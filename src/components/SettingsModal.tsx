@@ -30,7 +30,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const setSensitiveTags = useSettingsStore((state) => state.setSensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
   const setBlurSensitiveImages = useSettingsStore((state) => state.setBlurSensitiveImages);
-
+  const confirmOnDelete = useSettingsStore((state) => state.confirmOnDelete);
+  const setConfirmOnDelete = useSettingsStore((state) => state.setConfirmOnDelete);
 
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
@@ -240,6 +241,23 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                     type="checkbox"
                     checked={doubleClickToOpen}
                     onChange={(event) => setDoubleClickToOpen(event.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between bg-gray-900 p-3 rounded-md">
+                <div>
+                  <p className="text-sm">Confirm before deleting</p>
+                  <p className="text-xs text-gray-400">
+                    Show a confirmation prompt before deleting an image.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={confirmOnDelete}
+                    onChange={(event) => setConfirmOnDelete(event.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-800 peer-checked:after:translate-x-full peer-checked:after:border-gray-50 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-gray-50 after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>

@@ -65,6 +65,7 @@ interface SettingsState {
   blurSensitiveImages: boolean;
   enableSafeMode: boolean;
   displayStarredFirst: boolean;
+  confirmOnDelete: boolean;
 
   // A1111 Integration settings
   a1111ServerUrl: string;
@@ -98,6 +99,7 @@ interface SettingsState {
   setA1111ConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   setComfyUIServerUrl: (url: string) => void;
   setComfyUIConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
+  setConfirmOnDelete: (value: boolean) => void;
   resetState: () => void;
 }
 
@@ -126,6 +128,7 @@ export const useSettingsStore = create<SettingsState>()(
       blurSensitiveImages: true,
       enableSafeMode: true,
       displayStarredFirst: false,
+      confirmOnDelete: true,
 
       // A1111 Integration initial state
       a1111ServerUrl: 'http://127.0.0.1:7860',
@@ -162,6 +165,7 @@ export const useSettingsStore = create<SettingsState>()(
       setBlurSensitiveImages: (value) => set({ blurSensitiveImages: !!value }),
       setEnableSafeMode: (value) => set({ enableSafeMode: !!value }),
       setDisplayStarredFirst: (value) => set({ displayStarredFirst: !!value }),
+      setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
       updateKeybinding: (scope, action, keybinding) =>
         set((state) => ({
           keymap: {
@@ -205,6 +209,7 @@ export const useSettingsStore = create<SettingsState>()(
         a1111LastConnectionStatus: 'unknown',
         comfyUIServerUrl: 'http://127.0.0.1:8188',
         comfyUILastConnectionStatus: 'unknown',
+        confirmOnDelete: true,
       }),
     }),
     {
@@ -234,6 +239,10 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.displayStarredFirst !== 'boolean') {
           state.displayStarredFirst = false;
+        }
+
+        if (state && typeof state.confirmOnDelete !== 'boolean') {
+          state.confirmOnDelete = true;
         }
       },
     }

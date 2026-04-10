@@ -3,6 +3,8 @@ import { useImageStore } from '../store/useImageStore';
 import { IndexedImage } from '../types';
 import { FileOperations } from '../services/fileOperations';
 
+import { useSettingsStore } from '../store/useSettingsStore';
+
 export function useImageSelection() {
     const {
         images,
@@ -51,8 +53,11 @@ export function useImageSelection() {
     const handleDeleteSelectedImages = useCallback(async () => {
         if (selectedImages.size === 0) return;
 
-        const confirmMessage = `Are you sure you want to delete ${selectedImages.size} image(s)?`;
-        if (!window.confirm(confirmMessage)) return;
+        const confirmOnDelete = useSettingsStore.getState().confirmOnDelete;
+        if (confirmOnDelete) {
+            const confirmMessage = `Are you sure you want to delete ${selectedImages.size} image(s)?`;
+            if (!window.confirm(confirmMessage)) return;
+        }
 
         const imagesToDelete = Array.from(selectedImages);
         for (const imageId of imagesToDelete) {

@@ -1137,11 +1137,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }, [handleWheel]);
 
   const handleDelete = async () => {
-    if (
+    const confirmOnDelete = useSettingsStore.getState().confirmOnDelete;
+    const shouldDelete =
+      !confirmOnDelete ||
       window.confirm(
         "Are you sure you want to delete this image? This action cannot be undone.",
-      )
-    ) {
+      );
+
+    if (shouldDelete) {
       const idToDelete = image.id;
       const imageToDelete = image; // Capture reference
 
