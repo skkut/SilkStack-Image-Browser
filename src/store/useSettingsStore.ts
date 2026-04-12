@@ -57,8 +57,6 @@ interface SettingsState {
   keymap: Keymap;
   indexingConcurrency: number;
   disableThumbnails: boolean;
-  showFilenames: boolean;
-  showFullFilePath: boolean;
   globalAutoWatch: boolean;
   doubleClickToOpen: boolean;
   sensitiveTags: string[];
@@ -86,8 +84,6 @@ interface SettingsState {
   resetKeymap: () => void;
   setIndexingConcurrency: (value: number) => void;
   setDisableThumbnails: (value: boolean) => void;
-  setShowFilenames: (value: boolean) => void;
-  setShowFullFilePath: (value: boolean) => void;
   toggleGlobalAutoWatch: () => void;
   setDoubleClickToOpen: (value: boolean) => void;
   setSensitiveTags: (tags: string[]) => void;
@@ -120,8 +116,6 @@ export const useSettingsStore = create<SettingsState>()(
       keymap: getDefaultKeymap(),
       indexingConcurrency: defaultIndexingConcurrency,
       disableThumbnails: false,
-      showFilenames: false,
-      showFullFilePath: false,
       globalAutoWatch: true,
       doubleClickToOpen: false,
       sensitiveTags: ['nsfw', 'private', 'hidden'],
@@ -152,8 +146,6 @@ export const useSettingsStore = create<SettingsState>()(
             : 1,
         }),
       setDisableThumbnails: (value) => set({ disableThumbnails: !!value }),
-      setShowFilenames: (value) => set({ showFilenames: !!value }),
-      setShowFullFilePath: (value) => set({ showFullFilePath: !!value }),
       toggleGlobalAutoWatch: () => set((state) => ({ globalAutoWatch: !state.globalAutoWatch })),
       setDoubleClickToOpen: (value) => set({ doubleClickToOpen: !!value }),
       setSensitiveTags: (tags) => {
@@ -196,8 +188,6 @@ export const useSettingsStore = create<SettingsState>()(
         keymap: getDefaultKeymap(),
         indexingConcurrency: defaultIndexingConcurrency,
         disableThumbnails: false,
-        showFilenames: false,
-        showFullFilePath: false,
         globalAutoWatch: true,
         doubleClickToOpen: false,
         sensitiveTags: ['nsfw', 'private', 'hidden'],
@@ -217,13 +207,7 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => isElectron ? electronStorage : localStorage),
       onRehydrateStorage: () => (state) => {
 
-        if (state && typeof state.showFilenames !== 'boolean') {
-          state.showFilenames = false;
-        }
 
-        if (state && typeof state.showFullFilePath !== 'boolean') {
-          state.showFullFilePath = false;
-        }
 
         if (state && !Array.isArray(state.sensitiveTags)) {
           state.sensitiveTags = ['nsfw', 'private', 'hidden'];

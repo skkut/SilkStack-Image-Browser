@@ -122,8 +122,6 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
 
   const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
-  const showFilenames = useSettingsStore((state) => state.showFilenames);
-  const showFullFilePath = useSettingsStore((state) => state.showFullFilePath);
   const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
 
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
@@ -133,9 +131,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
   const isVideo = isVideoFileName(image.name, image.fileType);
 
   // Extract filename to display based on showFullFilePath setting
-  const displayName = showFullFilePath
-    ? image.name || 'Unknown'
-    : (image.name || '').split(/[/\\]/).pop() || 'Unknown';
+  const displayName = (image.name || '').split(/[/\\]/).pop() || 'Unknown';
 
   // Virtualization handles visibility, request thumbnail immediately
   useThumbnail(image);
@@ -444,19 +440,13 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           </div>
         )}
 
-        {!showFilenames && (
-          <div className={`absolute left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
-            image.tags && image.tags.length > 0 ? 'bottom-8' : 'bottom-0'
-          }`}>
-            <p className="text-white text-xs truncate">{displayName}</p>
-          </div>
-        )}
-      </div>
-      {showFilenames && (
-        <div className="mt-2 w-full px-1">
-          <p className="text-[11px] text-gray-400 text-center truncate">{displayName}</p>
+        <div className={`absolute left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+          image.tags && image.tags.length > 0 ? 'bottom-8' : 'bottom-0'
+        }`}>
+          <p className="text-white text-xs truncate">{displayName}</p>
         </div>
-      )}
+      </div>
+
     </div>
   );
 });
