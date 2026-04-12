@@ -1479,7 +1479,7 @@ function setupFileOperationHandlers() {
       }
 
       const normalizedPath = path.normalize(folderPath);
-      console.log("📂 Listing subfolders for:", normalizedPath);
+
 
       // Verify the folder exists
       try {
@@ -1505,9 +1505,7 @@ function setupFileOperationHandlers() {
           path: path.join(normalizedPath, entry.name),
         }));
 
-      console.log(
-        `✅ Found ${subfolders.length} subfolders in ${normalizedPath}`,
-      );
+
       return { success: true, subfolders };
     } catch (error) {
       console.error("❌ Error listing subfolders:", error);
