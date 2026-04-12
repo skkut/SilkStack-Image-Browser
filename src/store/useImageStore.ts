@@ -182,6 +182,7 @@ interface ImageState {
   scanSubfolders: boolean;
   viewingStackPrompt: string | null;  // For Back to Stacks navigation
   isFullscreenMode: boolean;
+  activeView: 'library' | 'smart' | 'model';
 
 
 
@@ -342,6 +343,7 @@ interface ImageState {
   // Scroll Positions
   folderScrollPositions: Record<string, number>;
   setFolderScrollPosition: (key: string, position: number) => void;
+  setActiveView: (view: 'library' | 'smart' | 'model') => void;
 
   // Reset Actions
   resetState: () => void;
@@ -1056,6 +1058,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         advancedFilters: {},
         scanSubfolders: localStorage.getItem('image-metahub-scan-subfolders') !== 'false', // Default to true
         viewingStackPrompt: null,
+        activeView: 'library',
         isFullscreenMode: false,
 
 
@@ -2498,6 +2501,8 @@ export const useImageStore = create<ImageState>((set, get) => {
         setFolderScrollPosition: (key, position) => set(state => ({
             folderScrollPositions: { ...state.folderScrollPositions, [key]: position }
         })),
+
+        setActiveView: (view) => set({ activeView: view }),
 
         resetState: () => set({
             images: [],

@@ -577,7 +577,7 @@ interface ImageGridProps {
 }
 
 const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = ({ width, height, images, onImageClick, selectedImages }) => {
-  const imageSize = useSettingsStore((state) => state.imageSize);
+  const imageSize = useSettingsStore((state) => state.viewZoomLevels.library);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
   const enableSafeMode = useSettingsStore((state) => state.enableSafeMode);
@@ -1157,11 +1157,11 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
       
       // Step of 20px like the Zoom In button to make it feel responsive
       const delta = e.deltaY > 0 ? -20 : 20; 
-      const currentSize = useSettingsStore.getState().imageSize;
+      const currentSize = useSettingsStore.getState().viewZoomLevels.library;
       const newSize = Math.max(150, Math.min(500, currentSize + delta));
       
       if (newSize !== currentSize) {
-        useSettingsStore.getState().setImageSize(newSize);
+        useSettingsStore.getState().setViewZoomLevel('library', newSize);
       }
     };
 

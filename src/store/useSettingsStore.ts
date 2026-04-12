@@ -51,7 +51,12 @@ interface SettingsState {
   // App settings
   sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random';
   scanSubfolders: boolean;
-  imageSize: number;
+  imageSize: number; // For backward compatibility
+  viewZoomLevels: {
+    library: number;
+    smart: number;
+    model: number;
+  };
 
   viewMode: 'grid' | 'list';
   keymap: Keymap;
@@ -78,6 +83,7 @@ interface SettingsState {
   setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random') => void;
   toggleScanSubfolders: () => void;
   setImageSize: (size: number) => void;
+  setViewZoomLevel: (view: 'library' | 'smart' | 'model', size: number) => void;
 
   toggleViewMode: () => void;
   updateKeybinding: (scope: string, action: string, keybinding: string) => void;
@@ -111,6 +117,11 @@ export const useSettingsStore = create<SettingsState>()(
       sortOrder: 'date-desc',
       scanSubfolders: true,
       imageSize: 320, // Default to maximum zoom
+      viewZoomLevels: {
+        library: 320,
+        smart: 320,
+        model: 320,
+      },
     
       viewMode: 'grid',
       keymap: getDefaultKeymap(),
@@ -137,6 +148,15 @@ export const useSettingsStore = create<SettingsState>()(
       setSortOrder: (order) => set({ sortOrder: order }),
       toggleScanSubfolders: () => set((state) => ({ scanSubfolders: !state.scanSubfolders })),
       setImageSize: (size) => set({ imageSize: size }),
+      setViewZoomLevel: (view, size) => set((state) => ({
+        viewZoomLevels: {
+          ...state.viewZoomLevels,
+          [view]: size,
+        },
+        // Also update legacy imageSize for now to keep global consistency if needed, 
+        // though components will prefer viewZoomLevels
+        imageSize: view === 'library' ? size : state.imageSize
+      })),
     
       toggleViewMode: () => set((state) => ({ viewMode: state.viewMode === 'grid' ? 'list' : 'grid' })),
       setIndexingConcurrency: (value) =>
@@ -183,6 +203,11 @@ export const useSettingsStore = create<SettingsState>()(
         sortOrder: 'date-desc',
         scanSubfolders: true,
         imageSize: 320,
+        viewZoomLevels: {
+          library: 320,
+          smart: 320,
+          model: 320,
+        },
       
         viewMode: 'grid',
         keymap: getDefaultKeymap(),

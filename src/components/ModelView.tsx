@@ -24,7 +24,8 @@ export const ModelView: React.FC<ModelViewProps> = ({ onModelSelect }) => {
   const selectionDirectoryCount = useImageStore((state) => state.selectionDirectoryCount);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   
-  const { viewMode, toggleViewMode, imageSize } = useSettingsStore();
+  const imageSize = useSettingsStore((state) => state.viewZoomLevels.model);
+  const { viewMode, toggleViewMode } = useSettingsStore();
 
   const [sortBy] = useState<'count' | 'name'>('count');
 

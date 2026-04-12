@@ -7,7 +7,7 @@ interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'privacy' | 'about') => void;
     onAddFolder: () => void;
     onToggleView: () => void;
-    libraryView?: 'library' | 'smart' | 'model';
+    activeView?: 'library' | 'smart' | 'model';
     onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
     searchQuery: string;
     setSearchQuery: (query: string) => void;
@@ -19,7 +19,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     onOpenSettings,
     onAddFolder,
     onToggleView,
-    libraryView,
+    activeView,
     onLibraryViewChange,
     searchQuery,
     setSearchQuery,
@@ -71,13 +71,13 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
             </div>
 
             {/* Center Side - View Controls */}
-            {libraryView && onLibraryViewChange && (
+            {activeView && onLibraryViewChange && (
                 <div className="flex-1 flex justify-center pointer-events-none">
                     <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50 overflow-hidden pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <button
                             onClick={() => onLibraryViewChange('library')}
                             className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                libraryView === 'library' 
+                                activeView === 'library' 
                                 ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
                             }`}
@@ -87,7 +87,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         <button
                             onClick={() => onLibraryViewChange('smart')}
                             className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                libraryView === 'smart' 
+                                activeView === 'smart' 
                                 ? 'bg-purple-600 text-white shadow-md shadow-purple-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
                             }`}
@@ -97,7 +97,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         <button
                             onClick={() => onLibraryViewChange('model')}
                             className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                libraryView === 'model' 
+                                activeView === 'model' 
                                 ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/20' 
                                 : 'text-gray-400 hover:text-white hover:bg-white/5'
                             }`}
@@ -111,7 +111,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
             {/* Right Side - Actions (Search & Settings) */}
             <div className="flex items-center gap-2 shrink-0 pr-1 ml-auto">
                 {/* Search Bar */}
-                {libraryView && (
+                {activeView && (
                     <div className="flex items-center h-full mr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <SearchBar
                             value={searchQuery}

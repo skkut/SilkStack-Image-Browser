@@ -103,6 +103,8 @@ export default function App() {
   const handleNavigatePrevious = useImageStore((state) => state.handleNavigatePrevious);
   const setClusterNavigationContext = useImageStore((state) => state.setClusterNavigationContext);
   const cleanupInvalidImages = useImageStore((state) => state.cleanupInvalidImages);
+  const activeView = useImageStore((state) => state.activeView);
+  const setActiveView = useImageStore((state) => state.setActiveView);
 
 
 
@@ -132,7 +134,6 @@ export default function App() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
-  const [libraryView, setLibraryView] = useState<'library' | 'smart' | 'model'>('library');
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
 
   // --- Hotkeys Hook ---
@@ -614,7 +615,7 @@ export default function App() {
              style={{ marginLeft: layoutOffset }}>
           <main className="flex-1 overflow-hidden relative flex flex-col">
             {/* Back from Stack Button - Now outside header */}
-            {libraryView === 'library' && viewingStackPrompt && (
+            {activeView === 'library' && viewingStackPrompt && (
               <div className="px-6 py-2 bg-gray-900/40 border-b border-gray-800/40 flex items-center shrink-0">
                 <button
                   onClick={() => {
@@ -701,13 +702,13 @@ export default function App() {
                 </div>
               ) : (
                 <div className="h-full">
-                  {libraryView === 'smart' ? (
+                  {activeView === 'smart' ? (
                     <SmartLibrary />
-                  ) : libraryView === 'model' ? (
+                  ) : activeView === 'model' ? (
                     <ModelView 
                       onModelSelect={(modelName) => {
                         setSelectedFilters({ models: [modelName] });
-                        setLibraryView('library');
+                        setActiveView('library');
                       }}
                     />
                   ) : (
@@ -732,7 +733,7 @@ export default function App() {
             </div>
           </main>
           
-          {libraryView === 'library' && (
+          {activeView === 'library' && (
             <Footer
               viewMode={viewMode}
               onViewModeChange={toggleViewMode}
@@ -799,8 +800,8 @@ export default function App() {
         onToggleView={toggleViewMode}
         isSidebarCollapsed={isSidebarCollapsed}
         hasDirectories={hasDirectories}
-        libraryView={libraryView}
-        onLibraryViewChange={setLibraryView}
+        activeView={activeView}
+        onLibraryViewChange={setActiveView}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
       />

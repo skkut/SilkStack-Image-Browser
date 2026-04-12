@@ -1,20 +1,32 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useImageStore } from '../store/useImageStore';
 import { ZoomIn, ZoomOut } from 'lucide-react';
 
 const ImageSizeSlider: React.FC = () => {
-  const { imageSize, setImageSize } = useSettingsStore();
+  const activeView = useImageStore((state) => state.activeView);
+  const { viewZoomLevels, setViewZoomLevel } = useSettingsStore();
+  
+  // Current view might be 'library', 'smart', or 'model'
+  // If it's something else (unlikely), default to library
+  const currentView = useMemo(() => {
+    if (activeView === 'smart' || activeView === 'model') return activeView;
+    return 'library';
+  }, [activeView]);
+
+  const imageSize = viewZoomLevels[currentView] ?? 320;
+  
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSizeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setImageSize(Number(event.target.value));
+    setViewZoomLevel(currentView, Number(event.target.value));
   };
 
   const handleWheel = (event: WheelEvent) => {
     event.preventDefault();
     const delta = event.deltaY > 0 ? -10 : 10; // Scroll down = zoom out, scroll up = zoom in
     const newSize = Math.max(150, Math.min(500, imageSize + delta));
-    setImageSize(newSize);
+    setViewZoomLevel(currentView, newSize);
   };
 
   useEffect(() => {
@@ -25,16 +37,16 @@ const ImageSizeSlider: React.FC = () => {
         inputElement.removeEventListener('wheel', handleWheel);
       };
     }
-  }, [imageSize]);
+  }, [imageSize, currentView]);
 
   const handleZoomOut = () => {
     const newSize = Math.max(150, imageSize - 10);
-    setImageSize(newSize);
+    setViewZoomLevel(currentView, newSize);
   };
 
   const handleZoomIn = () => {
     const newSize = Math.min(500, imageSize + 20);
-    setImageSize(newSize);
+    setViewZoomLevel(currentView, newSize);
   };
 
   return (

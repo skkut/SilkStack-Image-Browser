@@ -36,7 +36,8 @@ const SmartLibrary: React.FC<SmartLibraryProps> = () => {
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
 
-  const { viewMode, toggleViewMode, imageSize } = useSettingsStore();
+  const imageSize = useSettingsStore((state) => state.viewZoomLevels.smart);
+  const { viewMode, toggleViewMode } = useSettingsStore();
   // const { handleDeleteSelectedImages, clearSelection } = useImageSelection(); // Unused
   const safeFilteredImages = Array.isArray(filteredImages) ? filteredImages : [];
 
