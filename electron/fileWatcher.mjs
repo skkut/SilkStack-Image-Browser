@@ -39,14 +39,11 @@ export function startWatching(directoryId, dirPath, mainWindow) {
   }
 
   try {
-    sendWatcherDebug(mainWindow, `[FileWatcher] startWatching called - ID: ${directoryId}, Path: ${dirPath}`);
-    sendWatcherDebug(mainWindow, `[FileWatcher] Creating new watcher for ${directoryId} with depth: 99`);
-
     const usePolling = shouldUsePolling(dirPath);
     if (usePolling) {
       const driveMatch = /^[a-zA-Z]:/.exec(dirPath);
       const driveLabel = driveMatch ? driveMatch[0].toLowerCase() : 'network';
-      sendWatcherDebug(mainWindow, `[FileWatcher] Using polling for ${directoryId} (${driveLabel})`);
+
     }
 
     const watcher = chokidar.watch(dirPath, {
@@ -72,11 +69,10 @@ export function startWatching(directoryId, dirPath, mainWindow) {
       sendWatcherDebug(mainWindow, `[FileWatcher] Watcher timeout - assuming active for ${directoryId}`);
     }, WATCHER_READY_TIMEOUT_MS);
 
-    sendWatcherDebug(mainWindow, `[FileWatcher] Watcher created for ${directoryId} - waiting for ready event...`);
+
 
     watcher.on('ready', () => {
       clearTimeout(readyTimeout);
-      sendWatcherDebug(mainWindow, `[FileWatcher] Watcher ready for ${directoryId} - monitoring: ${dirPath}`);
     });
 
     const enqueueImage = (imagePath, forceReindex = false) => {
@@ -140,7 +136,7 @@ export function startWatching(directoryId, dirPath, mainWindow) {
     });
 
     activeWatchers.set(directoryId, watcher);
-    sendWatcherDebug(mainWindow, `[FileWatcher] Watcher successfully created and stored for ${directoryId}`);
+
 
     return { success: true };
   } catch (error) {

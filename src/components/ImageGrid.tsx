@@ -611,6 +611,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
   const { stackedItems } = useImageStacking(images, isStackingEnabled);
   const gridRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<List>(null);
 
   const pendingRestoreKeyRef = useRef<string | null>(scrollKey);
@@ -1150,6 +1151,37 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
   }, [isSelecting]);
 
+  // Handle ctrl+wheel zoom
+  useEffect(() => {
+    const handleWheelZoom = (e: WheelEvent) => {
+      // Must have Ctrl/Cmd key pressed
+      if (!e.ctrlKey && !e.metaKey) return;
+      
+      // Check if mouse is over the grid container
+      const isOverGrid = containerRef.current && (containerRef.current.contains(e.target as Node));
+      if (!isOverGrid) return;
+
+      // Intercept the event to prevent browser zoom and grid scrolling
+      e.preventDefault();
+      e.stopPropagation();
+      
+      // Step of 20px like the Zoom In button to make it feel responsive
+      const delta = e.deltaY > 0 ? -20 : 20; 
+      const currentSize = useSettingsStore.getState().imageSize;
+      const newSize = Math.max(150, Math.min(500, currentSize + delta));
+      
+      if (newSize !== currentSize) {
+        useSettingsStore.getState().setImageSize(newSize);
+      }
+    };
+
+    // Use capture phase to ensure we intercept the event early
+    window.addEventListener('wheel', handleWheelZoom, { passive: false, capture: true });
+    return () => {
+      window.removeEventListener('wheel', handleWheelZoom, { capture: true });
+    };
+  }, []); // Grid container ref is stable, listener will check its current value
+
   useEffect(() => {
     filterAndSortImages();
   }, [filterAndSortImages, sensitiveTags, blurSensitiveImages, enableSafeMode]);
@@ -1340,6 +1372,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
   return (
     <div 
+        ref={containerRef}
         className="flex flex-col bg-gray-900 overflow-hidden relative pt-3" 
         style={{ width, height, userSelect: isSelecting ? 'none' : 'auto' }}
         data-area="main-content"
