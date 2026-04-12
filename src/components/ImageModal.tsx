@@ -956,46 +956,72 @@ const ImageModal: React.FC<ImageModalProps> = ({
     [zoom, pan],
   );
 
+  const triggerExternalDrag = useCallback(() => {
+    if (!canDragExternally || !directoryPath) {
+      return;
+    }
+
+    const [, relativeFromId] = image.id.split("::");
+    const relativePath = relativeFromId || image.name;
+
+    window.electronAPI?.startFileDrag({
+      directoryPath,
+      relativePath,
+      id: image.id,
+      lastModified: image.lastModified,
+    });
+    
+    // Reset dragging state to stop panning
+    setIsDragging(false);
+  }, [canDragExternally, directoryPath, image]);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (isDragging && zoom > 1) {
+        // Edge detection: if user drags near the window border while zoomed,
+        // trigger external drag automatically.
+        const threshold = 8;
+        const isNearBorder = 
+          e.clientX < threshold || 
+          e.clientX > window.innerWidth - threshold ||
+          e.clientY < threshold ||
+          e.clientY > window.innerHeight - threshold;
+
+        if (isNearBorder) {
+          triggerExternalDrag();
+          return;
+        }
+
         const rawX = e.clientX - dragStart.x;
         const rawY = e.clientY - dragStart.y;
         setPan(clampPan(rawX, rawY, zoom));
       }
     },
-    [isDragging, dragStart, zoom, clampPan],
+    [isDragging, dragStart, zoom, clampPan, triggerExternalDrag],
   );
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false);
   }, []);
 
+  const handleMouseLeaveContainer = useCallback(() => {
+    if (isDragging && zoom > 1) {
+      // If we leave the container while panning, trigger the file drag
+      triggerExternalDrag();
+    } else {
+      handleMouseUp();
+    }
+  }, [isDragging, zoom, triggerExternalDrag, handleMouseUp]);
+
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLImageElement>) => {
       if (!canDragExternally) {
         return;
       }
-
-      if (!directoryPath) {
-        return;
-      }
-
-      const [, relativeFromId] = image.id.split("::");
-      const relativePath = relativeFromId || image.name;
-
       e.preventDefault();
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = "copy";
-      }
-      window.electronAPI?.startFileDrag({
-        directoryPath,
-        relativePath,
-        id: image.id,
-        lastModified: image.lastModified,
-      });
+      triggerExternalDrag();
     },
-    [canDragExternally, directoryPath, image.id, image.name],
+    [canDragExternally, triggerExternalDrag],
   );
 
   const handleZoomIn = () => {
@@ -1216,7 +1242,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
-          onMouseLeave={isVideo ? undefined : handleMouseUp}
+          onMouseLeave={isVideo ? undefined : handleMouseLeaveContainer}
           style={{
             cursor:
               !isVideo && zoom > 1
