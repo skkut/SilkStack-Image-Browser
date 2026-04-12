@@ -1100,9 +1100,21 @@ function setupFileOperationHandlers() {
           error: "Invalid paths provided. Must be an array.",
         };
       }
+
+      // Normalize and sort paths to reliably compare them
+      const normalizedNewPaths = paths.map((p) => path.normalize(p)).sort();
+      const normalizedCurrentPaths = Array.from(allowedDirectoryPaths).sort();
+
+      // Skip if the paths haven't changed to prevent log spam
+      if (
+        normalizedNewPaths.length === normalizedCurrentPaths.length &&
+        normalizedNewPaths.every((p, i) => p === normalizedCurrentPaths[i])
+      ) {
+        return { success: true };
+      }
+
       allowedDirectoryPaths.clear();
-      for (const p of paths) {
-        const normalized = path.normalize(p);
+      for (const normalized of normalizedNewPaths) {
         allowedDirectoryPaths.add(normalized);
         console.log("[Main] Added allowed directory:", normalized);
       }

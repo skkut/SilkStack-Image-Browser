@@ -804,9 +804,14 @@ export function useImageLoader() {
   );
 
   const loadDirectory = useCallback(
-    async (directory: Directory, isUpdate: boolean, refreshPath?: string) => {
+    async (
+      directory: Directory,
+      isUpdate: boolean,
+      refreshPath?: string,
+      skipPermissionUpdate = false,
+    ) => {
       console.log(
-        `[loadDirectory] Starting for ${directory.name}, isUpdate: ${isUpdate}, refreshPath: ${refreshPath || "full"}`,
+        `[loadDirectory] Starting for ${directory.name}, isUpdate: ${isUpdate}, refreshPath: ${refreshPath || "full"}, skipPermissionUpdate: ${skipPermissionUpdate}`,
       );
       const suppressIndexingState = isUpdate;
       if (suppressIndexingState) {
@@ -828,8 +833,8 @@ export function useImageLoader() {
       abortControllerRef.current = new AbortController();
 
       try {
-        // Always update the allowed paths in the main process
-        if (getIsElectron()) {
+        // Always update the allowed paths in the main process unless skipped (e.g. during batch load)
+        if (getIsElectron() && !skipPermissionUpdate) {
           const allPaths = useImageStore
             .getState()
             .directories.map((d) => d.path);
@@ -1175,6 +1180,13 @@ export function useImageLoader() {
         return;
       }
 
+      // Update allowed paths in main process BEFORE adding to store 
+      // to ensure UI components don't hit security violations while auto-expanding
+      if (getIsElectron()) {
+        const allPaths = [...directories.map((d) => d.path), path];
+        await window.electronAPI.updateAllowedPaths(allPaths);
+      }
+
       const globalAutoWatch = useSettingsStore.getState().globalAutoWatch;
       const newDirectory: Directory = {
         id: directoryId,
@@ -1247,6 +1259,12 @@ export function useImageLoader() {
             return;
           }
 
+          // Update allowed paths in main process BEFORE adding to store 
+          // to ensure UI components don't hit security violations while auto-expanding
+          if (getIsElectron()) {
+            await window.electronAPI.updateAllowedPaths(paths);
+          }
+
           // Use global auto-watch setting for all directories
           const globalAutoWatch = useSettingsStore.getState().globalAutoWatch;
 
@@ -1282,12 +1300,6 @@ export function useImageLoader() {
 
           setLoading(false);
           const hydrateInBackground = async () => {
-            // Update allowed paths BEFORE loading from cache to avoid security violations
-            const allPaths = useImageStore
-              .getState()
-              .directories.map((d) => d.path);
-            await window.electronAPI.updateAllowedPaths(allPaths);
-
             for (const dir of directoriesToLoad) {
               await loadDirectoryFromCache(dir);
             }
@@ -1301,7 +1313,8 @@ export function useImageLoader() {
             // Perform a background sync to check for new/deleted files
             for (const dir of directoriesToLoad) {
               if (dir.isConnected !== false) {
-                loadDirectory(dir, true).catch((e) => {
+                // Skip permission update here as we already did it globally above
+                loadDirectory(dir, true, undefined, true).catch((e) => {
                   console.warn(`Background sync failed for ${dir.name}:`, e);
                 });
               } else {
