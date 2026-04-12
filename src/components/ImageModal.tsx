@@ -24,6 +24,8 @@ import {
   EyeOff,
   PanelRightClose,
   PanelRightOpen,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
@@ -984,6 +986,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Pan handlers
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Don't start dragging if clicking zoom controls or other interactive elements
+      if ((e.target as HTMLElement).closest(".zoom-controls")) {
+        return;
+      }
+
       if (zoom > 1 && e.button === 0) {
         setIsDragging(true);
         setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -1312,54 +1319,57 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </div>
 
           {!isVideo && (
-            <div className="absolute bottom-4 left-4 flex flex-col gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover/modal:opacity-100 transition-opacity">
-              <button
-                onClick={handleZoomIn}
-                disabled={zoom >= 5}
-                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                title="Zoom In"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-              </button>
-              <div className="text-gray-50 text-xs text-center font-mono">
-                {Math.round(zoom * 100)}%
-              </div>
+            <div
+              className="zoom-controls absolute bottom-4 right-4 flex items-center gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover/modal:opacity-100 transition-opacity z-50"
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseMove={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+            >
               <button
                 onClick={handleZoomOut}
                 disabled={zoom <= 1}
-                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 title="Zoom Out"
               >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M20 12H4"
-                  />
-                </svg>
+                <ZoomOut className="h-5 w-5" />
               </button>
+              <input
+                type="range"
+                min="1"
+                max="5"
+                step="0.1"
+                value={zoom}
+                onMouseDown={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const newZoom = parseFloat(e.target.value);
+                  setZoom(newZoom);
+                  if (newZoom === 1) {
+                    setPan({ x: 0, y: 0 });
+                  } else {
+                    setPan((prev) => clampPan(prev.x, prev.y, newZoom));
+                  }
+                }}
+                className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                title="Adjust zoom"
+              />
+              <button
+                onClick={handleZoomIn}
+                disabled={zoom >= 5}
+                className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Zoom In"
+              >
+                <ZoomIn className="h-5 w-5" />
+              </button>
+              <div className="text-gray-50 text-xs font-mono w-10 text-center">
+                {Math.round(zoom * 100)}%
+              </div>
               <button
                 onClick={handleResetZoom}
                 disabled={zoom <= 1}
-                className="text-gray-50 p-2 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs"
+                className="text-gray-50 px-2 py-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-medium"
                 title="Reset Zoom"
               >
                 Reset
