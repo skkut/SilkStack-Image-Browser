@@ -1385,22 +1385,40 @@ const ImageModal: React.FC<ImageModalProps> = ({
               {isFullscreen ? "Exit" : "Fullscreen"}
             </button>
             {!isFullscreen && (
-              <button
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
-                aria-label={
-                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                }
-                title={
-                  isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
-                }
-              >
-                {isSidebarCollapsed ? (
-                  <PanelRightOpen className="w-4 h-4" />
-                ) : (
-                  <PanelRightClose className="w-4 h-4" />
-                )}
-              </button>
+              <>
+                <button
+                  onClick={handleDelete}
+                  disabled={isIndexing}
+                  className={`bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
+                    isIndexing
+                      ? "text-gray-600 cursor-not-allowed"
+                      : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
+                  }`}
+                  title={
+                    isIndexing
+                      ? "Cannot delete during indexing"
+                      : "Delete image"
+                  }
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                  aria-label={
+                    isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                  }
+                  title={
+                    isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
+                  }
+                >
+                  {isSidebarCollapsed ? (
+                    <PanelRightOpen className="w-4 h-4" />
+                  ) : (
+                    <PanelRightClose className="w-4 h-4" />
+                  )}
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1447,18 +1465,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   }
                 >
                   <Pencil size={16} />
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={isIndexing}
-                  className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-red-400"}`}
-                  title={
-                    isIndexing
-                      ? "Cannot delete during indexing"
-                      : "Delete image"
-                  }
-                >
-                  <Trash2 size={16} />
                 </button>
               </h2>
             )}
