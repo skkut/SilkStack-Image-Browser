@@ -610,7 +610,7 @@ export default function App() {
         
         <ImagePreviewSidebar />
 
-        <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out overflow-hidden ${previewImage ? 'mr-96' : 'mr-0'}`}
+        <div className={`flex-1 flex flex-col transition-[margin,width] duration-300 ease-in-out overflow-hidden ${previewImage ? 'mr-96' : 'mr-0'}`}
              style={{ marginLeft: layoutOffset }}>
           <main className="flex-1 overflow-hidden relative flex flex-col">
             {/* Back from Stack Button - Now outside header */}
@@ -633,7 +633,7 @@ export default function App() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto min-h-0 bg-gray-900/40">
+            <div className="flex-1 overflow-y-auto min-h-0 bg-gray-900/40 scrollbar-adaptive">
               {error && (
                 <div className="mx-6 bg-red-900/50 text-red-300 p-3 rounded-lg my-4 flex items-center justify-between font-medium">
                   <span>{error}</span>

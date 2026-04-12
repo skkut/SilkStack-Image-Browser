@@ -38,6 +38,7 @@ html, body {
 .scrollbar-sidebar {
   scrollbar-width: auto;
   scrollbar-color: rgba(75, 85, 99, 0.8) rgba(31, 41, 55, 0.3);
+  scrollbar-gutter: stable;
 }
 
 .scrollbar-sidebar::-webkit-scrollbar {
@@ -133,6 +134,7 @@ html, body {
 .scrollbar-adaptive {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--gray-500) / 0.4) transparent;
+  scrollbar-gutter: stable;
 }
 
 .scrollbar-adaptive::-webkit-scrollbar {
