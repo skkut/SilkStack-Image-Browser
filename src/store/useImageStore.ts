@@ -1693,7 +1693,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             advancedFilters: filters,
         })),
 
-        setSortOrder: (order) => set(state => ({ ...filterAndSort({ ...state, sortOrder: order }), sortOrder: order })),
+        setSortOrder: (order) => {
+          set(state => ({ ...filterAndSort({ ...state, sortOrder: order }), sortOrder: order }));
+          // Persist to settings
+          useSettingsStore.getState().setSortOrder(order);
+        },
         
         reshuffle: () => set(state => {
             const newSeed = Date.now();
@@ -2525,7 +2529,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             focusedImageIndex: null,
             scanSubfolders: true,
             viewingStackPrompt: null,
-            sortOrder: 'desc',
+            sortOrder: useSettingsStore.getState().sortOrder || 'date-desc',
             isFullscreenMode: false,
             annotations: new Map(),
             availableTags: [],
@@ -2574,6 +2578,15 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         setViewingStackPrompt: (prompt: string | null) => {
             set({ viewingStackPrompt: prompt });
-        }
+        },
+    };
+});
+
+// Sync sort order from settings changes (e.g. rehydration or settings UI)
+useSettingsStore.subscribe((state) => {
+    const currentSortOrder = useImageStore.getState().sortOrder;
+    if (state.sortOrder && state.sortOrder !== currentSortOrder) {
+        useImageStore.getState().setSortOrder(state.sortOrder);
     }
 });
+

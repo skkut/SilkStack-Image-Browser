@@ -227,6 +227,13 @@ export default function App() {
     const initializeCache = async () => {
       // Zustand persistence can be async, wait for it to rehydrate
       await useSettingsStore.persist.rehydrate();
+      
+      // Sync sort order from settings to store after rehydration
+      const savedSortOrder = useSettingsStore.getState().sortOrder;
+      if (savedSortOrder) {
+        useImageStore.getState().setSortOrder(savedSortOrder);
+      }
+
       await cacheManager.init();
 
       // Validate cached images have valid file handles (for hot reload scenarios in browser)

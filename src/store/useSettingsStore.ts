@@ -49,7 +49,7 @@ const defaultIndexingConcurrency = detectDefaultIndexingConcurrency();
 // Define the state shape
 interface SettingsState {
   // App settings
-  sortOrder: 'asc' | 'desc';
+  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random';
   scanSubfolders: boolean;
   imageSize: number;
 
@@ -77,7 +77,7 @@ interface SettingsState {
   comfyUILastConnectionStatus: 'unknown' | 'connected' | 'error';
 
   // Actions
-  setSortOrder: (order: 'asc' | 'desc') => void;
+  setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random') => void;
   toggleScanSubfolders: () => void;
   setImageSize: (size: number) => void;
 
@@ -112,7 +112,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       // Initial state
-      sortOrder: 'desc',
+      sortOrder: 'date-desc',
       scanSubfolders: true,
       imageSize: 320, // Default to maximum zoom
     
@@ -188,7 +188,7 @@ export const useSettingsStore = create<SettingsState>()(
       setComfyUIConnectionStatus: (status) => set({ comfyUILastConnectionStatus: status }),
 
       resetState: () => set({
-        sortOrder: 'desc',
+        sortOrder: 'date-desc',
         scanSubfolders: true,
         imageSize: 320,
       
