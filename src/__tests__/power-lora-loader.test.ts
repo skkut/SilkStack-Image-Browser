@@ -17,13 +17,13 @@ describe('ComfyUI Parser - Power Lora Loader', () => {
     // Only 1 enabled LoRA (the other two have on: false)
     expect(result.loras).toBeDefined();
     expect(result.loras).toHaveLength(1);
-    expect(result.loras[0].name).toBe('ZIT\\zit_fdpo_enhance_colors_v1.safetensors');
+    expect(result.loras[0].name).toBe('ZIT\\zit_fdpo_enhance_colors_v1');
     expect(result.loras[0].weight).toBe(0.85);
 
     // Backward-compat lora array
-    expect(result.lora).toContain('ZIT\\zit_fdpo_enhance_colors_v1.safetensors');
+    expect(result.lora).toContain('ZIT\\zit_fdpo_enhance_colors_v1');
     // Disabled LoRAs must NOT appear
-    expect(result.lora).not.toContain('ZIT\\negative_n_hyperbolic.safetensors');
-    expect(result.lora).not.toContain('ZIT\\Disney_IZT_ATK_V1.safetensors');
+    expect(result.lora).not.toContain('ZIT\\negative_n_hyperbolic');
+    expect(result.lora).not.toContain('ZIT\\Disney_IZT_ATK_V1');
   });
 });

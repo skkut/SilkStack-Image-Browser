@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import os from 'os';
-import { parseImageFile } from './services/metadataEngine';
+import { parseImageFile } from '../src/services/metadataEngine';
 
 const program = new Command();
 
@@ -15,7 +15,7 @@ import { dirname, resolve } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-8'));
 
 program
   .name('SilkStack-cli')

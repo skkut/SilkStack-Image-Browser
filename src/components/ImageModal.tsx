@@ -9,8 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
-  Download,
-  Clipboard,
   Star,
   X,
   Zap,
@@ -20,8 +18,6 @@ import {
   Volume2,
   VolumeX,
   Repeat,
-  Eye,
-  EyeOff,
   PanelRightClose,
   PanelRightOpen,
   ZoomIn,
@@ -31,8 +27,6 @@ import hotkeyManager from "../services/hotkeyManager";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 
-import { useShadowMetadata } from "../hooks/useShadowMetadata";
-import { MetadataEditorModal } from "./MetadataEditorModal";
 
 const TAG_SUGGESTION_LIMIT = 5;
 
@@ -733,14 +727,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const recentTags = useImageStore((state) => state.recentTags);
 
-  // Shadow Metadata Hook
-  const {
-    metadata: shadowMetadata,
-    saveMetadata: saveShadowMetadata,
-    deleteMetadata: deleteShadowMetadata,
-  } = useShadowMetadata(image.id);
-  const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
-  const [showOriginal, setShowOriginal] = useState(false);
 
   // Get live tags and favorite status from store instead of props
   // imageFromStore, isVideo, and preferredThumbnailUrl are defined above
@@ -808,41 +794,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
   }, []);
 
-  // Merge metadata for display
+  // Effective metadata for display
   const nMeta: BaseMetadata | undefined = image.metadata?.normalizedMetadata;
-  const effectiveMetadata: BaseMetadata | undefined =
-    nMeta && !showOriginal
-      ? {
-          ...nMeta,
-          prompt: shadowMetadata?.prompt ?? nMeta.prompt,
-          negativePrompt:
-            shadowMetadata?.negativePrompt ?? nMeta.negativePrompt,
-          seed: shadowMetadata?.seed ?? nMeta.seed,
-          width: shadowMetadata?.width ?? nMeta.width,
-          height: shadowMetadata?.height ?? nMeta.height,
-          model:
-            shadowMetadata?.resources?.find((r) => r.type === "model")?.name ??
-            nMeta.model,
-        }
-      : shadowMetadata && !showOriginal
-        ? ({
-            prompt: shadowMetadata.prompt || "",
-            negativePrompt: shadowMetadata.negativePrompt,
-            seed: shadowMetadata.seed,
-            width: shadowMetadata.width || 0,
-            height: shadowMetadata.height || 0,
-            model:
-              shadowMetadata.resources?.find((r) => r.type === "model")?.name ||
-              "Unknown",
-            steps: 0,
-            scheduler: "Unknown",
-            topics: [],
-          } as BaseMetadata)
-        : nMeta;
+  const effectiveMetadata = nMeta;
 
-  // If we have shadow duration, we might need a way to override video info if it exists, or just use it in display
-  const effectiveDuration =
-    shadowMetadata?.duration ?? (nMeta as any)?.video?.duration_seconds;
+  const effectiveDuration = (nMeta as any)?.video?.duration_seconds;
 
   const videoInfo = (nMeta as any)?.video;
   const motionModel = (nMeta as any)?.motion_model;
@@ -1639,35 +1595,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   }
                 />
 
-                {/* Shadow Resources List */}
-                {shadowMetadata?.resources &&
-                  shadowMetadata.resources.length > 0 && (
-                    <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50">
-                      <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider mb-2">
-                        Resources (Overrides)
-                      </p>
-                      <ul className="space-y-1">
-                        {shadowMetadata.resources.map((r) => (
-                          <li
-                            key={r.id}
-                            className="text-sm text-gray-200 flex justify-between"
-                          >
-                            <span>
-                              {r.name}{" "}
-                              <span className="text-gray-500 text-xs">
-                                ({r.type})
-                              </span>
-                            </span>
-                            {r.weight !== undefined && (
-                              <span className="text-gray-400 text-xs">
-                                {r.weight}
-                              </span>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
 
                 <div className="grid grid-cols-2 gap-3">
                   <MetadataItem
@@ -1816,16 +1743,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       />
                     )}
 
-                    {shadowMetadata?.notes && (
-                      <div className="col-span-2 pt-2 border-t border-gray-700/50 mt-2">
-                        <h4 className="text-xs text-gray-500 uppercase tracking-wider mb-1">
-                          Workflow Notes
-                        </h4>
-                        <div className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-2 rounded border border-gray-800">
-                          {shadowMetadata.notes}
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -1951,48 +1868,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
           <div>
             <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-lg flex items-center gap-2">
-                  Generation Data
-                {shadowMetadata && (
-                  <span className="text-[10px] bg-blue-900/50 text-blue-300 px-1.5 py-0.5 rounded border border-blue-800">
-                    EDITED
-                  </span>
-                )}
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                Generation Data
               </h3>
               <div className="flex gap-2">
-                {shadowMetadata && (
-                  <>
-                    <button
-                      onClick={() => setShowOriginal(!showOriginal)}
-                      className={`p-1.5 rounded-md transition-colors ${showOriginal ? "bg-blue-900/50 text-blue-300" : "bg-gray-800 text-gray-400 hover:text-gray-50"}`}
-                      title={showOriginal ? "Back to Edited" : "See Original"}
-                    >
-                      {showOriginal ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (
-                          confirm(
-                            "Are you sure you want to delete all edited metadata and revert to the original?",
-                          )
-                        ) {
-                          deleteShadowMetadata();
-                        }
-                      }}
-                      className="p-1.5 bg-gray-800 hover:bg-red-900/50 rounded-md transition-colors text-gray-400 hover:text-red-400"
-                      title="Revert to Original (Delete Edits)"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </>
-                )}
-                <button
-                  onClick={() => setIsMetadataEditorOpen(true)}
-                  className="p-1.5 bg-gray-800 hover:bg-gray-700 rounded-md transition-colors text-gray-400 hover:text-gray-50"
-                  title="Edit Metadata (Shadow)"
-                >
-                  <Pencil size={14} />
-                </button>
                 <button
                   onClick={() => setShowRawMetadata(!showRawMetadata)}
                   className="text-xs text-gray-400 hover:text-gray-50 underline"
@@ -2022,16 +1901,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
         </div>
       </div>
 
-      {/* Metadata Editor Modal */}
-      <MetadataEditorModal
-        isOpen={isMetadataEditorOpen}
-        onClose={() => setIsMetadataEditorOpen(false)}
-        initialMetadata={shadowMetadata}
-        onSave={async (m) => {
-          await saveShadowMetadata(m);
-        }}
-        imageId={image.id}
-      />
 
       {/* Context Menu */}
       {contextMenu.visible && (
