@@ -2,8 +2,8 @@
 
 > _A powerful Image Browser for AI-generated images with ComfyUI metadata support, and more._
 
-**SilkStack Image Browser** is a **local image browser and manager** focused on AI-generated images.
-It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111, Fooocus, SD.Next, Forge, SwarmUI, DrawThings) and online services like Midjourney, whenever their metadata is present in the files, and lets you search, filter and organize your images by prompt, model, sampler, seed and more - all offline, on your machine.
+**SilkStack Image Browser** is a **local image browser and manager** focused on viewing AI-generated images.
+It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111) and lets you search, filter and organize your images by prompt, model, and more - all offline, on your machine.
 
 ![SilkStack Image Browser main UI](docs/screenshot-hero-grid.webp)
 
