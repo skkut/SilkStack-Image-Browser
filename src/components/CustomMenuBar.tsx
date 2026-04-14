@@ -79,9 +79,9 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
     {
       label: 'Help',
       items: [
-        { label: 'Documentation', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser#readme') },
-        { label: 'Report Bug', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser/issues/new') },
-        { label: 'View on GitHub', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser') },
+        { label: 'Documentation', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser#readme') },
+        { label: 'Report Bug', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser/issues/new') },
+        { label: 'View on GitHub', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser') },
         { type: 'separator' } as MenuItem,
         { label: 'About', onClick: () => onOpenSettings('about') },
       ],

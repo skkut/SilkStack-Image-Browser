@@ -41,7 +41,7 @@ console.log(`✅ Tag v${VERSION} created and pushed`);
 console.log('\n🎯 MANUAL STEPS REQUIRED:');
 console.log('='.repeat(50));
 console.log(`1. 📋 Copy release notes from: release-v${VERSION}.md`);
-console.log(`2. 🌐 Go to: https://github.com/skkut/AI-Images-Browser/releases/new`);
+console.log(`2. 🌐 Go to: https://github.com/skkut/SilkStack-Image-Browser/releases/new`);
 console.log(`3. 🏷️  Select tag: v${VERSION}`);
 console.log(`4. 📝 Paste the release notes into the description`);
 console.log(`5. 📤 Set as latest release and publish!`);
@@ -50,9 +50,9 @@ console.log('='.repeat(50));
 // Optional: Open browser to GitHub releases page
 console.log('\n🔗 Opening GitHub releases page...');
 try {
-  execSync('start https://github.com/skkut/AI-Images-Browser/releases/new', { stdio: 'inherit' });
+  execSync('start https://github.com/skkut/SilkStack-Image-Browser/releases/new', { stdio: 'inherit' });
 } catch (error) {
-  console.log('💡 Manually open: https://github.com/skkut/AI-Images-Browser/releases/new');
+  console.log('💡 Manually open: https://github.com/skkut/SilkStack-Image-Browser/releases/new');
 }
 
 console.log('\n🎉 Release workflow completed!');

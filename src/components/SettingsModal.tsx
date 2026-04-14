@@ -335,7 +335,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
 
               <div className="pt-2">
                 <button
-                  onClick={() => window.electronAPI?.openExternal('https://github.com/skkut/AI-Images-Browser')}
+                  onClick={() => window.electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser')}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-600 rounded-lg text-sm text-gray-200 transition-colors"
                 >
                   <Github size={16} />

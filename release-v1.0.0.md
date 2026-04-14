@@ -40,9 +40,9 @@ Choose the appropriate installer for your operating system:
 
 ## Documentation
 
-- [README](https://github.com/skkut/AI-Images-Browser/blob/main/README.md)
-- [Architecture](https://github.com/skkut/AI-Images-Browser/blob/main/docs/ARCHITECTURE.md)
-- [Changelog](https://github.com/skkut/AI-Images-Browser/blob/main/docs/CHANGELOG.md)
+- [README](https://github.com/skkut/SilkStack-Image-Browser/blob/main/README.md)
+- [Architecture](https://github.com/skkut/SilkStack-Image-Browser/blob/main/docs/ARCHITECTURE.md)
+- [Changelog](https://github.com/skkut/SilkStack-Image-Browser/blob/main/docs/Changelog.md)
 
 ## Known Issues
 
@@ -51,7 +51,7 @@ Choose the appropriate installer for your operating system:
 
 ## Feedback
 
-Found a bug or have a feature request? [Open an issue](https://github.com/skkut/AI-Images-Browser/issues)!
+Found a bug or have a feature request? [Open an issue](https://github.com/skkut/SilkStack-Image-Browser/issues)!
 
 ---
 
