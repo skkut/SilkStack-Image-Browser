@@ -1475,7 +1475,7 @@ export function useImageLoader() {
 
         // Callback para processar batches de imagens
         const handleBatchProcessed = (batch: IndexedImage[]) => {
-          console.log(
+          log(
             "[auto-watch] Phase A processed",
             batch.length,
             "images (not adding yet, waiting for Phase B)",
@@ -1498,7 +1498,7 @@ export function useImageLoader() {
             fileStats: fileStatsMap,
             onEnrichmentBatch: (enrichedBatch) => {
               // Phase B: Enriquecimento completo - adicionar as imagens agora
-              console.log(
+              log(
                 "[auto-watch] Phase B enriched",
                 enrichedBatch.length,
                 "images - adding to store",
@@ -1509,7 +1509,7 @@ export function useImageLoader() {
               const flushPendingImages =
                 useImageStore.getState().flushPendingImages;
               setTimeout(() => {
-                console.log("[auto-watch] Flushing enriched images");
+                log("[auto-watch] Flushing enriched images");
                 flushPendingImages();
               }, 0);
             },
@@ -1517,9 +1517,9 @@ export function useImageLoader() {
         );
 
         // Aguardar Phase B completar
-        console.log("[auto-watch] Waiting for Phase B to complete...");
+        log("[auto-watch] Waiting for Phase B to complete...");
         await phaseB;
-        console.log("[auto-watch] Phase B completed!");
+        log("[auto-watch] Phase B completed!");
 
         if (getIsElectron() && enrichedForCache.length > 0) {
           try {
@@ -1540,6 +1540,35 @@ export function useImageLoader() {
     [addImages],
   );
 
+  const processDeletedWatchedFiles = useCallback(
+    async (directory: Directory, paths: string[]) => {
+      if (!paths || paths.length === 0) return;
+
+      const { removeImagesByPaths } = useImageStore.getState();
+      
+      // Update UI state immediately by removing images from store
+      removeImagesByPaths(paths);
+      
+      // Optional: Cleanup thumbnails in background
+      if (getIsElectron()) {
+        try {
+          // We need to derive image IDs for thumbnail cleanup
+          // imageId format is ${directory.id}::${relativePath}
+          const imageIds = paths.map(filePath => {
+            const relativePath = toRelativeWatchPath(filePath, directory.path);
+            const fileName = filePath.split(/[\\/]/).pop() || filePath;
+            return `${directory.id}::${relativePath || fileName}`;
+          });
+          
+          await cacheManager.deleteThumbnails(imageIds);
+        } catch (err) {
+          console.error("Failed to cleanup thumbnails for deleted images:", err);
+        }
+      }
+    },
+    []
+  );
+
   return {
     handleSelectFolder,
     handleUpdateFolder,
@@ -1548,6 +1577,7 @@ export function useImageLoader() {
     loadDirectory,
     loadDirectoryFromCache,
     processNewWatchedFiles,
+    processDeletedWatchedFiles,
     cancelIndexing: () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();

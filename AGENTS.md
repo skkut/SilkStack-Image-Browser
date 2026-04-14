@@ -2,13 +2,13 @@
 
 SilkStack Image Browser is a desktop application (Electron + React + TypeScript) for browsing, searching, and organizing AI-generated images locally.
 
-The development is done in Windows, so use Windows-specific tools and commands when needed for development. Always ensure that the code is compatible with both Windows, MacOS and Linux. Check if final code builds without errors. Use only tmp folder for temporary files.
+The development is done in Windows, so use Windows-specific tools and commands when invoking commands for development. Always ensure that the code is compatible with Windows, MacOS and Linux. Always check if code builds without errors, even for small changes. Use only tmp folder for temporary files.
 
 When working on this codebase:
 
+- Always make sure the build works
 - Always read existing code before modifying
 - Maintain backward compatibility with cached data
-- Test with multiple AI generator formats
 - Consider performance impact on large collections
 - Keep privacy-first approach (no external connections)
 - Follow TypeScript best practices
@@ -79,10 +79,11 @@ When working on this codebase:
 2. **Performance**: Optimized for 18,000+ images with smart caching
 3. **Metadata Search**: Full-text search across all metadata fields
 4. **Multi-Format Support**: Handle various AI generator formats
-5. **File Operations**: Rename, delete (desktop only)
+5. **File Operations**: Rename, move, delete (desktop only)
 6. **Video & GIF Support**: Indexing, playback, and thumbnail support for MP4, WEBM, and GIF files
 7. **Shadow Metadata**: View original metadata and revert changes (non-destructive editing)
 8. **Subfolder Management**: Ability to exclude specific subfolders from indexing
+9. **Auto-Watch**: Real-time monitoring of output folders during generation
 
 ## Smart Library & Auto-Tags
 
@@ -133,9 +134,9 @@ When working on this codebase:
 
 ## Browser vs Desktop Considerations
 
-Some features are desktop-only (Electron):
+All features are desktop-only (Electron):
 
-- File system operations (rename, delete, show in folder)
+- File system operations (rename, move, delete, show in folder)
 - Command-line arguments
 - Auto-updater
 - Native file dialogs

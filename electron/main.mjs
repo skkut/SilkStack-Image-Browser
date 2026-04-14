@@ -32,17 +32,11 @@ const isDev =
   process.env.NODE_ENV === "development" ||
   !app.isPackaged ||
   process.argv.includes("--dev");
-console.log(
-  `[DEBUG] isDev=${isDev}, NODE_ENV=${process.env.NODE_ENV}, isPackaged=${app.isPackaged}`,
-);
 
 // Separate user data for development to prevent conflicts
 if (isDev) {
   const userDataPath = app.getPath("userData");
   app.setPath("userData", `${userDataPath} (Dev)`);
-  console.log(
-    `🔧 Development mode: User data path set to "${app.getPath("userData")}"`,
-  );
 }
 
 // Parser version - increment when parser logic changes
@@ -412,19 +406,12 @@ function createWindow(startupDirectory = null) {
   });
 
   // Load the app
-  let startUrl;
   if (isDev && !process.argv.includes("--dist")) {
-    startUrl = "http://localhost:5173";
+    mainWindow.loadURL("http://localhost:5173");
   } else {
-    // In production, files are directly in the app directory
-    startUrl = `file://${path.join(__dirname, "..", "dist", "index.html")}`;
+    // In production or --dist mode, load from the build output
+    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
-
-  // console.log('Loading URL:', startUrl);
-  // console.log('Is Dev:', isDev);
-  // console.log('App path:', __dirname);
-
-  mainWindow.loadURL(startUrl);
 
   // Show window when ready
   mainWindow.once("ready-to-show", () => {

@@ -248,6 +248,12 @@ export interface ElectronAPI {
       }>;
     }) => void,
   ) => () => void;
+  onImagesDeleted: (
+    callback: (data: {
+      directoryId: string;
+      paths: string[];
+    }) => void,
+  ) => () => void;
   onWatcherDebug: (callback: (data: { message: string }) => void) => () => void;
 
   // External Apps

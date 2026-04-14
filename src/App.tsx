@@ -31,7 +31,15 @@ import ImageTable from './components/ImageTable';
 
 export default function App() {
   // --- Hooks ---
-  const { handleSelectFolder, handleUpdateFolder, handleLoadFromStorage, handleRemoveDirectory, loadDirectory, processNewWatchedFiles } = useImageLoader();
+  const { 
+    handleSelectFolder, 
+    handleUpdateFolder, 
+    handleLoadFromStorage, 
+    handleRemoveDirectory, 
+    loadDirectory, 
+    processNewWatchedFiles, 
+    processDeletedWatchedFiles 
+  } = useImageLoader();
   const { handleImageSelection, handleDeleteSelectedImages, clearSelection } = useImageSelection();
 
   // --- Zustand Store State (Granular Selectors for Performance) ---
@@ -344,6 +352,23 @@ export default function App() {
 
     return () => unsubscribe();
   }, [directories, processNewWatchedFiles, sortOrder]);
+
+  // Listen for deleted images from file watcher
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unsubscribe = window.electronAPI.onImagesDeleted(async (data) => {
+      const { directoryId, paths } = data;
+      const directory = directories.find(d => d.id === directoryId);
+
+      if (!directory || !paths || paths.length === 0) return;
+
+      // Process deleted files using the function from useImageLoader
+      await processDeletedWatchedFiles(directory, paths);
+    });
+
+    return () => unsubscribe();
+  }, [directories, processDeletedWatchedFiles]);
 
   // Watcher debug logs
   useEffect(() => {

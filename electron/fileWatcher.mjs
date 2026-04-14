@@ -5,7 +5,7 @@ import fs from 'fs';
 // Active watchers: directoryId -> watcher instance
 const activeWatchers = new Map();
 
-// Pending files for batching (directoryId -> Map(filePath -> { forceReindex }))
+// Pending files for batching (directoryId -> Map(filePath -> { type: 'add' | 'unlink', forceReindex }))
 const pendingFiles = new Map();
 const processingTimeouts = new Map();
 
@@ -75,15 +75,18 @@ export function startWatching(directoryId, dirPath, mainWindow) {
       clearTimeout(readyTimeout);
     });
 
-    const enqueueImage = (imagePath, forceReindex = false) => {
-      sendWatcherDebug(mainWindow, `[FileWatcher] File detected: ${imagePath}`);
+    const enqueueImage = (imagePath, type = 'add', forceReindex = false) => {
+      sendWatcherDebug(mainWindow, `[FileWatcher] File ${type} detected: ${imagePath}`);
       if (!pendingFiles.has(directoryId)) {
         pendingFiles.set(directoryId, new Map());
       }
-      sendWatcherDebug(mainWindow, `[FileWatcher] Adding image to batch: ${imagePath}`);
+      sendWatcherDebug(mainWindow, `[FileWatcher] Adding image (${type}) to batch: ${imagePath}`);
       const pendingMap = pendingFiles.get(directoryId);
       const existing = pendingMap.get(imagePath);
-      pendingMap.set(imagePath, { forceReindex: Boolean(existing?.forceReindex || forceReindex) });
+      pendingMap.set(imagePath, { 
+        type,
+        forceReindex: Boolean(existing?.forceReindex || forceReindex) 
+      });
 
       if (processingTimeouts.has(directoryId)) {
         clearTimeout(processingTimeouts.get(directoryId));
@@ -114,7 +117,19 @@ export function startWatching(directoryId, dirPath, mainWindow) {
         return;
       }
 
-      enqueueImage(filePath, false);
+      enqueueImage(filePath, 'add', false);
+    });
+
+    watcher.on('unlink', (filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.mkv', '.mov', '.avi'];
+
+      // Also watch for JSON sidecar deletions if they exist, but usually we care about the image
+      if (!imageExts.includes(ext) && ext !== '.json') {
+        return;
+      }
+
+      enqueueImage(filePath, 'unlink', false);
     });
 
     watcher.on('error', (error) => {
@@ -189,33 +204,48 @@ function processBatch(directoryId, dirPath, mainWindow) {
 
   if (!files || files.size === 0) return;
 
-  sendWatcherDebug(mainWindow, `[FileWatcher] Processing batch for ${directoryId}, ${files.size} files`);
+  sendWatcherDebug(mainWindow, `[FileWatcher] Processing batch for ${directoryId}, ${files.size} changes`);
 
-  const filePaths = Array.from(files.keys());
+  const addedFiles = [];
+  const deletedFiles = [];
 
-  const fileInfos = filePaths.map(filePath => {
+  for (const [filePath, info] of files.entries()) {
+    if (info.type === 'unlink') {
+      deletedFiles.push(filePath);
+      continue;
+    }
+
+    // Process additions
     try {
-      const stats = fs.statSync(filePath);
-      const pendingInfo = files.get(filePath) || {};
-      return {
-        name: path.basename(filePath),
-        path: filePath,
-        lastModified: stats.birthtimeMs ?? stats.mtimeMs,
-        size: stats.size,
-        type: path.extname(filePath).slice(1),
-        forceReindex: pendingInfo.forceReindex === true
-      };
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        addedFiles.push({
+          name: path.basename(filePath),
+          path: filePath,
+          lastModified: stats.birthtimeMs ?? stats.mtimeMs,
+          size: stats.size,
+          type: path.extname(filePath).slice(1),
+          forceReindex: info.forceReindex === true
+        });
+      }
     } catch (err) {
       console.error(`Error getting stats for ${filePath}:`, err);
-      return null;
     }
-  }).filter(Boolean);
+  }
 
-  if (fileInfos.length > 0) {
-    sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${fileInfos.length} files to renderer for directory ${directoryId}`);
+  if (addedFiles.length > 0) {
+    sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${addedFiles.length} new files to renderer for directory ${directoryId}`);
     mainWindow.webContents.send('new-images-detected', {
       directoryId,
-      files: fileInfos
+      files: addedFiles
+    });
+  }
+
+  if (deletedFiles.length > 0) {
+    sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${deletedFiles.length} deleted files to renderer for directory ${directoryId}`);
+    mainWindow.webContents.send('images-deleted', {
+      directoryId,
+      paths: deletedFiles
     });
   }
 
