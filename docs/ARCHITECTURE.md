@@ -6,7 +6,7 @@
 
 ### Current Version
 
-- **Version:** 1.0.0
+- **Version:** 1.1.0
 - **Frontend:** React 18 + TypeScript with Vanilla CSS
 - **Desktop Shell:** Electron 38 with auto-update hooks and CLI entry point
 - **State Management:** Zustand stores for both image data and application settings
