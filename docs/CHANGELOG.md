@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-04-20
+
+- Updated **axios** to latest version (1.15.1) for security and performance
+- Fixed high-severity vulnerabilities in **Electron** (upgraded to 41.2.1)
+- Resolved vulnerabilities in **picomatch**, **tar**, and **brace-expansion**
+- Updated **wait-on** to latest version (9.0.5)
+- Verified build and application stability after major Electron upgrade
+
 ## [1.1.1] - 2026-04-20
 
 - Upgrade to **Vite 8** (introducing the Rolldown unified bundler)
