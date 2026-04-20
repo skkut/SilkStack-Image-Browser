@@ -24,13 +24,13 @@ When working on this codebase:
 
 **Key Dependencies & Technologies:**
 
-- **Runtime & Build:** `electron` (^38.1.2), `vite` (^7.2.4), `typescript` (^5.2.2), `eslint` (^9.37.0) (Note: package scope is `"type": "module"`)
+- **Runtime & Build:** `electron` (^38.1.2), `vite` (^8.0.9), `typescript` (^5.2.2), `eslint` (^9.37.0) (Note: package scope is `"type": "module"`)
 - **Frontend Framework:** `react` & `react-dom` (^18.2.0)
 - **State Management:** `zustand` (^5.0.8)
 - **Styling & UI:** `tailwindcss` (^3.4.18), `postcss` (^8.5.6), `autoprefixer` (^10.4.21)
 - **Icons & Animations:** `lucide-react` (^0.544.0), `framer-motion` (^12.23.24)
 - **UI Components & Virtualization:** `react-window` (^1.8.10), `react-virtualized-auto-sizer` (^1.0.26), `recharts` (^3.4.1), `react-zoom-pan-pinch` (^3.6.1)
-- **Testing:** `vitest` (^3.2.4), `@testing-library/react` (^16.3.0), `playwright` (^1.59.1)
+- **Testing:** `vitest` (^4.1.4), `@testing-library/react` (^16.3.0), `playwright` (^1.59.1)
 - **Metadata & Files:** `exifr` (^7.1.3), `pngjs` (^7.0.0), `cbor-js` (^0.1.0), `chokidar` (^5.0.0)
 - **Storage:** IndexedDB for caching
 

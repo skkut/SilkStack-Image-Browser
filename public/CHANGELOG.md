@@ -2,8 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.1.1] - 2026-04-20
+
+- Upgrade to **Vite 8** (introducing the Rolldown unified bundler)
+- Upgrade to **Vitest 4** and **@vitejs/plugin-react 6**
+- Added `lightningcss` for optimized CSS minification
+- Fixed vulnerabilities in `vite` and related dependencies
+- Restored missing `eslint` dependency to devDependencies
+- Fixed Vitest configuration compatibility with version 4
+
+## [1.1.0] - 2026-04-15
+
+- Add context menu to Folder icons in collapsed sidebar
+- Option to remove confirmation dialog when deleting files
+- The sort mechanism is saved after app restart
+- Use ctrl+scroll to control thumbnail size in the grid
+- Updated zoom controls in Image view (consistent with image grid)
+- Remove option to display file names below the image
+- Removed Edit metadata functionality
+- Different zoom levels for Library, Smart library and Model view
+- Remove file from library if underlying file is deleted
+- Bug fixes and improvements
+  - Bigger Emoji icons
+  - Optimized thumbnail file size to make library compact
+  - moved delete button (so it is visible even if the sidebar is collapsed)
+  - Images can now be dragged and dropped to external apps (ComfyUI) even when images are zoomed in
 
 ## [1.0.0] - 2026-04-07
 

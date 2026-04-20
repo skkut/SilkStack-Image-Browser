@@ -6,11 +6,11 @@
 
 ### Current Version
 
-- **Version:** 1.1.0
+- **Version:** 1.1.1
 - **Frontend:** React 18 + TypeScript with Vanilla CSS
 - **Desktop Shell:** Electron 38 with auto-update hooks and CLI entry point
 - **State Management:** Zustand stores for both image data and application settings
-- **Build Tooling:** Vite 5 for development and bundling, Vitest for unit tests, ESLint 9 for linting
+- **Build Tooling:** Vite 8 for development and bundling (Unified Rolldown bundler), Vitest 4 for unit tests, ESLint 9 for linting
 
 ### Release Highlights (v0.13.0)
 

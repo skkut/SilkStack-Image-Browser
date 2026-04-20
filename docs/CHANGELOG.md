@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-04-20
+
+- Upgrade to **Vite 8** (introducing the Rolldown unified bundler)
+- Upgrade to **Vitest 4** and **@vitejs/plugin-react 6**
+- Added `lightningcss` for optimized CSS minification
+- Fixed vulnerabilities in `vite` and related dependencies
+- Restored missing `eslint` dependency to devDependencies
+- Fixed Vitest configuration compatibility with version 4
+
 ## [1.1.0] - 2026-04-15
 
 - Add context menu to Folder icons in collapsed sidebar
