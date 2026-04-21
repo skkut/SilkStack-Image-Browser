@@ -157,21 +157,21 @@ export const HotkeySettings = () => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-grow overflow-y-auto pr-2 space-y-6 max-h-[60vh]">
+      <div className="flex-grow space-y-6">
         {Object.entries(groupedHotkeys).map(([scope, hotkeys]) => (
           <div key={scope}>
             <h3 className="text-lg font-semibold mb-3 text-gray-200 border-b border-gray-700 pb-2">{scope}</h3>
             <div className="space-y-2">
               {hotkeys.map((hotkey) => (
-                <div key={hotkey.id} className="flex items-center justify-between p-2 rounded-md hover:bg-gray-700/50">
+                <div key={hotkey.id} className="flex items-center justify-between p-2 rounded-md hover:bg-gray-800/40 transition-colors">
                   <p className="text-gray-300">{hotkey.name}</p>
                   <div className="flex items-center space-x-4">
                     <button
                       onClick={() => setRecording({ scope: hotkey.scope, action: hotkey.id })}
-                      className={`px-3 py-1 w-36 text-center text-sm font-mono rounded-md transition-colors ${
+                      className={`px-3 py-1 w-36 text-center text-sm font-mono rounded-md transition-all ${
                         recording?.action === hotkey.id
                           ? 'bg-blue-600 text-white animate-pulse'
-                          : 'bg-gray-900 text-gray-200 border border-gray-600'
+                          : 'bg-gray-950 text-gray-200 border border-gray-800 hover:border-gray-600'
                       }`}
                     >
                       {recording?.action === hotkey.id
@@ -180,7 +180,7 @@ export const HotkeySettings = () => {
                     </button>
                     <button
                       onClick={() => updateKeybinding(hotkey.scope, hotkey.id, hotkey.defaultKey)}
-                      className="text-xs text-gray-400 hover:text-gray-50 hover:underline"
+                      className="text-xs text-gray-500 hover:text-gray-300 hover:underline transition-colors"
                     >
                       Reset
                     </button>
@@ -191,23 +191,23 @@ export const HotkeySettings = () => {
           </div>
         ))}
       </div>
-      <div className="flex justify-end space-x-4 pt-4 mt-4 border-t border-gray-700">
+      <div className="flex justify-end space-x-4 pt-6 mt-8 border-t border-gray-800">
         <input type="file" id="import-keymap" className="hidden" accept=".json" onChange={handleImport} />
         <button
             onClick={() => document.getElementById('import-keymap')?.click()}
-            className="px-4 py-2 text-sm font-semibold rounded-md bg-blue-500 text-white hover:bg-blue-600"
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-sm"
         >
             Import
         </button>
         <button
             onClick={handleExport}
-            className="px-4 py-2 text-sm font-semibold rounded-md bg-green-500 text-white hover:bg-green-600"
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors shadow-sm"
         >
             Export
         </button>
         <button
             onClick={handleResetAll}
-            className="px-4 py-2 text-sm font-semibold rounded-md bg-red-500 text-white hover:bg-red-600"
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors shadow-sm"
         >
             Reset All
         </button>
