@@ -924,19 +924,42 @@ const ImageModal: React.FC<ImageModalProps> = ({
     (e: WheelEvent) => {
       e.preventDefault();
 
-      const delta = e.deltaY * -0.01;
-      const newZoom = Math.min(Math.max(1, zoom + delta), 5); // Min 1x, Max 5x
-
-      setZoom(newZoom);
-
-      // Re-clamp the current pan to the new zoom level so edges don't escape
-      if (newZoom === 1) {
-        setPan({ x: 0, y: 0 });
-      } else {
-        setPan((prev) => clampPan(prev.x, prev.y, newZoom));
+      let mx = 0;
+      let my = 0;
+      if (containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        mx = e.clientX - cx;
+        my = e.clientY - cy;
       }
+
+      setZoom((prevZoom) => {
+        // Slow down the zoom speed significantly
+        // Standard mouse wheel delta is ~100.
+        // Cap max deltaY to ensure fast scrolls don't skip entirely out of bounds.
+        const normalizedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150);
+        const delta = normalizedDeltaY * -0.0025; // Zoom by 0.25x max per standard click
+        
+        const newZoom = Math.min(Math.max(1, prevZoom + delta), 5); // Min 1x, Max 5x
+
+        if (newZoom === prevZoom) return prevZoom;
+
+        // Schedule pan correctly based on exact prev values
+        setPan((prevPan) => {
+          if (newZoom === 1) {
+            return { x: 0, y: 0 };
+          }
+          const ratio = newZoom / prevZoom;
+          const rawPx = prevPan.x * ratio + mx * (1 - ratio);
+          const rawPy = prevPan.y * ratio + my * (1 - ratio);
+          return clampPan(rawPx, rawPy, newZoom);
+        });
+
+        return newZoom;
+      });
     },
-    [zoom, clampPan],
+    [clampPan],
   );
 
   // Pan handlers
@@ -1025,14 +1048,28 @@ const ImageModal: React.FC<ImageModalProps> = ({
   );
 
   const handleZoomIn = () => {
-    setZoom((prev) => Math.min(prev + 0.5, 5));
+    const newZoom = Math.min(zoom + 0.5, 5);
+    if (newZoom === zoom) return;
+
+    setZoom(newZoom);
+    if (newZoom === 1) {
+      setPan({ x: 0, y: 0 });
+    } else {
+      const ratio = newZoom / zoom;
+      setPan((prev) => clampPan(prev.x * ratio, prev.y * ratio, newZoom));
+    }
   };
 
   const handleZoomOut = () => {
     const newZoom = Math.max(zoom - 0.5, 1);
+    if (newZoom === zoom) return;
+
     setZoom(newZoom);
     if (newZoom === 1) {
       setPan({ x: 0, y: 0 });
+    } else {
+      const ratio = newZoom / zoom;
+      setPan((prev) => clampPan(prev.x * ratio, prev.y * ratio, newZoom));
     }
   };
 
@@ -1327,11 +1364,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 onMouseDown={(e) => e.stopPropagation()}
                 onChange={(e) => {
                   const newZoom = parseFloat(e.target.value);
+                  if (newZoom === zoom) return;
                   setZoom(newZoom);
                   if (newZoom === 1) {
                     setPan({ x: 0, y: 0 });
                   } else {
-                    setPan((prev) => clampPan(prev.x, prev.y, newZoom));
+                    const ratio = newZoom / zoom;
+                    setPan((prev) => clampPan(prev.x * ratio, prev.y * ratio, newZoom));
                   }
                 }}
                 className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
