@@ -25,7 +25,6 @@ interface SidebarProps {
   children?: React.ReactNode;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-  onAddFolder?: () => void;
   isIndexing: boolean;
   scanSubfolders: boolean;
   excludedFolders: Set<string>;
@@ -54,7 +53,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   children,
   isCollapsed,
   onToggleCollapse,
-  onAddFolder,
   isIndexing = false,
   scanSubfolders,
   excludedFolders,
@@ -266,24 +264,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Add Folder Button - Subtle and discrete */}
-        {onAddFolder && (
-          <div className="px-3 py-2 border-b border-gray-700">
-            <button
-              onClick={onAddFolder}
-              disabled={isIndexing}
-              className={`w-full flex items-center justify-center gap-1 py-1.5 px-2 rounded text-sm transition-all duration-200 ${
-                isIndexing
-                  ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed' 
-                  : 'bg-gray-700/40 text-gray-300 hover:bg-gray-700/60 hover:text-gray-50 hover:shadow-md hover:shadow-accent/20'
-              }`}
-              title={isIndexing ? "Cannot add folder during indexing" : "Add a new folder"}
-            >
-              <Plus size={14} />
-              <span>Add Folder</span>
-            </button>
-          </div>
-        )}
 
         {/* Render children, which will be the DirectoryList */}
         {children && React.isValidElement(children) ? (

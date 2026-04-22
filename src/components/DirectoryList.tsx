@@ -526,14 +526,14 @@ export default function DirectoryList({
                         activeEmojiPicker === child.path ? null : child.path,
                       );
                     }}
-                    className={`p-1 rounded transition-colors ${
+                    className={`p-1.5 rounded transition-colors ${
                       activeEmojiPicker === child.path
                         ? "text-blue-400 bg-gray-600"
                         : "text-gray-400 hover:text-white hover:bg-gray-600"
                     }`}
                     title="Set folder emoji"
                   >
-                    <Smile className="w-3 h-3" />
+                    <Smile className="w-3.5 h-3.5" />
                   </button>
                   {activeEmojiPicker === child.path &&
                     renderEmojiPicker(child.path)}
@@ -557,32 +557,15 @@ export default function DirectoryList({
                     void loadSubfolders(childKey, child.path, rootDirectory);
                   }}
                   disabled={isIndexing}
-                  className={`p-1 rounded transition-colors ${
+                  className={`p-1.5 rounded transition-colors ${
                     isIndexing
                       ? "text-gray-600 cursor-not-allowed"
                       : "text-gray-400 hover:text-white hover:bg-gray-600"
                   }`}
                   title="Refresh folder"
                 >
-                  <RotateCcw className="w-3 h-3" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                 </button>
-                {onExcludeFolder && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onExcludeFolder(normalizePath(child.path));
-                    }}
-                    disabled={isIndexing}
-                    className={`p-1 rounded transition-colors ${
-                      isIndexing
-                        ? "text-gray-600 cursor-not-allowed"
-                        : "text-gray-400 hover:text-red-400 hover:bg-gray-600"
-                    }`}
-                    title="Exclude folder"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
               </div>
             </div>
             {isExpandedNode && hasSubfolders && (
@@ -973,7 +956,7 @@ export default function DirectoryList({
                                   : dir.path,
                               );
                             }}
-                            className={`p-1 rounded transition-colors ${
+                            className={`p-1.5 rounded transition-colors ${
                               activeEmojiPicker === dir.path
                                 ? "text-blue-400 bg-gray-700/50"
                                 : "text-gray-400 hover:text-white hover:bg-gray-700/50"
@@ -999,7 +982,7 @@ export default function DirectoryList({
                             void loadSubfolders(rootKey, dir.path, dir);
                           }}
                           disabled={isIndexing || isRefreshing}
-                          className={`p-1 rounded transition-colors ${
+                          className={`p-1.5 rounded transition-colors ${
                             isRefreshing
                               ? "text-blue-400"
                               : isIndexing
@@ -1017,24 +1000,6 @@ export default function DirectoryList({
                           <RotateCcw
                             className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`}
                           />
-                        </button>
-                        <button
-                          onClick={() => onRemoveDirectory(dir.id)}
-                          disabled={isIndexing || isRefreshing}
-                          className={`p-1 rounded transition-colors ${
-                            isRefreshing || isIndexing
-                              ? "text-gray-600 cursor-not-allowed"
-                              : "text-gray-400 hover:text-red-500 hover:bg-gray-700/50"
-                          }`}
-                          title={
-                            isRefreshing
-                              ? "Cannot remove while refreshing"
-                              : isIndexing
-                                ? "Cannot remove during indexing"
-                                : "Remove folder"
-                          }
-                        >
-                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>

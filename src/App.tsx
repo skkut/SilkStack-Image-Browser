@@ -608,7 +608,6 @@ export default function App() {
             onClearAdvancedFilters={() => setAdvancedFilters({})}
             availableDimensions={availableDimensions}
             availableAspectRatios={availableAspectRatios}
-            onAddFolder={handleSelectFolder}
             isIndexing={indexingState === 'indexing' || indexingState === 'completed'}
             scanSubfolders={scanSubfolders}
             excludedFolders={excludedFolders}
