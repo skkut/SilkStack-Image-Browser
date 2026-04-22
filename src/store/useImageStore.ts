@@ -239,6 +239,7 @@ interface ImageState {
   removeExcludedFolder: (path: string) => void;
   isFolderSelected: (path: string) => boolean;
   setFolderEmoji: (path: string, emoji: string | undefined) => Promise<void>;
+  setFolderScanSubfolders: (path: string, scanSubfolders: boolean) => Promise<void>;
   toggleIncludeSubfolders: () => void;
   setLoading: (loading: boolean) => void;
   setProgress: (progress: { current: number; total: number } | null) => void;
@@ -1277,26 +1278,46 @@ export const useImageStore = create<ImageState>((set, get) => {
             const normalizedPath = normalizePath(path);
             const { folderPreferences } = get();
 
+            const existingPref = folderPreferences.get(normalizedPath) || { path: normalizedPath };
             const pref: FolderPreference = {
-                path: normalizedPath,
+                ...existingPref,
                 emoji
             };
 
             set(state => {
                 const newPrefs = new Map(state.folderPreferences);
-                if (emoji) {
-                    newPrefs.set(normalizedPath, pref);
-                } else {
+                if (emoji === undefined && pref.scanSubfolders === undefined) {
                     newPrefs.delete(normalizedPath);
+                } else {
+                    newPrefs.set(normalizedPath, pref);
                 }
                 return { folderPreferences: newPrefs };
             });
 
-            if (emoji) {
-                await saveFolderPreference(pref);
-            } else {
+            if (emoji === undefined && pref.scanSubfolders === undefined) {
                 await deleteFolderPreference(normalizedPath);
+            } else {
+                await saveFolderPreference(pref);
             }
+        },
+
+        setFolderScanSubfolders: async (path, scanSubfolders) => {
+            const normalizedPath = normalizePath(path);
+            const { folderPreferences } = get();
+            
+            const existingPref = folderPreferences.get(normalizedPath) || { path: normalizedPath };
+            const pref: FolderPreference = {
+                ...existingPref,
+                scanSubfolders
+            };
+
+            set(state => {
+                const newPrefs = new Map(state.folderPreferences);
+                newPrefs.set(normalizedPath, pref);
+                return { folderPreferences: newPrefs };
+            });
+
+            await saveFolderPreference(pref);
         },
 
         toggleIncludeSubfolders: () => {

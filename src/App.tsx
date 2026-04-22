@@ -804,6 +804,9 @@ export default function App() {
           setIsSettingsModalOpen(false);
         }}
         initialTab={settingsTab}
+        directories={safeDirectories}
+        onAddFolder={handleSelectFolder}
+        onRemoveFolder={handleRemoveDirectory}
       />
 
 

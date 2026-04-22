@@ -7,6 +7,7 @@ const STORE_NAME = "folderPreferences";
 export interface FolderPreference {
   path: string; // The absolute path of the folder, used as the key
   emoji?: string; // The emoji
+  scanSubfolders?: boolean; // Whether to scan this individual folder recursively
 }
 
 export async function loadFolderPreferences(): Promise<FolderPreference[]> {

@@ -1,20 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github, Smile } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { useImageStore } from '../store/useImageStore';
+import { Directory } from '../types';
+import { EMOJI_CATEGORIES } from '../utils/emojiData';
+import { normalizePath } from '../utils/pathUtils';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'hotkeys' | 'privacy' | 'about';
+  initialTab?: 'general' | 'folders' | 'hotkeys' | 'privacy' | 'about';
+  directories?: Directory[];
+  onAddFolder?: () => void;
+  onRemoveFolder?: (directoryId: string) => void;
 }
 
-type Tab = 'general' | 'hotkeys' | 'privacy' | 'about';
+type Tab = 'general' | 'folders' | 'hotkeys' | 'privacy' | 'about';
 
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialTab = 'general' }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  initialTab = 'general',
+  directories = [],
+  onAddFolder,
+  onRemoveFolder
+}) => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
   const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
@@ -23,6 +36,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
   const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
   const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
+  const scanSubfolders = useSettingsStore((state) => state.scanSubfolders);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const setSensitiveTags = useSettingsStore((state) => state.setSensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
@@ -33,6 +47,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
   const [appVersion, setAppVersion] = useState('');
+
+  const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
+  const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].name);
+  const folderPreferences = useImageStore((state) => state.folderPreferences);
+  const setFolderEmoji = useImageStore((state) => state.setFolderEmoji);
+  const setFolderScanSubfolders = useImageStore((state) => state.setFolderScanSubfolders);
+
+  useEffect(() => {
+    const handleClickOutside = () => setActiveEmojiPicker(null);
+    if (activeEmojiPicker) {
+      window.addEventListener("click", handleClickOutside);
+      return () => window.removeEventListener("click", handleClickOutside);
+    }
+  }, [activeEmojiPicker]);
 
   useEffect(() => {
     if (isOpen) {
@@ -125,6 +153,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
             >
               <Wrench size={18} />
               <span>General</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('folders')}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'folders' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+            >
+              <FolderOpen size={18} />
+              <span>Folders</span>
             </button>
             <button
               onClick={() => setActiveTab('hotkeys')}
@@ -271,6 +306,163 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, initialT
                   </section>
                 </div>
               )}
+
+              {activeTab === 'folders' && (() => {
+                const renderEmojiPicker = (path: string) => {
+                  const categories = EMOJI_CATEGORIES;
+                  const currentCategory =
+                    categories.find((c) => c.name === emojiCategory) || categories[0];
+
+                  return (
+                    <div
+                      className="absolute right-12 top-2 mt-8 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl z-[100] w-64 overflow-hidden flex flex-col"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Categories Tab */}
+                      <div className="flex border-b border-gray-800 overflow-x-auto scrollbar-hide bg-gray-800/50">
+                        {categories.map((cat) => (
+                          <button
+                            key={cat.name}
+                            onClick={() => setEmojiCategory(cat.name)}
+                            className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                              emojiCategory === cat.name
+                                ? "text-blue-400 border-b-2 border-blue-400 bg-gray-800"
+                                : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/50"
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Emoji Grid */}
+                      <div className="p-2 grid grid-cols-6 gap-1 h-48 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+                        <button
+                          onClick={() => {
+                            setFolderEmoji(path, undefined);
+                            setActiveEmojiPicker(null);
+                          }}
+                          className="col-span-6 py-1.5 mb-1 text-[10px] text-gray-400 hover:text-white hover:bg-red-500/20 rounded transition-colors border border-dashed border-gray-700"
+                        >
+                          Clear Emoji
+                        </button>
+                        {currentCategory.emojis.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => {
+                              setFolderEmoji(path, emoji);
+                              setActiveEmojiPicker(null);
+                            }}
+                            className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-800 hover:scale-110 transition-all text-lg"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                <div className="space-y-8 animate-in fade-in duration-300 pb-8 h-full flex flex-col">
+                  <section className="flex flex-col flex-1 min-h-0">
+                    <div className="flex justify-between items-center mb-4 border-b border-gray-700/50 pb-2">
+                      <h3 className="text-lg font-semibold text-gray-200">Manage Folders</h3>
+                      <button
+                        onClick={onAddFolder}
+                        className="bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border border-blue-500/20 hover:border-blue-500"
+                      >
+                        <FolderOpen size={16} />
+                        Add Folder
+                      </button>
+                    </div>
+
+                    <div className="bg-gray-900/80 rounded-xl border border-gray-700/50 shadow-sm flex-1 overflow-y-auto mb-6 p-2">
+                       {directories.length === 0 ? (
+                         <div className="h-full flex items-center justify-center text-gray-500 text-sm py-10">
+                           No folders added yet
+                         </div>
+                       ) : (
+                         <div className="space-y-2">
+                             {directories.map(dir => (
+                              <div key={dir.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-800/50 group border border-transparent hover:border-gray-700/50 transition-colors bg-gray-800/30 relative">
+                                <div className="flex items-center gap-3 min-w-0 pr-4">
+                                  <div className="p-2 bg-gray-900 rounded-lg shrink-0 border border-gray-700/50">
+                                    {folderPreferences.get(normalizePath(dir.path))?.emoji ? (
+                                      <span className="w-4 h-4 flex items-center justify-center text-sm">
+                                        {folderPreferences.get(normalizePath(dir.path))?.emoji}
+                                      </span>
+                                    ) : (
+                                      <FolderOpen size={16} className={dir.isConnected === false ? "text-gray-600" : (dir.visible === false ? "text-gray-500" : "text-blue-400")} />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex flex-col">
+                                     <span className={`text-sm font-medium truncate ${dir.isConnected === false ? "text-gray-500" : "text-gray-200"}`}>{dir.name}</span>
+                                     <span className="text-xs text-gray-500 truncate">{dir.path}</span>
+                                  </div>
+                                  {dir.isConnected === false && (
+                                    <span className="ml-2 px-2 py-0.5 rounded text-[10px] font-medium bg-red-900/20 text-red-400 border border-red-900/40 shrink-0">Offline</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-4 shrink-0">
+                                  <label className="flex items-center gap-2 cursor-pointer px-2 py-1 rounded-md hover:bg-gray-800/80 transition-colors" title="Scan subfolders">
+                                    <span className="text-xs text-gray-400 font-medium select-none">Subfolders</span>
+                                    <div className="relative inline-flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        checked={folderPreferences.get(normalizePath(dir.path))?.scanSubfolders ?? scanSubfolders}
+                                        onChange={(e) => setFolderScanSubfolders(dir.path, e.target.checked)}
+                                        className="sr-only peer"
+                                      />
+                                      <div className="w-8 h-4 bg-gray-700/80 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 peer-checked:after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500 shadow-inner group-hover:bg-gray-600"></div>
+                                    </div>
+                                  </label>
+
+                                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActiveEmojiPicker(
+                                          activeEmojiPicker === dir.path ? null : dir.path,
+                                        );
+                                      }}
+                                      className={`p-1.5 rounded-md transition-colors ${
+                                        activeEmojiPicker === dir.path
+                                          ? "text-blue-400 bg-gray-700"
+                                          : "text-gray-500 hover:text-white hover:bg-gray-700/50"
+                                      }`}
+                                      title="Set folder emoji"
+                                    >
+                                      <Smile size={16} />
+                                    </button>
+                                    {activeEmojiPicker === dir.path &&
+                                      renderEmojiPicker(dir.path)}
+
+                                    {onRemoveFolder && (
+                                      <button 
+                                        onClick={() => {
+                                          if (window.confirm(`Are you sure you want to remove '${dir.name}' from the library? Files will not be deleted.`)) {
+                                            onRemoveFolder(dir.id);
+                                          }
+                                        }}
+                                        className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-900/20 rounded-md transition-colors"
+                                        title="Remove from library"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                           ))}
+                         </div>
+                       )}
+                    </div>
+
+                  </section>
+                </div>
+                );
+              })()}
 
               {activeTab === 'hotkeys' && (
                 <div className="animate-in fade-in duration-300 h-full pb-8">

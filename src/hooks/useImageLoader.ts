@@ -672,7 +672,8 @@ export function useImageLoader() {
     async (directory: Directory) => {
       try {
         await cacheManager.init();
-        const shouldScanSubfolders = useImageStore.getState().scanSubfolders;
+        const storeState = useImageStore.getState();
+        const shouldScanSubfolders = storeState.folderPreferences.get(normalizePath(directory.path))?.scanSubfolders ?? storeState.scanSubfolders;
         const cachedData = await cacheManager.getCachedData(
           directory.path,
           shouldScanSubfolders,
@@ -842,7 +843,8 @@ export function useImageLoader() {
         }
 
         await cacheManager.init();
-        const shouldScanSubfolders = useImageStore.getState().scanSubfolders;
+        const storeState = useImageStore.getState();
+        const shouldScanSubfolders = storeState.folderPreferences.get(normalizePath(directory.path))?.scanSubfolders ?? storeState.scanSubfolders;
 
         // Determine what to scan
         const scanPath = refreshPath || directory.path;
@@ -1354,7 +1356,11 @@ export function useImageLoader() {
     const { removeDirectory: removeDirectoryFromStore } =
       useImageStore.getState();
 
-    const shouldScanSubfolders = useImageStore.getState().scanSubfolders;
+    const storeState = useImageStore.getState();
+    const directory = storeState.directories.find(d => d.id === directoryId);
+    const shouldScanSubfolders = directory 
+      ? (storeState.folderPreferences.get(normalizePath(directory.path))?.scanSubfolders ?? storeState.scanSubfolders)
+      : storeState.scanSubfolders;
 
     if (getIsElectron()) {
       try {
@@ -1400,7 +1406,8 @@ export function useImageLoader() {
       }>,
     ) => {
       try {
-        const shouldScanSubfolders = useImageStore.getState().scanSubfolders;
+        const storeState = useImageStore.getState();
+        const shouldScanSubfolders = storeState.folderPreferences.get(normalizePath(directory.path))?.scanSubfolders ?? storeState.scanSubfolders;
         const normalizedFiles = files.map((file) => {
           const relativePath = toRelativeWatchPath(file.path, directory.path);
           const normalizedName = relativePath || file.name;
