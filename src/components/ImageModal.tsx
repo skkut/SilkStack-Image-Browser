@@ -686,11 +686,40 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // Zoom and pan states
   const [zoom, setZoom] = useState(1);
+  const [displayedZoomPercentage, setDisplayedZoomPercentage] = useState(100);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  // Calculate true zoom percentage based on rendered size vs natural size
+  const updateZoomPercentage = useCallback(() => {
+    if (!imgRef.current) return;
+    const img = imgRef.current;
+    if (img && img.naturalWidth) {
+      const baseScale = img.clientWidth / img.naturalWidth;
+      const currentTrueZoom = Math.round(zoom * baseScale * 100);
+      setDisplayedZoomPercentage(currentTrueZoom);
+    }
+  }, [zoom]);
+
+  useEffect(() => {
+    updateZoomPercentage();
+
+    const observer = new ResizeObserver(() => {
+      updateZoomPercentage();
+    });
+    
+    if (imgRef.current) {
+      observer.observe(imgRef.current);
+    }
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+    
+    return () => observer.disconnect();
+  }, [updateZoomPercentage]);
 
   // Clamp pan so the image can't be dragged past its own edges.
   // Uses actual rendered image size (object-contain may make it narrower/shorter
@@ -1305,6 +1334,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 className="max-w-full max-h-full object-contain select-none"
                 onContextMenu={handleContextMenu}
                 onDragStart={handleDragStart}
+                onLoad={updateZoomPercentage}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transition: isDragging ? "none" : "transform 0.1s ease-out",
@@ -1385,7 +1415,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 <ZoomIn className="h-5 w-5" />
               </button>
               <div className="text-gray-50 text-xs font-mono w-10 text-center">
-                {Math.round(zoom * 100)}%
+                {displayedZoomPercentage}%
               </div>
               <button
                 onClick={handleResetZoom}
