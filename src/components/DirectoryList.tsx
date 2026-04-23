@@ -785,8 +785,10 @@ export default function DirectoryList({
                 </li>,
               );
 
-              // If the folder is expanded in the main sidebar, show its subfolders' icons
-              if (expandedNodes.has(key)) {
+              const isScanEnabled = folderPreferences.get(normalizePath(rootDir.path))?.scanSubfolders ?? scanSubfolders;
+
+              // If the folder is expanded in the main sidebar AND scanning is enabled, show its subfolders' icons
+              if (isScanEnabled && expandedNodes.has(key)) {
                 children.forEach((child) => {
                   icons.push(
                     ...(renderCollapsedIcons(child.path, rootDir) as any),
