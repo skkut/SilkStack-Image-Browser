@@ -460,10 +460,14 @@ export default function DirectoryList({
           return null;
         }
 
+        const visibleGrandchildren = grandchildren.filter(
+          (c) => !(excludedFolders && excludedFolders.has(normalizePath(c.path)))
+        );
+
         const hasSubfolders =
           isLoadingNode ||
           !subfolderCache.has(childKey) ||
-          (subfolderCache.get(childKey)?.length ?? 0) > 0;
+          visibleGrandchildren.length > 0;
 
         return (
           <li key={childKey} className="py-1">
@@ -872,18 +876,25 @@ export default function DirectoryList({
                 const isRootExpanded = expandedNodes.has(rootKey);
                 const isRootLoading = loadingNodes.has(rootKey);
                 const rootChildren = subfolderCache.get(rootKey) || [];
+                const visibleRootChildren = rootChildren.filter(
+                  (c) => !(excludedFolders && excludedFolders.has(normalizePath(c.path)))
+                );
                 const isRefreshing =
                   refreshingDirectories?.has(dir.id) ?? false;
                 const isRootSelected = isFolderSelected
                   ? isFolderSelected(dir.path)
                   : false;
 
+                const folderPref = folderPreferences.get(normalizePath(dir.path));
+                const isScanEnabled = folderPref?.scanSubfolders ?? scanSubfolders;
+
                 // Determine if we should show the expander
                 // Show if loading, or if not yet loaded (not in cache), or if loaded and has children
-                const hasSubfolders =
+                const hasSubfolders = isScanEnabled && (
                   isRootLoading ||
                   !subfolderCache.has(rootKey) ||
-                  (subfolderCache.get(rootKey)?.length ?? 0) > 0;
+                  visibleRootChildren.length > 0
+                );
 
                 return (
                   <li key={dir.id}>
@@ -1006,7 +1017,7 @@ export default function DirectoryList({
 
                     {isRootExpanded && hasSubfolders && (
                       <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-700 pl-2">
-                        {scanSubfolders ? (
+                        {isScanEnabled ? (
                           <>
                             <ul className="ml-3 space-y-1">
                               {isRootLoading ? (
