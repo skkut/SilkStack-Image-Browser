@@ -14,7 +14,7 @@ const HotkeyHelp: React.FC<HotkeyHelpProps> = ({ isOpen, onClose, onOpenSettings
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center"
+      className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center"
       onClick={onClose}
       data-testid="hotkey-help-modal"
     >

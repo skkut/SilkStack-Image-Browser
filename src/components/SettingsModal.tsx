@@ -130,7 +130,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex justify-center items-center p-4 sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex justify-center items-center p-4 sm:p-6" onClick={onClose}>
       <div 
         className="bg-gray-900 border border-gray-700 text-gray-100 rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] min-h-[500px] max-h-[800px] flex flex-col overflow-hidden" 
         onClick={(e) => e.stopPropagation()}

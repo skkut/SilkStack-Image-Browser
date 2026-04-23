@@ -71,7 +71,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose, comman
 
   return (
     <div
-      className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-24"
+      className="fixed inset-0 bg-black/60 z-[110] flex items-start justify-center pt-24"
       onClick={onClose}
     >
       <div
