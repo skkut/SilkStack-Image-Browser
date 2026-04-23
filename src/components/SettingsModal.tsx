@@ -420,7 +420,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     </div>
                                   </label>
 
-                                  <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className="flex items-center gap-2">
                                     <button
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -481,7 +481,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                   <span className="text-xs text-gray-500 truncate">{folderPath}</span>
                                 </div>
                               </div>
-                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="flex items-center">
                                 <button
                                   onClick={() => removeExcludedFolder(folderPath)}
                                   className="p-1.5 text-gray-500 hover:text-blue-400 hover:bg-blue-900/20 rounded-md transition-colors"
