@@ -53,6 +53,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const folderPreferences = useImageStore((state) => state.folderPreferences);
   const setFolderEmoji = useImageStore((state) => state.setFolderEmoji);
   const setFolderScanSubfolders = useImageStore((state) => state.setFolderScanSubfolders);
+  const excludedFolders = useImageStore((state) => state.excludedFolders);
+  const removeExcludedFolder = useImageStore((state) => state.removeExcludedFolder);
 
   useEffect(() => {
     const handleClickOutside = () => setActiveEmojiPicker(null);
@@ -460,6 +462,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
 
                   </section>
+
+                  {excludedFolders && excludedFolders.size > 0 && (
+                    <section className="flex flex-col min-h-0 shrink-0 max-h-64">
+                      <div className="flex justify-between items-center mb-4 border-b border-gray-700/50 pb-2">
+                        <h3 className="text-lg font-semibold text-gray-200">Excluded Folders</h3>
+                      </div>
+                      <div className="bg-gray-900/80 rounded-xl border border-gray-700/50 shadow-sm overflow-y-auto p-2">
+                        <div className="space-y-2">
+                          {Array.from(excludedFolders).map((folderPath) => (
+                            <div key={folderPath} className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-800/50 group border border-transparent hover:border-gray-700/50 transition-colors bg-gray-800/30">
+                              <div className="flex items-center gap-3 min-w-0 pr-4">
+                                <div className="p-2 bg-gray-900 rounded-lg shrink-0 border border-gray-700/50">
+                                  <FolderOpen size={16} className="text-gray-500" />
+                                </div>
+                                <div className="min-w-0 flex flex-col">
+                                  <span className="text-sm font-medium truncate text-gray-400">{folderPath.split(/[/\\]/).pop()}</span>
+                                  <span className="text-xs text-gray-500 truncate">{folderPath}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button
+                                  onClick={() => removeExcludedFolder(folderPath)}
+                                  className="p-1.5 text-gray-500 hover:text-blue-400 hover:bg-blue-900/20 rounded-md transition-colors"
+                                  title="Remove from exclusions"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </section>
+                  )}
                 </div>
                 );
               })()}
