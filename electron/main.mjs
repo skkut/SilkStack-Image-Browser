@@ -679,7 +679,7 @@ function setupFileOperationHandlers() {
   };
 
   // --- Image Viewer Window IPC ---
-  ipcMain.handle("open-image-viewer", (event, data) => {
+  ipcMain.handle("open-image-viewer", async (event, data) => {
     try {
       // Reuse existing viewer window if open
       if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
@@ -690,15 +690,22 @@ function setupFileOperationHandlers() {
       }
 
       const isDark = nativeTheme.shouldUseDarkColors;
+      const settings = await readSettings();
+      const windowState = settings.viewerWindowState || {};
 
       // Get the main window's display for sizing
       const { screen } = electron;
       const primaryDisplay = screen.getPrimaryDisplay();
       const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
 
+      const defaultWidth = Math.round(screenWidth * 0.85);
+      const defaultHeight = Math.round(screenHeight * 0.85);
+
       imageViewerWindow = new BrowserWindow({
-        width: Math.round(screenWidth * 0.85),
-        height: Math.round(screenHeight * 0.85),
+        x: windowState.x,
+        y: windowState.y,
+        width: windowState.width || defaultWidth,
+        height: windowState.height || defaultHeight,
         minWidth: 800,
         minHeight: 600,
         backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
@@ -715,6 +722,26 @@ function setupFileOperationHandlers() {
         parent: null, // Independent window, not modal
       });
 
+      // Ensure window is visible (not off-screen if monitors changed)
+      if (windowState.x !== undefined && windowState.y !== undefined) {
+        const isVisible = screen.getAllDisplays().some((display) => {
+          const b = display.bounds;
+          return (
+            windowState.x >= b.x &&
+            windowState.x < b.x + b.width &&
+            windowState.y >= b.y &&
+            windowState.y < b.y + b.height
+          );
+        });
+        if (!isVisible) {
+          imageViewerWindow.center();
+        }
+      }
+
+      if (windowState.isMaximized) {
+        imageViewerWindow.maximize();
+      }
+
       // Load the same app with a query parameter
       const queryString = `?imageViewer=true`;
       if (isDev && !process.argv.includes("--dist")) {
@@ -730,6 +757,27 @@ function setupFileOperationHandlers() {
         imageViewerWindow.show();
       });
 
+      // When the viewer window is closing, save its state
+      imageViewerWindow.on("close", async () => {
+        if (!imageViewerWindow || imageViewerWindow.isDestroyed()) return;
+
+        const isMaximized = imageViewerWindow.isMaximized();
+        // Use normal bounds if maximized so we restore the correct size later
+        const bounds = isMaximized 
+          ? imageViewerWindow.getNormalBounds() 
+          : imageViewerWindow.getBounds();
+
+        const currentSettings = await readSettings();
+        currentSettings.viewerWindowState = {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          isMaximized,
+        };
+        await saveSettings(currentSettings);
+      });
+
       // When the viewer window is closed
       imageViewerWindow.on("closed", () => {
         // Notify the main window
@@ -743,7 +791,7 @@ function setupFileOperationHandlers() {
       const themeHandler = () => {
         if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
           const dark = nativeTheme.shouldUseDarkColors;
-          imageViewerWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff');
+          imageViewerWindow.setBackgroundColor(dark ? "#0a0a0a" : "#ffffff");
           imageViewerWindow.webContents.send("theme-updated", {
             shouldUseDarkColors: dark,
           });
