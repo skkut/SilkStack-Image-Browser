@@ -190,6 +190,42 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowControlsVisibility: (visible) => ipcRenderer.invoke('set-window-controls-visibility', visible),
   executeEditAction: (action) => ipcRenderer.invoke('execute-edit-action', action),
   isDev: () => ipcRenderer.invoke('is-dev'),
+
+  // Image Viewer Window
+  openImageViewer: (data) => ipcRenderer.invoke('open-image-viewer', data),
+  imageViewerNavigate: (direction) => ipcRenderer.send('image-viewer-navigate', direction),
+  imageViewerAction: (action) => ipcRenderer.send('image-viewer-action', action),
+  imageViewerClose: () => ipcRenderer.send('image-viewer-close'),
+  imageViewerReady: () => ipcRenderer.send('image-viewer-ready'),
+  onImageViewerUpdate: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('image-viewer-update', handler);
+    return () => {
+      ipcRenderer.removeListener('image-viewer-update', handler);
+    };
+  },
+  onImageViewerAction: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('image-viewer-action', handler);
+    return () => {
+      ipcRenderer.removeListener('image-viewer-action', handler);
+    };
+  },
+  onImageViewerNavigate: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('image-viewer-navigate', handler);
+    return () => {
+      ipcRenderer.removeListener('image-viewer-navigate', handler);
+    };
+  },
+  onImageViewerClosed: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('image-viewer-closed', handler);
+    return () => {
+      ipcRenderer.removeListener('image-viewer-closed', handler);
+    };
+  },
+  sendImageViewerUpdate: (data) => ipcRenderer.send('image-viewer-update-from-main', data),
 });
 
 // DEBUG: Log that preload script has loaded

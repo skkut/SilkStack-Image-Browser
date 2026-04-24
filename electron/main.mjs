@@ -143,6 +143,7 @@ async function readVideoMetadataWithFfprobe(filePath) {
 }
 
 let mainWindow;
+let imageViewerWindow = null;
 let skippedVersions = new Set();
 
 // --- Zoom Management ---
@@ -676,6 +677,125 @@ function setupFileOperationHandlers() {
     usedNames.add(normalizeNameKey(candidate));
     return candidate;
   };
+
+  // --- Image Viewer Window IPC ---
+  ipcMain.handle("open-image-viewer", (event, data) => {
+    try {
+      // Reuse existing viewer window if open
+      if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
+        // Send update to existing window
+        imageViewerWindow.webContents.send("image-viewer-update", data);
+        imageViewerWindow.focus();
+        return { success: true, windowId: imageViewerWindow.id };
+      }
+
+      const isDark = nativeTheme.shouldUseDarkColors;
+
+      // Get the main window's display for sizing
+      const { screen } = electron;
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+      imageViewerWindow = new BrowserWindow({
+        width: Math.round(screenWidth * 0.85),
+        height: Math.round(screenHeight * 0.85),
+        minWidth: 800,
+        minHeight: 600,
+        backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
+        icon: getIconPath(),
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          enableRemoteModule: false,
+          webSecurity: true,
+          preload: path.join(__dirname, "preload.js"),
+        },
+        show: false,
+        autoHideMenuBar: true,
+        parent: null, // Independent window, not modal
+      });
+
+      // Load the same app with a query parameter
+      const queryString = `?imageViewer=true`;
+      if (isDev && !process.argv.includes("--dist")) {
+        imageViewerWindow.loadURL(`http://localhost:5173${queryString}`);
+      } else {
+        imageViewerWindow.loadFile(
+          path.join(__dirname, "..", "dist", "index.html"),
+          { search: queryString.substring(1) }
+        );
+      }
+
+      imageViewerWindow.once("ready-to-show", () => {
+        imageViewerWindow.show();
+      });
+
+      // When the viewer window is closed
+      imageViewerWindow.on("closed", () => {
+        // Notify the main window
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("image-viewer-closed");
+        }
+        imageViewerWindow = null;
+      });
+
+      // Listen for theme changes and update viewer window
+      const themeHandler = () => {
+        if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
+          const dark = nativeTheme.shouldUseDarkColors;
+          imageViewerWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff');
+          imageViewerWindow.webContents.send("theme-updated", {
+            shouldUseDarkColors: dark,
+          });
+        }
+      };
+      nativeTheme.on("updated", themeHandler);
+      imageViewerWindow.on("closed", () => {
+        nativeTheme.removeListener("updated", themeHandler);
+      });
+
+      return { success: true, windowId: imageViewerWindow.id };
+    } catch (error) {
+      console.error("Error creating image viewer window:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Viewer window signals it is ready to receive data
+  ipcMain.on("image-viewer-ready", (event) => {
+    // Forward to main window so it can send the initial image data
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("image-viewer-navigate", "current");
+    }
+  });
+
+  // Viewer window requests navigation
+  ipcMain.on("image-viewer-navigate", (event, direction) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("image-viewer-navigate", direction);
+    }
+  });
+
+  // Viewer window sends an action (delete, rename, etc.)
+  ipcMain.on("image-viewer-action", (event, action) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("image-viewer-action", action);
+    }
+  });
+
+  // Viewer window is closing
+  ipcMain.on("image-viewer-close", (event) => {
+    if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
+      imageViewerWindow.close();
+    }
+  });
+
+  // Main window sends update to viewer window
+  ipcMain.on("image-viewer-update-from-main", (event, data) => {
+    if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
+      imageViewerWindow.webContents.send("image-viewer-update", data);
+    }
+  });
 
   // --- Settings IPC ---
   ipcMain.handle("get-settings", async () => {

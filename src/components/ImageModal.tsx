@@ -634,20 +634,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
     loadImageToUrl,
   ]);
 
-  // Global cleanup when component unmounts entirely
-  useEffect(() => {
-    // Hide window controls when modal opens
-    if (window.electronAPI?.setWindowControlsVisibility) {
-      window.electronAPI.setWindowControlsVisibility(false);
-    }
-
-    return () => {
-      // Show window controls when modal closes
-      if (window.electronAPI?.setWindowControlsVisibility) {
-        window.electronAPI.setWindowControlsVisibility(true);
-      }
-    };
-  }, []);
 
   // Use a ref to track cache for cleanup on unmount
   const cacheRef = useRef(imageCache);
@@ -1110,17 +1096,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Old useEffect removed. Logic moved to the main loading/preloading effect.
   // Kept Empty for diff cleanliness, correct implementation is above.
 
-  // Handle native window controls visibility
-  useEffect(() => {
-    if (window.electronAPI?.setWindowControlsVisibility) {
-      window.electronAPI.setWindowControlsVisibility(false);
-    }
-    return () => {
-      if (window.electronAPI?.setWindowControlsVisibility) {
-        window.electronAPI.setWindowControlsVisibility(true);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

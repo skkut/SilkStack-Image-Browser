@@ -113,7 +113,12 @@ export default function App() {
   const cleanupInvalidImages = useImageStore((state) => state.cleanupInvalidImages);
   const activeView = useImageStore((state) => state.activeView);
   const setActiveView = useImageStore((state) => state.setActiveView);
+  const toggleFavorite = useImageStore((state) => state.toggleFavorite);
+  const addTagToImage = useImageStore((state) => state.addTagToImage);
+  const removeTagFromImage = useImageStore((state) => state.removeTagFromImage);
+  const removeAutoTagFromImage = useImageStore((state) => state.removeAutoTagFromImage);
 
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
 
   const initializeFolderSelection = useImageStore((state) => state.initializeFolderSelection);
@@ -570,6 +575,116 @@ export default function App() {
     handleNavigatePrevious();
   }, [handleNavigatePrevious]);
 
+  // --- Image Viewer Window IPC ---
+  // Helper to serialize an IndexedImage for IPC (strip non-serializable fields)
+  const serializeImage = useCallback((img: any) => {
+    if (!img) return null;
+    const { handle, thumbnailHandle, ...serializable } = img;
+    return serializable;
+  }, []);
+
+  // Send image data to viewer window
+  const sendImageToViewer = useCallback((direction: 'current' | 'next' | 'previous') => {
+    const state = useImageStore.getState();
+    const currentSelected = state.selectedImage;
+    if (!currentSelected) return;
+
+    const imagesToNavigate = state.clusterNavigationContext || state.filteredImages;
+    let currentIdx = imagesToNavigate.findIndex(img => img.id === currentSelected.id);
+
+    if (direction === 'next' && currentIdx < imagesToNavigate.length - 1) {
+      handleNavigateNext();
+      currentIdx += 1;
+    } else if (direction === 'previous' && currentIdx > 0) {
+      handleNavigatePrevious();
+      currentIdx -= 1;
+    }
+
+    // Re-read after navigation
+    const updatedState = useImageStore.getState();
+    const updatedImageList = updatedState.clusterNavigationContext || updatedState.filteredImages;
+    const updatedSelected = updatedState.selectedImage;
+    if (!updatedSelected) return;
+
+    const updatedIdx = updatedImageList.findIndex(img => img.id === updatedSelected.id);
+    const dirPath = safeDirectories.find(d => d.id === updatedSelected.directoryId)?.path || '';
+
+    const nextImg = updatedIdx < updatedImageList.length - 1 ? updatedImageList[updatedIdx + 1] : null;
+    const prevImg = updatedIdx > 0 ? updatedImageList[updatedIdx - 1] : null;
+
+    window.electronAPI?.sendImageViewerUpdate({
+      image: serializeImage(updatedSelected),
+      currentIndex: updatedIdx,
+      totalImages: updatedImageList.length,
+      directoryPath: dirPath,
+      nextImage: serializeImage(nextImg),
+      previousImage: serializeImage(prevImg),
+    });
+  }, [safeDirectories, handleNavigateNext, handleNavigatePrevious, serializeImage]);
+
+  // Listen for navigation requests from viewer window
+  useEffect(() => {
+    if (!window.electronAPI?.onImageViewerNavigate) return;
+
+    const unsubscribe = window.electronAPI.onImageViewerNavigate((direction: string) => {
+      sendImageToViewer(direction as 'current' | 'next' | 'previous');
+    });
+
+    return () => unsubscribe();
+  }, [sendImageToViewer]);
+
+  // Listen for actions from viewer window
+  useEffect(() => {
+    if (!window.electronAPI?.onImageViewerAction) return;
+
+    const unsubscribe = window.electronAPI.onImageViewerAction((action: any) => {
+      switch (action.type) {
+        case 'delete':
+          handleImageDeleted(action.imageId);
+          // After deletion, send updated image data to viewer
+          setTimeout(() => sendImageToViewer('current'), 100);
+          break;
+        case 'rename':
+          if (action.newName) {
+            handleImageRenamed(action.imageId, action.newName);
+          }
+          break;
+        case 'toggleFavorite':
+          toggleFavorite(action.imageId);
+          break;
+        case 'addTag':
+          if (action.tag) {
+            addTagToImage(action.imageId, action.tag);
+          }
+          break;
+        case 'removeTag':
+          if (action.tag) {
+            removeTagFromImage(action.imageId, action.tag);
+          }
+          break;
+        case 'removeAutoTag':
+          if (action.tag) {
+            removeAutoTagFromImage(action.imageId, action.tag);
+          }
+          break;
+      }
+    });
+
+    return () => unsubscribe();
+  }, [handleImageDeleted, handleImageRenamed, toggleFavorite, addTagToImage, removeTagFromImage, removeAutoTagFromImage, sendImageToViewer]);
+
+  // Listen for viewer window closed
+  useEffect(() => {
+    if (!window.electronAPI?.onImageViewerClosed) return;
+
+    const unsubscribe = window.electronAPI.onImageViewerClosed(() => {
+      setClusterNavigationContext(null);
+      setSelectedImage(null);
+    });
+
+    return () => unsubscribe();
+  }, [setSelectedImage, setClusterNavigationContext]);
+
   // --- Render Logic ---
   const hasDirectories = safeDirectories.length > 0;
   const directoryPath = selectedImage ? safeDirectories.find(d => d.id === selectedImage.directoryId)?.path : undefined;
@@ -780,7 +895,9 @@ export default function App() {
         </div>
       </div>
 
-      {selectedImage && (
+      {/* In Electron mode, ImageModal opens in a separate window via IPC.
+          In browser mode, fall back to the in-app overlay modal. */}
+      {!isElectron && selectedImage && (
         <ImageModal
           image={selectedImage}
           onClose={handleCloseImageModal}

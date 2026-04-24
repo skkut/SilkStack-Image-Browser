@@ -43,10 +43,29 @@ export function useImageSelection() {
         if (event.ctrlKey || event.metaKey) {
             toggleImageSelection(image.id);
         } else {
-            // Single selection: Clear previous, set new selected image, AND update the set
-            // The set update is critical for the Selection Toolbar to appear
-            setSelectedImage(image);
-            useImageStore.setState({ selectedImages: new Set([image.id]) });
+            // Single selection: open viewer window in Electron, or in-app modal in browser
+            if (window.electronAPI?.openImageViewer) {
+                // Find directory path for this image
+                const directories = useImageStore.getState().directories;
+                const directory = directories.find(d => d.id === image.directoryId);
+                const directoryPath = directory?.path || '';
+
+                // Set selectedImage in store so main window can track context for navigation
+                setSelectedImage(image);
+                useImageStore.setState({ selectedImages: new Set([image.id]) });
+
+                // Open in new window
+                window.electronAPI.openImageViewer({
+                    imageId: image.id,
+                    directoryPath,
+                    currentIndex: clickedIndex,
+                    totalImages: filteredImages.length,
+                });
+            } else {
+                // Browser fallback: use in-app modal
+                setSelectedImage(image);
+                useImageStore.setState({ selectedImages: new Set([image.id]) });
+            }
         }
     }, [filteredImages, selectedImage, selectedImages, toggleImageSelection, clearImageSelection, setSelectedImage, setFocusedImageIndex]);
 

@@ -6,6 +6,10 @@ import './index.css';
 import './styles/themes.css';
 import { useImageStore } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
+import ImageModalWindow from './components/ImageModalWindow';
+
+// Check if this window is an image viewer child window
+const isImageViewer = new URLSearchParams(window.location.search).get('imageViewer') === 'true';
 
 // Expose stores globally for debugging
 if (process.env.NODE_ENV === 'development') {
@@ -23,7 +27,7 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      {isImageViewer ? <ImageModalWindow /> : <App />}
     </ErrorBoundary>
   </React.StrictMode>
 );

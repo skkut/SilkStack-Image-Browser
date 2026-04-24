@@ -263,6 +263,55 @@ export interface ElectronAPI {
   ) => Promise<{ success: boolean; error?: string }>;
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
   isDev: () => Promise<boolean>;
+
+  // Image Viewer Window
+  openImageViewer: (data: {
+    imageId: string;
+    directoryPath: string;
+    currentIndex: number;
+    totalImages: number;
+  }) => Promise<{ success: boolean; windowId?: number; error?: string }>;
+  imageViewerNavigate: (direction: 'next' | 'previous') => void;
+  imageViewerAction: (action: {
+    type: 'delete' | 'rename' | 'toggleFavorite' | 'addTag' | 'removeTag' | 'removeAutoTag';
+    imageId: string;
+    newName?: string;
+    tag?: string;
+  }) => void;
+  imageViewerClose: () => void;
+  imageViewerReady: () => void;
+  onImageViewerUpdate: (
+    callback: (data: {
+      image: any;
+      currentIndex: number;
+      totalImages: number;
+      directoryPath: string;
+      nextImage?: any;
+      previousImage?: any;
+    }) => void,
+  ) => () => void;
+  onImageViewerAction: (
+    callback: (action: {
+      type: 'delete' | 'rename' | 'toggleFavorite' | 'addTag' | 'removeTag' | 'removeAutoTag';
+      imageId: string;
+      newName?: string;
+      tag?: string;
+    }) => void,
+  ) => () => void;
+  onImageViewerNavigate: (
+    callback: (direction: 'next' | 'previous') => void,
+  ) => () => void;
+  onImageViewerClosed: (
+    callback: () => void,
+  ) => () => void;
+  sendImageViewerUpdate: (data: {
+    image: any;
+    currentIndex: number;
+    totalImages: number;
+    directoryPath: string;
+    nextImage?: any;
+    previousImage?: any;
+  }) => void;
 }
 
 declare global {
