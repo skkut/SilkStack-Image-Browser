@@ -27,7 +27,7 @@ export function parseFooocusMetadata(metadata: FooocusMetadata): BaseMetadata | 
     }
 
     // Extract negative prompt
-    const negativePromptMatch = params.match(/Negative prompt:\s*([\s\S]*?)(?=Steps:|Sampler:|Model:|Version:|Size:|Seed:|CFG scale:|$)/i);
+    const negativePromptMatch = params.match(/Negative prompt:\s*(\S[\s\S]*?)(?=Steps:|Sampler:|Model:|Version:|Size:|Seed:|CFG scale:|$)/i);
     const negativePrompt = negativePromptMatch ? negativePromptMatch[1].trim() : '';
 
     // Extract parameters using regex

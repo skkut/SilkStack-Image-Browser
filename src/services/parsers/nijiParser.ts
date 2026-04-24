@@ -26,7 +26,7 @@ export function parseNijiMetadata(parameters: string): BaseMetadata {
   const result: Partial<BaseMetadata> = {};
 
   // Extract prompt - everything before the first parameter flag
-  const promptMatch = parameters.match(/^(.+?)(?:\s+--|\s*$)/);
+  const promptMatch = parameters.match(/^(\S(?:.*?\S)?)(?:\s+--|\s*$)/);
   if (promptMatch) {
     let prompt = promptMatch[1].trim();
     // Remove "Prompt:" prefix if present

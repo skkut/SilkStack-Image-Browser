@@ -80,7 +80,7 @@ function extractSteps(parameters: string): number | undefined {
 }
 
 function extractSampler(parameters: string): string | undefined {
-  const match = parameters.match(/Sampler:\s*([^,\n]+)/i);
+  const match = parameters.match(/Sampler:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -95,7 +95,7 @@ function extractSeed(parameters: string): number | undefined {
 }
 
 function extractSize(parameters: string): string | undefined {
-  const match = parameters.match(/Size:\s*([^,\n]+)/i);
+  const match = parameters.match(/Size:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -105,7 +105,7 @@ function extractModelHash(parameters: string): string | undefined {
 }
 
 function extractModel(parameters: string): string | undefined {
-  const match = parameters.match(/Model:\s*([^,\n]+)/i);
+  const match = parameters.match(/Model:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -131,7 +131,7 @@ function extractPrompts(parameters: string): { positivePrompt: string; negativeP
     negativePrompt = parts[1].trim();
   } else {
     // Fallback: look for "Negative prompt:" within the text
-    const negMatch = parameters.match(/Negative prompt:\s*(.+)$/i);
+    const negMatch = parameters.match(/Negative prompt:\s*(\S.+)$/i);
     if (negMatch) {
       positivePrompt = parameters.substring(0, negMatch.index).trim();
       negativePrompt = negMatch[1].trim();
@@ -155,7 +155,7 @@ function extractEmbeddings(parameters: string): string[] {
 }
 
 function extractHiresUpscaler(parameters: string): string | undefined {
-  const match = parameters.match(/Hires upscaler:\s*([^,\n]+)/i);
+  const match = parameters.match(/Hires upscaler:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 

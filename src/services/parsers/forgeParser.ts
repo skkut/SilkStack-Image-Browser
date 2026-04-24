@@ -111,13 +111,13 @@ function extractSteps(parameters: string): number | undefined {
 }
 
 function extractSampler(parameters: string): string | undefined {
-  const match = parameters.match(/Sampler:\s*([^,\n]+)/i);
+  const match = parameters.match(/Sampler:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
 // Função nova para extrair Schedule type
 function extractScheduleType(parameters: string): string | undefined {
-  const match = parameters.match(/Schedule type:\s*([^,\n]+)/i);
+  const match = parameters.match(/Schedule type:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -132,7 +132,7 @@ function extractSeed(parameters: string): number | undefined {
 }
 
 function extractSize(parameters: string): string | undefined {
-  const match = parameters.match(/Size:\s*([^,\n]+)/i);
+  const match = parameters.match(/Size:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -142,7 +142,7 @@ function extractModelHash(parameters: string): string | undefined {
 }
 
 function extractModel(parameters: string): string | undefined {
-  const match = parameters.match(/Model:\s*([^,\n]+)/i);
+  const match = parameters.match(/Model:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 
@@ -172,7 +172,7 @@ function extractEmbeddings(parameters: string): string[] {
 }
 
 function extractHiresUpscaler(parameters: string): string | undefined {
-  const match = parameters.match(/Hires upscaler:\s*([^,\n]+)/i);
+  const match = parameters.match(/Hires upscaler:\s*(\S[^,\n]*)/i);
   return match ? match[1].trim() : undefined;
 }
 

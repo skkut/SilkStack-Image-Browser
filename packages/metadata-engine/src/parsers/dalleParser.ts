@@ -147,7 +147,7 @@ function extractFromEXIF(exifData: any): Partial<DalleMetadata> {
     // Check ImageDescription for prompt data
     if (exifData.ImageDescription && !result.prompt) {
       // Try to extract prompt from description
-      const descMatch = exifData.ImageDescription.match(/Prompt:\s*(.+)/i);
+      const descMatch = exifData.ImageDescription.match(/Prompt:\s*(\S.*)/i);
       if (descMatch) {
         result.prompt = descMatch[1].trim();
       }
@@ -170,7 +170,7 @@ function extractPrompts(data: Partial<DalleMetadata>): { prompt: string; revised
     const fieldsToCheck = ['description', 'comment', 'userComment'];
     for (const field of fieldsToCheck) {
       if (data[field] && typeof data[field] === 'string') {
-        const match = data[field].match(/Prompt:\s*(.+)/i);
+        const match = data[field].match(/Prompt:\s*(\S.*)/i);
         if (match) {
           prompt = match[1].trim();
           break;

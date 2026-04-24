@@ -24,7 +24,7 @@ export function extractModelsFromAutomatic1111(metadata: Automatic1111Metadata):
   }
 
   // Fall back to standard Model: pattern
-  const modelMatch = params.match(/Model:([^,]+)/i);
+  const modelMatch = params.match(/Model:\s*(\S[^,]*)/i);
   if (modelMatch && modelMatch[1]) {
     return [modelMatch[1].trim()];
   }
@@ -48,7 +48,7 @@ export function extractLorasFromAutomatic1111(metadata: Automatic1111Metadata): 
 // --- Detector de variantes ---
 
 function detectGenerator(parameters: string): string {
-  const generatorMatch = parameters.match(/Generator:([^,\n]+)/i);
+  const generatorMatch = parameters.match(/Generator:\s*(\S[^,\n]*)/i);
   if (generatorMatch && generatorMatch[1]) {
     return generatorMatch[1].trim();
   }

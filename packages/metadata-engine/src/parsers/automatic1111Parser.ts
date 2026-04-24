@@ -23,7 +23,7 @@ export function extractModelsFromAutomatic1111(metadata: Automatic1111Metadata):
   }
 
   // Fall back to standard Model: pattern
-  const modelMatch = params.match(/Model:([^,]+)/i);
+  const modelMatch = params.match(/Model:\s*(\S[^,]*)/i);
   if (modelMatch && modelMatch[1]) {
     return [modelMatch[1].trim()];
   }
