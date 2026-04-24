@@ -50,16 +50,27 @@ export function useImageSelection() {
                 const directory = directories.find(d => d.id === image.directoryId);
                 const directoryPath = directory?.path || '';
 
-                // Set selectedImage in store so main window can track context for navigation
+                // Serialize the current filtered list (strip non-serializable handles)
+                const imageListSnapshot = filteredImages.map(({ handle, thumbnailHandle, ...rest }) => rest);
+
+                // Set selectedImage in store so main window highlights the image in the grid
                 setSelectedImage(image);
                 useImageStore.setState({ selectedImages: new Set([image.id]) });
 
-                // Open in new window
+                // Always open a new viewer window — multiple windows can be open simultaneously
                 window.electronAPI.openImageViewer({
                     imageId: image.id,
                     directoryPath,
                     currentIndex: clickedIndex,
                     totalImages: filteredImages.length,
+                    imageList: imageListSnapshot,
+                }).then((result) => {
+                    if (result?.success && result.windowId !== undefined) {
+                        // Dispatch a DOM event so App.tsx can track this window ID
+                        window.dispatchEvent(new CustomEvent('viewer-window-opened', { detail: { windowId: result.windowId } }));
+                    }
+                }).catch(() => {
+                    // Ignore errors from window opening
                 });
             } else {
                 // Browser fallback: use in-app modal

@@ -4,15 +4,19 @@ import ImageModal from "./ImageModal";
 
 /**
  * ImageModalWindow - A wrapper component that renders ImageModal inside a child Electron window.
- * It communicates with the main window via IPC to receive image data and send actions.
+ * Navigation is fully self-contained: the window receives a snapshot of the image list at open
+ * time and navigates within it locally, without round-trips to the main window.
+ * Actions (delete, rename, favorite, tags) are still forwarded to the main window for grid sync.
  */
 const ImageModalWindow: React.FC = () => {
-  const [image, setImage] = useState<IndexedImage | null>(null);
+  const [imageList, setImageList] = useState<IndexedImage[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [totalImages, setTotalImages] = useState(0);
   const [directoryPath, setDirectoryPath] = useState("");
-  const [nextImage, setNextImage] = useState<IndexedImage | null>(null);
-  const [previousImage, setPreviousImage] = useState<IndexedImage | null>(null);
+
+  // Derive the current / next / previous images from local state
+  const image = imageList[currentIndex] ?? null;
+  const nextImage = currentIndex < imageList.length - 1 ? imageList[currentIndex + 1] : null;
+  const previousImage = currentIndex > 0 ? imageList[currentIndex - 1] : null;
 
   // Apply theme on mount
   useEffect(() => {
@@ -47,47 +51,44 @@ const ImageModalWindow: React.FC = () => {
     }
   }, []);
 
-  // Listen for image data updates from main window
+  // Helper: reconstruct an IndexedImage with a mock handle for Electron
+  const reconstructImage = (raw: any): IndexedImage => ({
+    ...raw,
+    handle: {
+      name: raw.name,
+      kind: "file" as const,
+    } as unknown as FileSystemFileHandle,
+  });
+
+  // Listen for image data updates from the main window
   useEffect(() => {
     if (!window.electronAPI?.onImageViewerUpdate) return;
 
     const unsubscribe = window.electronAPI.onImageViewerUpdate((data) => {
-      if (data.image) {
-        // Reconstruct the IndexedImage with a mock handle for Electron
-        const reconstructedImage: IndexedImage = {
-          ...data.image,
-          handle: {
-            name: data.image.name,
-            kind: "file" as const,
-          } as unknown as FileSystemFileHandle,
-        };
-        setImage(reconstructedImage);
+      if (data.imageList && Array.isArray(data.imageList) && data.imageList.length > 0) {
+        // Use the full list for self-contained navigation
+        const reconstructed = data.imageList.map(reconstructImage);
+        setImageList(reconstructed);
         setCurrentIndex(data.currentIndex ?? 0);
-        setTotalImages(data.totalImages ?? 0);
         setDirectoryPath(data.directoryPath ?? "");
-
-        if (data.nextImage) {
-          setNextImage({
-            ...data.nextImage,
-            handle: {
-              name: data.nextImage.name,
-              kind: "file" as const,
-            } as unknown as FileSystemFileHandle,
-          });
-        } else {
-          setNextImage(null);
+      } else if (data.image) {
+        // Fallback: single-image update (e.g. from a delete action refresh)
+        const reconstructed = reconstructImage(data.image);
+        // Replace the matching image in the list, or use a single-item list
+        setImageList((prev) => {
+          const idx = prev.findIndex((img) => img.id === reconstructed.id);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = reconstructed;
+            return updated;
+          }
+          return [reconstructed];
+        });
+        if (data.currentIndex !== undefined) {
+          setCurrentIndex(data.currentIndex);
         }
-
-        if (data.previousImage) {
-          setPreviousImage({
-            ...data.previousImage,
-            handle: {
-              name: data.previousImage.name,
-              kind: "file" as const,
-            } as unknown as FileSystemFileHandle,
-          });
-        } else {
-          setPreviousImage(null);
+        if (data.directoryPath !== undefined) {
+          setDirectoryPath(data.directoryPath);
         }
       }
     });
@@ -109,16 +110,13 @@ const ImageModalWindow: React.FC = () => {
     window.close();
   }, []);
 
+  // Self-contained navigation: advance the local index
   const handleNavigateNext = useCallback(() => {
-    if (window.electronAPI?.imageViewerNavigate) {
-      window.electronAPI.imageViewerNavigate("next");
-    }
-  }, []);
+    setCurrentIndex((idx) => Math.min(idx + 1, imageList.length - 1));
+  }, [imageList.length]);
 
   const handleNavigatePrevious = useCallback(() => {
-    if (window.electronAPI?.imageViewerNavigate) {
-      window.electronAPI.imageViewerNavigate("previous");
-    }
+    setCurrentIndex((idx) => Math.max(idx - 1, 0));
   }, []);
 
   const handleImageDeleted = useCallback((imageId: string) => {
@@ -128,6 +126,18 @@ const ImageModalWindow: React.FC = () => {
         imageId,
       });
     }
+    // Remove the deleted image from the local list and keep index in range
+    setImageList((prev) => {
+      const deletedIdx = prev.findIndex((img) => img.id === imageId);
+      if (deletedIdx === -1) return prev;
+      const updated = prev.filter((img) => img.id !== imageId);
+      // Adjust currentIndex after removal — done via a separate setState
+      setCurrentIndex((ci) => {
+        if (deletedIdx < ci) return ci - 1;
+        return Math.min(ci, Math.max(0, updated.length - 1));
+      });
+      return updated;
+    });
   }, []);
 
   const handleImageRenamed = useCallback(
@@ -163,7 +173,7 @@ const ImageModalWindow: React.FC = () => {
         onImageDeleted={handleImageDeleted}
         onImageRenamed={handleImageRenamed}
         currentIndex={currentIndex}
-        totalImages={totalImages}
+        totalImages={imageList.length}
         onNavigateNext={handleNavigateNext}
         onNavigatePrevious={handleNavigatePrevious}
         directoryPath={directoryPath}

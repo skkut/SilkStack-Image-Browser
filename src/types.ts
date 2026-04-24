@@ -270,6 +270,7 @@ export interface ElectronAPI {
     directoryPath: string;
     currentIndex: number;
     totalImages: number;
+    imageList?: any[]; // Serialized snapshot of the current filtered image list
   }) => Promise<{ success: boolean; windowId?: number; error?: string }>;
   imageViewerNavigate: (direction: 'next' | 'previous') => void;
   imageViewerAction: (action: {
@@ -288,6 +289,7 @@ export interface ElectronAPI {
       directoryPath: string;
       nextImage?: any;
       previousImage?: any;
+      imageList?: any[]; // Full image list snapshot for self-contained navigation
     }) => void,
   ) => () => void;
   onImageViewerAction: (
@@ -296,15 +298,17 @@ export interface ElectronAPI {
       imageId: string;
       newName?: string;
       tag?: string;
+      windowId?: number;
     }) => void,
   ) => () => void;
   onImageViewerNavigate: (
-    callback: (direction: 'next' | 'previous') => void,
+    callback: (payload: { direction: 'next' | 'previous'; windowId?: number }) => void,
   ) => () => void;
   onImageViewerClosed: (
-    callback: () => void,
+    callback: (payload: { windowId?: number }) => void,
   ) => () => void;
   sendImageViewerUpdate: (data: {
+    windowId?: number;
     image: any;
     currentIndex: number;
     totalImages: number;

@@ -143,7 +143,10 @@ async function readVideoMetadataWithFfprobe(filePath) {
 }
 
 let mainWindow;
-let imageViewerWindow = null;
+// Map of windowId -> BrowserWindow for all open image viewer windows
+const imageViewerWindows = new Map();
+// Pending image data for windows that haven't signalled ready yet (windowId -> data)
+const pendingViewerData = new Map();
 let skippedVersions = new Set();
 
 // --- Zoom Management ---
@@ -681,14 +684,6 @@ function setupFileOperationHandlers() {
   // --- Image Viewer Window IPC ---
   ipcMain.handle("open-image-viewer", async (event, data) => {
     try {
-      // Reuse existing viewer window if open
-      if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
-        // Send update to existing window
-        imageViewerWindow.webContents.send("image-viewer-update", data);
-        imageViewerWindow.focus();
-        return { success: true, windowId: imageViewerWindow.id };
-      }
-
       const isDark = nativeTheme.shouldUseDarkColors;
       const settings = await readSettings();
       const windowState = settings.viewerWindowState || {};
@@ -701,9 +696,14 @@ function setupFileOperationHandlers() {
       const defaultWidth = Math.round(screenWidth * 0.85);
       const defaultHeight = Math.round(screenHeight * 0.85);
 
-      imageViewerWindow = new BrowserWindow({
-        x: windowState.x,
-        y: windowState.y,
+      // Cascade offset so multiple windows don't perfectly overlap
+      const cascadeOffset = imageViewerWindows.size * 30;
+      const baseX = windowState.x !== undefined ? windowState.x + cascadeOffset : undefined;
+      const baseY = windowState.y !== undefined ? windowState.y + cascadeOffset : undefined;
+
+      const viewerWindow = new BrowserWindow({
+        x: baseX,
+        y: baseY,
         width: windowState.width || defaultWidth,
         height: windowState.height || defaultHeight,
         minWidth: 800,
@@ -722,50 +722,55 @@ function setupFileOperationHandlers() {
         parent: null, // Independent window, not modal
       });
 
+      const windowId = viewerWindow.id;
+      imageViewerWindows.set(windowId, viewerWindow);
+
+      // Store the initial data to send once the window is ready
+      pendingViewerData.set(windowId, data);
+
       // Ensure window is visible (not off-screen if monitors changed)
-      if (windowState.x !== undefined && windowState.y !== undefined) {
+      if (baseX !== undefined && baseY !== undefined) {
         const isVisible = screen.getAllDisplays().some((display) => {
           const b = display.bounds;
           return (
-            windowState.x >= b.x &&
-            windowState.x < b.x + b.width &&
-            windowState.y >= b.y &&
-            windowState.y < b.y + b.height
+            baseX >= b.x &&
+            baseX < b.x + b.width &&
+            baseY >= b.y &&
+            baseY < b.y + b.height
           );
         });
         if (!isVisible) {
-          imageViewerWindow.center();
+          viewerWindow.center();
         }
       }
 
-      if (windowState.isMaximized) {
-        imageViewerWindow.maximize();
+      if (windowState.isMaximized && imageViewerWindows.size === 1) {
+        viewerWindow.maximize();
       }
 
       // Load the same app with a query parameter
       const queryString = `?imageViewer=true`;
       if (isDev && !process.argv.includes("--dist")) {
-        imageViewerWindow.loadURL(`http://localhost:5173${queryString}`);
+        viewerWindow.loadURL(`http://localhost:5173${queryString}`);
       } else {
-        imageViewerWindow.loadFile(
+        viewerWindow.loadFile(
           path.join(__dirname, "..", "dist", "index.html"),
           { search: queryString.substring(1) }
         );
       }
 
-      imageViewerWindow.once("ready-to-show", () => {
-        imageViewerWindow.show();
+      viewerWindow.once("ready-to-show", () => {
+        viewerWindow.show();
       });
 
-      // When the viewer window is closing, save its state
-      imageViewerWindow.on("close", async () => {
-        if (!imageViewerWindow || imageViewerWindow.isDestroyed()) return;
+      // When the viewer window is closing, save its state (use last closed window's bounds)
+      viewerWindow.on("close", async () => {
+        if (!viewerWindow || viewerWindow.isDestroyed()) return;
 
-        const isMaximized = imageViewerWindow.isMaximized();
-        // Use normal bounds if maximized so we restore the correct size later
-        const bounds = isMaximized 
-          ? imageViewerWindow.getNormalBounds() 
-          : imageViewerWindow.getBounds();
+        const isMaximized = viewerWindow.isMaximized();
+        const bounds = isMaximized
+          ? viewerWindow.getNormalBounds()
+          : viewerWindow.getBounds();
 
         const currentSettings = await readSettings();
         currentSettings.viewerWindowState = {
@@ -778,31 +783,32 @@ function setupFileOperationHandlers() {
         await saveSettings(currentSettings);
       });
 
-      // When the viewer window is closed
-      imageViewerWindow.on("closed", () => {
-        // Notify the main window
+      // When the viewer window is fully closed, clean up
+      viewerWindow.on("closed", () => {
+        imageViewerWindows.delete(windowId);
+        pendingViewerData.delete(windowId);
+        // Notify the main window which child closed
         if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("image-viewer-closed");
+          mainWindow.webContents.send("image-viewer-closed", { windowId });
         }
-        imageViewerWindow = null;
       });
 
-      // Listen for theme changes and update viewer window
+      // Listen for theme changes and update this viewer window
       const themeHandler = () => {
-        if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
+        if (!viewerWindow.isDestroyed()) {
           const dark = nativeTheme.shouldUseDarkColors;
-          imageViewerWindow.setBackgroundColor(dark ? "#0a0a0a" : "#ffffff");
-          imageViewerWindow.webContents.send("theme-updated", {
+          viewerWindow.setBackgroundColor(dark ? "#0a0a0a" : "#ffffff");
+          viewerWindow.webContents.send("theme-updated", {
             shouldUseDarkColors: dark,
           });
         }
       };
       nativeTheme.on("updated", themeHandler);
-      imageViewerWindow.on("closed", () => {
+      viewerWindow.on("closed", () => {
         nativeTheme.removeListener("updated", themeHandler);
       });
 
-      return { success: true, windowId: imageViewerWindow.id };
+      return { success: true, windowId };
     } catch (error) {
       console.error("Error creating image viewer window:", error);
       return { success: false, error: error.message };
@@ -811,37 +817,84 @@ function setupFileOperationHandlers() {
 
   // Viewer window signals it is ready to receive data
   ipcMain.on("image-viewer-ready", (event) => {
-    // Forward to main window so it can send the initial image data
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    const senderWindowId = event.sender.id;
+    // Find the BrowserWindow whose webContents matches this sender
+    const viewerWindow = imageViewerWindows.get(
+      [...imageViewerWindows.entries()].find(
+        ([, w]) => !w.isDestroyed() && w.webContents.id === senderWindowId
+      )?.[0]
+    );
+    const pending = pendingViewerData.get(
+      [...imageViewerWindows.entries()].find(
+        ([, w]) => !w.isDestroyed() && w.webContents.id === senderWindowId
+      )?.[0]
+    );
+
+    if (viewerWindow && pending) {
+      viewerWindow.webContents.send("image-viewer-update", pending);
+      // Clear pending after sending
+      const mapKey = [...imageViewerWindows.entries()].find(
+        ([, w]) => !w.isDestroyed() && w.webContents.id === senderWindowId
+      )?.[0];
+      if (mapKey !== undefined) {
+        pendingViewerData.delete(mapKey);
+      }
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
+      // Fallback: ask main window to send current image (legacy path)
       mainWindow.webContents.send("image-viewer-navigate", "current");
     }
   });
 
-  // Viewer window requests navigation
+  // Viewer window requests navigation — forward to main window with the sender's windowId
   ipcMain.on("image-viewer-navigate", (event, direction) => {
+    const senderWebContentsId = event.sender.id;
+    const windowId = [...imageViewerWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    )?.[0];
+
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("image-viewer-navigate", direction);
+      mainWindow.webContents.send("image-viewer-navigate", { direction, windowId });
     }
   });
 
-  // Viewer window sends an action (delete, rename, etc.)
+  // Viewer window sends an action (delete, rename, etc.) — forward with sender's windowId
   ipcMain.on("image-viewer-action", (event, action) => {
+    const senderWebContentsId = event.sender.id;
+    const windowId = [...imageViewerWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    )?.[0];
+
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("image-viewer-action", action);
+      mainWindow.webContents.send("image-viewer-action", { ...action, windowId });
     }
   });
 
-  // Viewer window is closing
+  // Viewer window is requesting to close itself
   ipcMain.on("image-viewer-close", (event) => {
-    if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
-      imageViewerWindow.close();
+    const senderWebContentsId = event.sender.id;
+    const entry = [...imageViewerWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    );
+    if (entry) {
+      entry[1].close();
     }
   });
 
-  // Main window sends update to viewer window
+  // Main window sends an image update to a specific viewer window
   ipcMain.on("image-viewer-update-from-main", (event, data) => {
-    if (imageViewerWindow && !imageViewerWindow.isDestroyed()) {
-      imageViewerWindow.webContents.send("image-viewer-update", data);
+    const { windowId, ...imageData } = data;
+    if (windowId !== undefined) {
+      const targetWindow = imageViewerWindows.get(windowId);
+      if (targetWindow && !targetWindow.isDestroyed()) {
+        targetWindow.webContents.send("image-viewer-update", imageData);
+      }
+    } else {
+      // Fallback: send to all open viewer windows
+      for (const [, w] of imageViewerWindows) {
+        if (!w.isDestroyed()) {
+          w.webContents.send("image-viewer-update", imageData);
+        }
+      }
     }
   });
 

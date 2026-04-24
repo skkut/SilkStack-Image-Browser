@@ -583,8 +583,11 @@ export default function App() {
     return serializable;
   }, []);
 
-  // Send image data to viewer window
-  const sendImageToViewer = useCallback((direction: 'current' | 'next' | 'previous') => {
+  // Track how many viewer windows are currently open
+  const openViewerWindowIds = React.useRef<Set<number>>(new Set());
+
+  // Send image data to a specific viewer window (used for fallback / action-triggered updates)
+  const sendImageToViewer = useCallback((direction: 'current' | 'next' | 'previous', windowId?: number) => {
     const state = useImageStore.getState();
     const currentSelected = state.selectedImage;
     if (!currentSelected) return;
@@ -613,6 +616,7 @@ export default function App() {
     const prevImg = updatedIdx > 0 ? updatedImageList[updatedIdx - 1] : null;
 
     window.electronAPI?.sendImageViewerUpdate({
+      windowId,
       image: serializeImage(updatedSelected),
       currentIndex: updatedIdx,
       totalImages: updatedImageList.length,
@@ -623,11 +627,13 @@ export default function App() {
   }, [safeDirectories, handleNavigateNext, handleNavigatePrevious, serializeImage]);
 
   // Listen for navigation requests from viewer window
+  // (Viewers navigate locally, so this is mainly for keeping the grid selection in sync)
   useEffect(() => {
     if (!window.electronAPI?.onImageViewerNavigate) return;
 
-    const unsubscribe = window.electronAPI.onImageViewerNavigate((direction: string) => {
-      sendImageToViewer(direction as 'current' | 'next' | 'previous');
+    const unsubscribe = window.electronAPI.onImageViewerNavigate((payload) => {
+      const direction = typeof payload === 'string' ? payload : payload.direction;
+      sendImageToViewer(direction as 'current' | 'next' | 'previous', typeof payload === 'object' ? payload.windowId : undefined);
     });
 
     return () => unsubscribe();
@@ -641,12 +647,12 @@ export default function App() {
       switch (action.type) {
         case 'delete':
           handleImageDeleted(action.imageId);
-          // After deletion, send updated image data to viewer
-          setTimeout(() => sendImageToViewer('current'), 100);
+          // No need to push an update to the viewer — it handles deletion locally
           break;
         case 'rename':
           if (action.newName) {
-            handleImageRenamed(action.imageId, action.newName);
+            // Only update grid metadata, don't close modal
+            updateImage(action.imageId, action.newName);
           }
           break;
         case 'toggleFavorite':
@@ -671,19 +677,38 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [handleImageDeleted, handleImageRenamed, toggleFavorite, addTagToImage, removeTagFromImage, removeAutoTagFromImage, sendImageToViewer]);
+  }, [handleImageDeleted, handleImageRenamed, toggleFavorite, addTagToImage, removeTagFromImage, removeAutoTagFromImage, updateImage, sendImageToViewer]);
 
-  // Listen for viewer window closed
+  // Listen for viewer window closed — only reset selectedImage when all viewer windows are gone
   useEffect(() => {
     if (!window.electronAPI?.onImageViewerClosed) return;
 
-    const unsubscribe = window.electronAPI.onImageViewerClosed(() => {
-      setClusterNavigationContext(null);
-      setSelectedImage(null);
+    const unsubscribe = window.electronAPI.onImageViewerClosed((payload) => {
+      const windowId = payload?.windowId;
+      if (windowId !== undefined) {
+        openViewerWindowIds.current.delete(windowId);
+      }
+      // Clear selection only when no viewer windows remain
+      if (openViewerWindowIds.current.size === 0) {
+        setClusterNavigationContext(null);
+        setSelectedImage(null);
+      }
     });
 
     return () => unsubscribe();
   }, [setSelectedImage, setClusterNavigationContext]);
+
+  // Track newly opened viewer windows via a custom DOM event dispatched by useImageSelection
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const windowId = (e as CustomEvent<{ windowId: number }>).detail?.windowId;
+      if (windowId !== undefined) {
+        openViewerWindowIds.current.add(windowId);
+      }
+    };
+    window.addEventListener('viewer-window-opened', handler);
+    return () => window.removeEventListener('viewer-window-opened', handler);
+  }, []);
 
   // --- Render Logic ---
   const hasDirectories = safeDirectories.length > 0;
