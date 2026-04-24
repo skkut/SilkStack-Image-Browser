@@ -112,11 +112,11 @@ function extractParamsWithRegex(text: string): Partial<Record<string, any>> {
   const params: any = { raw_parsed_with_regex: true };
   
   // Prompt block
-  const promptMatch = text.match(/Prompt[:\n]\s*(.+?)(?:\n(?:Negative prompt|Steps|Sampler|Seed)|$)/i);
+  const promptMatch = text.match(/Prompt[:\n](.+?)(?:\n(?:Negative prompt|Steps|Sampler|Seed)|$)/i);
   if (promptMatch) params.prompt = promptMatch[1].trim();
   
   // Negative prompt
-  const negativeMatch = text.match(/Negative prompt[:\n]\s*(.+?)(?:\n(?:Steps|Sampler|Seed)|$)/i);
+  const negativeMatch = text.match(/Negative prompt[:\n](.+?)(?:\n(?:Steps|Sampler|Seed)|$)/i);
   if (negativeMatch) params.negativePrompt = negativeMatch[1].trim();
   
   // Steps
@@ -136,7 +136,7 @@ function extractParamsWithRegex(text: string): Partial<Record<string, any>> {
   if (seedMatch) params.seed = parseInt(seedMatch[1], 10);
   
   // Model
-  const modelMatch = text.match(/Model[:=]\s*(.+?)(?:\n|,|$)/i);
+  const modelMatch = text.match(/Model[:=](.+?)(?:\n|,|$)/i);
   if (modelMatch) params.model = modelMatch[1].trim();
   
   return params;

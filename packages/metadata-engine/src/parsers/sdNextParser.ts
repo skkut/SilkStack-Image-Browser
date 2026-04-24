@@ -4,7 +4,7 @@ import { SDNextMetadata, BaseMetadata } from '../core/types';
 
 export function extractModelsFromSDNext(metadata: SDNextMetadata): string[] {
   const params = metadata.parameters;
-  const modelMatch = params.match(/Model:\s*([^,]+)/i);
+  const modelMatch = params.match(/Model:([^,]+)/i);
   if (modelMatch && modelMatch[1]) {
     return [modelMatch[1].trim()];
   }
@@ -84,7 +84,7 @@ export function parseSDNextMetadata(parameters: string): BaseMetadata {
     result.height = parseInt(sizeMatch[2], 10);
   }
 
-  const samplerMatch = parameters.match(/Sampler:\s*([^,]+)/i);
+  const samplerMatch = parameters.match(/Sampler:([^,]+)/i);
   if (samplerMatch) {
     result.sampler = samplerMatch[1].trim();
     result.scheduler = samplerMatch[1].trim(); // SD.Next uses sampler field
@@ -106,7 +106,7 @@ export function parseSDNextMetadata(parameters: string): BaseMetadata {
   }
 
   // Extract model information
-  const modelMatch = parameters.match(/Model:\s*([^,]+)/i);
+  const modelMatch = parameters.match(/Model:([^,]+)/i);
   if (modelMatch) {
     result.model = modelMatch[1].trim();
   }

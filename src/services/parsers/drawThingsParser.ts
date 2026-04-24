@@ -110,7 +110,7 @@ function extractSteps(parameters: string): string | null {
 }
 // Extract sampler
 function extractSampler(parameters: string): string | null {
-  const match = parameters.match(/Sampler:\s*([^,\n]+)/i);
+  const match = parameters.match(/Sampler:([^,\n]+)/i);
   return match ? match[1].trim() : null;
 }
 // Extract CFG scale
@@ -125,12 +125,12 @@ function extractSeed(parameters: string): string | null {
 }
 // Extract size
 function extractSize(parameters: string): string | null {
-  const match = parameters.match(/Size:\s*([^,\n]+)/i);
+  const match = parameters.match(/Size:([^,\n]+)/i);
   return match ? match[1].trim() : null;
 }
 // Extract model
 function extractModel(parameters: string): string | null {
-  const match = parameters.match(/Model:\s*([^,\n]+)/i);
+  const match = parameters.match(/Model:([^,\n]+)/i);
   return match ? match[1].trim() : null;
 }
 // Extract LoRAs from both parameters and JSON data
@@ -151,7 +151,7 @@ function extractLoRAs(parameters: string, jsonData?: Record<string, unknown> | n
   }
   // Fallback to parameter extraction
   if (loras.length === 0) {
-    const loraMatches = parameters.matchAll(/LoRA\s+\d+\s+Model:\s*([^,\n]+)/gi);
+    const loraMatches = parameters.matchAll(/LoRA\s+\d+\s+Model:([^,\n]+)/gi);
     for (const match of Array.from(loraMatches)) {
       loras.push(match[1].trim());
     }

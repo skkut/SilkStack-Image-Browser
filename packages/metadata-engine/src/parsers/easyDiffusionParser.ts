@@ -4,7 +4,7 @@ import { EasyDiffusionMetadata, EasyDiffusionJson, BaseMetadata } from '../core/
 
 export function extractModelsFromEasyDiffusion(metadata: EasyDiffusionMetadata): string[] {
   const params = metadata.parameters;
-  const modelMatch = params.match(/Model:\s*([^,\n]+)/i);
+  const modelMatch = params.match(/Model:([^,\n]+)/i);
   if (modelMatch && modelMatch[1]) {
     return [modelMatch[1].trim()];
   }
@@ -51,7 +51,7 @@ export function parseEasyDiffusionMetadata(parameters: string): BaseMetadata {
   if (seedMatch) result.seed = parseInt(seedMatch[1], 10);
 
   // Parse sampler/scheduler
-  const samplerMatch = parameters.match(/Sampler: ([^,\n]+)/);
+  const samplerMatch = parameters.match(/Sampler:([^,\n]+)/);
   if (samplerMatch) result.sampler = samplerMatch[1].trim();
 
   // Parse size
@@ -62,7 +62,7 @@ export function parseEasyDiffusionMetadata(parameters: string): BaseMetadata {
   }
 
   // Parse model
-  const modelMatch = parameters.match(/Model: ([^,\n]+)/);
+  const modelMatch = parameters.match(/Model:([^,\n]+)/);
   if (modelMatch) result.model = modelMatch[1].trim();
 
   // Extract arrays
