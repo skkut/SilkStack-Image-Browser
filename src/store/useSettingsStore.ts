@@ -79,6 +79,8 @@ interface SettingsState {
   comfyUIServerUrl: string;
   comfyUILastConnectionStatus: 'unknown' | 'connected' | 'error';
 
+  isSidebarCollapsed: boolean;
+
   // Actions
   setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random') => void;
   toggleScanSubfolders: () => void;
@@ -102,6 +104,7 @@ interface SettingsState {
   setComfyUIServerUrl: (url: string) => void;
   setComfyUIConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   setConfirmOnDelete: (value: boolean) => void;
+  setSidebarCollapsed: (value: boolean) => void;
   resetState: () => void;
 }
 
@@ -144,6 +147,8 @@ export const useSettingsStore = create<SettingsState>()(
       comfyUIServerUrl: 'http://127.0.0.1:8188',
       comfyUILastConnectionStatus: 'unknown',
 
+      isSidebarCollapsed: true,
+
       // Actions
       setSortOrder: (order) => set({ sortOrder: order }),
       toggleScanSubfolders: () => set((state) => ({ scanSubfolders: !state.scanSubfolders })),
@@ -178,6 +183,7 @@ export const useSettingsStore = create<SettingsState>()(
       setEnableSafeMode: (value) => set({ enableSafeMode: !!value }),
       setDisplayStarredFirst: (value) => set({ displayStarredFirst: !!value }),
       setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
+      setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       updateKeybinding: (scope, action, keybinding) =>
         set((state) => ({
           keymap: {
@@ -225,6 +231,7 @@ export const useSettingsStore = create<SettingsState>()(
         comfyUIServerUrl: 'http://127.0.0.1:8188',
         comfyUILastConnectionStatus: 'unknown',
         confirmOnDelete: true,
+        isSidebarCollapsed: true,
       }),
     }),
     {
@@ -252,6 +259,10 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.confirmOnDelete !== 'boolean') {
           state.confirmOnDelete = true;
+        }
+
+        if (state && typeof state.isSidebarCollapsed !== 'boolean') {
+          state.isSidebarCollapsed = true;
         }
       },
     }

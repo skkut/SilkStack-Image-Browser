@@ -138,13 +138,14 @@ export default function App() {
     viewMode,
     toggleViewMode,
     globalAutoWatch,
+    isSidebarCollapsed,
+    setSidebarCollapsed,
   } = useSettingsStore();
 
   // --- Local UI State ---
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'privacy' | 'about'>('general');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
@@ -729,7 +730,7 @@ export default function App() {
         {hasDirectories && (
           <Sidebar
             isCollapsed={isSidebarCollapsed}
-            onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            onToggleCollapse={() => setSidebarCollapsed(!isSidebarCollapsed)}
             availableModels={availableModels}
             availableLoras={availableLoras}
             availableSchedulers={availableSchedulers}
