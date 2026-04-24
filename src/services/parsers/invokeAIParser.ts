@@ -82,7 +82,7 @@ export function extractModelsFromInvokeAI(metadata: InvokeAIMetadata): string[] 
   delete metadataWithoutLoras.loras;
 
   const metadataStr = JSON.stringify(metadataWithoutLoras).toLowerCase();
-  const modelMatches = metadataStr.match(/['"]\s*([^'"]*\.(safetensors|ckpt|pt))\s*['"]/g);
+  const modelMatches = metadataStr.match(/['"]([^'"]*?\.(?:safetensors|ckpt|pt)\s*)['"]/g);
   if (modelMatches) {
     modelMatches.forEach(match => {
       let modelName = match.replace(/['"]/g, '').trim();
