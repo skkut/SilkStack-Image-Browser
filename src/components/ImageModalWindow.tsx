@@ -176,7 +176,7 @@ const ImageModalWindow: React.FC = () => {
         totalImages={imageList.length}
         onNavigateNext={handleNavigateNext}
         onNavigatePrevious={handleNavigatePrevious}
-        directoryPath={directoryPath}
+        directoryPath={image.directoryId || directoryPath}
         isIndexing={false}
         nextImage={nextImage}
         previousImage={previousImage}
