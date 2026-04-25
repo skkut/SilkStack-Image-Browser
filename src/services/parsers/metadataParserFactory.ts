@@ -89,6 +89,7 @@ export function getMetadataParser(metadata: ImageMetadata): ParserModule | null 
                     scheduler: result.scheduler || '',
                     sampler: result.sampler_name || '',
                     loras: result.loras || [],
+                    tags: result.tags || [],
                     _analytics: result._analytics || null,
                     _metahub_pro: result._metahub_pro || null,
                     _detection_method: result._detection_method,
@@ -154,6 +155,7 @@ export function getMetadataParser(metadata: ImageMetadata): ParserModule | null 
                     scheduler: resolvedParams.scheduler || '',
                     sampler: resolvedParams.sampler_name || '',
                     loras: Array.isArray(resolvedParams.lora) ? resolvedParams.lora : (resolvedParams.lora ? [resolvedParams.lora] : []),
+                    tags: resolvedParams.tags || [],
                 } as BaseMetadata;
             },
             generator: 'ComfyUI'

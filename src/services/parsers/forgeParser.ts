@@ -28,6 +28,7 @@ export function parseForgeMetadata(metadata: any): BaseMetadata | null {
   const model = extractModel(parameters);
   const denoising = extractDenoising(parameters);
   const clipSkip = extractClipSkip(parameters);
+  const tags = extractTags(parameters); // Novo extrator
 
   // Extract LoRAs and embeddings
   const loras = extractLoRAs(parameters);
@@ -67,6 +68,7 @@ export function parseForgeMetadata(metadata: any): BaseMetadata | null {
     modelHash,
     denoising,
     clipSkip,
+    tags: tags || [], // Add extracted tags
     hiresUpscaler,
     hiresUpscale,
     hiresSteps,
@@ -154,6 +156,11 @@ function extractDenoising(parameters: string): number | undefined {
 function extractClipSkip(parameters: string): number | undefined {
   const match = parameters.match(/Clip skip:\s*(\d+)/i);
   return match ? parseInt(match[1]) : undefined;
+}
+
+function extractTags(parameters: string): string[] | undefined {
+  const match = parameters.match(/Tags:\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
+  return match ? match[1].split(',').map(t => t.trim()).filter(t => t) : undefined;
 }
 
 function extractLoRAs(parameters: string): (string | LoRAInfo)[] {

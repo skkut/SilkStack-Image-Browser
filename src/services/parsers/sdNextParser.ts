@@ -146,5 +146,11 @@ export function parseSDNextMetadata(parameters: string): BaseMetadata {
   result.models = extractModelsFromSDNext({ parameters });
   result.loras = extractLorasFromSDNext({ parameters });
 
+  // Extract tags if present
+  const tagsMatch = parameters.match(/Tags:\s*([^,\n]+(?:,\s*[^,\n]+)*)/i);
+  if (tagsMatch) {
+    result.tags = tagsMatch[1].split(',').map(t => t.trim()).filter(t => t);
+  }
+
   return result as BaseMetadata;
 }

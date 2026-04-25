@@ -168,6 +168,12 @@ export function parseA1111Metadata(parameters: string): BaseMetadata {
     result.module = moduleMatches.join(', ');
   }
 
+  // Extrai tags (algumas extensões ou builds colocam tags nos parâmetros)
+  const tagsMatch = parameters.match(/Tags: ([^,\n]+(?:,\s*[^,\n]+)*)/i);
+  if (tagsMatch) {
+    result.tags = tagsMatch[1].split(',').map(t => t.trim()).filter(t => t);
+  }
+
   const finalResult = result as BaseMetadata;
   
   return finalResult;

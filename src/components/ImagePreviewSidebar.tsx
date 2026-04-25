@@ -4,35 +4,6 @@ import { useImageStore } from '../store/useImageStore';
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from '../types';
 import { getAspectRatio } from '../utils/imageUtils';
 
-const TAG_SUGGESTION_LIMIT = 5;
-
-const buildTagSuggestions = (
-  recentTags: string[],
-  availableTags: { name: string }[],
-  currentTags: string[],
-): string[] => {
-  const suggestions: string[] = [];
-
-  for (const tag of recentTags) {
-    if (!currentTags.includes(tag) && !suggestions.includes(tag)) {
-      suggestions.push(tag);
-      if (suggestions.length >= TAG_SUGGESTION_LIMIT) {
-        return suggestions;
-      }
-    }
-  }
-
-  for (const tag of availableTags) {
-    if (!currentTags.includes(tag.name) && !suggestions.includes(tag.name)) {
-      suggestions.push(tag.name);
-      if (suggestions.length >= TAG_SUGGESTION_LIMIT) {
-        break;
-      }
-    }
-  }
-
-  return suggestions;
-};
 
 // Helper function to format LoRA with weight
 const formatLoRA = (lora: string | LoRAInfo): string => {
@@ -148,7 +119,6 @@ const ImagePreviewSidebar: React.FC = () => {
     removeAutoTagFromImage,
     availableTags
   } = useImageStore();
-  const recentTags = useImageStore((state) => state.recentTags);
   const previewImageFromStore = useImageStore((state) => {
     if (!state.previewImage) return null;
     const id = state.previewImage.id;
@@ -164,7 +134,6 @@ const ImagePreviewSidebar: React.FC = () => {
   const activeImage = previewImageFromStore || previewImage;
   const isVideo = !!activeImage && isVideoFileName(activeImage.name, activeImage.fileType);
   const preferredThumbnailUrl = activeImage?.thumbnailUrl ?? null;
-  const tagSuggestions = buildTagSuggestions(recentTags, availableTags, activeImage?.tags ?? []);
 
   useEffect(() => {
     let isMounted = true;
@@ -382,23 +351,6 @@ const ImagePreviewSidebar: React.FC = () => {
 
             {/* Tags Pills */}
             <div className="flex-1 space-y-2">
-              {/* Current Tags */}
-              {activeImage.tags && activeImage.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {activeImage.tags.map(tag => (
-                    <button
-                      key={tag}
-                      onClick={() => handleRemoveTag(tag)}
-                      className="flex items-center gap-1 bg-blue-600/20 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded-full text-xs hover:bg-red-600/20 hover:border-red-500/50 hover:text-red-300 transition-all"
-                      title="Click to remove"
-                    >
-                      {tag}
-                      <X size={12} />
-                    </button>
-                  ))}
-                </div>
-              )}
-
               {/* Add Tag Input */}
               <div className="relative">
                 <input
@@ -445,20 +397,23 @@ const ImagePreviewSidebar: React.FC = () => {
                 )}
               </div>
 
-              {/* Tag Suggestions */}
-              {tagInput.trim().length === 0 && tagSuggestions.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {tagSuggestions.map(tag => (
+              {/* Current Tags */}
+              {activeImage.tags && activeImage.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {activeImage.tags.map(tag => (
                     <button
                       key={tag}
-                      onClick={() => addTagToImage(activeImage.id, tag)}
-                      className="text-xs bg-gray-700/30 text-gray-400 px-1.5 py-0.5 rounded hover:bg-gray-600 hover:text-gray-200"
+                      onClick={() => handleRemoveTag(tag)}
+                      className="flex items-center gap-1 bg-blue-600/20 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded-full text-xs hover:bg-red-600/20 hover:border-red-500/50 hover:text-red-300 transition-all"
+                      title="Click to remove"
                     >
                       {tag}
+                      <X size={12} />
                     </button>
                   ))}
                 </div>
               )}
+
 
               {activeImage.autoTags && activeImage.autoTags.length > 0 && (
                 <div className="space-y-1">

@@ -28,35 +28,6 @@ import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 
 
-const TAG_SUGGESTION_LIMIT = 5;
-
-const buildTagSuggestions = (
-  recentTags: string[],
-  availableTags: { name: string }[],
-  currentTags: string[],
-): string[] => {
-  const suggestions: string[] = [];
-
-  for (const tag of recentTags) {
-    if (!currentTags.includes(tag) && !suggestions.includes(tag)) {
-      suggestions.push(tag);
-      if (suggestions.length >= TAG_SUGGESTION_LIMIT) {
-        return suggestions;
-      }
-    }
-  }
-
-  for (const tag of availableTags) {
-    if (!currentTags.includes(tag.name) && !suggestions.includes(tag.name)) {
-      suggestions.push(tag.name);
-      if (suggestions.length >= TAG_SUGGESTION_LIMIT) {
-        break;
-      }
-    }
-  }
-
-  return suggestions;
-};
 
 interface ImageModalProps {
   image: IndexedImage;
@@ -740,7 +711,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   );
   const availableTags = useImageStore((state) => state.availableTags);
 
-  const recentTags = useImageStore((state) => state.recentTags);
 
 
   // Get live tags and favorite status from store instead of props
@@ -751,11 +721,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const currentIsFavorite =
     imageFromStore?.isFavorite ?? image.isFavorite ?? false;
 
-  const tagSuggestions = buildTagSuggestions(
-    recentTags,
-    availableTags,
-    currentTags,
-  );
 
   // State for tag input
   const [tagInput, setTagInput] = useState("");
@@ -1524,23 +1489,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
               {/* Tags Pills */}
               <div className="flex-1 space-y-2">
-                {/* Current Tags */}
-                {currentTags && currentTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {currentTags.map((tag) => (
-                      <button
-                        key={tag}
-                        onClick={() => handleRemoveTag(tag)}
-                        className="flex items-center gap-1 bg-blue-600/20 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded-full text-xs hover:bg-red-600/20 hover:border-red-500/50 hover:text-red-300 transition-all"
-                        title="Click to remove"
-                      >
-                        {tag}
-                        <X size={12} />
-                      </button>
-                    ))}
-                  </div>
-                )}
-
                 {/* Add Tag Input */}
                 <div className="relative">
                   <input
@@ -1591,20 +1539,23 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   )}
                 </div>
 
-                {/* Tag Suggestions */}
-                {tagInput.trim().length === 0 && tagSuggestions.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {tagSuggestions.map((tag) => (
+                {/* Current Tags */}
+                {currentTags && currentTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {currentTags.map((tag) => (
                       <button
                         key={tag}
-                        onClick={() => addTagToImage(image.id, tag)}
-                        className="text-xs bg-gray-700/30 text-gray-400 px-1.5 py-0.5 rounded hover:bg-gray-600 hover:text-gray-200"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="flex items-center gap-1 bg-blue-600/20 border border-blue-500/50 text-blue-300 px-2 py-0.5 rounded-full text-xs hover:bg-red-600/20 hover:border-red-500/50 hover:text-red-300 transition-all"
+                        title="Click to remove"
                       >
                         {tag}
+                        <X size={12} />
                       </button>
                     ))}
                   </div>
                 )}
+
 
                 {currentAutoTags && currentAutoTags.length > 0 && (
                   <div className="space-y-1">

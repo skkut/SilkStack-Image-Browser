@@ -67,6 +67,7 @@ export function parseDalleMetadata(metadata: any): BaseMetadata | null {
       revisedPrompt,
       generationDate,
       aiTags,
+      tags: aiTags, // Map to standard tags for UI display
       modelVersion: mergedData.model_version,
     };
 
