@@ -109,7 +109,12 @@ const buildCatalogSearchText = (image: IndexedImage): string => {
     const relativePath = getRelativeImagePath(image).replace(/\\/g, '/').toLowerCase();
     const name = (image.name || '').toLowerCase();
     const directory = (image.directoryName || '').replace(/\\/g, '/').toLowerCase();
-    return [name, relativePath, directory].filter(Boolean).join(' ');
+    
+    // Add user tags and auto-tags to searchable text
+    const tags = (image.tags || []).join(' ').toLowerCase();
+    const autoTags = (image.autoTags || []).join(' ').toLowerCase();
+    
+    return [name, relativePath, directory, tags, autoTags].filter(Boolean).join(' ');
 };
 
 const buildEnrichedSearchText = (image: IndexedImage): string => {
