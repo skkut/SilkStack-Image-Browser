@@ -213,6 +213,7 @@ interface ImageState {
   selectedTags: string[];
   selectedAutoTags: string[]; // Filter by auto-tags
   showFavoritesOnly: boolean;
+  selectionFavoriteCount: number;
   isAnnotationsLoaded: boolean;
   activeWatchers: Set<string>; // IDs das pastas sendo monitoradas
   refreshingDirectories: Set<string>;
@@ -705,6 +706,29 @@ export const useImageStore = create<ImageState>((set, get) => {
         };
     };
 
+    // --- Helper for calculating available tags and favorites in a given image set ---
+    const calculateTagInfo = (images: IndexedImage[], type: 'tags' | 'autoTags', sortByCount = false): TagInfo[] => {
+        const tagCounts = new Map<string, number>();
+        for (const img of images) {
+            const tags = type === 'tags' ? img.tags : img.autoTags;
+            if (tags && tags.length > 0) {
+                for (const tag of tags) {
+                    tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+                }
+            }
+        }
+
+        const result: TagInfo[] = Array.from(tagCounts.entries()).map(([name, count]) => ({
+            name,
+            count,
+        }));
+
+        if (sortByCount) {
+            return result.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+        }
+        return result.sort((a, b) => a.name.localeCompare(b.name));
+    };
+
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
         const { images, searchQuery, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
@@ -769,6 +793,10 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             return false;
         });
+
+        const selectionFavoriteCount = selectionFiltered.filter(img => img.isFavorite).length;
+        const availableTags = calculateTagInfo(selectionFiltered, 'tags');
+        const availableAutoTags = calculateTagInfo(selectionFiltered, 'autoTags', true);
 
         let results = selectionFiltered;
 
@@ -998,7 +1026,10 @@ export const useImageStore = create<ImageState>((set, get) => {
         return {
             filteredImages: sorted,
             selectionTotalImages: totalInScope,
-            selectionDirectoryCount
+            selectionDirectoryCount,
+            selectionFavoriteCount,
+            availableTags,
+            availableAutoTags,
         };
     };
 
@@ -1033,6 +1064,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         filteredImages: [],
         selectionTotalImages: 0,
         selectionDirectoryCount: 0,
+        selectionFavoriteCount: 0,
         directories: [],
         selectedFolders: new Set(),
         excludedFolders: new Set(),
@@ -2365,30 +2397,14 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         refreshAvailableTags: async () => {
-            const tags = await getAllTags();
-            set({ availableTags: tags });
+            // Now handled automatically by filterAndSort
+            // We just need to trigger a recompute if somehow the tags changed but no other state did
+            set(state => ({ ...filterAndSort(state) }));
         },
 
         refreshAvailableAutoTags: () => {
-            const { images } = get();
-
-            // Count frequency of each auto-tag
-            const tagFrequency = new Map<string, number>();
-
-            images.forEach(img => {
-                if (img.autoTags && img.autoTags.length > 0) {
-                    img.autoTags.forEach(tag => {
-                        tagFrequency.set(tag, (tagFrequency.get(tag) || 0) + 1);
-                    });
-                }
-            });
-
-            // Convert to TagInfo array and sort by frequency
-            const autoTags: TagInfo[] = Array.from(tagFrequency.entries())
-                .map(([name, count]) => ({ name, count }))
-                .sort((a, b) => b.count - a.count); // Most used first
-
-            set({ availableAutoTags: autoTags });
+            // Now handled automatically by filterAndSort
+            set(state => ({ ...filterAndSort(state) }));
         },
 
         setSelectedAutoTags: (tags) => {
@@ -2577,6 +2593,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             annotations: new Map(),
             availableTags: [],
             availableAutoTags: [],
+            selectionFavoriteCount: 0,
             recentTags: loadRecentTags(),
             selectedTags: [],
             selectedAutoTags: [],
