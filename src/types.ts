@@ -283,10 +283,10 @@ export interface ElectronAPI {
   imageViewerReady: () => void;
   onImageViewerUpdate: (
     callback: (data: {
-      image: any;
-      currentIndex: number;
-      totalImages: number;
-      directoryPath: string;
+      image?: any;
+      currentIndex?: number;
+      totalImages?: number;
+      directoryPath?: string;
       nextImage?: any;
       previousImage?: any;
       imageList?: any[]; // Full image list snapshot for self-contained navigation
@@ -309,12 +309,13 @@ export interface ElectronAPI {
   ) => () => void;
   sendImageViewerUpdate: (data: {
     windowId?: number;
-    image: any;
-    currentIndex: number;
-    totalImages: number;
-    directoryPath: string;
+    image?: any;
+    currentIndex?: number;
+    totalImages?: number;
+    directoryPath?: string;
     nextImage?: any;
     previousImage?: any;
+    imageList?: any[];
   }) => void;
 }
 

@@ -153,6 +153,45 @@ const ImageModalWindow: React.FC = () => {
     []
   );
 
+  const handleAddTag = useCallback((imageId: string, tag: string) => {
+    if (window.electronAPI?.imageViewerAction) {
+      window.electronAPI.imageViewerAction({
+        type: "addTag",
+        imageId,
+        tag,
+      });
+    }
+  }, []);
+
+  const handleRemoveTag = useCallback((imageId: string, tag: string) => {
+    if (window.electronAPI?.imageViewerAction) {
+      window.electronAPI.imageViewerAction({
+        type: "removeTag",
+        imageId,
+        tag,
+      });
+    }
+  }, []);
+
+  const handleRemoveAutoTag = useCallback((imageId: string, tag: string) => {
+    if (window.electronAPI?.imageViewerAction) {
+      window.electronAPI.imageViewerAction({
+        type: "removeAutoTag",
+        imageId,
+        tag,
+      });
+    }
+  }, []);
+
+  const handleToggleFavorite = useCallback((imageId: string) => {
+    if (window.electronAPI?.imageViewerAction) {
+      window.electronAPI.imageViewerAction({
+        type: "toggleFavorite",
+        imageId,
+      });
+    }
+  }, []);
+
   // Show loading state while waiting for image data
   if (!image) {
     return (
@@ -180,6 +219,10 @@ const ImageModalWindow: React.FC = () => {
         isIndexing={false}
         nextImage={nextImage}
         previousImage={previousImage}
+        onTagAdded={handleAddTag}
+        onTagRemoved={handleRemoveTag}
+        onAutoTagRemoved={handleRemoveAutoTag}
+        onFavoriteToggled={handleToggleFavorite}
       />
     </div>
   );

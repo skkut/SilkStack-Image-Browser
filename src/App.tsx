@@ -644,36 +644,48 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI?.onImageViewerAction) return;
 
-    const unsubscribe = window.electronAPI.onImageViewerAction((action: any) => {
+    const unsubscribe = window.electronAPI.onImageViewerAction(async (action: any) => {
+      let updatedImageId = action.imageId;
+
       switch (action.type) {
         case 'delete':
           handleImageDeleted(action.imageId);
-          // No need to push an update to the viewer — it handles deletion locally
+          updatedImageId = null;
           break;
         case 'rename':
           if (action.newName) {
-            // Only update grid metadata, don't close modal
             updateImage(action.imageId, action.newName);
           }
           break;
         case 'toggleFavorite':
-          toggleFavorite(action.imageId);
+          await toggleFavorite(action.imageId);
           break;
         case 'addTag':
           if (action.tag) {
-            addTagToImage(action.imageId, action.tag);
+            await addTagToImage(action.imageId, action.tag);
           }
           break;
         case 'removeTag':
           if (action.tag) {
-            removeTagFromImage(action.imageId, action.tag);
+            await removeTagFromImage(action.imageId, action.tag);
           }
           break;
         case 'removeAutoTag':
           if (action.tag) {
-            removeAutoTagFromImage(action.imageId, action.tag);
+            await removeAutoTagFromImage(action.imageId, action.tag);
           }
           break;
+      }
+
+      // If the image was updated (not deleted), broadcast the new state back to viewers
+      if (updatedImageId && window.electronAPI?.sendImageViewerUpdate) {
+        const updatedImage = useImageStore.getState().images.find(img => img.id === updatedImageId);
+        if (updatedImage) {
+          window.electronAPI.sendImageViewerUpdate({
+            windowId: action.windowId,
+            image: serializeImage(updatedImage)
+          });
+        }
       }
     });
 

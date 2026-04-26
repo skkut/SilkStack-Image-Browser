@@ -2064,10 +2064,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return { ...newState, ...filterAndSort(newState) };
             });
 
-            // Persist to IndexedDB (async, don't await)
-            saveAnnotation(updatedAnnotation).catch(error => {
+            // Persist to IndexedDB
+            try {
+                await saveAnnotation(updatedAnnotation);
+            } catch (error) {
                 console.error('Failed to save annotation:', error);
-            });
+            }
         },
 
         bulkToggleFavorite: async (imageIds, isFavorite) => {
@@ -2110,9 +2112,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
 
             // Persist to IndexedDB
-            bulkSaveAnnotations(updatedAnnotations).catch(error => {
+            try {
+                await bulkSaveAnnotations(updatedAnnotations);
+            } catch (error) {
                 console.error('Failed to bulk save annotations:', error);
-            });
+            }
         },
 
         addTagToImage: async (imageId, tag) => {
@@ -2160,10 +2164,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             persistRecentTags(nextRecentTags);
 
             // Persist and refresh tags
-            saveAnnotation(updatedAnnotation).catch(error => {
+            try {
+                await saveAnnotation(updatedAnnotation);
+                await get().refreshAvailableTags();
+            } catch (error) {
                 console.error('Failed to save annotation:', error);
-            });
-            get().refreshAvailableTags();
+            }
         },
 
         removeTagFromImage: async (imageId, tag) => {
@@ -2199,10 +2205,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
 
             // Persist and refresh tags
-            saveAnnotation(updatedAnnotation).catch(error => {
+            try {
+                await saveAnnotation(updatedAnnotation);
+                await get().refreshAvailableTags();
+            } catch (error) {
                 console.error('Failed to save annotation:', error);
-            });
-            get().refreshAvailableTags();
+            }
         },
 
         removeAutoTagFromImage: (imageId, tag) => {
@@ -2279,10 +2287,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             persistRecentTags(nextRecentTags);
 
             // Persist and refresh tags
-            bulkSaveAnnotations(updatedAnnotations).catch(error => {
+            try {
+                await bulkSaveAnnotations(updatedAnnotations);
+                await get().refreshAvailableTags();
+            } catch (error) {
                 console.error('Failed to bulk save annotations:', error);
-            });
-            get().refreshAvailableTags();
+            }
         },
 
         bulkRemoveTag: async (imageIds, tag) => {
@@ -2327,10 +2337,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
 
             // Persist and refresh tags
-            bulkSaveAnnotations(updatedAnnotations).catch(error => {
+            try {
+                await bulkSaveAnnotations(updatedAnnotations);
+                await get().refreshAvailableTags();
+            } catch (error) {
                 console.error('Failed to bulk save annotations:', error);
-            });
-            get().refreshAvailableTags();
+            }
         },
 
         setSelectedTags: (tags) => set(state => {

@@ -42,6 +42,10 @@ interface ImageModalProps {
   isIndexing?: boolean;
   nextImage?: IndexedImage | null;
   previousImage?: IndexedImage | null;
+  onTagAdded?: (imageId: string, tag: string) => void;
+  onTagRemoved?: (imageId: string, tag: string) => void;
+  onAutoTagRemoved?: (imageId: string, tag: string) => void;
+  onFavoriteToggled?: (imageId: string) => void;
 }
 
 // Helper function to format LoRA with weight
@@ -445,6 +449,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
   isIndexing = false,
   nextImage,
   previousImage,
+  onTagAdded,
+  onTagRemoved,
+  onAutoTagRemoved,
+  onFavoriteToggled,
 }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   // Cache for preloaded images: imageId -> objectUrl
@@ -1187,27 +1195,52 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Tag management handlers
   const handleAddTag = () => {
     if (!tagInput.trim()) return;
-    addTagToImage(image.id, tagInput);
+    if (onTagAdded) {
+      onTagAdded(image.id, tagInput);
+    } else {
+      addTagToImage(image.id, tagInput);
+    }
     setTagInput("");
     setShowTagAutocomplete(false);
   };
 
   const handleRemoveTag = (tag: string) => {
-    removeTagFromImage(image.id, tag);
+    if (onTagRemoved) {
+      onTagRemoved(image.id, tag);
+    } else {
+      removeTagFromImage(image.id, tag);
+    }
   };
 
   const handleRemoveAutoTag = (tag: string) => {
-    removeAutoTagFromImage(image.id, tag);
+    if (onAutoTagRemoved) {
+      onAutoTagRemoved(image.id, tag);
+    } else {
+      removeAutoTagFromImage(image.id, tag);
+    }
   };
 
   const handlePromoteAutoTag = async (tag: string) => {
     // Add as manual tag and remove from auto-tags
-    await addTagToImage(image.id, tag);
-    removeAutoTagFromImage(image.id, tag);
+    if (onTagAdded) {
+      onTagAdded(image.id, tag);
+    } else {
+      await addTagToImage(image.id, tag);
+    }
+
+    if (onAutoTagRemoved) {
+      onAutoTagRemoved(image.id, tag);
+    } else {
+      removeAutoTagFromImage(image.id, tag);
+    }
   };
 
   const handleToggleFavorite = () => {
-    toggleFavorite(image.id);
+    if (onFavoriteToggled) {
+      onFavoriteToggled(image.id);
+    } else {
+      toggleFavorite(image.id);
+    }
   };
 
   // Filter autocomplete tags
@@ -1523,7 +1556,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
                         <button
                           key={tag.name}
                           onClick={() => {
-                            addTagToImage(image.id, tag.name);
+                            if (onTagAdded) {
+                              onTagAdded(image.id, tag.name);
+                            } else {
+                              addTagToImage(image.id, tag.name);
+                            }
                             setTagInput("");
                             setShowTagAutocomplete(false);
                           }}
