@@ -149,6 +149,45 @@ const imageViewerWindows = new Map();
 const pendingViewerData = new Map();
 let skippedVersions = new Set();
 
+/**
+ * setupFullscreenHandlers - Tracks fullscreen state changes and notifies renderer.
+ * These events work on macOS, Windows, and Linux.
+ * @param {BrowserWindow} win 
+ */
+function setupFullscreenHandlers(win) {
+  if (!win) return;
+
+  win.on("enter-full-screen", () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("fullscreen-changed", { isFullscreen: true });
+    }
+  });
+
+  win.on("leave-full-screen", () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("fullscreen-changed", {
+        isFullscreen: false,
+      });
+    }
+  });
+
+  // Additional event for Windows/Linux compatibility
+  // Some window managers may not fire enter/leave-full-screen consistently
+  let lastKnownFullscreenState = false;
+  win.on("resize", () => {
+    if (win && !win.isDestroyed()) {
+      const currentFullscreenState = win.isFullScreen();
+      // Only send if the state actually changed to avoid excessive updates
+      if (currentFullscreenState !== lastKnownFullscreenState) {
+        lastKnownFullscreenState = currentFullscreenState;
+        win.webContents.send("fullscreen-state-check", {
+          isFullscreen: currentFullscreenState,
+        });
+      }
+    }
+  });
+}
+
 // --- Zoom Management ---
 const ZOOM_STEP = 0.1;
 const MIN_ZOOM = 0.5;
@@ -471,37 +510,8 @@ function createWindow(startupDirectory = null) {
     mainWindow = null;
   });
 
-  // Track fullscreen state changes and notify renderer
-  // These events work on macOS, Windows, and Linux
-  mainWindow.on("enter-full-screen", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("fullscreen-changed", { isFullscreen: true });
-    }
-  });
-
-  mainWindow.on("leave-full-screen", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("fullscreen-changed", {
-        isFullscreen: false,
-      });
-    }
-  });
-
-  // Additional event for Windows/Linux compatibility
-  // Some window managers may not fire enter/leave-full-screen consistently
-  let lastKnownFullscreenState = false;
-  mainWindow.on("resize", () => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const currentFullscreenState = mainWindow.isFullScreen();
-      // Only send if the state actually changed to avoid excessive updates
-      if (currentFullscreenState !== lastKnownFullscreenState) {
-        lastKnownFullscreenState = currentFullscreenState;
-        mainWindow.webContents.send("fullscreen-state-check", {
-          isFullscreen: currentFullscreenState,
-        });
-      }
-    }
-  });
+  // Setup fullscreen handlers
+  setupFullscreenHandlers(mainWindow);
 }
 
 // App event handlers
@@ -807,6 +817,9 @@ function setupFileOperationHandlers() {
       viewerWindow.on("closed", () => {
         nativeTheme.removeListener("updated", themeHandler);
       });
+
+      // Setup fullscreen handlers
+      setupFullscreenHandlers(viewerWindow);
 
       return { success: true, windowId };
     } catch (error) {
@@ -2014,31 +2027,33 @@ function setupFileOperationHandlers() {
   });
 
   // Handle toggling fullscreen
-  ipcMain.handle("toggle-fullscreen", () => {
-    if (mainWindow) {
-      const isFullscreen = !mainWindow.isFullScreen();
-      mainWindow.setFullScreen(isFullscreen);
+  ipcMain.handle("toggle-fullscreen", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+      const isFullscreen = !win.isFullScreen();
+      win.setFullScreen(isFullscreen);
       return { success: true, isFullscreen };
     }
-    return { success: false, error: "Main window not available" };
+    return { success: false, error: "Window not available" };
   });
 
   // Handle setting window controls visibility
   ipcMain.handle("set-window-controls-visibility", (event, visible) => {
-    if (!mainWindow) return { success: false, error: "Main window not available" };
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, error: "Window not available" };
 
     if (process.platform === "darwin") {
-      mainWindow.setWindowButtonVisibility(visible);
+      win.setWindowButtonVisibility(visible);
     } else if (process.platform === "win32") {
       if (visible) {
-        mainWindow.setTitleBarOverlay({
+        win.setTitleBarOverlay({
           height: 32,
           color: nativeTheme.shouldUseDarkColors ? '#1a1a1a' : '#f3f4f6',
           symbolColor: nativeTheme.shouldUseDarkColors ? '#ffffff' : '#000000',
         });
       } else {
         // Decide to hide it completely by setting height to 0 and colors to transparent
-        mainWindow.setTitleBarOverlay({
+        win.setTitleBarOverlay({
           height: 0,
           color: '#00000000', // Using ARGB/RGBA transparent hex if supported, or 'transparent'
           symbolColor: '#00000000',

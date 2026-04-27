@@ -85,3 +85,6 @@ Thumbs.db
 # Environment variables (Sensitive info)
 .env
 .env.local
+
+# AI Intelligence Private Module
+ai-intelligence/
