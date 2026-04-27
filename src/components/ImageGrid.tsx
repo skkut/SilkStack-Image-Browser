@@ -419,30 +419,8 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
             <EyeOff className="h-8 w-8 text-white/80 drop-shadow" />
           </div>
         )}
-        {/* Tags display - always visible if tags exist */}
-        {image.tags && image.tags.length > 0 && (
-          <div className="absolute bottom-0 left-0 right-0 p-1.5 bg-gradient-to-t from-black/90 to-transparent">
-            <div className="flex flex-wrap gap-1 items-center">
-              {image.tags.slice(0, 2).map(tag => (
-                <span
-                  key={tag}
-                  className="text-[10px] bg-gray-700/80 text-gray-300 px-1.5 py-0.5 rounded"
-                >
-                  #{tag}
-                </span>
-              ))}
-              {image.tags.length > 2 && (
-                <span className="text-[10px] text-gray-400">
-                  +{image.tags.length - 2}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
-        <div className={`absolute left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
-          image.tags && image.tags.length > 0 ? 'bottom-8' : 'bottom-0'
-        }`}>
+        <div className="absolute left-0 right-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <p className="text-white text-xs truncate">{displayName}</p>
         </div>
       </div>
