@@ -60,6 +60,7 @@ export default function App() {
   const progress = useImageStore((state) => state.progress);
   const indexingState = useImageStore((state) => state.indexingState);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
+  const focusedImageIndex = useImageStore((state) => state.focusedImageIndex);
 
   // Status selectors
   const error = useImageStore((state) => state.error);
@@ -100,6 +101,7 @@ export default function App() {
   const setSelectedFilters = useImageStore((state) => state.setSelectedFilters);
   const setAdvancedFilters = useImageStore((state) => state.setAdvancedFilters);
   const setSelectedImage = useImageStore((state) => state.setSelectedImage);
+  const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const removeImage = useImageStore((state) => state.removeImage);
   const updateImage = useImageStore((state) => state.updateImage);
   const toggleAutoWatch = useImageStore((state) => state.toggleAutoWatch);
@@ -935,6 +937,29 @@ export default function App() {
               totalCount={selectionTotalImages}
               enrichmentProgress={enrichmentProgress}
               showStackingToggle={true}
+              isPreviewOpen={!!previewImage}
+              onTogglePreview={() => {
+                if (previewImage) {
+                  setPreviewImage(null);
+                } else if (safeFilteredImages.length > 0) {
+                  let target = null;
+                  
+                  // IF an image or multiple images are selected, the first image in the selection should be previewed
+                  if (safeSelectedImages.size > 0) {
+                    target = safeFilteredImages.find(img => safeSelectedImages.has(img.id));
+                  }
+                  
+                  // IF no image is selected, the preview should open the first image in the grid (or focused one)
+                  if (!target) {
+                    const index = focusedImageIndex && focusedImageIndex >= 0 ? focusedImageIndex : 0;
+                    target = safeFilteredImages[index] || safeFilteredImages[0];
+                  }
+
+                  if (target) {
+                    setPreviewImage(target);
+                  }
+                }
+              }}
             >
               {hasDirectories && (
                 <GridToolbar

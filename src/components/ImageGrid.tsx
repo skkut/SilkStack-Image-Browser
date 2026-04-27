@@ -347,14 +347,6 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
         </button>
 
         <button
-          onClick={handlePreviewClick}
-          className="absolute top-11 left-2 z-10 p-1.5 bg-black/50 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:opacity-100"
-          title="Show details"
-        >
-          <Info className="h-4 w-4" />
-        </button>
-
-        <button
           onClick={handleFavoriteClick}
           className={`absolute top-2 right-2 z-10 p-1.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:opacity-100 ${
             image.isFavorite
