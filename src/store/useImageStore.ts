@@ -1129,7 +1129,9 @@ export const useImageStore = create<ImageState>((set, get) => {
         // --- ACTIONS ---
 
         addDirectory: (directory) => set(state => {
-            if (state.directories.some(d => d.id === directory.id)) {
+            // Case-insensitive check for duplicates
+            const normalizedNewId = normalizePath(directory.id);
+            if (state.directories.some(d => normalizePath(d.id) === normalizedNewId)) {
                 return state; // Prevent adding duplicates
             }
             const newDirectories = [...state.directories, { ...directory, visible: directory.visible ?? true }];

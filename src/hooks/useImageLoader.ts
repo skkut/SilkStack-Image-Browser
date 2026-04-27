@@ -1267,7 +1267,18 @@ export function useImageLoader() {
             await window.electronAPI.updateAllowedPaths(paths);
           }
 
-          // Use global auto-watch setting for all directories
+          // Load saved autoWatch states
+          let watchStates: Record<string, { enabled: boolean; path: string }> = {};
+          try {
+            const storedWatchers = localStorage.getItem("image-metahub-directory-watchers");
+            if (storedWatchers) {
+              watchStates = JSON.parse(storedWatchers);
+            }
+          } catch (e) {
+            console.warn("Failed to load directory watchers state", e);
+          }
+
+          // Use global auto-watch setting for all directories if no specific state exists
           const globalAutoWatch = useSettingsStore.getState().globalAutoWatch;
 
           // First, add all directories to the store without loading.
@@ -1285,19 +1296,25 @@ export function useImageLoader() {
               console.warn(`Failed to check connection for ${path}`, e);
             }
 
-            // All directories use the global auto-watch setting
+            // Respect saved autoWatch status, fallback to global setting
+            const autoWatch = watchStates[directoryId] 
+              ? watchStates[directoryId].enabled 
+              : globalAutoWatch;
+
             const newDirectory: Directory = {
               id: directoryId,
               path,
               name,
               handle,
-              autoWatch: globalAutoWatch,
+              autoWatch,
               isConnected,
             };
             addDirectory(newDirectory);
           }
 
           // Then, load them all sequentially to avoid overwhelming the system.
+          // Small delay to ensure Zustand store has updated from multiple addDirectory calls
+          await new Promise(resolve => setTimeout(resolve, 50));
           const directoriesToLoad = useImageStore.getState().directories;
 
           setLoading(false);
@@ -1415,12 +1432,13 @@ export function useImageLoader() {
             file.type && file.type.includes("/") ? file.type : undefined;
           return { ...file, relativePath, normalizedName, normalizedType };
         });
-        // Filtrar arquivos que j├í existem
+        // Filtrar arquivos que já existem (Case-insensitive check)
         const images = useImageStore.getState().images;
-        const existingIds = new Set(images.map((img) => img.id));
+        const existingIdsLower = new Set(images.map((img) => img.id.toLowerCase()));
+        
         const newFiles = normalizedFiles.filter((file) => {
           const imageId = `${directory.id}::${file.relativePath || file.normalizedName}`;
-          return !existingIds.has(imageId);
+          return !existingIdsLower.has(imageId.toLowerCase());
         });
 
         if (newFiles.length === 0) {

@@ -29,6 +29,8 @@ import TopMenuBar from './components/TopMenuBar';
 
 import ImageTable from './components/ImageTable';
 
+import { normalizePath } from './utils/pathUtils';
+
 export default function App() {
   // --- Hooks ---
   const { 
@@ -93,6 +95,7 @@ export default function App() {
   const refreshingDirectories = useImageStore((state) => state.refreshingDirectories);
 
   // Action selectors
+  const addDirectory = useImageStore((state) => state.addDirectory);
   const setSearchQuery = useImageStore((state) => state.setSearchQuery);
   const setSelectedFilters = useImageStore((state) => state.setSelectedFilters);
   const setAdvancedFilters = useImageStore((state) => state.setAdvancedFilters);
@@ -296,6 +299,18 @@ export default function App() {
         autoWatch: globalAutoWatch
       };
 
+      // Add to store so it appears in sidebar and is persisted
+      addDirectory(newDirectory);
+
+      // Persist the state
+      const updatedDirectories = useImageStore.getState().directories;
+      if (window.electronAPI) {
+        localStorage.setItem(
+          "image-metahub-directories",
+          JSON.stringify(updatedDirectories.map((d) => d.path)),
+        );
+      }
+
       // Load the directory using the hook's loadDirectory function
       await loadDirectory(newDirectory, false);
 
@@ -317,7 +332,7 @@ export default function App() {
     } catch (error) {
       console.error('Error loading directory from path:', error);
     }
-  }, [loadDirectory, safeDirectories, globalAutoWatch]);
+  }, [loadDirectory, safeDirectories, globalAutoWatch, addDirectory]);
 
   // On mount, load directories stored in localStorage
   useEffect(() => {
@@ -345,7 +360,8 @@ export default function App() {
 
     const unsubscribe = window.electronAPI.onNewImagesDetected(async (data) => {
       const { directoryId, files } = data;
-      const directory = directories.find(d => d.id === directoryId);
+      const normalizedId = normalizePath(directoryId);
+      const directory = directories.find(d => normalizePath(d.id) === normalizedId);
 
       if (!directory || !files || files.length === 0) return;
 
@@ -365,9 +381,10 @@ export default function App() {
 
     const unsubscribe = window.electronAPI.onImagesDeleted(async (data) => {
       const { directoryId, paths } = data;
-      const directory = directories.find(d => d.id === directoryId);
+      const normalizedId = normalizePath(directoryId);
+      const directory = directories.find(d => normalizePath(d.id) === normalizedId);
 
-      if (!directory || !paths || paths.length === 0) return;
+      if (!directory || !paths || !directory) return;
 
       // Process deleted files using the function from useImageLoader
       await processDeletedWatchedFiles(directory, paths);
