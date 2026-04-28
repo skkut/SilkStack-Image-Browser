@@ -4,7 +4,7 @@ import SearchBar from './SearchBar';
 import { Settings } from 'lucide-react';
 
 interface TopMenuBarProps {
-    onOpenSettings: (tab?: 'general' | 'hotkeys' | 'privacy' | 'about') => void;
+    onOpenSettings: (tab?: 'general' | 'hotkeys' | 'about') => void;
     onAddFolder: () => void;
     onToggleView: () => void;
     activeView?: 'library' | 'smart' | 'model';

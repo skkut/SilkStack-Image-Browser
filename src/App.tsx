@@ -150,7 +150,7 @@ export default function App() {
   // --- Local UI State ---
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'privacy' | 'about'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'hotkeys' | 'about'>('general');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
@@ -167,7 +167,7 @@ export default function App() {
 
 
 
-  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'privacy' | 'about' = 'general') => {
+  const handleOpenSettings = (tab: 'general' | 'hotkeys' | 'about' = 'general') => {
     setSettingsTab(tab);
     setIsSettingsModalOpen(true);
   };

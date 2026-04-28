@@ -11,13 +11,13 @@ import { normalizePath } from '../utils/pathUtils';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'folders' | 'hotkeys' | 'privacy' | 'about';
+  initialTab?: 'general' | 'folders' | 'hotkeys' | 'about';
   directories?: Directory[];
   onAddFolder?: () => void;
   onRemoveFolder?: (directoryId: string) => void;
 }
 
-type Tab = 'general' | 'folders' | 'hotkeys' | 'privacy' | 'about';
+type Tab = 'general' | 'folders' | 'hotkeys' | 'about';
 
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -168,13 +168,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <Keyboard size={18} />
               <span>Keyboard Shortcuts</span>
             </button>
-            <button
-              onClick={() => setActiveTab('privacy')}
-              className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'privacy' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
-            >
-              <Eye size={18} />
-              <span>Privacy</span>
-            </button>
+
             <button
               onClick={() => setActiveTab('about')}
               className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'about' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
@@ -226,6 +220,52 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="checkbox"
                             checked={confirmOnDelete}
                             onChange={(event) => setConfirmOnDelete(event.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
+                    </div>
+                  </section>
+
+                  {/* Content Filtering */}
+                  <section>
+                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">Content Filtering</h3>
+                    <div className="space-y-4">
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <label className="text-sm font-medium text-gray-200 block mb-1">Sensitive tags</label>
+                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                          Comma-separated tags that should be hidden or blurred (e.g., nsfw, private, hidden).
+                        </p>
+                        <input
+                          type="text"
+                          value={sensitiveTagsInput}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            setSensitiveTagsInput(nextValue);
+                            const parsedTags = nextValue
+                              .split(',')
+                              .map(tag => tag.trim().toLowerCase())
+                              .filter(Boolean);
+                            setSensitiveTags(parsedTags);
+                          }}
+                          placeholder="nsfw, private, hidden"
+                          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                        />
+                      </div>
+
+                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="pr-6">
+                          <p className="text-sm font-medium text-gray-200">Blur sensitive images instead of hiding</p>
+                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                            If enabled, sensitive images will be shown with a strong blur effect. If disabled, they will be completely removed from the grid.
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                          <input
+                            type="checkbox"
+                            checked={blurSensitiveImages}
+                            onChange={(event) => setBlurSensitiveImages(event.target.checked)}
                             className="sr-only peer"
                           />
                           <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
@@ -487,54 +527,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               )}
 
-              {activeTab === 'privacy' && (
-                <div className="space-y-8 animate-in fade-in duration-300 pb-8">
-                  <section>
-                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">Content Filtering</h3>
-                    <div className="space-y-4">
-                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <label className="text-sm font-medium text-gray-200 block mb-1">Sensitive tags</label>
-                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-                          Comma-separated tags that should be hidden or blurred (e.g., nsfw, private, hidden).
-                        </p>
-                        <input
-                          type="text"
-                          value={sensitiveTagsInput}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            setSensitiveTagsInput(nextValue);
-                            const parsedTags = nextValue
-                              .split(',')
-                              .map(tag => tag.trim().toLowerCase())
-                              .filter(Boolean);
-                            setSensitiveTags(parsedTags);
-                          }}
-                          placeholder="nsfw, private, hidden"
-                          className="w-full bg-gray-950 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-                        />
-                      </div>
 
-                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="pr-6">
-                          <p className="text-sm font-medium text-gray-200">Blur sensitive images instead of hiding</p>
-                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                            If enabled, sensitive images will be shown with a strong blur effect. If disabled, they will be completely removed from the grid.
-                          </p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                          <input
-                            type="checkbox"
-                            checked={blurSensitiveImages}
-                            onChange={(event) => setBlurSensitiveImages(event.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                        </label>
-                      </div>
-                    </div>
-                  </section>
-                </div>
-              )}
 
               {activeTab === 'about' && (
                 <div className="flex flex-col items-center justify-center min-h-full py-8 animate-in fade-in duration-300 pb-8">
