@@ -130,15 +130,4 @@ console.log(`2. Go to GitHub releases and create new release for tag v${VERSION}
 console.log(`3. Copy the content from ${filename} into the release description`);
 console.log('4. Publish the release!');
 
-// Optional: Open browser to GitHub releases page
-console.log('\nOpening GitHub releases page...');
-try {
-  // Only try to open browser on Windows (where 'start' command exists)
-  if (process.platform === 'win32') {
-    execSync('start https://github.com/skkut/SilkStack-Image-Browser/releases/new', { stdio: 'inherit' });
-  } else {
-    console.log('On non-Windows systems, manually open: https://github.com/skkut/SilkStack-Image-Browser/releases/new');
-  }
-} catch (error) {
-  console.log('Manually open: https://github.com/skkut/SilkStack-Image-Browser/releases/new');
-}
+// Browser opening handled by specific workflow scripts if needed.

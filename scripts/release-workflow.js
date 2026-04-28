@@ -50,7 +50,10 @@ console.log('='.repeat(50));
 // Optional: Open browser to GitHub releases page
 console.log('\n🔗 Opening GitHub releases page...');
 try {
-  execSync('start https://github.com/skkut/SilkStack-Image-Browser/releases/new', { stdio: 'inherit' });
+  const openCmd = process.platform === 'win32' ? 'start' :
+                  process.platform === 'darwin' ? 'open' :
+                  'xdg-open';
+  execSync(`${openCmd} https://github.com/skkut/SilkStack-Image-Browser/releases/new`, { stdio: 'inherit' });
 } catch (error) {
   console.log('💡 Manually open: https://github.com/skkut/SilkStack-Image-Browser/releases/new');
 }
