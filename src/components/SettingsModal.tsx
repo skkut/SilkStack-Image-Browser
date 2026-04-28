@@ -189,28 +189,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="max-w-2xl mx-auto h-full">
               {activeTab === 'general' && (
                 <div className="space-y-8 animate-in fade-in duration-300 pb-8">
-                  {/* File Monitoring */}
-                  <section>
-                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">File Monitoring</h3>
-                    <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                      <div className="pr-6">
-                        <p className="text-sm font-medium text-gray-200">Monitor changes in real-time</p>
-                        <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                          Automatically watch directories for new or modified images. Disable this if you have very large folders or a slower PC.
-                        </p>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                        <input
-                          type="checkbox"
-                          checked={globalAutoWatch}
-                          onChange={toggleGlobalAutoWatch}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
-                    </div>
-                  </section>
-
                   {/* Display */}
                   <section>
                     <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">Display</h3>
@@ -347,6 +325,28 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
                 return (
                 <div className="space-y-8 animate-in fade-in duration-300 pb-8 h-full flex flex-col">
+                  {/* File Monitoring */}
+                  <section className="shrink-0">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">File Monitoring</h3>
+                    <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                      <div className="pr-6">
+                        <p className="text-sm font-medium text-gray-200">Monitor changes in real-time</p>
+                        <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                          Automatically watch directories for new or modified images. Disable this if you have very large folders or a slower PC.
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                        <input
+                          type="checkbox"
+                          checked={globalAutoWatch}
+                          onChange={toggleGlobalAutoWatch}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                      </label>
+                    </div>
+                  </section>
+
                   <section className="flex flex-col flex-1 min-h-0">
                     <div className="flex justify-between items-center mb-4 border-b border-gray-700/50 pb-2">
                       <h3 className="text-lg font-semibold text-gray-200">Manage Folders</h3>
