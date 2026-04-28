@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { IndexedImage } from '../types';
-import { thumbnailManager } from '../services/thumbnailManager';
+
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 
@@ -41,6 +41,7 @@ export function useThumbnail(image: IndexedImage | null): void {
 
       const run = async () => {
         try {
+          const { thumbnailManager } = await import('../services/thumbnailManager');
           await thumbnailManager.ensureThumbnail(image);
         } catch (error) {
           if (!cancelled) {
