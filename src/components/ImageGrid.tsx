@@ -122,7 +122,6 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
 
   const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
-  const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
 
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
   const setDraggedItems = useImageStore((state) => state.setDraggedItems);
@@ -304,26 +303,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           isFocused ? 'outline-2 outline-dashed outline-blue-400 outline-offset-2 z-10' : ''
         }`}
         style={{ width: '100%', height: '100%', flexShrink: 0 }}
-        onClick={(e) => {
-          if (doubleClickToOpen) {
-            if (e.ctrlKey || e.metaKey) {
-              toggleImageSelection(image.id);
-            } else {
-              useImageStore.setState({
-                selectedImages: new Set([image.id]),
-                previewImage: image
-              });
-            }
-          } else {
-            onImageClick(image, e);
-          }
-        }}
-        onDoubleClick={(e) => {
-          if (doubleClickToOpen) {
-            onImageClick(image, e);
-          }
-        }}
-
+        onClick={(e) => onImageClick(image, e)}
         onContextMenu={(e) => onContextMenu && onContextMenu(image, e)}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}

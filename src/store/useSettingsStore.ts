@@ -63,7 +63,6 @@ interface SettingsState {
   indexingConcurrency: number;
   disableThumbnails: boolean;
   globalAutoWatch: boolean;
-  doubleClickToOpen: boolean;
   sensitiveTags: string[];
   blurSensitiveImages: boolean;
   enableSafeMode: boolean;
@@ -93,7 +92,6 @@ interface SettingsState {
   setIndexingConcurrency: (value: number) => void;
   setDisableThumbnails: (value: boolean) => void;
   toggleGlobalAutoWatch: () => void;
-  setDoubleClickToOpen: (value: boolean) => void;
   setSensitiveTags: (tags: string[]) => void;
   setBlurSensitiveImages: (value: boolean) => void;
   setEnableSafeMode: (value: boolean) => void;
@@ -131,7 +129,6 @@ export const useSettingsStore = create<SettingsState>()(
       indexingConcurrency: defaultIndexingConcurrency,
       disableThumbnails: false,
       globalAutoWatch: true,
-      doubleClickToOpen: false,
       sensitiveTags: ['nsfw', 'private', 'hidden'],
       blurSensitiveImages: true,
       enableSafeMode: true,
@@ -172,7 +169,6 @@ export const useSettingsStore = create<SettingsState>()(
         }),
       setDisableThumbnails: (value) => set({ disableThumbnails: !!value }),
       toggleGlobalAutoWatch: () => set((state) => ({ globalAutoWatch: !state.globalAutoWatch })),
-      setDoubleClickToOpen: (value) => set({ doubleClickToOpen: !!value }),
       setSensitiveTags: (tags) => {
         const normalized = (Array.isArray(tags) ? tags : [])
           .map(tag => (typeof tag === 'string' ? tag.trim().toLowerCase() : ''))
@@ -220,7 +216,6 @@ export const useSettingsStore = create<SettingsState>()(
         indexingConcurrency: defaultIndexingConcurrency,
         disableThumbnails: false,
         globalAutoWatch: true,
-        doubleClickToOpen: false,
         sensitiveTags: ['nsfw', 'private', 'hidden'],
         blurSensitiveImages: true,
         enableSafeMode: true,

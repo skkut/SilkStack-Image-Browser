@@ -30,8 +30,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
-  const doubleClickToOpen = useSettingsStore((state) => state.doubleClickToOpen);
-  const setDoubleClickToOpen = useSettingsStore((state) => state.setDoubleClickToOpen);
   const displayStarredFirst = useSettingsStore((state) => state.displayStarredFirst);
   const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
   const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
@@ -232,24 +230,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                               setDisplayStarredFirst(event.target.checked);
                               useImageStore.getState().filterAndSortImages();
                             }}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                        </label>
-                      </div>
-
-                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="pr-6">
-                          <p className="text-sm font-medium text-gray-200">Double-click to open image</p>
-                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                            Single click selects, double-click opens details. When off, single click opens details.
-                          </p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                          <input
-                            type="checkbox"
-                            checked={doubleClickToOpen}
-                            onChange={(event) => setDoubleClickToOpen(event.target.checked)}
                             className="sr-only peer"
                           />
                           <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
