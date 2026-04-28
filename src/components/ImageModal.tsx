@@ -118,6 +118,9 @@ const formatVRAM = (vramMb: number, gpuDevice?: string | null): string => {
 
 const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mkv", ".mov", ".avi"];
 
+const MAX_ZOOM = 10;
+const MIN_ZOOM = 1;
+
 const isVideoFileName = (
   fileName: string,
   fileType?: string | null,
@@ -929,7 +932,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         const normalizedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150);
         const delta = normalizedDeltaY * -0.0025; // Zoom by 0.25x max per standard click
         
-        const newZoom = Math.min(Math.max(1, prevZoom + delta), 5); // Min 1x, Max 5x
+        const newZoom = Math.min(Math.max(MIN_ZOOM, prevZoom + delta), MAX_ZOOM); // Min 1x, Max 7.5x
 
         if (newZoom === prevZoom) return prevZoom;
 
@@ -1036,7 +1039,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   );
 
   const handleZoomIn = () => {
-    const newZoom = Math.min(zoom + 0.5, 5);
+    const newZoom = Math.min(zoom + 0.5, MAX_ZOOM);
     if (newZoom === zoom) return;
 
     setZoom(newZoom);
@@ -1360,8 +1363,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </button>
               <input
                 type="range"
-                min="1"
-                max="5"
+                min={MIN_ZOOM}
+                max={MAX_ZOOM}
                 step="0.1"
                 value={zoom}
                 onMouseDown={(e) => e.stopPropagation()}
@@ -1369,7 +1372,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   const newZoom = parseFloat(e.target.value);
                   if (newZoom === zoom) return;
                   setZoom(newZoom);
-                  if (newZoom === 1) {
+                  if (newZoom === MIN_ZOOM) {
                     setPan({ x: 0, y: 0 });
                   } else {
                     const ratio = newZoom / zoom;
@@ -1381,7 +1384,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               />
               <button
                 onClick={handleZoomIn}
-                disabled={zoom >= 5}
+                disabled={zoom >= MAX_ZOOM}
                 className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 title="Zoom In"
               >
