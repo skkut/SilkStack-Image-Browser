@@ -109,10 +109,10 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
             )}
 
             {/* Right Side - Actions (Search & Settings) */}
-            <div className="flex items-center gap-2 shrink-0 pr-1 ml-auto">
+            <div className="flex items-center gap-2 min-w-0 pr-1 ml-auto">
                 {/* Search Bar */}
                 {activeView && (
-                    <div className="flex items-center h-full mr-1" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                    <div className="flex items-center h-full mr-1 min-w-0 flex-1 justify-end" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <SearchBar
                             value={searchQuery}
                             onChange={setSearchQuery}

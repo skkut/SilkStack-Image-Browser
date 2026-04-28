@@ -25,7 +25,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   }, [onChange]);
 
   return (
-    <div className="relative w-64 group">
+    <div className="relative w-full max-w-[16rem] min-w-[100px] group">
       <input
         type="text"
         value={value}
