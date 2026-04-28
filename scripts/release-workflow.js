@@ -47,16 +47,7 @@ console.log(`4. 📝 Paste the release notes into the description`);
 console.log(`5. 📤 Set as latest release and publish!`);
 console.log('='.repeat(50));
 
-// Optional: Open browser to GitHub releases page
-console.log('\n🔗 Opening GitHub releases page...');
-try {
-  const openCmd = process.platform === 'win32' ? 'start' :
-                  process.platform === 'darwin' ? 'open' :
-                  'xdg-open';
-  execSync(`${openCmd} https://github.com/skkut/SilkStack-Image-Browser/releases/new`, { stdio: 'inherit' });
-} catch (error) {
-  console.log('💡 Manually open: https://github.com/skkut/SilkStack-Image-Browser/releases/new');
-}
+// Browser opening removed as release is handled automatically.
 
 console.log('\n🎉 Release workflow completed!');
 console.log(`📁 Release notes saved to: release-v${VERSION}.md`);
