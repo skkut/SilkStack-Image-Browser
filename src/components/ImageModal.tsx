@@ -1283,7 +1283,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           <div className="flex items-center gap-1 pr-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button
               onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-              className="text-gray-400 hover:text-gray-50 rounded px-2 py-1 transition-colors"
+              className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
               title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             >
               {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
@@ -1291,10 +1291,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <button
               onClick={(e) => { e.stopPropagation(); handleDelete(); }}
               disabled={isIndexing}
-              className={`rounded px-2 py-1 transition-colors ${
+              className={`rounded-full p-1.5 transition-colors ${
                 isIndexing
                   ? "text-gray-600 cursor-not-allowed"
-                  : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
+                  : "text-gray-400 hover:text-red-400 hover:bg-red-500/10"
               }`}
               title={isIndexing ? "Cannot delete during indexing" : "Delete image"}
             >
@@ -1302,7 +1302,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setIsSidebarCollapsed(!isSidebarCollapsed); }}
-              className="text-gray-400 hover:text-gray-50 rounded px-2 py-1 transition-colors"
+              className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
               title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
               {isSidebarCollapsed ? (
@@ -1460,7 +1460,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <div className={`absolute top-4 ${isSidebarCollapsed ? "right-14" : "right-4"} flex items-center gap-2`}>
               <button
                 onClick={toggleFullscreen}
-                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
                 title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
               >
                 {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
@@ -1468,10 +1468,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
               <button
                 onClick={handleDelete}
                 disabled={isIndexing}
-                className={`bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
+                className={`bg-gray-950/60 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
                   isIndexing
                     ? "text-gray-600 cursor-not-allowed"
-                    : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
+                    : "text-gray-400 hover:text-red-400 hover:bg-red-500/20"
                 }`}
                 title={
                   isIndexing
@@ -1483,7 +1483,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </button>
               <button
                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
                 aria-label={
                   isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
                 }
