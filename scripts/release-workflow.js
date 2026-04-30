@@ -27,15 +27,27 @@ execSync(`node scripts/generate-release.js ${VERSION}`, { stdio: 'inherit' });
 // Step 3: Commit changes
 console.log('💾 Committing version changes...');
 execSync('git add package.json docs/ARCHITECTURE.md', { stdio: 'inherit' });
-execSync(`git commit -m "chore: bump version to v${VERSION}"`, { stdio: 'inherit' });
-console.log('✅ Changes committed');
+try {
+  execSync(`git commit -m "chore: bump version to v${VERSION}"`, { stdio: 'inherit' });
+  console.log('✅ Changes committed');
+} catch (error) {
+  console.log('⚠️ No changes to commit. Continuing...');
+}
 
 // Step 4: Create and push tag
 console.log('🏷️  Creating and pushing tag...');
-execSync(`git tag v${VERSION}`, { stdio: 'inherit' });
-execSync(`git push origin main`, { stdio: 'inherit' });
-execSync(`git push origin v${VERSION}`, { stdio: 'inherit' });
-console.log(`✅ Tag v${VERSION} created and pushed`);
+try {
+  execSync(`git tag v${VERSION}`, { stdio: 'inherit' });
+} catch (error) {
+  console.log(`⚠️ Tag v${VERSION} may already exist. Continuing...`);
+}
+try {
+  execSync(`git push origin main`, { stdio: 'inherit' });
+  execSync(`git push origin v${VERSION}`, { stdio: 'inherit' });
+  console.log(`✅ Tag v${VERSION} pushed`);
+} catch (error) {
+  console.log(`⚠️ Push failed. It may have already been pushed. Continuing...`);
+}
 
 // Step 5: Instructions for manual steps
 console.log('\n🎯 MANUAL STEPS REQUIRED:');
