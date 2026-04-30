@@ -1457,47 +1457,56 @@ const ImageModal: React.FC<ImageModalProps> = ({
           )}
 
           {(!isStandaloneWindow || isFullscreen) && (
-            <div className={`absolute top-4 ${isSidebarCollapsed ? "right-14" : "right-4"} flex items-center gap-2`}>
+            <>
               <button
-                onClick={toggleFullscreen}
-                className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
-                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                onClick={onClose}
+                className="absolute top-4 right-4 z-[60] bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                title="Close"
               >
-                {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                <X size={16} />
               </button>
-              <button
-                onClick={handleDelete}
-                disabled={isIndexing}
-                className={`bg-gray-950/60 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
-                  isIndexing
-                    ? "text-gray-600 cursor-not-allowed"
-                    : "text-gray-400 hover:text-red-400 hover:bg-red-500/20"
-                }`}
-                title={
-                  isIndexing
-                    ? "Cannot delete during indexing"
-                    : "Delete image"
-                }
-              >
-                <Trash2 size={16} />
-              </button>
-              <button
-                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
-                aria-label={
-                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                }
-                title={
-                  isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
-                }
-              >
-                {isSidebarCollapsed ? (
-                  <PanelRightOpen className="w-4 h-4" />
-                ) : (
-                  <PanelRightClose className="w-4 h-4" />
-                )}
-              </button>
-            </div>
+              <div className="absolute top-4 right-14 flex items-center gap-2">
+                <button
+                  onClick={toggleFullscreen}
+                  className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                  title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                >
+                  {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={isIndexing}
+                  className={`bg-gray-950/60 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
+                    isIndexing
+                      ? "text-gray-600 cursor-not-allowed"
+                      : "text-gray-400 hover:text-red-400 hover:bg-red-500/20"
+                  }`}
+                  title={
+                    isIndexing
+                      ? "Cannot delete during indexing"
+                      : "Delete image"
+                  }
+                >
+                  <Trash2 size={16} />
+                </button>
+                <button
+                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                  aria-label={
+                    isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                  }
+                  title={
+                    isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
+                  }
+                >
+                  {isSidebarCollapsed ? (
+                    <PanelRightOpen className="w-4 h-4" />
+                  ) : (
+                    <PanelRightClose className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </>
           )}
         </div>
 
