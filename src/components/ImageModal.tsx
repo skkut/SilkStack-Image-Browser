@@ -2000,17 +2000,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </div>
         </div>
 
-        {/* Modal Close Group - Positioned at far top corner */}
-        <div className="absolute top-4 right-4 z-[60]">
-          <button
-            onClick={onClose}
-            className="bg-gray-950/60 text-gray-50 rounded-full p-2 transition-opacity"
-            aria-label="Close image"
-            title="Close (Esc)"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+
       </div>
 
 
