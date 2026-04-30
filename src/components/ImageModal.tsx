@@ -46,6 +46,7 @@ interface ImageModalProps {
   onTagRemoved?: (imageId: string, tag: string) => void;
   onAutoTagRemoved?: (imageId: string, tag: string) => void;
   onFavoriteToggled?: (imageId: string) => void;
+  isStandaloneWindow?: boolean;
 }
 
 // Helper function to format LoRA with weight
@@ -456,6 +457,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   onTagRemoved,
   onAutoTagRemoved,
   onFavoriteToggled,
+  isStandaloneWindow = false,
 }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   // Cache for preloaded images: imageId -> objectUrl
@@ -1259,8 +1261,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   return (
     <div
-      className={`fixed inset-0 flex items-center justify-center z-[1000] transition-all duration-300 ${
-        isFullscreen ? "bg-gray-950 p-0" : "bg-gray-950/90 backdrop-blur-md p-2"
+      className={`${
+        isStandaloneWindow ? "w-full h-full relative" : "fixed inset-0 z-[1000]"
+      } flex items-center justify-center transition-all duration-300 ${
+        isFullscreen ? "bg-gray-950 p-0" : isStandaloneWindow ? "bg-gray-950" : "bg-gray-950/90 backdrop-blur-md p-2"
       }`}
       style={{ WebkitAppRegion: "no-drag" } as any}
       onClick={onClose}

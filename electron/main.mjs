@@ -554,8 +554,8 @@ if (!gotTheLock) {
 app.whenReady().then(async () => {
   // Listen for theme changes and notify renderer
   nativeTheme.on("updated", () => {
+    const isDark = nativeTheme.shouldUseDarkColors;
     if (mainWindow && !mainWindow.isDestroyed()) {
-      const isDark = nativeTheme.shouldUseDarkColors;
       mainWindow.setBackgroundColor(isDark ? '#0a0a0a' : '#ffffff');
       
       // Update title bar overlay to match new theme
@@ -568,6 +568,21 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send("theme-updated", {
         shouldUseDarkColors: isDark,
       });
+    }
+
+    // Update all open image viewer windows
+    for (const viewerWindow of imageViewerWindows.values()) {
+      if (viewerWindow && !viewerWindow.isDestroyed()) {
+        viewerWindow.setBackgroundColor(isDark ? '#0a0a0a' : '#ffffff');
+        viewerWindow.setTitleBarOverlay({
+          color: isDark ? '#1a1a1a' : '#f3f4f6',
+          symbolColor: isDark ? '#ffffff' : '#000000',
+          height: 44
+        });
+        viewerWindow.webContents.send("theme-updated", {
+          shouldUseDarkColors: isDark,
+        });
+      }
     }
   });
 
@@ -726,6 +741,12 @@ function setupFileOperationHandlers() {
           enableRemoteModule: false,
           webSecurity: true,
           preload: path.join(__dirname, "preload.js"),
+        },
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+          color: isDark ? '#1a1a1a' : '#f3f4f6',
+          symbolColor: isDark ? '#ffffff' : '#000000',
+          height: 44,
         },
         show: false,
         autoHideMenuBar: true,
