@@ -210,7 +210,7 @@ const ImageModalWindow: React.FC = () => {
       <div 
           className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 z-[1010] select-none shadow-sm flex items-center pt-0.5 pb-0.5 transition-all duration-300 shrink-0 w-full"
           style={{ 
-              height: 'var(--header-height, 44px)',
+              height: '32px',
               WebkitAppRegion: 'drag'
           } as any}
       >

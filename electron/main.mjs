@@ -577,7 +577,7 @@ app.whenReady().then(async () => {
         viewerWindow.setTitleBarOverlay({
           color: isDark ? '#1a1a1a' : '#f3f4f6',
           symbolColor: isDark ? '#ffffff' : '#000000',
-          height: 44
+          height: 32
         });
         viewerWindow.webContents.send("theme-updated", {
           shouldUseDarkColors: isDark,
@@ -746,7 +746,7 @@ function setupFileOperationHandlers() {
         titleBarOverlay: {
           color: isDark ? '#1a1a1a' : '#f3f4f6',
           symbolColor: isDark ? '#ffffff' : '#000000',
-          height: 44,
+          height: 32,
         },
         show: false,
         autoHideMenuBar: true,
