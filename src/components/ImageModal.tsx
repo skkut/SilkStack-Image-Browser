@@ -908,12 +908,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setPan({ x: 0, y: 0 });
   }, [image.id]);
 
-  // Reset zoom and pan when entering/exiting fullscreen
-  useEffect(() => {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  }, [isFullscreen]);
-
   // Zoom handlers
   const handleWheel = useCallback(
     (e: WheelEvent) => {
@@ -1265,7 +1259,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     <div
       className={`${
         isStandaloneWindow ? "w-full h-full relative flex-col items-stretch" : "fixed inset-0 flex items-center justify-center z-[1000]"
-      } transition-all duration-300 ${
+      } ${
         isFullscreen ? "bg-gray-950 p-0" : isStandaloneWindow ? "bg-gray-950 flex" : "bg-gray-950/90 backdrop-blur-md p-2 flex"
       }`}
       style={{ WebkitAppRegion: "no-drag" } as any}
@@ -1322,7 +1316,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
             ? "w-full h-full rounded-none"
             : isStandaloneWindow ? "flex-1 w-full rounded-none overflow-hidden"
             : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-gray-50/10"
-        } relative group/modal flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
+        } relative group/modal flex flex-col md:flex-row animate-in fade-in zoom-in-95`}
         onClick={(e) => {
           e.stopPropagation();
           hideContextMenu();
