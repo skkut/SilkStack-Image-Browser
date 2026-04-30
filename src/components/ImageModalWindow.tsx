@@ -205,42 +205,26 @@ const ImageModalWindow: React.FC = () => {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-950">
-      {/* Title Bar Area for Electron Native Controls */}
-      <div 
-          className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 z-[1010] select-none shadow-sm flex items-center pt-0.5 pb-0.5 transition-all duration-300 shrink-0 w-full"
-          style={{ 
-              height: '32px',
-              WebkitAppRegion: 'drag'
-          } as any}
-      >
-          <div className="flex-1 px-4 flex items-center text-xs font-semibold text-gray-400">
-            SilkStack Viewer
-          </div>
-          {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
-          <div className="w-[140px] flex-shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as any} />
-      </div>
-      <div className="flex-1 relative overflow-hidden bg-gray-950">
-        <ImageModal
-          image={image}
-          onClose={handleClose}
-          onImageDeleted={handleImageDeleted}
-          onImageRenamed={handleImageRenamed}
-          currentIndex={currentIndex}
-          totalImages={imageList.length}
-          onNavigateNext={handleNavigateNext}
-          onNavigatePrevious={handleNavigatePrevious}
-          directoryPath={image.directoryId || directoryPath}
-          isIndexing={false}
-          nextImage={nextImage}
-          previousImage={previousImage}
-          onTagAdded={handleAddTag}
-          onTagRemoved={handleRemoveTag}
-          onAutoTagRemoved={handleRemoveAutoTag}
-          onFavoriteToggled={handleToggleFavorite}
-          isStandaloneWindow={true}
-        />
-      </div>
+    <div className="h-screen w-screen overflow-hidden bg-gray-950">
+      <ImageModal
+        image={image}
+        onClose={handleClose}
+        onImageDeleted={handleImageDeleted}
+        onImageRenamed={handleImageRenamed}
+        currentIndex={currentIndex}
+        totalImages={imageList.length}
+        onNavigateNext={handleNavigateNext}
+        onNavigatePrevious={handleNavigatePrevious}
+        directoryPath={image.directoryId || directoryPath}
+        isIndexing={false}
+        nextImage={nextImage}
+        previousImage={previousImage}
+        onTagAdded={handleAddTag}
+        onTagRemoved={handleRemoveTag}
+        onAutoTagRemoved={handleRemoveAutoTag}
+        onFavoriteToggled={handleToggleFavorite}
+        isStandaloneWindow={true}
+      />
     </div>
   );
 };

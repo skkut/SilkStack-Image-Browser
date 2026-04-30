@@ -1262,17 +1262,62 @@ const ImageModal: React.FC<ImageModalProps> = ({
   return (
     <div
       className={`${
-        isStandaloneWindow ? "w-full h-full relative" : "fixed inset-0 z-[1000]"
-      } flex items-center justify-center transition-all duration-300 ${
-        isFullscreen ? "bg-gray-950 p-0" : isStandaloneWindow ? "bg-gray-950" : "bg-gray-950/90 backdrop-blur-md p-2"
+        isStandaloneWindow ? "w-full h-full relative flex-col items-stretch" : "fixed inset-0 flex items-center justify-center z-[1000]"
+      } transition-all duration-300 ${
+        isFullscreen ? "bg-gray-950 p-0" : isStandaloneWindow ? "bg-gray-950 flex" : "bg-gray-950/90 backdrop-blur-md p-2 flex"
       }`}
       style={{ WebkitAppRegion: "no-drag" } as any}
       onClick={onClose}
     >
+      {isStandaloneWindow && !isFullscreen && (
+        <div 
+          className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 z-[1010] select-none shadow-sm flex items-center pt-0.5 pb-0.5 shrink-0 w-full"
+          style={{ height: '32px', WebkitAppRegion: 'drag' } as any}
+        >
+          <div className="px-4 flex items-center text-xs font-semibold text-gray-400">
+            SilkStack Viewer
+          </div>
+          <div className="flex-1" />
+          <div className="flex items-center gap-1 pr-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="text-gray-400 hover:text-gray-50 rounded px-2 py-1 text-xs transition-colors"
+            >
+              {isFullscreen ? "Exit" : "Fullscreen"}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(); }}
+              disabled={isIndexing}
+              className={`rounded px-2 py-1 transition-colors ${
+                isIndexing
+                  ? "text-gray-600 cursor-not-allowed"
+                  : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
+              }`}
+              title={isIndexing ? "Cannot delete during indexing" : "Delete image"}
+            >
+              <Trash2 size={14} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsSidebarCollapsed(!isSidebarCollapsed); }}
+              className="text-gray-400 hover:text-gray-50 rounded px-2 py-1 transition-colors"
+              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {isSidebarCollapsed ? (
+                <PanelRightOpen className="w-4 h-4" />
+              ) : (
+                <PanelRightClose className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+          {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
+          <div className="w-[140px] flex-shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as any} />
+        </div>
+      )}
       <div
         className={`${
           isFullscreen
             ? "w-full h-full rounded-none"
+            : isStandaloneWindow ? "flex-1 w-full rounded-none overflow-hidden"
             : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-gray-50/10"
         } relative group/modal flex flex-col md:flex-row transition-all duration-300 animate-in fade-in zoom-in-95`}
         onClick={(e) => {
@@ -1408,46 +1453,48 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </div>
           )}
 
-          <div className={`absolute top-4 ${isSidebarCollapsed ? "right-14" : "right-4"} flex items-center gap-2`}>
-            <button
-              onClick={toggleFullscreen}
-              className="bg-gray-950/60 text-gray-50 rounded-full px-3 py-2 text-sm opacity-0 group-hover/modal:opacity-100 transition-opacity"
-            >
-              {isFullscreen ? "Exit" : "Fullscreen"}
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={isIndexing}
-              className={`bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
-                isIndexing
-                  ? "text-gray-600 cursor-not-allowed"
-                  : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
-              }`}
-              title={
-                isIndexing
-                  ? "Cannot delete during indexing"
-                  : "Delete image"
-              }
-            >
-              <Trash2 size={16} />
-            </button>
-            <button
-              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
-              aria-label={
-                isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-              }
-              title={
-                isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
-              }
-            >
-              {isSidebarCollapsed ? (
-                <PanelRightOpen className="w-4 h-4" />
-              ) : (
-                <PanelRightClose className="w-4 h-4" />
-              )}
-            </button>
-          </div>
+          {(!isStandaloneWindow || isFullscreen) && (
+            <div className={`absolute top-4 ${isSidebarCollapsed ? "right-14" : "right-4"} flex items-center gap-2`}>
+              <button
+                onClick={toggleFullscreen}
+                className="bg-gray-950/60 text-gray-50 rounded-full px-3 py-2 text-sm opacity-0 group-hover/modal:opacity-100 transition-opacity"
+              >
+                {isFullscreen ? "Exit" : "Fullscreen"}
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isIndexing}
+                className={`bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
+                  isIndexing
+                    ? "text-gray-600 cursor-not-allowed"
+                    : "text-gray-400 hover:text-red-400 hover:bg-gray-900/80"
+                }`}
+                title={
+                  isIndexing
+                    ? "Cannot delete during indexing"
+                    : "Delete image"
+                }
+              >
+                <Trash2 size={16} />
+              </button>
+              <button
+                onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                className="bg-gray-950/60 text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
+                aria-label={
+                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                }
+                title={
+                  isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
+                }
+              >
+                {isSidebarCollapsed ? (
+                  <PanelRightOpen className="w-4 h-4" />
+                ) : (
+                  <PanelRightClose className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Metadata Panel */}
