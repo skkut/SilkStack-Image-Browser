@@ -10,6 +10,9 @@
  * Premium features (require license — everything inside ai-intelligence):
  *   - createLLMTagGenerator()    — LLM-based auto-tagging
  *   - createEmbeddingProvider()  — Semantic prompt embeddings
+ *   - createSharedEngine()       — Shared WebLLM engine (chat + embeddings)
+ *   - createSemanticSearchEngine() — Natural-language search over prompts/tags
+ *   - createSemanticTextBuilder() — Searchable-text build + FNV-1a hash (Δ re-indexing)
  *   - createStackingEngine()     — AI-powered image grouping
  *   - createTagGenerator()       — Rule-based extraction from ai-intelligence
  *
@@ -50,6 +53,102 @@ export interface IEmbeddingProvider {
   readonly modelId: string;
   initialize(): Promise<void>;
   embed(texts: string[]): Promise<Float32Array[]>;
+  dispose(): void;
+}
+
+/**
+ * Shared ML engine — one WebLLM engine holding two model records
+ * (Hermes-3 chat + Arctic embed) under a single WebGPU context.
+ * Mirrored from ai-intelligence's SharedMLEngine; the module's own types
+ * never flow into the app (see the ambient stub in vite-env.d.ts).
+ */
+export interface ISharedMLEngine {
+  /** Chat view used by the LLM tag generator (auto-tagging). */
+  getChatEngine(): ISharedChatEngine;
+  /** Embedding view used by the embedding provider (semantic search). */
+  getEmbeddingEngine(): ISharedEmbeddingEngine;
+  /** Unload all models and release the WebGPU context. */
+  unload(): Promise<void>;
+}
+
+/** Structural view of the shared engine's chat surface. */
+export interface ISharedChatEngine {
+  chat: {
+    completions: {
+      create(params: {
+        messages: Array<{ role: string; content: string }>;
+        max_tokens?: number;
+        temperature?: number;
+        /** Required when the engine holds multiple loaded records. */
+        model?: string;
+      }): Promise<unknown>;
+    };
+  };
+  unload(): Promise<void>;
+}
+
+/** Structural view of the shared engine's embedding surface. */
+export interface ISharedEmbeddingEngine {
+  embeddings: {
+    create(params: { input: string | string[]; model?: string }): Promise<unknown>;
+  };
+  unload(): Promise<void>;
+}
+
+/** Progress report while the shared engine loads its records. */
+export interface SharedEngineProgressReport extends LoadProgressReport {
+  /** The model record currently loading (best-effort). */
+  modelId: string;
+}
+
+// ── Semantic search (mirrored from ai-intelligence) ───────────────────
+
+/** Cosine threshold below which semantic hits are dropped. */
+export const SEMANTIC_SEARCH_THRESHOLD = 0.55;
+
+/** Maximum semantic hits returned by default. */
+export const SEMANTIC_SEARCH_TOP_N = 200;
+
+/** One entry to embed and index (textHash invalidates on content change). */
+export interface ISemanticIndexEntry {
+  imageId: string;
+  text: string;
+  textHash: string;
+}
+
+/** A persisted vector record — restored at startup without re-embedding. */
+export interface ISemanticVectorRecord {
+  imageId: string;
+  vector: Float32Array;
+  textHash: string;
+  modelId: string;
+  dimension: number;
+  updatedAt: number;
+}
+
+/** A ranked hit from a semantic query. */
+export interface ISemanticSearchHit {
+  imageId: string;
+  score: number;
+}
+
+/** Interface for semantic search (WebLLM embeddings + in-memory index). */
+export interface ISemanticSearchEngine {
+  initialize(): Promise<void>;
+  addEntries(entries: ISemanticIndexEntry[]): Promise<void>;
+  restore(records: ISemanticVectorRecord[]): number;
+  remove(imageIds: string[]): void;
+  getTextHash(imageId: string): string | undefined;
+  query(
+    text: string,
+    options?: { limit?: number; threshold?: number },
+  ): Promise<ISemanticSearchHit[]>;
+  getStatus(): {
+    initialized: boolean;
+    indexedCount: number;
+    modelId: string;
+    dimension: number;
+  };
   dispose(): void;
 }
 
@@ -137,11 +236,14 @@ async function loadAiModule(): Promise<Record<string, unknown> | null> {
  * Create an LLM-powered tag generator.
  * Returns `null` if the ai-intelligence module is unavailable or WebGPU
  * isn't supported.
+ *
+ * Pass `sharedEngine` (from createSharedEngine()) to reuse the shared
+ * WebGPU context instead of loading the chat model standalone.
  */
 export async function createLLMTagGenerator(
   modelId: string = TAG_GENERATION_MODEL_ID,
   onProgress?: (report: LoadProgressReport) => void,
-  opts?: { skipPremiumCheck?: boolean },
+  opts?: { skipPremiumCheck?: boolean; sharedEngine?: ISharedMLEngine },
 ): Promise<ILLMTagGenerator | null> {
   // Premium gate: LLM-based tag generation requires a valid license.
   // Trusted callers (e.g. the auto-tagging worker) may skip this check when
@@ -156,7 +258,14 @@ export async function createLLMTagGenerator(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const LLMTagGenerator = (mod as any).LLMTagGenerator;
     if (!LLMTagGenerator) return null;
-    return new LLMTagGenerator(modelId, onProgress) as ILLMTagGenerator;
+    // Only pass the engine when one exists — the standalone call shape
+    // stays identical so the module owns its own engine (and lifecycle).
+    const chatEngine = opts?.sharedEngine?.getChatEngine();
+    return (
+      (chatEngine
+        ? new LLMTagGenerator(modelId, onProgress, chatEngine)
+        : new LLMTagGenerator(modelId, onProgress)) as ILLMTagGenerator
+    );
   } catch (err) {
     console.warn('[aiBridge] Failed to create LLMTagGenerator:', err);
     return null;
@@ -199,14 +308,20 @@ export async function createTagGenerator(
 /**
  * Create a WebLLM embedding provider.
  * Returns `null` if the ai-intelligence module is unavailable.
+ *
+ * Pass `sharedEngine` (from createSharedEngine()) to reuse the shared
+ * WebGPU context instead of loading the embed model standalone.
  */
 export async function createEmbeddingProvider(
   modelId: string = EMBEDDING_MODEL_ID,
   dimension: number = 768,
   onProgress?: (report: LoadProgressReport) => void,
+  opts?: { sharedEngine?: ISharedMLEngine; skipPremiumCheck?: boolean },
 ): Promise<IEmbeddingProvider | null> {
-  // Premium gate: embedding generation requires a valid license
-  if (!(await checkPremiumLicense())) return null;
+  // Premium gate: embedding generation requires a valid license.
+  // Trusted callers (e.g. the AI worker) may skip this check when the
+  // main thread has already verified premium status.
+  if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
 
   const mod = await loadAiModule();
   if (!mod) return null;
@@ -215,9 +330,148 @@ export async function createEmbeddingProvider(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const WebLLMEmbeddingProvider = (mod as any).WebLLMEmbeddingProvider;
     if (!WebLLMEmbeddingProvider) return null;
-    return new WebLLMEmbeddingProvider(modelId, dimension, onProgress) as IEmbeddingProvider;
+    // Only pass the engine when one exists — the standalone call shape
+    // stays identical so the provider owns its own engine (and lifecycle).
+    const embeddingEngine = opts?.sharedEngine?.getEmbeddingEngine();
+    return (
+      (embeddingEngine
+        ? new WebLLMEmbeddingProvider(modelId, dimension, onProgress, embeddingEngine)
+        : new WebLLMEmbeddingProvider(modelId, dimension, onProgress)) as IEmbeddingProvider
+    );
   } catch (err) {
     console.warn('[aiBridge] Failed to create EmbeddingProvider:', err);
+    return null;
+  }
+}
+
+/**
+ * Create the shared WebLLM engine — one engine holding two model records
+ * (Hermes-3 chat + Arctic embed) under a single WebGPU context. This is
+ * the "one engine, two records" foundation for auto-tagging and semantic
+ * search: pass the result to createLLMTagGenerator() / createEmbeddingProvider()
+ * so both features reuse one context instead of each loading their own
+ * model (~2.8 GB VRAM combined).
+ *
+ * Returns `null` if the ai-intelligence module is unavailable or the user
+ * lacks a premium license. The engine is created lazily — nothing loads
+ * until this factory is called, and both records load in one call.
+ */
+export async function createSharedEngine(opts?: {
+  onProgress?: (report: SharedEngineProgressReport) => void;
+  skipPremiumCheck?: boolean;
+}): Promise<ISharedMLEngine | null> {
+  // Premium gate: the shared engine serves premium features (semantic
+  // search + LLM auto-tagging). Trusted callers may skip this check when
+  // the main thread has already verified premium status.
+  if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
+
+  const mod = await loadAiModule();
+  if (!mod) return null;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SharedMLEngine = (mod as any).SharedMLEngine;
+    if (!SharedMLEngine) return null;
+    return (await SharedMLEngine.create({ onProgress: opts?.onProgress })) as ISharedMLEngine;
+  } catch (err) {
+    console.warn('[aiBridge] Failed to create SharedMLEngine:', err);
+    return null;
+  }
+}
+
+/**
+ * Create the semantic search engine — the module's SemanticSearchEngine
+ * backed by the Arctic embed provider. Pass `sharedEngine` (from
+ * createSharedEngine()) to reuse the shared WebGPU context; without one the
+ * provider loads the embed model standalone (devtools/tests unchanged).
+ *
+ * Returns `null` if the ai-intelligence module is unavailable or the user
+ * lacks a premium license. The caller is responsible for `initialize()` —
+ * on the standalone path that loads the embed model; with a shared engine
+ * it is a no-op (both records load when the engine is created).
+ */
+export async function createSemanticSearchEngine(opts?: {
+  sharedEngine?: ISharedMLEngine;
+  onProgress?: (report: LoadProgressReport) => void;
+  skipPremiumCheck?: boolean;
+}): Promise<ISemanticSearchEngine | null> {
+  // Premium gate: semantic search requires a valid license.
+  if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
+
+  const mod = await loadAiModule();
+  if (!mod) return null;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const WebLLMEmbeddingProvider = (mod as any).WebLLMEmbeddingProvider;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SemanticSearchEngine = (mod as any).SemanticSearchEngine;
+    if (!WebLLMEmbeddingProvider || !SemanticSearchEngine) return null;
+
+    // Both constructions flow through the bridge so no file outside
+    // aiBridge.ts ever imports the module directly.
+    const embeddingEngine = opts?.sharedEngine?.getEmbeddingEngine();
+    const provider = embeddingEngine
+      ? new WebLLMEmbeddingProvider(EMBEDDING_MODEL_ID, 768, opts?.onProgress, embeddingEngine)
+      : new WebLLMEmbeddingProvider(EMBEDDING_MODEL_ID, 768, opts?.onProgress);
+    return new SemanticSearchEngine(provider) as ISemanticSearchEngine;
+  } catch (err) {
+    console.warn('[aiBridge] Failed to create SemanticSearchEngine:', err);
+    return null;
+  }
+}
+
+/**
+ * Pure text-building + hashing for semantic indexing. Both functions are
+ * closed-source module code, so they flow through the bridge like every
+ * other module capability — the coordinator never imports the module.
+ *
+ * `buildSearchableText` produces the per-image text that gets embedded
+ * (prompt ×10, tags ×8, models ×5 repetitions, capped 1600 chars);
+ * `buildTextHash` is the FNV-1a hash of that text, which drives
+ * incremental re-indexing (Δ by textHash: a stored vector is only stale
+ * when its hash no longer matches).
+ */
+export interface ISemanticTextBuilder {
+  buildSearchableText(input: ISearchableTextInput): string;
+  buildTextHash(text: string): string;
+}
+
+/** The per-image searchable content — same shape as the module's input. */
+export interface ISearchableTextInput {
+  prompt?: string;
+  tags?: string[];
+  models?: string[];
+}
+
+/**
+ * Create the semantic text builder (premium-gated like every module
+ * capability). Returns `null` when the ai-intelligence module is absent or
+ * the user lacks a valid license — the coordinator then reports the
+ * feature as unavailable.
+ */
+export async function createSemanticTextBuilder(opts?: {
+  skipPremiumCheck?: boolean;
+}): Promise<ISemanticTextBuilder | null> {
+  // Premium gate: the module's text builder is closed-source code and only
+  // serves semantic search, a premium feature. Trusted callers (worker)
+  // may skip the check when the main thread already verified premium.
+  if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
+
+  const mod = await loadAiModule();
+  if (!mod) return null;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buildSearchableText = (mod as any).buildSearchableText;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buildTextHash = (mod as any).buildTextHash;
+    if (typeof buildSearchableText !== 'function' || typeof buildTextHash !== 'function') {
+      return null;
+    }
+    return { buildSearchableText, buildTextHash } as ISemanticTextBuilder;
+  } catch (err) {
+    console.warn('[aiBridge] Failed to create semantic text builder:', err);
     return null;
   }
 }

@@ -7,12 +7,13 @@ import './styles/themes.css';
 import { useImageStore } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import ImageModalWindow from './components/ImageModalWindow';
-import DevAutoTaggingTester from './components/DevAutoTaggingTester';
+import DevToolsShell from './components/DevToolsShell';
 
 // Check if this window is an image viewer child window
 const isImageViewer = new URLSearchParams(window.location.search).get('imageViewer') === 'true';
 
-// Dev tools: accessible via ?devtools=auto-tag (not linked in the main UI)
+// Dev tools: opened via Ctrl+Y in the app (or ?devtools=<tool> directly);
+// the shell hosts every tester behind a tab switcher.
 const devtoolsParam = new URLSearchParams(window.location.search).get('devtools');
 
 // Expose stores globally for debugging
@@ -32,7 +33,7 @@ root.render(
   <React.StrictMode>
     <ErrorBoundary>
       {isImageViewer ? <ImageModalWindow /> :
-       devtoolsParam === 'auto-tag' ? <DevAutoTaggingTester /> :
+       devtoolsParam ? <DevToolsShell initialTool={devtoolsParam} /> :
        <App />}
     </ErrorBoundary>
   </React.StrictMode>

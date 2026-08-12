@@ -82,7 +82,11 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
       { id: '4', prompt: 'test prompt B', directoryId: 'dir1', lastModified: 700, stackGroupId: 'hash-b' },
     ] as any;
 
+    // Both images and filteredImages are seeded: the app derives filteredImages
+    // from images, and a settings change can trigger a re-filter (e.g. the
+    // semantic-search sync below), which recomputes from `images`.
     useImageStore.setState({
+      images: mockImages,
       filteredImages: mockImages,
       directories: [{ id: 'dir1', path: 'C:/test' }] as any,
       scanSubfolders: false,
@@ -130,6 +134,7 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
     ] as any;
 
     useImageStore.setState({
+      images: mockImages,
       filteredImages: mockImages,
       directories: [{ id: 'dir1', path: 'C:/test' }] as any,
       scanSubfolders: false,

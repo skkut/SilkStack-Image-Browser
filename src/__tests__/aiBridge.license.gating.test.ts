@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   TagGenerator: vi.fn(),
   WebLLMEmbeddingProvider: vi.fn(),
   StackingEngine: vi.fn(),
+  SharedMLEngine: vi.fn(),
+  SemanticSearchEngine: vi.fn(),
 }));
 
 // Vitest 4's file-backed localStorage can be inert on some machines (see the
@@ -50,8 +52,10 @@ vi.hoisted(() => {
 
 vi.mock('@ai-images-browser/ai-intelligence', () => {
   class LLMTagGenerator {
-    constructor(modelId: string, onProgress?: unknown) {
-      mocks.LLMTagGenerator(modelId, onProgress);
+    // Forward args verbatim (exact arity) so tests can assert standalone
+    // vs shared-engine construction shapes.
+    constructor(...args: unknown[]) {
+      mocks.LLMTagGenerator(...args);
     }
     async initialize(): Promise<void> {}
     async generateTagsFromPrompt(prompt: string): Promise<string[]> {
@@ -75,8 +79,10 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
   class WebLLMEmbeddingProvider {
     readonly dimension = 768;
     readonly modelId = 'mock-embed-model';
-    constructor(modelId: string, dimension: number, onProgress?: unknown) {
-      mocks.WebLLMEmbeddingProvider(modelId, dimension, onProgress);
+    // Forward args verbatim (exact arity) so tests can assert standalone
+    // vs shared-engine construction shapes.
+    constructor(...args: unknown[]) {
+      mocks.WebLLMEmbeddingProvider(...args);
     }
     async initialize(): Promise<void> {}
     async embed(texts: string[]): Promise<Float32Array[]> {
@@ -103,7 +109,66 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
     }
   }
 
-  return { LLMTagGenerator, TagGenerator, WebLLMEmbeddingProvider, StackingEngine };
+  class SharedMLEngine {
+    // The bridge calls the static create() (lazy engine creation) — that's
+    // the surface the spy records.
+    static async create(options?: unknown): Promise<SharedMLEngine> {
+      mocks.SharedMLEngine(options);
+      return new SharedMLEngine();
+    }
+    getChatEngine() {
+      return {
+        chat: { completions: { create: async () => ({ choices: [] }) } },
+        unload: async () => {},
+      };
+    }
+    getEmbeddingEngine() {
+      return {
+        embeddings: { create: async () => ({ data: [] }) },
+        unload: async () => {},
+      };
+    }
+    async unload(): Promise<void> {}
+  }
+
+  class SemanticSearchEngine {
+    // Forward the provider verbatim — the bridge wires provider → engine.
+    constructor(...args: unknown[]) {
+      mocks.SemanticSearchEngine(...args);
+    }
+    async initialize(): Promise<void> {}
+    async addEntries(): Promise<void> {}
+    restore(): number {
+      return 0;
+    }
+    remove(): void {}
+    getTextHash(): string | undefined {
+      return undefined;
+    }
+    async query(): Promise<Array<{ imageId: string; score: number }>> {
+      return [];
+    }
+    getStatus(): { initialized: boolean; indexedCount: number; modelId: string; dimension: number } {
+      return { initialized: false, indexedCount: 0, modelId: 'mock-embed-model', dimension: 768 };
+    }
+    dispose(): void {}
+  }
+
+  // Pure functions (no constructor to spy on) — exposed through the bridge
+  // as the semantic text builder.
+  const buildSearchableText = (input: { prompt?: string }): string => input.prompt ?? '';
+  const buildTextHash = (text: string): string => `hash:${text}`;
+
+  return {
+    LLMTagGenerator,
+    TagGenerator,
+    WebLLMEmbeddingProvider,
+    StackingEngine,
+    SharedMLEngine,
+    SemanticSearchEngine,
+    buildSearchableText,
+    buildTextHash,
+  };
 });
 
 // Imported statically so we can control license state; aiBridge's internal
@@ -158,6 +223,27 @@ describe('aiBridge — premium gating without a license', () => {
         const engine = await createStackingEngine();
         expect(engine).toBeNull();
         expect(mocks.StackingEngine).not.toHaveBeenCalled();
+      });
+
+      it('createSharedEngine returns null and never touches the closed-source module', async () => {
+        const { createSharedEngine } = await import('../services/aiBridge');
+        const engine = await createSharedEngine();
+        expect(engine).toBeNull();
+        expect(mocks.SharedMLEngine).not.toHaveBeenCalled();
+      });
+
+      it('createSemanticSearchEngine returns null and never touches the closed-source module', async () => {
+        const { createSemanticSearchEngine } = await import('../services/aiBridge');
+        const engine = await createSemanticSearchEngine();
+        expect(engine).toBeNull();
+        expect(mocks.WebLLMEmbeddingProvider).not.toHaveBeenCalled();
+        expect(mocks.SemanticSearchEngine).not.toHaveBeenCalled();
+      });
+
+      it('createSemanticTextBuilder returns null without a license', async () => {
+        const { createSemanticTextBuilder } = await import('../services/aiBridge');
+        const builder = await createSemanticTextBuilder();
+        expect(builder).toBeNull();
       });
 
       it('createTagGenerator skips the closed-source TagGenerator', async () => {
@@ -226,12 +312,121 @@ describe('aiBridge — premium features with a license', () => {
         expect(mocks.StackingEngine).toHaveBeenCalledTimes(1);
       });
 
+      it('createSharedEngine constructs the shared engine lazily', async () => {
+        const { createSharedEngine } = await import('../services/aiBridge');
+        const engine = await createSharedEngine();
+
+        expect(engine).not.toBeNull();
+        expect(mocks.SharedMLEngine).toHaveBeenCalledTimes(1);
+        // The bridge always passes the options object (onProgress optional).
+        expect(mocks.SharedMLEngine).toHaveBeenCalledWith({ onProgress: undefined });
+      });
+
+      it('createSharedEngine forwards the onProgress callback', async () => {
+        const { createSharedEngine } = await import('../services/aiBridge');
+        const onProgress = vi.fn();
+
+        const engine = await createSharedEngine({ onProgress });
+        expect(engine).not.toBeNull();
+        expect(mocks.SharedMLEngine).toHaveBeenCalledTimes(1);
+        expect(mocks.SharedMLEngine).toHaveBeenCalledWith({ onProgress });
+      });
+
+      it('createLLMTagGenerator reuses the shared chat engine when one exists', async () => {
+        const { createSharedEngine, createLLMTagGenerator } = await import('../services/aiBridge');
+        const shared = await createSharedEngine();
+        expect(shared).not.toBeNull();
+
+        mocks.LLMTagGenerator.mockClear();
+        const llm = await createLLMTagGenerator('model-x', undefined, { sharedEngine: shared! });
+        expect(llm).not.toBeNull();
+        expect(mocks.LLMTagGenerator).toHaveBeenCalledTimes(1);
+        expect(mocks.LLMTagGenerator).toHaveBeenCalledWith(
+          'model-x',
+          undefined,
+          expect.objectContaining({ chat: expect.any(Object), unload: expect.any(Function) }),
+        );
+      });
+
+      it('createEmbeddingProvider reuses the shared embedding engine when one exists', async () => {
+        const { createSharedEngine, createEmbeddingProvider } = await import('../services/aiBridge');
+        const shared = await createSharedEngine();
+        expect(shared).not.toBeNull();
+
+        mocks.WebLLMEmbeddingProvider.mockClear();
+        const provider = await createEmbeddingProvider('embed-model', 384, undefined, {
+          sharedEngine: shared!,
+        });
+        expect(provider).not.toBeNull();
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledTimes(1);
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledWith(
+          'embed-model',
+          384,
+          undefined,
+          expect.objectContaining({ embeddings: expect.any(Object), unload: expect.any(Function) }),
+        );
+      });
+
+      it('createSemanticSearchEngine constructs the provider and the engine standalone', async () => {
+        const { createSemanticSearchEngine } = await import('../services/aiBridge');
+        const engine = await createSemanticSearchEngine();
+
+        expect(engine).not.toBeNull();
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledTimes(1);
+        // Standalone path: provider loads the embed model itself.
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledWith(
+          expect.any(String),
+          768,
+          undefined,
+        );
+        // The engine receives the freshly constructed provider instance.
+        expect(mocks.SemanticSearchEngine).toHaveBeenCalledTimes(1);
+        expect(mocks.SemanticSearchEngine).toHaveBeenCalledWith(
+          expect.objectContaining({ dimension: 768, modelId: 'mock-embed-model' }),
+        );
+      });
+
+      it('createSemanticSearchEngine reuses the shared embedding engine when one exists', async () => {
+        const { createSharedEngine, createSemanticSearchEngine } = await import('../services/aiBridge');
+        const shared = await createSharedEngine();
+        expect(shared).not.toBeNull();
+
+        mocks.WebLLMEmbeddingProvider.mockClear();
+        mocks.SemanticSearchEngine.mockClear();
+        const engine = await createSemanticSearchEngine({ sharedEngine: shared! });
+
+        expect(engine).not.toBeNull();
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledTimes(1);
+        // Shared path: the provider is a thin adapter over the engine's
+        // embedding record — no standalone model load.
+        expect(mocks.WebLLMEmbeddingProvider).toHaveBeenCalledWith(
+          expect.any(String),
+          768,
+          undefined,
+          expect.objectContaining({ embeddings: expect.any(Object), unload: expect.any(Function) }),
+        );
+        expect(mocks.SemanticSearchEngine).toHaveBeenCalledWith(
+          expect.objectContaining({ dimension: 768, modelId: 'mock-embed-model' }),
+        );
+      });
+
       it('createTagGenerator uses the closed-source TagGenerator', async () => {
         const { createTagGenerator } = await import('../services/aiBridge');
         const tagger = await createTagGenerator();
 
         expect(tagger).not.toBeNull();
         expect(mocks.TagGenerator).toHaveBeenCalledTimes(1);
+      });
+
+      it('createSemanticTextBuilder exposes the module text builder functions', async () => {
+        const { createSemanticTextBuilder } = await import('../services/aiBridge');
+        const builder = await createSemanticTextBuilder();
+
+        expect(builder).not.toBeNull();
+        expect(typeof builder!.buildSearchableText).toBe('function');
+        expect(typeof builder!.buildTextHash).toBe('function');
+        expect(builder!.buildSearchableText({ prompt: 'a fox' })).toBe('a fox');
+        expect(builder!.buildTextHash('x')).toBe('hash:x');
       });
     });
   }
@@ -255,6 +450,33 @@ describe('aiFeatureAccess — UI gate helper', () => {
     for (const status of PREMIUM_STATUSES) {
       setLicenseStatus(status);
       expect(isAiFeaturesEnabled(), `status=${status}`).toBe(true);
+    }
+  });
+
+  it('isSemanticSearchEnabled() is false without a license or with the feature off', async () => {
+    const { isSemanticSearchEnabled, useSemanticSearchEnabled } = await import('../services/aiFeatureAccess');
+    // Regression: this imperative variant must run OUTSIDE React render —
+    // it is called from zustand actions / the post-indexing pipeline, where
+    // the reactive hook would throw "Invalid hook call" (React error #321).
+    useSettingsStore.setState({ isSemanticSearchEnabled: false });
+    for (const status of NON_PREMIUM_STATUSES) {
+      setLicenseStatus(status);
+      expect(isSemanticSearchEnabled(), `status=${status}`).toBe(false);
+    }
+    setLicenseStatus('valid');
+    expect(isSemanticSearchEnabled()).toBe(false); // premium OK, pref off
+
+    // The hook itself is unusable outside a component render — exactly why
+    // the imperative twin exists.
+    expect(() => useSemanticSearchEnabled()).toThrow();
+  });
+
+  it('isSemanticSearchEnabled() is true only with premium + the user pref on', async () => {
+    const { isSemanticSearchEnabled } = await import('../services/aiFeatureAccess');
+    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+    for (const status of PREMIUM_STATUSES) {
+      setLicenseStatus(status);
+      expect(isSemanticSearchEnabled(), `status=${status}`).toBe(true);
     }
   });
 

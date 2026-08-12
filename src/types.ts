@@ -272,8 +272,8 @@ export interface ElectronAPI {
   ) => Promise<{ success: boolean; message?: string; purchase?: Record<string, unknown> }>;
   isDev: () => Promise<boolean>;
 
-  // Dev Tools
-  openDevTools: () => Promise<{ success: boolean; error?: string }>;
+  // Dev Tools (tool: which tester to open, e.g. 'auto-tag' | 'semantic-search')
+  openDevTools: (tool: string) => Promise<{ success: boolean; error?: string }>;
 
   // Image Viewer Window
   openImageViewer: (data: {

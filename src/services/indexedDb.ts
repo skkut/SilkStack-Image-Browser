@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 const DB_NAME = 'image-metahub-preferences';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 let isPersistenceDisabled = false;
 let hasResetAttempted = false;
@@ -102,6 +102,11 @@ export async function openDatabase(
 
         if (!db.objectStoreNames.contains('folderPreferences')) {
           db.createObjectStore('folderPreferences', { keyPath: 'path' });
+        }
+
+        if (!db.objectStoreNames.contains('semanticVectors')) {
+          const store = db.createObjectStore('semanticVectors', { keyPath: 'imageId' });
+          store.createIndex('updatedAt', 'updatedAt', { unique: false });
         }
       };
 

@@ -44,6 +44,7 @@
 ### Persistence & Local Storage
 
 - **Folder Selection Storage (`services/folderSelectionStorage.ts`)** wraps IndexedDB access with graceful fallbacks. If IndexedDB is unavailable or corrupted the module disables persistence and relies on in-memory storage to avoid blocking the UI.
+- **Schema & Migrations** — all stores live in one database (`image-metahub-preferences`, currently v8) opened through `services/indexedDb.ts`. Migration instructions and version history: [`DATABASE-MIGRATION.md`](DATABASE-MIGRATION.md).
 - **Cache Manager (`services/cacheManager.ts`)** writes indexed metadata and thumbnails to disk for Electron builds. Cache keys incorporate the directory path plus the recursive/flat flag to prevent stale cross-contamination when folder depth preferences change.
 - **Local Storage** is used for lightweight preferences (e.g., last known `scanSubfolders` value) to bootstrap Zustand state before IndexedDB hydration finishes.
 
@@ -69,7 +70,16 @@
 ### Auto-Tagging
 
 - **Auto-Tagging Engine (`services/autoTaggingEngine.ts`)** builds a TF-IDF model and emits suggested tags, persisted alongside indexed images.
-- **Auto-Tagging Worker (`services/workers/autoTaggingWorker.ts`)** handles long-running tag generation with cancellation support.
+- **AI Worker (`services/workers/aiWorker.ts`)** — the consolidated AI worker handles long-running LLM tag generation, embeddings, and semantic queries on the shared WebLLM engine, with cancellation support.
+
+### Semantic Search (Phases 4–5 — coordinator + store wiring)
+
+- **Coordinator (`services/semanticSearchEngine.ts`)** — owns the AI worker lifecycle, chunked restore of persisted vectors (2,000 records/message), Δ indexing by `textHash` (embed → persist → restore), single-shot `search()` that preempts indexing worker-side (§5.1), `clearIndex()`, and progress reporting. Holds **no vectors** itself — the index lives on the worker heap.
+- **Vector persistence (`services/semanticVectorsStorage.ts`)** — IndexedDB CRUD over the `semanticVectors` store (DB v8); the renderer touches records only transiently during indexing.
+- **Text builder (`createSemanticTextBuilder()` in `services/aiBridge.ts`)** — premium-gated mirror of the module's `buildSearchableText`/`buildTextHash`, used for Δ detection.
+- **Store wiring (Phase 5)** — `useImageStore` gains `semanticMode`/`semanticHits`/`semanticSearchStatus`/`semanticIndexProgress`, `runSemanticSearch` (300 ms debounce + latest-query-wins), `clearSemanticSearch`, `setSemanticMode`, and `semanticIndexImages()`; `filterAndSort` overlays hits via the pure `applySemanticMerge` (auto = keyword matches + semantic relatives, semantic = hits ∩ curation-visible; curation = folder visibility/selection/exclusions, favorites, safe mode, tags); the post-indexing pipeline runs it as Phase 3 (after stacking + similarity) with the existing in-progress/queued guards, skipped silently when the feature is off (the bridge factories return `null` without a license, so no premium phase scans in dev); a settings subscription starts Δ-indexing the moment the feature becomes usable (toggle on, or license/module arriving while the toggle is on) and clears hits when premium is lost. `useSettingsStore` persists `isSemanticSearchEnabled` (default off) + `semanticRerankEnabled`; `aiFeatureAccess.isSemanticSearchEnabled()` — the imperative twin of the `useSemanticSearchEnabled()` hook, used by store/pipeline code that runs outside React render — gates on user pref ∧ module ∧ license ∧ stamp.
+- **Devtools window (`Ctrl+Y`, or `?devtools=<tool>` in a browser)** — `DevToolsShell` hosts every tester behind a tab switcher (lazy-mounted, kept alive across switches); `?devtools=semantic-search` opens straight to the fixture library with natural-language query presets and a preemption demo for manual verification of the packaged build.
+- Design, phases, and deviation log: `ai-intelligence/docs/semantic-search.md`. UI (Phase 6) and rerank (Phase 7) are not yet implemented.
 
 ### ComfyUI Parser Architecture (Recent Refactoring)
 

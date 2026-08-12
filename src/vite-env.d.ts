@@ -48,6 +48,89 @@ declare module '@ai-images-browser/ai-intelligence' {
   export const EMBEDDING_MODEL_ID: string;
   export const SYSTEM_PROMPT: string;
 
+  // ── Shared engine (one engine, two records) ──────────────────────────
+
+  export interface SharedEngineProgress {
+    progress: number;
+    text: string;
+    modelId: string;
+  }
+
+  export class SharedMLEngine {
+    static create(options?: {
+      onProgress?: (report: SharedEngineProgress) => void;
+    }): Promise<SharedMLEngine>;
+    getChatEngine(): SharedChatEngine;
+    getEmbeddingEngine(): SharedEmbeddingEngine;
+    unload(): Promise<void>;
+  }
+
+  export interface SharedChatEngine {
+    chat: {
+      completions: {
+        create(params: {
+          messages: Array<{ role: string; content: string }>;
+          max_tokens?: number;
+          temperature?: number;
+          model?: string;
+        }): Promise<{ choices: Array<{ message: { content: string | null } }> }>;
+      };
+    };
+    unload(): Promise<void>;
+  }
+
+  export interface SharedEmbeddingEngine {
+    embeddings: {
+      create(params: { input: string | string[]; model?: string }): Promise<unknown>;
+    };
+    unload(): Promise<void>;
+  }
+
+  // ── Semantic search ──────────────────────────────────────────────────
+
+  export interface SemanticIndexEntry {
+    imageId: string;
+    text: string;
+    textHash: string;
+  }
+
+  export interface SemanticVectorRecord {
+    imageId: string;
+    vector: Float32Array;
+    textHash: string;
+    modelId: string;
+    dimension: number;
+    updatedAt: number;
+  }
+
+  export interface SemanticSearchHit {
+    imageId: string;
+    score: number;
+  }
+
+  export const SEMANTIC_SEARCH_THRESHOLD: number;
+  export const SEMANTIC_SEARCH_TOP_N: number;
+
+  export class SemanticSearchEngine {
+    constructor(embeddingProvider: unknown, threshold?: number, topN?: number);
+    initialize(): Promise<void>;
+    addEntries(entries: SemanticIndexEntry[]): Promise<void>;
+    restore(records: SemanticVectorRecord[]): number;
+    remove(imageIds: string[]): void;
+    getTextHash(imageId: string): string | undefined;
+    query(
+      text: string,
+      options?: { limit?: number; threshold?: number },
+    ): Promise<SemanticSearchHit[]>;
+    getStatus(): {
+      initialized: boolean;
+      indexedCount: number;
+      modelId: string;
+      dimension: number;
+    };
+    dispose(): void;
+  }
+
   // Stacking Engine
   export class StackingEngine {
     generatePromptHash(prompt: string): string;

@@ -29,6 +29,53 @@ describe('aiBridge — factories are exported', () => {
     const { createEmbeddingProvider } = await import('../services/aiBridge');
     expect(typeof createEmbeddingProvider).toBe('function');
   });
+
+  it('createSharedEngine is exported', async () => {
+    const { createSharedEngine } = await import('../services/aiBridge');
+    expect(typeof createSharedEngine).toBe('function');
+  });
+
+  it('createSemanticSearchEngine is exported', async () => {
+    const { createSemanticSearchEngine } = await import('../services/aiBridge');
+    expect(typeof createSemanticSearchEngine).toBe('function');
+  });
+});
+
+describe('aiBridge — ISemanticSearchEngine surface', () => {
+  it('engine exposes the full semantic search surface when available', async () => {
+    const { createSemanticSearchEngine } = await import('../services/aiBridge');
+    const engine = await createSemanticSearchEngine();
+
+    // In dev with a license the real module loads; otherwise the guard
+    // keeps this test green in both worlds.
+    if (engine) {
+      expect(typeof engine.initialize).toBe('function');
+      expect(typeof engine.addEntries).toBe('function');
+      expect(typeof engine.restore).toBe('function');
+      expect(typeof engine.remove).toBe('function');
+      expect(typeof engine.getTextHash).toBe('function');
+      expect(typeof engine.query).toBe('function');
+      expect(typeof engine.getStatus).toBe('function');
+      expect(typeof engine.dispose).toBe('function');
+    }
+  });
+});
+
+describe('aiBridge — ISharedMLEngine surface', () => {
+  it('shared engine exposes chat, embedding, and unload views when available', async () => {
+    const { createSharedEngine } = await import('../services/aiBridge');
+    const engine = await createSharedEngine();
+
+    // In dev with a license the real module loads; otherwise the guard
+    // keeps this test green in both worlds.
+    if (engine) {
+      expect(typeof engine.unload).toBe('function');
+      expect(typeof engine.getChatEngine).toBe('function');
+      expect(typeof engine.getEmbeddingEngine).toBe('function');
+      expect(typeof engine.getChatEngine().chat.completions.create).toBe('function');
+      expect(typeof engine.getEmbeddingEngine().embeddings.create).toBe('function');
+    }
+  });
 });
 
 describe('aiBridge — IStackingEngine interface', () => {

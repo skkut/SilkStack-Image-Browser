@@ -84,6 +84,8 @@ interface SettingsState {
   isSidebarCollapsed: boolean;
   isStackingEnabled: boolean;
   stackGroupByDimensions: StackGroupByDimension[];
+  isSemanticSearchEnabled: boolean;
+  semanticRerankEnabled: boolean;
 
   // License / Premium feature state
   licenseKey: string;
@@ -119,6 +121,8 @@ interface SettingsState {
   setSidebarCollapsed: (value: boolean) => void;
   setStackingEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
+  setSemanticSearchEnabled: (enabled: boolean) => void;
+  setSemanticRerankEnabled: (enabled: boolean) => void;
   setLicenseState: (state: Partial<LicenseState>) => void;
   clearLicense: () => void;
   resetState: () => void;
@@ -170,6 +174,11 @@ export const useSettingsStore = create<SettingsState>()(
       isStackingEnabled: true,
       stackGroupByDimensions: ['prompt'],
 
+      // Semantic search — premium, opt-in. Off until the user enables it
+      // in Settings (requires a valid license + the ai-intelligence module).
+      isSemanticSearchEnabled: false,
+      semanticRerankEnabled: false,
+
       // License state — starts as "unchecked" until user enters a key
       ...getDefaultLicenseState(),
 
@@ -210,6 +219,8 @@ export const useSettingsStore = create<SettingsState>()(
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
+      setSemanticSearchEnabled: (enabled) => set({ isSemanticSearchEnabled: enabled }),
+      setSemanticRerankEnabled: (enabled) => set({ semanticRerankEnabled: enabled }),
       setLicenseState: (partial) => set(partial),
       clearLicense: () => set(getDefaultLicenseState()),
       updateKeybinding: (scope, action, keybinding) =>
@@ -261,6 +272,8 @@ export const useSettingsStore = create<SettingsState>()(
         disableAiFallback: false,
         isSidebarCollapsed: true,
         isStackingEnabled: false,
+        isSemanticSearchEnabled: false,
+        semanticRerankEnabled: false,
         ...getDefaultLicenseState(),
       }),
     }),
@@ -312,6 +325,15 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && !Array.isArray(state.stackGroupByDimensions)) {
           state.stackGroupByDimensions = ['prompt'];
+        }
+
+        if (state && typeof state.isSemanticSearchEnabled !== 'boolean') {
+          // Premium, opt-in feature — never default it on for existing users.
+          state.isSemanticSearchEnabled = false;
+        }
+
+        if (state && typeof state.semanticRerankEnabled !== 'boolean') {
+          state.semanticRerankEnabled = false;
         }
 
         // License state migration — ensure all fields exist

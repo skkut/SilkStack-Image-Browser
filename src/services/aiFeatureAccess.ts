@@ -94,6 +94,17 @@ export function isAiFeaturesEnabled(): boolean {
  */
 export { isAiFeaturesEnabled as isPremiumUnlocked };
 
+/**
+ * Imperative: true when the user has enabled semantic search AND the
+ * premium gate passes. Non-hook twin of useSemanticSearchEnabled — store
+ * actions / pipeline code run outside React render, where hooks throw
+ * "Invalid hook call" (React error #321).
+ */
+export function isSemanticSearchEnabled(): boolean {
+  if (!isAiFeaturesEnabled()) return false;
+  return useSettingsStore.getState().isSemanticSearchEnabled;
+}
+
 // ── Reactive hooks ────────────────────────────────────────────────────
 
 /** React hook: re-renders when license status changes. */
@@ -113,6 +124,22 @@ export function useAiFeaturesEnabled(): boolean {
  */
 export function useStackingEnabled(): boolean {
   const userPref = useSettingsStore((s) => s.isStackingEnabled);
+  const licenseStatus = useSettingsStore((s) => s.licenseStatus);
+  const licenseStamp = useSettingsStore((s) => s.licenseStamp);
+  const licenseKey = useSettingsStore((s) => s.licenseKey);
+  const licenseLastValidated = useSettingsStore((s) => s.licenseLastValidated);
+
+  if (!AI_MODULE_AVAILABLE) return false;
+  if (!checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated)) return false;
+  return userPref;
+}
+
+/**
+ * Reactive hook: the effective semantic-search toggle — user preference AND
+ * premium gate AND stamp valid. Mirrors useStackingEnabled.
+ */
+export function useSemanticSearchEnabled(): boolean {
+  const userPref = useSettingsStore((s) => s.isSemanticSearchEnabled);
   const licenseStatus = useSettingsStore((s) => s.licenseStatus);
   const licenseStamp = useSettingsStore((s) => s.licenseStamp);
   const licenseKey = useSettingsStore((s) => s.licenseKey);

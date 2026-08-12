@@ -12,7 +12,9 @@ import {
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
-import { isAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
+import type { ISemanticSearchHit } from '../services/aiBridge';
+import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
@@ -30,6 +32,86 @@ let __similaritySyncInProgress = false;
 let __similaritySyncQueued = false;
 let __pipelineInProgress = false;
 let __pipelineQueued = false;
+
+// ── Semantic search (Phase 5) ──────────────────────────────────────────
+// Debounce window for runSemanticSearch — coalesces keystrokes so the
+// worker only sees the settled query (the coordinator's latest-query-wins
+// backs this up when searches do overlap).
+const SEMANTIC_SEARCH_DEBOUNCE_MS = 300;
+
+// Module-level guards — same rationale as the pipeline guards above
+// (Zustand's get() returns a fresh snapshot after every set(), so
+// state-attached flags would be invisible to concurrent calls).
+let __semanticIndexInProgress = false;
+let __semanticIndexQueued = false;
+let __semanticSearchTimer: ReturnType<typeof setTimeout> | null = null;
+// Monotonic sequence for latest-query-wins: results from a superseded
+// search (or a search invalidated by clearSemanticSearch) are discarded.
+let __semanticSearchSeq = 0;
+// One coordinator per app lifetime — owns the AI worker + progress callbacks.
+let __semanticCoordinator: SemanticSearchCoordinator | null = null;
+
+const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
+    if (!__semanticCoordinator) {
+        const { SemanticSearchCoordinator } = await import('../services/semanticSearchEngine');
+        __semanticCoordinator = new SemanticSearchCoordinator((progress) => {
+            useImageStore.getState().setSemanticIndexProgress(progress);
+        });
+    }
+    return __semanticCoordinator;
+};
+
+/**
+ * Pure §8.2 merge: overlay ranked semantic hits on the synchronous text
+ * results. `curationVisible` is the filterAndSort scope after the curation
+ * filters (directory visibility, folder selection + exclusions, favorites,
+ * safe mode, tags) — the filters semantic results must respect. Keyword and
+ * metadata filters apply only to the text-hit partition; semantic-only
+ * additions are NOT keyword-filtered (that is the point of semantic search).
+ *
+ *   off / no hits → textResults unchanged
+ *   auto          → keyword matches first (score order), then semantic
+ *                   relatives (score order)
+ *   semantic      → all hits ∩ curation-visible (score order) — the keyword
+ *                   filter is replaced entirely
+ */
+export function applySemanticMerge(
+    textResults: IndexedImage[],
+    hits: ISemanticSearchHit[],
+    curationVisible: IndexedImage[],
+    mode: 'auto' | 'semantic' | 'off',
+): IndexedImage[] {
+    if (mode === 'off' || !hits || hits.length === 0) return textResults;
+
+    const visibleIds = new Set(curationVisible.map((img) => img.id));
+    const imagesById = new Map(curationVisible.map((img) => [img.id, img] as const));
+    const textResultIds = new Set(textResults.map((img) => img.id));
+
+    // Hits arrive ranked from the coordinator, but re-sort defensively so the
+    // final ordering never depends on worker message order.
+    const orderedHits = [...hits].sort((a, b) => b.score - a.score);
+
+    const visibleHits: IndexedImage[] = [];
+    const seen = new Set<string>();
+    for (const hit of orderedHits) {
+        if (seen.has(hit.imageId)) continue; // defensive dedupe
+        seen.add(hit.imageId);
+        const image = imagesById.get(hit.imageId);
+        if (!image) continue; // hit outside the curation-visible scope → drop
+        visibleHits.push(image);
+    }
+
+    if (mode === 'semantic') return visibleHits;
+
+    // auto mode — partition by keyword match: matches first, relatives appended.
+    const textHits: IndexedImage[] = [];
+    const semanticOnly: IndexedImage[] = [];
+    for (const image of visibleHits) {
+        if (textResultIds.has(image.id)) textHits.push(image);
+        else semanticOnly.push(image);
+    }
+    return [...textHits, ...semanticOnly];
+}
 
 // ── Undo stack (session-only) ───────────────────────────────────────────
 // Captures pre-merge annotation snapshots so Ctrl+Z can restore them.
@@ -258,13 +340,19 @@ interface ImageState {
   similarityGroupProgress: { current: number; total: number; message: string } | null;
 
   // Pipeline State
-  pipelinePhase: 'idle' | 'stacking' | 'similarity' | null;
+  pipelinePhase: 'idle' | 'stacking' | 'similarity' | 'semantic' | null;
 
   // Auto-Tagging State (Phase 3)
 
   autoTaggingProgress: { current: number; total: number; message: string } | null;
   autoTaggingWorker: Worker | null;
   isAutoTagging: boolean;
+
+  // Semantic Search State (Phase 5)
+  semanticMode: 'auto' | 'semantic' | 'off';
+  semanticHits: ISemanticSearchHit[] | null;
+  semanticSearchStatus: 'idle' | 'loading' | 'ready' | 'error' | 'unavailable';
+  semanticIndexProgress: SemanticIndexProgress | null;
 
   // Actions
   addDirectory: (directory: Directory) => void;
@@ -344,7 +432,12 @@ interface ImageState {
   setClusters: (clusters: any[]) => void;
   setClusteringProgress: (progress: { current: number; total: number; message: string } | null) => void;
   setSimilarityGroupProgress: (progress: { current: number; total: number; message: string } | null) => void;
-  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | null) => void;
+  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'semantic' | null) => void;
+  setSemanticMode: (mode: 'auto' | 'semantic' | 'off') => void;
+  runSemanticSearch: (query: string) => Promise<void>;
+  clearSemanticSearch: () => void;
+  semanticIndexImages: () => Promise<void>;
+  setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
   handleClusterImageDeletion: (deletedImageIds: string[]) => void;
   setClusterNavigationContext: (images: IndexedImage[] | null) => void;
 
@@ -922,6 +1015,13 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
         }
 
+        // Semantic search scope (Phase 5): the curation-visible set that
+        // semantic hits must respect (directory visibility, folder selection
+        // + exclusions, favorites, safe mode, tags). Captured here — after
+        // the curation filters, before the keyword/metadata filters — because
+        // semantic results are ranked by vector similarity, not keywords.
+        const curationVisible = results;
+
         // ID-based stack filtering (preserves search bar state)
         if (libraryStackContext) {
             const contextImageIds = new Set(libraryStackContext.imageIds);
@@ -1133,8 +1233,17 @@ export const useImageStore = create<ImageState>((set, get) => {
             return compareById(a, b);
         });
 
+        // Semantic overlay (§8.2): ranked hits replace the keyword ordering
+        // whenever hits are present and the mode is not 'off'. Falls through
+        // to the normal sorted results otherwise — byte-identical behavior
+        // when the feature is unused.
+        let filteredImages = sorted;
+        if (state.semanticMode !== 'off' && state.semanticHits && state.semanticHits.length > 0) {
+            filteredImages = applySemanticMerge(sorted, state.semanticHits, curationVisible, state.semanticMode);
+        }
+
         return {
-            filteredImages: sorted,
+            filteredImages,
             selectionTotalImages: totalInScope,
             selectionDirectoryCount,
             selectionFavoriteCount,
@@ -1193,6 +1302,10 @@ export const useImageStore = create<ImageState>((set, get) => {
         isStackingEnabled: true,
         undoAvailable: false,
         searchQuery: '',
+        semanticMode: 'auto',
+        semanticHits: null,
+        semanticSearchStatus: 'idle',
+        semanticIndexProgress: null,
         availableModels: [],
         availableLoras: [],
         availableSchedulers: [],
@@ -1872,7 +1985,25 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
         },
 
-        setSearchQuery: (query) => set(state => ({ ...filterAndSort({ ...state, searchQuery: query }), searchQuery: query })),
+        setSearchQuery: (query) => {
+            if (!(query ?? '').trim()) {
+                // Clearing the search bar also clears semantic hits and any
+                // pending search, restoring the normal sort order (§8.2).
+                if (__semanticSearchTimer) {
+                    clearTimeout(__semanticSearchTimer);
+                    __semanticSearchTimer = null;
+                }
+                __semanticSearchSeq++;
+                set(state => ({
+                    ...filterAndSort({ ...state, searchQuery: query, semanticHits: null }),
+                    searchQuery: query,
+                    semanticHits: null,
+                    semanticSearchStatus: 'idle',
+                }));
+                return;
+            }
+            set(state => ({ ...filterAndSort({ ...state, searchQuery: query }), searchQuery: query }));
+        },
 
         setFilterOptions: (options) => set({
             availableModels: options.models,
@@ -1974,7 +2105,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
 
             const worker = new Worker(
-                new URL('../services/workers/autoTaggingWorker.ts', import.meta.url),
+                new URL('../services/workers/aiWorker.ts', import.meta.url),
                 { type: 'module' }
             );
 
@@ -3662,6 +3793,7 @@ export const useImageStore = create<ImageState>((set, get) => {
          * Runs processing phases SEQUENTIALLY for images that need them:
          *   1. Stacking (exact prompt hashing → stackGroupId)
          *   2. Similarity grouping (semantic clustering → similarityGroupId)
+         *   3. Semantic search indexing (textHash Δ → semanticVectors)
          *
          * Called from:
          *   - App.tsx on startup (when annotations loaded + indexing idle)
@@ -3687,16 +3819,24 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                 // Phase 1: Exact-prompt hash stacking (syncNewImagesToStacks)
                 // Only processes images where isStackAnalyzed is false.
-                console.log('[Pipeline] Phase 1/2: Prompt stacking (exact-match hashing)...');
+                console.log('[Pipeline] Phase 1/3: Prompt stacking (exact-match hashing)...');
                 get().setPipelinePhase('stacking');
                 await get().syncNewImagesToStacks();
 
                 // Phase 2: Semantic similarity grouping
                 // Only processes images where isSimilarityAnalyzed is false
                 // (or where similarityGroupId was never assigned by the engine).
-                console.log('[Pipeline] Phase 2/2: Similarity grouping (semantic clustering)...');
+                console.log('[Pipeline] Phase 2/3: Similarity grouping (semantic clustering)...');
                 get().setPipelinePhase('similarity');
                 await get().computeSimilarityGroups();
+
+                // Phase 3: Semantic search indexing (§8.3)
+                // Δ by textHash — only images missing a vector record (or
+                // whose searchable text changed) get embedded. Skipped
+                // silently when semantic search is disabled.
+                console.log('[Pipeline] Phase 3/3: Semantic search indexing...');
+                get().setPipelinePhase('semantic');
+                await get().semanticIndexImages();
 
                 console.log('[Pipeline] All phases complete.');
             } catch (error) {
@@ -3711,6 +3851,120 @@ export const useImageStore = create<ImageState>((set, get) => {
                 }
             }
         },
+
+        // ── Semantic Search Actions (Phase 5) ─────────────────────────
+
+        setSemanticMode: (mode) => set(state => ({
+            ...filterAndSort({ ...state, semanticMode: mode }),
+            semanticMode: mode,
+        })),
+
+        /**
+         * Debounced semantic query (§8.1). The 300ms window coalesces
+         * keystrokes so the worker only sees the settled query; the
+         * coordinator's latest-query-wins (§5.1) backs it up when searches
+         * do overlap. Results from a superseded search are discarded via
+         * the __semanticSearchSeq guard.
+         */
+        runSemanticSearch: async (query) => {
+            if (__semanticSearchTimer) {
+                clearTimeout(__semanticSearchTimer);
+                __semanticSearchTimer = null;
+            }
+
+            const trimmed = (query ?? '').trim();
+            if (!trimmed) {
+                get().clearSemanticSearch();
+                return;
+            }
+
+            if (!isSemanticSearchEnabled()) {
+                set({ semanticHits: null, semanticSearchStatus: 'unavailable' });
+                return;
+            }
+
+            const seq = ++__semanticSearchSeq;
+            set({ semanticSearchStatus: 'loading' });
+
+            __semanticSearchTimer = setTimeout(async () => {
+                __semanticSearchTimer = null;
+                try {
+                    const coordinator = await getSemanticCoordinator();
+                    const hits = await coordinator.search(trimmed);
+                    if (seq !== __semanticSearchSeq) return; // superseded by a newer query
+                    const state = get();
+                    set({
+                        semanticHits: hits,
+                        semanticSearchStatus: 'ready',
+                        ...filterAndSort({ ...state, semanticHits: hits }),
+                    });
+                } catch (error) {
+                    if (seq !== __semanticSearchSeq) return;
+                    console.error('Semantic search failed:', error);
+                    set({ semanticHits: null, semanticSearchStatus: 'error' });
+                }
+            }, SEMANTIC_SEARCH_DEBOUNCE_MS);
+        },
+
+        /** Clear hits + pending work; restores the normal (keyword/sort) flow. */
+        clearSemanticSearch: () => {
+            if (__semanticSearchTimer) {
+                clearTimeout(__semanticSearchTimer);
+                __semanticSearchTimer = null;
+            }
+            __semanticSearchSeq++; // invalidate any in-flight search
+            set(state => ({
+                ...filterAndSort({ ...state, semanticHits: null }),
+                semanticHits: null,
+                semanticSearchStatus: 'idle',
+            }));
+        },
+
+        /**
+         * Pipeline Phase 3 (§8.3): Δ-index the library for semantic search
+         * (only images whose textHash changed get embedded). Guarded by
+         * isSemanticSearchEnabled() — skipped silently when the premium
+         * feature is off. Module-level in-progress/queued guards mirror
+         * computeSimilarityGroups so direct calls (Settings → Re-index)
+         * don't overlap pipeline runs.
+         */
+        semanticIndexImages: async () => {
+            if (__semanticIndexInProgress) {
+                __semanticIndexQueued = true;
+                return;
+            }
+
+            if (!isSemanticSearchEnabled()) {
+                console.log('[SemanticIndex] Semantic search disabled — skipping');
+                return;
+            }
+
+            if (!get().isAnnotationsLoaded) {
+                console.log('[SemanticIndex] Annotations not yet loaded — deferring');
+                return;
+            }
+
+            __semanticIndexInProgress = true;
+            try {
+                const coordinator = await getSemanticCoordinator();
+                await coordinator.ensureInitialized();
+                const result = await coordinator.indexImages(get().images);
+                console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped}`);
+            } catch (error) {
+                // A null text builder (module missing) lands here — report but
+                // don't fail the pipeline.
+                console.error('[SemanticIndex] Indexing failed:', error);
+            } finally {
+                __semanticIndexInProgress = false;
+                if (__semanticIndexQueued) {
+                    __semanticIndexQueued = false;
+                    console.log('[SemanticIndex] Running queued indexing invocation');
+                    setTimeout(() => get().semanticIndexImages(), 500);
+                }
+            }
+        },
+
+        setSemanticIndexProgress: (progress) => set({ semanticIndexProgress: progress }),
 
         /**
          * Internal helper — delegates to the engine for hybrid similarity
@@ -3735,6 +3989,40 @@ useSettingsStore.subscribe((state) => {
         const imageState = useImageStore.getState();
         if (state.isStackingEnabled !== imageState.isStackingEnabled) {
             imageState.setStackingEnabled(state.isStackingEnabled);
+        }
+    }
+});
+
+// Sync semantic search from settings changes (e.g. rehydration on app
+// restart). The effective gate is the user pref AND premium (license ∧
+// module), and either side can flip independently — react to both so the
+// feature clears when disabled AND kicks off Δ-indexing the moment it
+// becomes usable (the post-indexing pipeline may have already run without
+// the premium phases).
+let prevSemanticSearchEnabled: boolean | undefined = undefined;
+let prevSemanticSearchUsable: boolean | undefined = undefined;
+useSettingsStore.subscribe((state) => {
+    if (typeof state.isSemanticSearchEnabled === 'boolean' && state.isSemanticSearchEnabled !== prevSemanticSearchEnabled) {
+        prevSemanticSearchEnabled = state.isSemanticSearchEnabled;
+        if (state.isSemanticSearchEnabled) {
+            // Just toggled on — Δ-index now. Idempotent (textHash Δ) and
+            // premium-gated inside, so a no-op without a license.
+            useImageStore.getState().semanticIndexImages();
+        } else {
+            useImageStore.getState().clearSemanticSearch();
+        }
+    }
+    const usable = isAiFeaturesEnabled();
+    if (usable !== prevSemanticSearchUsable) {
+        prevSemanticSearchUsable = usable;
+        if (usable) {
+            if (useSettingsStore.getState().isSemanticSearchEnabled) {
+                // License/module arrived while the pref was on — index now.
+                useImageStore.getState().semanticIndexImages();
+            }
+        } else {
+            // Premium lost (revoked license, missing module) — drop hits.
+            useImageStore.getState().clearSemanticSearch();
         }
     }
 });

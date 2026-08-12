@@ -339,13 +339,14 @@ export default function App() {
     }
   }, []);
 
-  // Dev tools: Ctrl+Y opens the auto-tagging tester in a new window
+  // Dev tools: Ctrl+Y opens the dev-tools window (all testers switchable
+  // via tabs; auto-tag is the default tool)
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.shiftKey && e.key === 'y') {
         e.preventDefault();
         if (window.electronAPI) {
-          window.electronAPI.openDevTools();
+          window.electronAPI.openDevTools('auto-tag');
         } else {
           window.open(`${window.location.origin}/?devtools=auto-tag`, '_blank');
         }

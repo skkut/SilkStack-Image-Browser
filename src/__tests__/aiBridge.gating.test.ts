@@ -31,6 +31,24 @@ describe('aiBridge — all factories return null when AI module is unavailable',
     expect(provider).toBeNull();
   });
 
+  it('createSharedEngine returns null gracefully', async () => {
+    const { createSharedEngine } = await import('../services/aiBridge');
+    const engine = await createSharedEngine();
+    expect(engine).toBeNull();
+  });
+
+  it('createSemanticSearchEngine returns null gracefully', async () => {
+    const { createSemanticSearchEngine } = await import('../services/aiBridge');
+    const engine = await createSemanticSearchEngine();
+    expect(engine).toBeNull();
+  });
+
+  it('createSemanticTextBuilder returns null gracefully', async () => {
+    const { createSemanticTextBuilder } = await import('../services/aiBridge');
+    const builder = await createSemanticTextBuilder();
+    expect(builder).toBeNull();
+  });
+
   it('createTagGenerator always succeeds with built-in fallback', async () => {
     const { createTagGenerator } = await import('../services/aiBridge');
     const tagger = await createTagGenerator();

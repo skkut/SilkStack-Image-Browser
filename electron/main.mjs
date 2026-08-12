@@ -218,6 +218,8 @@ async function readVideoMetadataWithFfprobe(filePath) {
 let mainWindow;
 // Map of windowId -> BrowserWindow for all open image viewer windows
 const imageViewerWindows = new Map();
+// Single dev-tools window (reopened/focused instead of duplicating)
+let devToolsWindow = null;
 // Pending image data for windows that haven't signalled ready yet (windowId -> data)
 const pendingViewerData = new Map();
 let skippedVersions = new Set();
@@ -780,8 +782,15 @@ function setupFileOperationHandlers() {
   };
 
   // --- Dev Tools Window IPC ---
-  ipcMain.handle("open-dev-tools", async () => {
+  ipcMain.handle("open-dev-tools", async (_event, tool) => {
     try {
+      // Reuse the existing dev-tools window — Ctrl+Y brings it back to
+      // focus instead of stacking duplicate windows.
+      if (devToolsWindow && !devToolsWindow.isDestroyed()) {
+        devToolsWindow.focus();
+        return { success: true };
+      }
+
       const isDark = nativeTheme.shouldUseDarkColors;
 
       const devWindow = new BrowserWindow({
@@ -809,7 +818,10 @@ function setupFileOperationHandlers() {
         parent: null,
       });
 
-      const queryString = "?devtools=auto-tag";
+      // Only known tool ids ([a-z0-9-]) are accepted — anything else falls
+      // back to the default so the query param can never route elsewhere.
+      const toolName = typeof tool === "string" && /^[a-z0-9-]+$/.test(tool) ? tool : "auto-tag";
+      const queryString = `?devtools=${toolName}`;
       if (isDev && !process.argv.includes("--dist")) {
         devWindow.loadURL(`http://localhost:5173${queryString}`);
       } else {
@@ -840,7 +852,9 @@ function setupFileOperationHandlers() {
         }
       };
       nativeTheme.on("updated", themeHandler);
+      devToolsWindow = devWindow;
       devWindow.on("closed", () => {
+        devToolsWindow = null;
         nativeTheme.removeListener("updated", themeHandler);
       });
 

@@ -90,7 +90,7 @@ When working on this codebase:
 ## Smart Library & Auto-Tags
 
 - **Clustering & Stacks**: `services/clusteringEngine.ts`, `services/workers/clusteringWorker.ts`, `components/SmartLibrary.tsx`, `components/StackCard.tsx`, `components/StackExpandedView.tsx`
-- **Auto-Tags (TF-IDF)**: `services/autoTaggingEngine.ts`, `services/workers/autoTaggingWorker.ts`, `components/TagsAndFavorites.tsx`, `components/ImageModal.tsx`, `components/ImagePreviewSidebar.tsx`
+- **Auto-Tags (TF-IDF)**: `services/autoTaggingEngine.ts`, `services/workers/aiWorker.ts`, `components/TagsAndFavorites.tsx`, `components/ImageModal.tsx`, `components/ImagePreviewSidebar.tsx`
 - **Cluster Cache**: `services/clusterCacheManager.ts` (atomic writes, userData path resolution)
 
 ## Common Tasks

@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 
 - License tab errors no longer break the production packaging build
 - Format-aware file parameter display for video files in the image modal
+- **SilkStack-cli** launches again under modern Node — exifr is now imported with a cross-environment-compatible form (Node's ESM loader can't resolve exifr's named `parse` export from its CJS build)
 
 ## [2.0.0] - 2026-08-03
 
