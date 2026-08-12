@@ -18,6 +18,7 @@ const Stacks: React.FC<StacksProps> = () => {
   const autoTaggingProgress = useImageStore((state) => state.autoTaggingProgress);
   const startAutoTagging = useImageStore((state) => state.startAutoTagging);
   const cancelAutoTagging = useImageStore((state) => state.cancelAutoTagging);
+  const cancelSemanticIndexing = useImageStore((state) => state.cancelSemanticIndexing);
   const selectionTotalImages = useImageStore((state) => state.selectionTotalImages);
   const selectionDirectoryCount = useImageStore((state) => state.selectionDirectoryCount);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
@@ -214,6 +215,7 @@ const Stacks: React.FC<StacksProps> = () => {
         autoTaggingProgress={autoTaggingProgress}
         similarityGroupProgress={similarityGroupProgress}
         onCancelAutoTag={cancelAutoTagging}
+        onCancelSemanticIndex={cancelSemanticIndexing}
         showAutoTag={true}
         onAutoTag={handleGenerateAutoTags}
         isAutoTagging={isAutoTagging}

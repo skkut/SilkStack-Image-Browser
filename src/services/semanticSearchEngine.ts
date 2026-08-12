@@ -53,6 +53,7 @@ interface ModuleCoordinator {
   indexImages(images: Array<{ id: string; prompt?: string; tags?: string[]; models?: string[] }>): Promise<SemanticIndexResult>;
   search(query: string, options?: { limit?: number; threshold?: number }): Promise<ISemanticSearchHit[]>;
   clearIndex(): Promise<void>;
+  cancelIndexing(): void;
   getStatus(): SemanticSearchStatus;
   dispose(): void;
 }
@@ -160,6 +161,14 @@ export class SemanticSearchCoordinator {
   /** Wipe the persisted store AND the worker's in-memory index. */
   clearIndex(): Promise<void> {
     return this.withModule((coordinator) => coordinator.clearIndex());
+  }
+
+  /**
+   * Abort an in-flight indexing run (Footer cancel button). No-op when the
+   * module is absent or no run is active.
+   */
+  cancelIndexing(): void {
+    this.coordinator?.cancelIndexing();
   }
 
   getStatus(): SemanticSearchStatus {

@@ -238,6 +238,21 @@ describe('Footer semantic indexing pill (Phase 6)', () => {
 
     expect(screen.queryByText(/Semantic indexing/)).toBeNull();
   });
+
+  it('renders a cancel button that fires onCancelSemanticIndex', () => {
+    useImageStore.setState({ semanticIndexProgress: { current: 2, total: 4, message: 'embedding' } });
+    const onCancelSemanticIndex = vi.fn();
+    render(
+      <Footer
+        viewMode="grid"
+        onViewModeChange={vi.fn()}
+        onCancelSemanticIndex={onCancelSemanticIndex}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Cancel semantic indexing'));
+    expect(onCancelSemanticIndex).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ── SettingsModal (premium section) ───────────────────────────────────

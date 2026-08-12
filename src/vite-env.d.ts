@@ -183,6 +183,7 @@ declare module '@ai-images-browser/ai-intelligence' {
     indexImages(images: SemanticIndexInput[]): Promise<SemanticIndexResult>;
     search(query: string, options?: { limit?: number; threshold?: number }): Promise<SemanticSearchHit[]>;
     clearIndex(): Promise<void>;
+    cancelIndexing(): void;
     getStatus(): SemanticSearchStatus;
     dispose(): void;
   }

@@ -24,6 +24,7 @@ interface FooterProps {
   isAutoTagging?: boolean;
   onCancelAutoTag?: () => void;
   onCancelClustering?: () => void;
+  onCancelSemanticIndex?: () => void;
   hasDirectories?: boolean;
   isPreviewOpen?: boolean;
   onTogglePreview?: () => void;
@@ -58,6 +59,7 @@ const Footer: React.FC<FooterProps> = ({
   isAutoTagging = false,
   onCancelAutoTag,
   onCancelClustering,
+  onCancelSemanticIndex,
   hasDirectories = false,
   isPreviewOpen = false,
   onTogglePreview,
@@ -213,6 +215,16 @@ const Footer: React.FC<FooterProps> = ({
                 <div className="w-20 h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
                   <div className="h-full bg-indigo-500 transition-all duration-500 ease-out" style={{ width: `${(semanticIndexProgress!.total > 0 ? (semanticIndexProgress!.current / semanticIndexProgress!.total) * 100 : 0)}%` }} />
                 </div>
+                {onCancelSemanticIndex && (
+                  <button
+                    onClick={onCancelSemanticIndex}
+                    className="ml-0.5 p-0.5 rounded-full hover:bg-indigo-500/20 transition-colors"
+                    title="Cancel semantic indexing"
+                    aria-label="Cancel semantic indexing"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
               </div>
             )}
             {hasAutoTaggingJob && (

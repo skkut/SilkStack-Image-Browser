@@ -22,6 +22,7 @@ const coordinatorMock = vi.hoisted(() => ({
   indexImages: vi.fn(),
   search: vi.fn(),
   clearIndex: vi.fn(),
+  cancelIndexing: vi.fn(),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
 }));
@@ -120,7 +121,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
   coordinatorMock.ensureInitialized.mockResolvedValue(undefined);
-  coordinatorMock.indexImages.mockResolvedValue({ indexed: 0, skipped: 0 });
+  // Mirrors the module coordinator's Δ-first flow: indexImages initializes
+  // on demand (the store no longer calls ensureInitialized directly), so
+  // pipeline assertions still see init precede index.
+  coordinatorMock.indexImages.mockImplementation(async () => {
+    await coordinatorMock.ensureInitialized();
+    return { indexed: 0, skipped: 0 };
+  });
   coordinatorMock.clearIndex.mockResolvedValue(undefined);
   coordinatorMock.search.mockResolvedValue([]);
 
@@ -754,5 +761,67 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
     expect(coordinatorMock.clearIndex.mock.invocationCallOrder[0])
       .toBeLessThan(coordinatorMock.indexImages.mock.invocationCallOrder[1]);
+  });
+
+  it('clears the progress bar when the run completes (regression: it stuck at 100/100 forever)', async () => {
+    useImageStore.setState({
+      images: [createImage({ id: 'a', prompt: 'red fox' })],
+      semanticIndexProgress: { current: 1, total: 4, message: 'embedding' },
+    });
+
+    await useImageStore.getState().semanticIndexImages();
+
+    expect(useImageStore.getState().semanticIndexProgress).toBeNull();
+  });
+
+  it('clears the progress bar when the run fails', async () => {
+    coordinatorMock.indexImages.mockRejectedValueOnce(new Error('embedding failed'));
+    useImageStore.setState({
+      images: [createImage({ id: 'a', prompt: 'red fox' })],
+      semanticIndexProgress: { current: 1, total: 4, message: 'embedding' },
+    });
+
+    await useImageStore.getState().semanticIndexImages();
+
+    expect(useImageStore.getState().semanticIndexProgress).toBeNull();
+    expect(useImageStore.getState().semanticLastError).toBe('embedding failed');
+  });
+
+  it('a user cancel clears the bar without surfacing an error', async () => {
+    coordinatorMock.indexImages.mockRejectedValueOnce(
+      new Error('Semantic indexing cancelled by user'),
+    );
+    useImageStore.setState({
+      images: [createImage({ id: 'a', prompt: 'red fox' })],
+      semanticIndexProgress: { current: 3, total: 4, message: 'embedding' },
+    });
+
+    await useImageStore.getState().semanticIndexImages();
+
+    expect(useImageStore.getState().semanticIndexProgress).toBeNull();
+    expect(useImageStore.getState().semanticLastError).toBeNull();
+  });
+
+  it('cancelSemanticIndexing clears the bar, drops a queued replay, and aborts the coordinator', async () => {
+    vi.useFakeTimers();
+    let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
+    coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
+
+    // A run hangs mid-embed…
+    const run = useImageStore.getState().semanticIndexImages();
+    await flush();
+    // …a second invocation is queued…
+    await useImageStore.getState().semanticIndexImages();
+    useImageStore.setState({ semanticIndexProgress: { current: 1, total: 4, message: 'embedding' } });
+
+    // …then the user cancels: bar clears, queue drops, coordinator aborts.
+    useImageStore.getState().cancelSemanticIndexing();
+    expect(useImageStore.getState().semanticIndexProgress).toBeNull();
+    expect(coordinatorMock.cancelIndexing).toHaveBeenCalledTimes(1);
+
+    resolveIndex({ indexed: 1, skipped: 0 });
+    await run;
+    await vi.advanceTimersByTimeAsync(600); // queued replay (500 ms) must NOT fire
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
 });

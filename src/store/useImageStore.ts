@@ -38,6 +38,10 @@ let __pipelineQueued = false;
 // worker only sees the settled query (the coordinator's latest-query-wins
 // backs this up when searches do overlap).
 const SEMANTIC_SEARCH_DEBOUNCE_MS = 300;
+// Must match the module coordinator's SEMANTIC_INDEX_CANCELLED
+// (ai-intelligence/src/coordinator/semanticSearchEngine.ts) — used to
+// swallow a user-cancelled run without surfacing it as a failure.
+const SEMANTIC_INDEX_CANCELLED = 'Semantic indexing cancelled by user';
 
 // Module-level guards — same rationale as the pipeline guards above
 // (Zustand's get() returns a fresh snapshot after every set(), so
@@ -449,6 +453,7 @@ interface ImageState {
   runSemanticSearch: (query: string) => Promise<void>;
   clearSemanticSearch: () => void;
   semanticIndexImages: (options?: { force?: boolean }) => Promise<void>;
+  cancelSemanticIndexing: () => void;
   setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
   setDetectedGpuInfo: (info: DetectedGpuInfo | null) => void;
   handleClusterImageDeletion: (deletedImageIds: string[]) => void;
@@ -4013,24 +4018,50 @@ export const useImageStore = create<ImageState>((set, get) => {
                     __semanticIndexQueuedForce = false;
                     await coordinator.clearIndex();
                 }
-                await coordinator.ensureInitialized();
+                // Δ-only: the coordinator computes the delta BEFORE loading the
+                // embed model, so a fully-indexed library costs zero model
+                // load — startup runs finish instantly instead of loading
+                // WebGPU models for no work.
                 const result = await coordinator.indexImages(get().images);
                 const status = coordinator.getStatus(); // authoritative persisted count
                 set({ semanticIndexedCount: status.indexed, semanticLastError: null });
                 console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);
             } catch (error) {
-                // A null text builder (module missing) lands here — report but
-                // don't fail the pipeline.
-                console.error('[SemanticIndex] Indexing failed:', error);
-                set({ semanticLastError: error instanceof Error ? error.message : String(error) });
+                if (error instanceof Error && error.message === SEMANTIC_INDEX_CANCELLED) {
+                    // User cancel — a normal outcome, not an error.
+                    console.log('[SemanticIndex] Indexing cancelled by user');
+                } else {
+                    // A missing module lands here — report but don't fail the
+                    // pipeline.
+                    console.error('[SemanticIndex] Indexing failed:', error);
+                    set({ semanticLastError: error instanceof Error ? error.message : String(error) });
+                }
             } finally {
                 __semanticIndexInProgress = false;
+                // Always close the progress bar — success, failure, or cancel.
+                // Without this the bar sticks at the last progress event
+                // (e.g. "100/100 — Finish loading on WebGPU") forever.
+                useImageStore.getState().setSemanticIndexProgress(null);
                 if (__semanticIndexQueued) {
                     __semanticIndexQueued = false;
                     console.log('[SemanticIndex] Running queued indexing invocation');
                     setTimeout(() => get().semanticIndexImages(), 500);
                 }
             }
+        },
+
+        /**
+         * Cancel an in-flight semantic indexing run (Footer × button): clears
+         * the progress bar immediately, drops a queued replay, and asks the
+         * coordinator to abort — it stops sending new embed batches, persists
+         * the completed ones, and rejects the run (swallowed as a cancel by
+         * semanticIndexImages).
+         */
+        cancelSemanticIndexing: () => {
+            set({ semanticIndexProgress: null });
+            __semanticIndexQueued = false;
+            __semanticIndexQueuedForce = false;
+            __semanticCoordinator?.cancelIndexing();
         },
 
         setSemanticIndexProgress: (progress) => set({ semanticIndexProgress: progress }),

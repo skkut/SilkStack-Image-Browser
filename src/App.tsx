@@ -148,6 +148,7 @@ export default function App() {
   const cancelAutoTagging = useImageStore((state) => state.cancelAutoTagging);
   const autoTaggingProgress = useImageStore((state) => state.autoTaggingProgress);
   const cancelClustering = useImageStore((state) => state.cancelClustering);
+  const cancelSemanticIndexing = useImageStore((state) => state.cancelSemanticIndexing);
   const clusteringProgress = useImageStore((state) => state.clusteringProgress);
   const similarityGroupProgress = useImageStore((state) => state.similarityGroupProgress);
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
@@ -1096,6 +1097,7 @@ export default function App() {
               similarityGroupProgress={similarityGroupProgress}
               onCancelAutoTag={cancelAutoTagging}
               onCancelClustering={cancelClustering}
+              onCancelSemanticIndex={cancelSemanticIndexing}
               showStackingToggle={true}
               showAutoTag={true}
               onAutoTag={handleAutoTag}
