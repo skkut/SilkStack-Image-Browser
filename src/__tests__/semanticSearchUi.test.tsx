@@ -19,6 +19,7 @@ const coordinatorMock = vi.hoisted(() => ({
   indexImages: vi.fn().mockResolvedValue({ indexed: 0, skipped: 0 }),
   search: vi.fn().mockResolvedValue([]),
   clearIndex: vi.fn().mockResolvedValue(undefined),
+  cancelIndexing: vi.fn(),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
 }));
@@ -27,6 +28,17 @@ vi.mock('../services/semanticSearchEngine', () => ({
   SemanticSearchCoordinator: vi.fn(function SemanticSearchCoordinator() {
     return coordinatorMock;
   }),
+  // Model catalogs (Settings → AI Intelligence) — the SettingsModal loads
+  // them async via useEffect. Two options each so "defaults to options[0]",
+  // "reflects the persisted choice", and "stale id falls back" are distinct.
+  getEmbeddingModelOptions: vi.fn().mockResolvedValue([
+    { modelId: 'embed-768', dimension: 768, label: 'Arctic Embed M (768d)', description: 'default' },
+    { modelId: 'embed-384', dimension: 384, label: 'Arctic Embed S (384d)', description: 'light' },
+  ]),
+  getTagModelOptions: vi.fn().mockResolvedValue([
+    { modelId: 'tag-hermes', label: 'Hermes 3 3B', description: 'default' },
+    { modelId: 'tag-qwen', label: 'Qwen3 4B', description: 'big' },
+  ]),
 }));
 
 // The settings subscription fires `semanticIndexImages()` when the pref flips
@@ -115,6 +127,8 @@ beforeEach(() => {
     licenseLastValidated: 0,
     licenseStamp: '',
     isSemanticSearchEnabled: false,
+    aiEmbeddingModel: '',
+    aiTagModel: '',
   });
 });
 
@@ -375,5 +389,89 @@ describe('SettingsModal AI Intelligence section (GPU preference)', () => {
     });
     rerender(<SettingsModal isOpen onClose={vi.fn()} />);
     expect(screen.queryByText(/NVIDIA/)).toBeNull();
+  });
+});
+
+// ── SettingsModal AI Intelligence section (model selection) ────────────
+
+describe('SettingsModal AI Intelligence section (model selection)', () => {
+  /** Premium + AI tab + async catalog load (the fetchers resolve in microtasks). */
+  const openAiSection = async () => {
+    setElectronAPI();
+    stampPremium();
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+    await flush();
+  };
+
+  it('renders both selects with the catalog options (default = options[0])', async () => {
+    await openAiSection();
+
+    const embedding = screen.getByTestId('ai-embedding-model-select') as HTMLSelectElement;
+    const tag = screen.getByTestId('ai-tag-model-select') as HTMLSelectElement;
+    expect(embedding.options.length).toBe(2);
+    expect(embedding.value).toBe('embed-768');
+    expect(tag.options.length).toBe(2);
+    expect(tag.value).toBe('tag-hermes');
+  });
+
+  it('embedding change persists the selection (via applySemanticEmbeddingModel)', async () => {
+    await openAiSection();
+
+    fireEvent.change(screen.getByTestId('ai-embedding-model-select'), {
+      target: { value: 'embed-384' },
+    });
+    await flush(); // the store action persists then force re-indexes
+
+    expect(useSettingsStore.getState().aiEmbeddingModel).toBe('embed-384');
+  });
+
+  it('embedding change routes through applySemanticEmbeddingModel', async () => {
+    setElectronAPI();
+    stampPremium();
+    // Spy BEFORE render: zustand replaces the state object on every set(),
+    // which would detach a post-render spy.
+    const spy = vi
+      .spyOn(useImageStore.getState(), 'applySemanticEmbeddingModel')
+      .mockResolvedValue(undefined);
+
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+    await flush();
+
+    fireEvent.change(screen.getByTestId('ai-embedding-model-select'), {
+      target: { value: 'embed-384' },
+    });
+
+    expect(spy).toHaveBeenCalledWith('embed-384');
+    spy.mockRestore(); // leave the real implementation for later tests
+  });
+
+  it('tag change persists via setAiTagModel (next run picks it up)', async () => {
+    await openAiSection();
+
+    fireEvent.change(screen.getByTestId('ai-tag-model-select'), {
+      target: { value: 'tag-qwen' },
+    });
+
+    expect(useSettingsStore.getState().aiTagModel).toBe('tag-qwen');
+  });
+
+  it('selects reflect persisted choices on open', async () => {
+    useSettingsStore.setState({ aiEmbeddingModel: 'embed-384', aiTagModel: 'tag-qwen' });
+    await openAiSection();
+
+    expect((screen.getByTestId('ai-embedding-model-select') as HTMLSelectElement).value)
+      .toBe('embed-384');
+    expect((screen.getByTestId('ai-tag-model-select') as HTMLSelectElement).value)
+      .toBe('tag-qwen');
+  });
+
+  it('a stale persisted id falls back to the first catalog option (never a blank select)', async () => {
+    useSettingsStore.setState({ aiEmbeddingModel: 'embed-unknown-old-version' });
+    await openAiSection();
+
+    expect((screen.getByTestId('ai-embedding-model-select') as HTMLSelectElement).value)
+      .toBe('embed-768');
   });
 });

@@ -10,10 +10,11 @@
  * dispose` methods, plus the result/status types — and delegates to the
  * module's coordinator via a guarded dynamic import.
  *
- * The module coordinator receives injected callbacks for the two things its
- * worker cannot see: the premium license status (`isAiFeaturesEnabled`)
- * and the GPU preference (Settings → AI Intelligence). It rejects init when
- * the license check fails — semantic search is a premium feature.
+ * The module coordinator receives injected callbacks for the things its
+ * worker cannot see: the premium license status (`isAiFeaturesEnabled`),
+ * the GPU preference, and the user-selected embedding model (Settings →
+ * AI Intelligence). It rejects init when the license check fails —
+ * semantic search is a premium feature.
  *
  * When the module is absent (open-source build), every method rejects with
  * a clear error and `getStatus()` returns the empty shape.
@@ -47,6 +48,21 @@ export interface SemanticSearchStatus {
   error: string | null;
 }
 
+/** User-selectable semantic embedding model (Settings → AI Intelligence). */
+export interface EmbeddingModelOption {
+  modelId: string;
+  dimension: number;
+  label: string;
+  description: string;
+}
+
+/** User-selectable auto-tagging chat model (Settings → AI Intelligence). */
+export interface TagModelOption {
+  modelId: string;
+  label: string;
+  description: string;
+}
+
 /** Structural view of the module's coordinator (no static module imports). */
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
@@ -62,26 +78,53 @@ const MODULE_UNAVAILABLE =
   'Semantic search is unavailable: the ai-intelligence module is not present.';
 
 // ── Lazy module load (mirrors aiBridge's guard-then-import) ───────────
-let coordinatorClassLoaded = false;
+let moduleLoaded = false;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let coordinatorClass: any = null;
+let moduleNamespace: any = null;
 
-async function getCoordinatorClass(): Promise<typeof coordinatorClass> {
-  if (coordinatorClassLoaded) return coordinatorClass;
-  coordinatorClassLoaded = true;
+/**
+ * Load the module namespace once and cache it. Returns null when the module
+ * is absent at build time (compile-time guard) or fails to load.
+ */
+async function getModuleNamespace(): Promise<typeof moduleNamespace> {
+  if (moduleLoaded) return moduleNamespace;
+  moduleLoaded = true;
 
   // Compile-time guard: when ai-intelligence wasn't present at build time,
   // Vite dead-code-eliminates the import() below.
   if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return null;
 
   try {
-    const mod = await import('@ai-images-browser/ai-intelligence');
-    coordinatorClass = mod.SemanticSearchCoordinator ?? null;
+    moduleNamespace = await import('@ai-images-browser/ai-intelligence');
   } catch (err) {
     console.warn('[SemanticSearch] ai-intelligence module unavailable:', err);
-    coordinatorClass = null;
+    moduleNamespace = null;
   }
-  return coordinatorClass;
+  return moduleNamespace;
+}
+
+async function getCoordinatorClass(): Promise<typeof moduleNamespace> {
+  const mod = await getModuleNamespace();
+  return mod?.SemanticSearchCoordinator ?? null;
+}
+
+/**
+ * The user-selectable semantic embedding models (Settings → AI
+ * Intelligence). `[]` when the module is absent — the UI shows
+ * "No models available".
+ */
+export async function getEmbeddingModelOptions(): Promise<EmbeddingModelOption[]> {
+  const mod = await getModuleNamespace();
+  return mod?.EMBEDDING_MODEL_OPTIONS ?? [];
+}
+
+/**
+ * The user-selectable auto-tagging chat models (Settings → AI
+ * Intelligence). `[]` when the module is absent.
+ */
+export async function getTagModelOptions(): Promise<TagModelOption[]> {
+  const mod = await getModuleNamespace();
+  return mod?.TAG_MODEL_OPTIONS ?? [];
 }
 
 export class SemanticSearchCoordinator {
@@ -113,6 +156,14 @@ export class SemanticSearchCoordinator {
               return useSettingsStore.getState().aiDevicePreference;
             } catch {
               return 'auto';
+            }
+          },
+          embedModelId: (): string | undefined => {
+            try {
+              // '' (fresh install) → the module's default model.
+              return useSettingsStore.getState().aiEmbeddingModel || undefined;
+            } catch {
+              return undefined;
             }
           },
         }) as ModuleCoordinator;

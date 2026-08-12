@@ -73,6 +73,10 @@ interface SettingsState {
   confirmOnDelete: boolean;
   disableAiFallback: boolean;
   aiDevicePreference: AiDevicePreference;
+  /** User-selected semantic embedding model id (Settings → AI Intelligence); '' = module default. */
+  aiEmbeddingModel: string;
+  /** User-selected auto-tagging chat model id (Settings → AI Intelligence); '' = module default. */
+  aiTagModel: string;
 
   // A1111 Integration settings
   a1111ServerUrl: string;
@@ -121,6 +125,8 @@ interface SettingsState {
   setConfirmOnDelete: (value: boolean) => void;
   setDisableAiFallback: (value: boolean) => void;
   setAiDevicePreference: (value: AiDevicePreference) => void;
+  setAiEmbeddingModel: (value: string) => void;
+  setAiTagModel: (value: string) => void;
   setSidebarCollapsed: (value: boolean) => void;
   setStackingEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
@@ -164,6 +170,8 @@ export const useSettingsStore = create<SettingsState>()(
       confirmOnDelete: true,
       disableAiFallback: false,
       aiDevicePreference: 'auto',
+      aiEmbeddingModel: '', // '' = the module's default embedding model
+      aiTagModel: '', // '' = the module's default auto-tag model
 
       // A1111 Integration initial state
       a1111ServerUrl: 'http://127.0.0.1:7860',
@@ -221,6 +229,8 @@ export const useSettingsStore = create<SettingsState>()(
       setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
       setDisableAiFallback: (value) => set({ disableAiFallback: !!value }),
       setAiDevicePreference: (value) => set({ aiDevicePreference: value }),
+      setAiEmbeddingModel: (value) => set({ aiEmbeddingModel: value }),
+      setAiTagModel: (value) => set({ aiTagModel: value }),
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
@@ -276,6 +286,8 @@ export const useSettingsStore = create<SettingsState>()(
         confirmOnDelete: true,
         disableAiFallback: false,
         aiDevicePreference: 'auto',
+        aiEmbeddingModel: '',
+        aiTagModel: '',
         isSidebarCollapsed: true,
         isStackingEnabled: false,
         isSemanticSearchEnabled: false,

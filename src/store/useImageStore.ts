@@ -454,6 +454,7 @@ interface ImageState {
   clearSemanticSearch: () => void;
   semanticIndexImages: (options?: { force?: boolean }) => Promise<void>;
   cancelSemanticIndexing: () => void;
+  applySemanticEmbeddingModel: (modelId: string) => Promise<void>;
   setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
   setDetectedGpuInfo: (info: DetectedGpuInfo | null) => void;
   handleClusterImageDeletion: (deletedImageIds: string[]) => void;
@@ -2248,6 +2249,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             const disableAiFallback = useSettingsStore.getState().disableAiFallback;
             const aiDevicePreference = useSettingsStore.getState().aiDevicePreference;
+            const aiTagModel = useSettingsStore.getState().aiTagModel;
 
             worker.postMessage({
                 type: 'start',
@@ -2257,6 +2259,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     minScore: options?.minScore,
                     disableFallback: disableAiFallback,
                     devicePreference: aiDevicePreference,
+                    tagModelId: aiTagModel || undefined,
                     // The worker cannot check premium itself — its Zustand store
                     // is a separate instance without the user's license data.
                     isPremium: isAiFeaturesEnabled(),
@@ -4062,6 +4065,28 @@ export const useImageStore = create<ImageState>((set, get) => {
             __semanticIndexQueued = false;
             __semanticIndexQueuedForce = false;
             __semanticCoordinator?.cancelIndexing();
+        },
+
+        /**
+         * Settings → AI Intelligence embedding-model switch: persist the new
+         * model, stop any in-flight run, release the worker, and force a full
+         * re-index. The engine is a per-worker singleton — it loads once from
+         * the first init's model id and cannot reload a different record
+         * (web-llm has no per-record load-without-unload) — so the worker must
+         * be recreated. The coordinator's model-aware Δ then re-embeds every
+         * image because the stored records' modelId/dimension no longer match
+         * the new target. The re-index runs through the normal progress-bar +
+         * cancel path.
+         */
+        applySemanticEmbeddingModel: async (modelId: string) => {
+            useSettingsStore.getState().setAiEmbeddingModel(modelId);
+            // Cancel BEFORE dispose: dispose rejects pending embeds as a plain
+            // error (would surface as semanticLastError), while cancelIndexing
+            // rejects with the swallowed SEMANTIC_INDEX_CANCELLED path.
+            get().cancelSemanticIndexing();
+            __semanticCoordinator?.dispose();
+            __semanticCoordinator = null;
+            await get().semanticIndexImages({ force: true });
         },
 
         setSemanticIndexProgress: (progress) => set({ semanticIndexProgress: progress }),

@@ -10,6 +10,12 @@ import { normalizePath } from '../utils/pathUtils';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
 import type { AiDevicePreference } from '../services/gpuPreference';
+import {
+  getEmbeddingModelOptions,
+  getTagModelOptions,
+  type EmbeddingModelOption,
+  type TagModelOption,
+} from '../services/semanticSearchEngine';
 
 // ── License Tab — lazy-loaded from the closed-source module ───────────
 // When ai-intelligence is absent at build time, dead-code elimination
@@ -117,6 +123,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const setAiDevicePreference = useSettingsStore((state) => state.setAiDevicePreference);
   const detectedGpuInfo = useImageStore((state) => state.detectedGpuInfo);
 
+  // Model selection (Settings → AI Intelligence): embedding model (semantic
+  // search) + auto-tagging chat model. '' = the module's default.
+  const aiEmbeddingModel = useSettingsStore((state) => state.aiEmbeddingModel);
+  const setAiEmbeddingModel = useSettingsStore((state) => state.setAiEmbeddingModel);
+  const aiTagModel = useSettingsStore((state) => state.aiTagModel);
+  const setAiTagModel = useSettingsStore((state) => state.setAiTagModel);
+  const applySemanticEmbeddingModel = useImageStore((state) => state.applySemanticEmbeddingModel);
+
   // Runtime gate: the whole AI section is premium-only
   const aiFeaturesEnabled = useAiFeaturesEnabled();
 
@@ -139,6 +153,34 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
   const [appVersion, setAppVersion] = useState('');
+
+  // Model catalogs from the ai-intelligence module. null = still loading;
+  // [] = module absent (the AI section is gated off anyway).
+  const [embeddingModelOptions, setEmbeddingModelOptions] = useState<EmbeddingModelOption[] | null>(null);
+  const [tagModelOptions, setTagModelOptions] = useState<TagModelOption[] | null>(null);
+
+  useEffect(() => {
+    if (!aiFeaturesEnabled) return;
+    let cancelled = false;
+    void Promise.all([getEmbeddingModelOptions(), getTagModelOptions()]).then(([embeddings, tags]) => {
+      if (!cancelled) {
+        setEmbeddingModelOptions(embeddings);
+        setTagModelOptions(tags);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [aiFeaturesEnabled]);
+
+  // A stale persisted id (older app version) would not match any option —
+  // fall back to the catalog default, exactly as the module resolves it.
+  const effectiveEmbeddingModel = embeddingModelOptions?.some((o) => o.modelId === aiEmbeddingModel)
+    ? aiEmbeddingModel
+    : (embeddingModelOptions?.[0]?.modelId ?? '');
+  const effectiveTagModel = tagModelOptions?.some((o) => o.modelId === aiTagModel)
+    ? aiTagModel
+    : (tagModelOptions?.[0]?.modelId ?? '');
 
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
   const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].name);
@@ -549,6 +591,72 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         <p className="text-xs text-gray-600 mt-1">
                           High/low power re-steer the GPU at app start — restart for the full effect (the request-time
                           preference is re-applied at each model load).
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <label htmlFor="ai-embedding-model" className="text-sm font-medium text-gray-200 block mb-1">
+                          Semantic embedding model
+                        </label>
+                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                          Powers natural-language search over the library. Switching models immediately rebuilds the index — a full re-embed with progress and cancel (images stay keyword-searchable while it runs).
+                        </p>
+                        {embeddingModelOptions === null ? (
+                          <select disabled data-testid="ai-embedding-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">
+                            <option>Loading models…</option>
+                          </select>
+                        ) : embeddingModelOptions.length === 0 ? (
+                          <p className="text-sm text-gray-500">No models available — the AI module is not installed.</p>
+                        ) : (
+                          <select
+                            id="ai-embedding-model"
+                            data-testid="ai-embedding-model-select"
+                            value={effectiveEmbeddingModel}
+                            onChange={(event) => void applySemanticEmbeddingModel(event.target.value)}
+                            className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
+                          >
+                            {embeddingModelOptions.map((option) => (
+                              <option key={option.modelId} value={option.modelId}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
+                          Heavier variants embed more accurately but need more VRAM. {effectiveEmbeddingModel ? 'The index rebuild happens automatically — watch the footer progress.' : ''}
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <label htmlFor="ai-tag-model" className="text-sm font-medium text-gray-200 block mb-1">
+                          Auto-tagging model
+                        </label>
+                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                          Generates tags from image prompts when you run auto-tagging. Each run loads its own worker, so the change applies to the next run.
+                        </p>
+                        {tagModelOptions === null ? (
+                          <select disabled data-testid="ai-tag-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">
+                            <option>Loading models…</option>
+                          </select>
+                        ) : tagModelOptions.length === 0 ? (
+                          <p className="text-sm text-gray-500">No models available — the AI module is not installed.</p>
+                        ) : (
+                          <select
+                            id="ai-tag-model"
+                            data-testid="ai-tag-model-select"
+                            value={effectiveTagModel}
+                            onChange={(event) => setAiTagModel(event.target.value)}
+                            className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
+                          >
+                            {tagModelOptions.map((option) => (
+                              <option key={option.modelId} value={option.modelId}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
+                          Larger chat models give richer tags but load alongside the embedding model — leave VRAM headroom for both.
                         </p>
                       </div>
 

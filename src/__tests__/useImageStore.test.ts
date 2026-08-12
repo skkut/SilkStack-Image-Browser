@@ -179,7 +179,7 @@ describe('useImageStore Stacking Preservations', () => {
 describe('useImageStore auto-tagging GPU preference', () => {
   beforeEach(() => {
     FakeTaggingWorker.lastInstance = null;
-    useSettingsStore.setState({ aiDevicePreference: 'auto' });
+    useSettingsStore.setState({ aiDevicePreference: 'auto', aiTagModel: '' });
     useImageStore.setState({
       images: [],
       filteredImages: [createImage({ id: 'img1', prompt: 'a dragon' })],
@@ -207,6 +207,21 @@ describe('useImageStore auto-tagging GPU preference', () => {
 
     const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
     expect(start?.payload.devicePreference).toBe('auto');
+  });
+
+  it("sends the selected tag model in the start payload when set", async () => {
+    useSettingsStore.setState({ aiTagModel: 'Qwen3-4B-q4f16_1-MLC' });
+    await useImageStore.getState().startAutoTagging('', false, {});
+
+    const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
+    expect(start?.payload.tagModelId).toBe('Qwen3-4B-q4f16_1-MLC');
+  });
+
+  it('omits tagModelId when the setting is unset (worker falls back to its default)', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+
+    const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
+    expect(start?.payload.tagModelId).toBeUndefined();
   });
 
   it('stores gpu-info from the worker into detectedGpuInfo', async () => {

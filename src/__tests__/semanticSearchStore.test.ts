@@ -825,3 +825,59 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('applySemanticEmbeddingModel (Settings model switch)', () => {
+  it('persists the model, cancels in-flight work, disposes the worker, then force re-indexes', async () => {
+    // A live coordinator exists from a prior Δ-run…
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+    await useImageStore.getState().semanticIndexImages();
+    await flush();
+    vi.clearAllMocks(); // forget the setup run (implementations persist)
+
+    await useImageStore.getState().applySemanticEmbeddingModel('embed-b32');
+    await flush();
+
+    expect(useSettingsStore.getState().aiEmbeddingModel).toBe('embed-b32');
+    // Cancel BEFORE dispose: cancel rejects with the swallowed cancel path,
+    // dispose rejects with a plain error that would surface as semanticLastError.
+    expect(coordinatorMock.cancelIndexing).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.dispose).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.cancelIndexing.mock.invocationCallOrder[0])
+      .toBeLessThan(coordinatorMock.dispose.mock.invocationCallOrder[0]);
+    // Force path on a freshly-created coordinator: clear, then re-index.
+    expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.clearIndex.mock.invocationCallOrder[0])
+      .toBeLessThan(coordinatorMock.indexImages.mock.invocationCallOrder[0]);
+  });
+
+  it('cancels a hanging run before disposing; the deferred force replay still re-indexes', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+    let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
+    coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveFirst = r; }));
+
+    const first = useImageStore.getState().semanticIndexImages();
+    await flush(); // run reaches the coordinator
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+
+    // The switch lands while a run is in flight: cancel + dispose immediately…
+    const apply = useImageStore.getState().applySemanticEmbeddingModel('embed-b32');
+    expect(coordinatorMock.cancelIndexing).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.dispose).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.cancelIndexing.mock.invocationCallOrder[0])
+      .toBeLessThan(coordinatorMock.dispose.mock.invocationCallOrder[0]);
+    expect(coordinatorMock.clearIndex).not.toHaveBeenCalled(); // force is deferred
+
+    // …and the queued force replay (500 ms) still clears + re-indexes.
+    resolveFirst({ indexed: 1, skipped: 0 });
+    await first;
+    await vi.advanceTimersByTimeAsync(600);
+    await apply;
+    await flush();
+
+    expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
+    expect(useSettingsStore.getState().aiEmbeddingModel).toBe('embed-b32');
+  });
+});

@@ -170,11 +170,31 @@ declare module '@ai-images-browser/ai-intelligence' {
     models?: string[];
   }
 
+  // ── Model catalog (Settings → AI Intelligence) ────────────────────
+
+  export interface EmbeddingModelOption {
+    modelId: string;
+    dimension: number;
+    label: string;
+    description: string;
+  }
+
+  export interface TagModelOption {
+    modelId: string;
+    label: string;
+    description: string;
+  }
+
+  export const EMBEDDING_MODEL_OPTIONS: EmbeddingModelOption[];
+  export const TAG_MODEL_OPTIONS: TagModelOption[];
+
   export interface SemanticSearchCoordinatorOptions {
     onProgress?: SemanticProgressCallback;
     onGpuInfo?: (info: DetectedGpuInfo) => void;
     isPremium?: () => boolean;
     devicePreference?: () => AiDevicePreference;
+    /** User-selected embedding model id at send time; empty/unknown → the catalog default. */
+    embedModelId?: () => string | undefined;
   }
 
   export class SemanticSearchCoordinator {
