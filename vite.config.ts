@@ -30,16 +30,17 @@ export default defineConfig({
     // dispatcher from react-dom, so its useState crashes with
     // "Cannot read properties of null (reading 'useState')").
     dedupe: ['react', 'react-dom', 'lucide-react'],
-    ...(aiFeaturesAvailable
-      ? {
-          alias: {
-            '@ai-images-browser/ai-intelligence': resolve(
-              __dirname,
-              'ai-intelligence',
-            ),
-          },
-        }
-      : {}),
+    // ALWAYS alias the module path — rolldown (vite 8) hard-fails on
+    // unresolvable dynamic imports even inside VITE_AI_FEATURES_AVAILABLE
+    // guards (classic rollup only warned). To the real package when
+    // present; to the empty test stub when absent, so the false define
+    // can dead-code the guarded imports and the open-source build stays
+    // green without the module.
+    alias: {
+      '@ai-images-browser/ai-intelligence': aiFeaturesAvailable
+        ? resolve(__dirname, 'ai-intelligence')
+        : resolve(__dirname, 'test', 'ai-intelligence-stub.ts'),
+    },
   },
   plugins: [
     react(),

@@ -1,15 +1,12 @@
 /**
  * aiBridge GPU-preference tests — the four engine factories must apply the
  * device preference (and, on the shared engine, the adapter-info callback)
- * before constructing. gpuPreference is mocked (its patch behavior is
- * covered by gpuPreference.test.ts); the ai-intelligence module is mocked
- * with constructable classes.
+ * before constructing. The patch implementation lives in the ai-intelligence
+ * module (ai-intelligence/src/gpu/gpuPreference.ts, covered by the module's
+ * own tests); the app's gpuPreference.ts is contract-only. The module is
+ * mocked with constructable classes plus an `applyGpuPreference` spy.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-vi.mock('../services/gpuPreference', () => ({
-  applyGpuPreference: vi.fn(),
-}));
 
 vi.mock('@ai-images-browser/ai-intelligence', () => {
   class LLMTagGenerator {
@@ -37,10 +34,16 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
       unload: async () => {},
     }));
   }
-  return { LLMTagGenerator, WebLLMEmbeddingProvider, SemanticSearchEngine, SharedMLEngine };
+  return {
+    LLMTagGenerator,
+    WebLLMEmbeddingProvider,
+    SemanticSearchEngine,
+    SharedMLEngine,
+    applyGpuPreference: vi.fn(),
+  };
 });
 
-import { applyGpuPreference } from '../services/gpuPreference';
+import { applyGpuPreference } from '@ai-images-browser/ai-intelligence';
 import {
   createSharedEngine,
   createLLMTagGenerator,

@@ -131,6 +131,62 @@ declare module '@ai-images-browser/ai-intelligence' {
     dispose(): void;
   }
 
+  // ── GPU preference patch + AI worker (module-owned, moved 2026-08-12) ─
+
+  export function applyGpuPreference(
+    preference: AiDevicePreference,
+    onAdapterInfo?: (info: DetectedGpuInfo) => void,
+  ): void;
+
+  export function createAiWorker(): Worker;
+
+  // ── Semantic search coordinator (moved to the module 2026-08-12) ─────
+
+  export interface SemanticIndexProgress {
+    current: number;
+    total: number;
+    message: string;
+  }
+
+  export type SemanticProgressCallback = (progress: SemanticIndexProgress) => void;
+
+  export interface SemanticIndexResult {
+    indexed: number;
+    skipped: number;
+  }
+
+  export interface SemanticSearchStatus {
+    ready: boolean;
+    indexed: number;
+    modelId: string | null;
+    dimension: number | null;
+    error: string | null;
+  }
+
+  export interface SemanticIndexInput {
+    id: string;
+    prompt?: string;
+    tags?: string[];
+    models?: string[];
+  }
+
+  export interface SemanticSearchCoordinatorOptions {
+    onProgress?: SemanticProgressCallback;
+    onGpuInfo?: (info: DetectedGpuInfo) => void;
+    isPremium?: () => boolean;
+    devicePreference?: () => AiDevicePreference;
+  }
+
+  export class SemanticSearchCoordinator {
+    constructor(options?: SemanticSearchCoordinatorOptions);
+    ensureInitialized(): Promise<void>;
+    indexImages(images: SemanticIndexInput[]): Promise<SemanticIndexResult>;
+    search(query: string, options?: { limit?: number; threshold?: number }): Promise<SemanticSearchHit[]>;
+    clearIndex(): Promise<void>;
+    getStatus(): SemanticSearchStatus;
+    dispose(): void;
+  }
+
   // Stacking Engine
   export class StackingEngine {
     generatePromptHash(prompt: string): string;
@@ -230,4 +286,9 @@ declare module '@ai-images-browser/ai-intelligence' {
     onDragStart: (image: StackImage, event: React.DragEvent<HTMLDivElement>) => void;
     onDragEnd: (event: React.DragEvent<HTMLDivElement>) => void;
   }>;
+
+  // The app's gpuPreference.ts is the open-source CONTRACT (the patch
+  // implementation lives in the module); re-export its types so anything
+  // importing them from the module path sees the same shape as the app.
+  export { AiDevicePreference, DetectedGpuInfo } from './services/gpuPreference';
 }

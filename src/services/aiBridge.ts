@@ -16,21 +16,16 @@
  *   - createStackingEngine()     — AI-powered image grouping
  *   - createTagGenerator()       — Rule-based extraction from ai-intelligence
  *
- * Free features (always available, open-source code in this repo):
- *   - createTagGenerator()       — falls back to BuiltInTagGenerator without a license
+ * Since 2026-08-12 there is NO free fallback: without a license the module's
+ * TagGenerator is not returned (decision — no-module/no-license builds get
+ * no auto-tagging at all; the open-source BuiltInTagGenerator was removed).
  *
  * Usage:
  *   const llm = await createLLMTagGenerator(modelId, onProgress);
  *   if (!llm) { ... handle unavailable case ... }
- *
- *   const tagger = await createTagGenerator();  // always succeeds (built-in fallback)
  */
 
-import {
-  applyGpuPreference,
-  type AiDevicePreference,
-  type DetectedGpuInfo,
-} from './gpuPreference';
+import type { AiDevicePreference, DetectedGpuInfo } from './gpuPreference';
 
 // Re-exported so workers and stores consume the types through the bridge.
 export type { AiDevicePreference, DetectedGpuInfo };
@@ -263,8 +258,9 @@ export async function createLLMTagGenerator(
   const mod = await loadAiModule();
   if (!mod) return null;
 
-  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
-  applyGpuPreference(opts?.devicePreference ?? 'auto');
+  // Steer the WebGPU adapter before the engine requests one — the patch
+  // implementation lives in the module (gpu/gpuPreference.ts).
+  (mod as any).applyGpuPreference?.(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -285,21 +281,18 @@ export async function createLLMTagGenerator(
 }
 
 /**
- * Create a rule-based tag generator.
- * Always succeeds: uses the real TagGenerator from ai-intelligence if
- * available AND the user has a valid premium license; otherwise falls
- * back to the built-in (open-source) implementation.
+ * Create the module's rule-based tag generator.
+ * Returns `null` unless the ai-intelligence module is available AND the user
+ * has a valid premium license — decision (2026-08-12): the free fallback was
+ * dropped, so no-module/no-license builds get NO auto-tagging at all (the
+ * open-source BuiltInTagGenerator was removed).
  *
- * The closed-source TagGenerator is a premium feature — it must not be
- * reachable without a license, even though the built-in fallback is free.
+ * Trusted callers (e.g. the app's auto-tagging worker consumer) may skip the
+ * license check when the main thread has already verified premium status.
  */
 export async function createTagGenerator(
   opts?: { skipPremiumCheck?: boolean },
-): Promise<ITagGenerator> {
-  // Premium gate: the closed-source TagGenerator requires a license.
-  // Without one, skip the module entirely and use the built-in extractor.
-  // Trusted callers (e.g. the auto-tagging worker) may skip the check when
-  // the main thread has already verified premium status.
+): Promise<ITagGenerator | null> {
   if (opts?.skipPremiumCheck || await checkPremiumLicense()) {
     const mod = await loadAiModule();
 
@@ -308,13 +301,13 @@ export async function createTagGenerator(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const TagGenerator = (mod as any).TagGenerator;
         if (TagGenerator) return new TagGenerator() as ITagGenerator;
-      } catch {
-        // Fall through to built-in fallback
+      } catch (err) {
+        console.warn('[aiBridge] Failed to create TagGenerator:', err);
       }
     }
   }
 
-  return new BuiltInTagGenerator();
+  return null;
 }
 
 /**
@@ -338,8 +331,9 @@ export async function createEmbeddingProvider(
   const mod = await loadAiModule();
   if (!mod) return null;
 
-  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
-  applyGpuPreference(opts?.devicePreference ?? 'auto');
+  // Steer the WebGPU adapter before the engine requests one — the patch
+  // implementation lives in the module (gpu/gpuPreference.ts).
+  (mod as any).applyGpuPreference?.(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -386,8 +380,9 @@ export async function createSharedEngine(opts?: {
   const mod = await loadAiModule();
   if (!mod) return null;
 
-  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
-  applyGpuPreference(opts?.devicePreference ?? 'auto', opts?.onAdapterInfo);
+  // Steer the WebGPU adapter before the engine requests one — the patch
+  // implementation lives in the module (gpu/gpuPreference.ts).
+  (mod as any).applyGpuPreference?.(opts?.devicePreference ?? 'auto', opts?.onAdapterInfo);
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -423,8 +418,9 @@ export async function createSemanticSearchEngine(opts?: {
   const mod = await loadAiModule();
   if (!mod) return null;
 
-  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
-  applyGpuPreference(opts?.devicePreference ?? 'auto');
+  // Steer the WebGPU adapter before the engine requests one — the patch
+  // implementation lives in the module (gpu/gpuPreference.ts).
+  (mod as any).applyGpuPreference?.(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -557,139 +553,8 @@ export async function getAiLoadError(): Promise<string | null> {
   return loadError;
 }
 
-// ── Built-in rule-based tag generator (no dependencies) ──────────────
-
-/**
- * Minimal rule-based tag extractor for Stable Diffusion-style prompts.
- * Inlined from ai-intelligence so basic auto-tagging always works even
- * when the optional AI module is absent.
- */
-class BuiltInTagGenerator implements ITagGenerator {
-  async generateTagsFromPrompt(prompt: string): Promise<string[]> {
-    return this.extractTags(prompt);
-  }
-
-  private extractTags(prompt: string): string[] {
-    if (!prompt) return [];
-
-    let cleaned = this.stripAngleBrackets(prompt);
-
-    // Remove weight notation: (tag:1.2) → tag
-    cleaned = cleaned.replace(/\(([^:)]+):\s*[0-9.]+\)/g, '$1');
-    cleaned = cleaned.replace(/[\[\]\{\}\(\)]/g, ' ');
-
-    // Remove weight suffixes: tag:1.2 → tag
-    cleaned = cleaned.replace(/:\s*[0-9.]+/g, '');
-
-    // Replace periods with commas (sentence separators → tag separators)
-    cleaned = cleaned.replace(/\./g, ',');
-
-    const stopWords = new Set([
-      'a', 'an', 'the', 'and', 'or', 'of', 'in', 'on', 'at', 'to',
-      'by', 'for', 'with', 'is', 'it', 'its', 'be', 'as', 'has',
-      'from', 'are', 'was', 'were', 'been', 'being', 'have', 'had',
-      'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may',
-      'might', 'can', 'shall', 'this', 'that', 'these', 'those',
-      'very', 'really', 'highly', 'extremely', 'ultra', 'over',
-      'her', 'his', 'their', 'itself', 'into', 'up', 'out', 'just',
-      'about', 'above', 'after', 'again', 'all', 'also', 'any',
-      'because', 'before', 'between', 'both', 'but', 'during',
-      'each', 'few', 'further', 'how', 'if', 'more', 'most',
-      'no', 'not', 'now', 'once', 'only', 'other', 'our',
-      'own', 'same', 'she', 'so', 'some', 'such', 'than',
-      'then', 'there', 'through', 'too', 'under', 'until',
-      'what', 'when', 'where', 'which', 'while', 'who', 'why',
-      'you', 'your', 'should', 'would', 'could', 'here',
-    ]);
-
-    const boilerplate = new Set([
-      'masterpiece', 'best quality', 'high quality', 'award winning',
-      'trending', 'viral', 'beautiful', 'stunning', 'gorgeous', 'amazing',
-      'fantastic', 'wonderful', 'excellent', 'perfect', 'great', 'awesome',
-      'breathtaking', 'epic', 'impressive', 'incredible', 'spectacular',
-      'dynamic', 'stylized', 'elaborate', 'centered',
-      '4k', '8k', 'hd', 'hdr', 'uhd', 'ultra hd', 'high resolution',
-      'high detail', 'highly detailed', 'intricate details', 'sharp focus',
-      'hyperrealistic', 'photorealistic', 'realistic', 'ultra realistic',
-      'hype realistic', 'high-quality', 'high quality detail',
-      'close up', 'rendered', 'artwork',
-    ]);
-
-    const parts = cleaned
-      .split(',')
-      .map((t) => t.trim().toLowerCase())
-      .filter(Boolean);
-
-    const tags: string[] = [];
-
-    for (const part of parts) {
-      const stripped = part.replace(/^(a|an|the)\s+/, '').trim();
-      if (!stripped) continue;
-
-      const words = stripped.split(/\s+/).filter((w) => w.length > 0);
-      const contentWords = words.filter((w) => !stopWords.has(w) && w.length > 1);
-      if (contentWords.length === 0) continue;
-
-      if (words.length <= 4) {
-        tags.push(stripped);
-      } else {
-        for (let i = 0; i < contentWords.length; i++) {
-          tags.push(contentWords[i]);
-          if (i + 1 < contentWords.length) {
-            tags.push(`${contentWords[i]} ${contentWords[i + 1]}`);
-          }
-        }
-      }
-    }
-
-    return this.removeSubsetTags(
-      [...new Set(tags)]
-        .filter((t) => {
-          if (t.length < 3) return false;
-          if (t.length > 60) return false;
-          if (stopWords.has(t)) return false;
-          if (boilerplate.has(t)) return false;
-          if (/^\d+$/.test(t)) return false;
-          if (/[<>]/.test(t)) return false;
-          if (/^\W+$/.test(t)) return false;
-          return true;
-        }),
-    ).slice(0, 10);
-  }
-
-  /** Strip angle-bracket tokens like <lora:name:1.0> from the prompt. */
-  private stripAngleBrackets(text: string): string {
-    return text
-      .replace(/<[^>]*>/g, '')
-      .replace(/\s+/g, ' ')
-      .replace(/,\s*,/g, ',')
-      .trim();
-  }
-
-  /**
-   * Remove tags whose words are all contained within another, longer tag.
-   * E.g. "dress" is removed when "red dress" is present.
-   */
-  private removeSubsetTags(tags: string[]): string[] {
-    const unique = [...new Set(tags)];
-    if (unique.length <= 1) return unique;
-
-    return unique.filter((tag, i) => {
-      const tagWords = tag.split(/\s+/).sort();
-      return !unique.some((other, j) => {
-        if (i === j || other === tag) return false;
-        const otherWords = other.split(/\s+/).sort();
-        if (
-          tagWords.length === otherWords.length &&
-          tagWords.every((w, idx) => w === otherWords[idx])
-        ) {
-          return i > j;
-        }
-        return (
-          otherWords.length > tagWords.length &&
-          tagWords.every((w) => otherWords.includes(w))
-        );
-      });
-    });
-  }
-}
+// ── Built-in rule-based tag generator ────────────────────────────────
+// Removed 2026-08-12 by decision: the free rule-based auto-tagging fallback
+// was dropped — no-module/no-license builds get no auto-tagging at all.
+// The module's TagGenerator (ai-intelligence/src/modules/tag-generator.ts)
+// is the only rule-based extractor, reachable only with a premium license.

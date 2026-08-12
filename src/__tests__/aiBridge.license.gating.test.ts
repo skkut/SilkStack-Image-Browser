@@ -168,6 +168,10 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
     SemanticSearchEngine,
     buildSearchableText,
     buildTextHash,
+    // The bridge's factories call this before constructing engines; vitest's
+    // mock proxy throws on missing exports, so the spy must exist (its calls
+    // are asserted by aiBridge.devicePreference.test.ts, not here).
+    applyGpuPreference: vi.fn(),
   };
 });
 
@@ -246,37 +250,22 @@ describe('aiBridge — premium gating without a license', () => {
         expect(builder).toBeNull();
       });
 
-      it('createTagGenerator skips the closed-source TagGenerator', async () => {
+      it('createTagGenerator returns null without a license', async () => {
         const { createTagGenerator } = await import('../services/aiBridge');
         const tagger = await createTagGenerator();
-        expect(tagger).not.toBeNull();
+
+        // The free built-in fallback was dropped (2026-08-12): the module's
+        // TagGenerator is only reachable with a valid license.
+        expect(tagger).toBeNull();
         expect(mocks.TagGenerator).not.toHaveBeenCalled();
       });
     });
   }
 });
 
-describe('aiBridge — free built-in tag generator without a license', () => {
-  beforeEach(() => {
-    setLicenseStatus('unchecked');
-    for (const spy of Object.values(mocks)) spy.mockClear();
-  });
-
-  it('still returns a working generator (open-source fallback)', async () => {
-    const { createTagGenerator } = await import('../services/aiBridge');
-    const tagger = await createTagGenerator();
-
-    expect(tagger).not.toBeNull();
-    const tags = await tagger!.generateTagsFromPrompt(
-      'a red fox sitting in a snowy forest, digital painting',
-    );
-    expect(Array.isArray(tags)).toBe(true);
-    expect(tags.length).toBeGreaterThan(0);
-    expect(tags.every((t) => typeof t === 'string')).toBe(true);
-    // The free fallback must NOT be the closed-source implementation
-    expect(mocks.TagGenerator).not.toHaveBeenCalled();
-  });
-});
+// The free built-in tag generator was REMOVED (2026-08-12): auto-tagging
+// is premium-only, so createTagGenerator returns null without a license
+// (covered by the non-premium describe above).
 
 describe('aiBridge — premium features with a license', () => {
   for (const status of PREMIUM_STATUSES) {

@@ -49,13 +49,13 @@ describe('aiBridge — all factories return null when AI module is unavailable',
     expect(builder).toBeNull();
   });
 
-  it('createTagGenerator always succeeds with built-in fallback', async () => {
+  it('createTagGenerator returns null when the module is absent', async () => {
     const { createTagGenerator } = await import('../services/aiBridge');
     const tagger = await createTagGenerator();
 
-    // BuiltInTagGenerator is always available as fallback
-    expect(tagger).not.toBeNull();
-    expect(typeof tagger!.generateTagsFromPrompt).toBe('function');
+    // The free built-in fallback was dropped (2026-08-12): auto-tagging is
+    // premium-only, so no-module builds get no tagger at all.
+    expect(tagger).toBeNull();
   });
 
   it('isAiAvailable returns false', async () => {

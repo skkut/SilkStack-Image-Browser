@@ -2129,10 +2129,18 @@ export const useImageStore = create<ImageState>((set, get) => {
                 existingWorker.terminate();
             }
 
-            const worker = new Worker(
-                new URL('../services/workers/aiWorker.ts', import.meta.url),
-                { type: 'module' }
-            );
+            // The AI worker lives in the closed-source ai-intelligence module
+            // (moved 2026-08-12). Guarded load: no-module builds fall through
+            // here — auto-tagging is premium-only, so there is no fallback.
+            let createAiWorker: ((...args: unknown[]) => Worker) | null = null;
+            try {
+                createAiWorker = (await import('@ai-images-browser/ai-intelligence')).createAiWorker ?? null;
+            } catch { /* module absent */ }
+            if (!createAiWorker) {
+                console.warn('AI auto-tagging unavailable: ai-intelligence module not present');
+                return;
+            }
+            const worker = createAiWorker();
 
             set({
                 autoTaggingWorker: worker,

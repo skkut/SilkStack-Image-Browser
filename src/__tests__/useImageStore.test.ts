@@ -39,6 +39,29 @@ const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   ...overrides,
 });
 
+// The AI worker factory lives in the closed-source ai-intelligence module;
+// mock it so startAutoTagging constructs the fake worker directly (the real
+// module's dist is a build artifact — tests must not depend on it being
+// built). The factory is lazy: it runs on the first dynamic import() inside
+// startAutoTagging, long after this top-level class has been evaluated.
+class FakeTaggingWorker {
+  static lastInstance: FakeTaggingWorker | null = null;
+  posted: Array<{ type: string; payload: Record<string, unknown> }> = [];
+  onmessage: ((e: MessageEvent) => void) | null = null;
+  onerror: ((e: ErrorEvent) => void) | null = null;
+  terminate = vi.fn();
+  postMessage(message: { type: string; payload: Record<string, unknown> }): void {
+    this.posted.push(message);
+  }
+  constructor() {
+    FakeTaggingWorker.lastInstance = this;
+  }
+}
+
+vi.mock('@ai-images-browser/ai-intelligence', () => ({
+  createAiWorker: () => new FakeTaggingWorker(),
+}));
+
 // Mock dependencies
 vi.mock('../services/aiBridge', () => ({
   createStackingEngine: vi.fn().mockResolvedValue({
@@ -154,20 +177,6 @@ describe('useImageStore Stacking Preservations', () => {
 // ── Auto-tagging GPU preference (start payload + gpu-info) ────────────
 
 describe('useImageStore auto-tagging GPU preference', () => {
-  class FakeTaggingWorker {
-    static lastInstance: FakeTaggingWorker | null = null;
-    posted: Array<{ type: string; payload: Record<string, unknown> }> = [];
-    onmessage: ((e: MessageEvent) => void) | null = null;
-    onerror: ((e: ErrorEvent) => void) | null = null;
-    terminate = vi.fn();
-    postMessage(message: { type: string; payload: Record<string, unknown> }): void {
-      this.posted.push(message);
-    }
-    constructor() {
-      FakeTaggingWorker.lastInstance = this;
-    }
-  }
-
   beforeEach(() => {
     FakeTaggingWorker.lastInstance = null;
     useSettingsStore.setState({ aiDevicePreference: 'auto' });

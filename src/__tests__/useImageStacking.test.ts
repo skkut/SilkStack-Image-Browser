@@ -41,7 +41,10 @@ const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   ...overrides,
 });
 
-describe('useImageStacking Hook', () => {
+// This suite exercises the real closed-source stacking engine end to end
+// (no module mock). In the no-module CI path (VITE_AI_FEATURES_AVAILABLE
+// false) the stacking engine is absent by design, so the suite is skipped.
+describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking Hook', () => {
   // Stacking is premium-gated: the hook must see an active license to group.
   beforeEach(() => {
     useSettingsStore.setState({
