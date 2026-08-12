@@ -7,7 +7,7 @@ interface SearchBarProps {
   onChange: (query: string) => void;
   // Semantic search (§9) — presentational: TopMenuBar wires these.
   semanticAvailable?: boolean; // useSemanticSearchEnabled() — hides the button
-  semanticMode?: 'auto' | 'semantic' | 'off';
+  semanticMode?: 'semantic' | 'off';
   semanticStatus?: 'idle' | 'loading' | 'ready' | 'error' | 'unavailable';
   onToggleSemantic?: () => void;
 }
@@ -16,7 +16,7 @@ const SearchBar: React.FC<SearchBarProps> = ({
   value,
   onChange,
   semanticAvailable = false,
-  semanticMode = 'auto',
+  semanticMode = 'off',
   semanticStatus = 'idle',
   onToggleSemantic,
 }) => {

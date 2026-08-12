@@ -35,16 +35,16 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     // Runtime gate: the Stacks view tab requires premium license
     const aiFeaturesEnabled = useAiFeaturesEnabled();
     // Semantic search (§9): the sparkles toggle only appears when the
-    // feature is usable; it maps 'auto' ↔ 'semantic' ('off' stays a
-    // store-level value reachable via the Settings pref, which hides the
-    // button). Store state flows down — SearchBar stays presentational.
+    // feature is usable. It is a plain on/off — 'semantic' (purple glow)
+    // ranks results by embedding similarity; 'off' (gray) is pure keyword
+    // search. Store state flows down — SearchBar stays presentational.
     const semanticAvailable = useSemanticSearchEnabled();
     const semanticMode = useImageStore((state) => state.semanticMode);
     const semanticSearchStatus = useImageStore((state) => state.semanticSearchStatus);
     const setSemanticMode = useImageStore((state) => state.setSemanticMode);
 
     const handleToggleSemantic = () => {
-        setSemanticMode(semanticMode === 'semantic' ? 'auto' : 'semantic');
+        setSemanticMode(semanticMode === 'semantic' ? 'off' : 'semantic');
     };
 
     const [isDev, setIsDev] = React.useState<boolean>(false);

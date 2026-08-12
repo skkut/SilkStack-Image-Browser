@@ -77,13 +77,10 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
  * Pure §8.2 merge: overlay ranked semantic hits on the synchronous text
  * results. `curationVisible` is the filterAndSort scope after the curation
  * filters (directory visibility, folder selection + exclusions, favorites,
- * safe mode, tags) — the filters semantic results must respect. Keyword and
- * metadata filters apply only to the text-hit partition; semantic-only
- * additions are NOT keyword-filtered (that is the point of semantic search).
+ * safe mode, tags) — the filters semantic results must respect. Semantic
+ * hits are NOT keyword-filtered (that is the point of semantic search).
  *
  *   off / no hits → textResults unchanged
- *   auto          → keyword matches first (score order), then semantic
- *                   relatives (score order)
  *   semantic      → all hits ∩ curation-visible (score order) — the keyword
  *                   filter is replaced entirely
  */
@@ -91,13 +88,11 @@ export function applySemanticMerge(
     textResults: IndexedImage[],
     hits: ISemanticSearchHit[],
     curationVisible: IndexedImage[],
-    mode: 'auto' | 'semantic' | 'off',
+    mode: 'semantic' | 'off',
 ): IndexedImage[] {
     if (mode === 'off' || !hits || hits.length === 0) return textResults;
 
-    const visibleIds = new Set(curationVisible.map((img) => img.id));
     const imagesById = new Map(curationVisible.map((img) => [img.id, img] as const));
-    const textResultIds = new Set(textResults.map((img) => img.id));
 
     // Hits arrive ranked from the coordinator, but re-sort defensively so the
     // final ordering never depends on worker message order.
@@ -113,16 +108,7 @@ export function applySemanticMerge(
         visibleHits.push(image);
     }
 
-    if (mode === 'semantic') return visibleHits;
-
-    // auto mode — partition by keyword match: matches first, relatives appended.
-    const textHits: IndexedImage[] = [];
-    const semanticOnly: IndexedImage[] = [];
-    for (const image of visibleHits) {
-        if (textResultIds.has(image.id)) textHits.push(image);
-        else semanticOnly.push(image);
-    }
-    return [...textHits, ...semanticOnly];
+    return visibleHits; // semantic mode — all hits ∩ curation-visible (score order)
 }
 
 // ── Undo stack (session-only) ───────────────────────────────────────────
@@ -361,7 +347,7 @@ interface ImageState {
   isAutoTagging: boolean;
 
   // Semantic Search State (Phase 5)
-  semanticMode: 'auto' | 'semantic' | 'off';
+  semanticMode: 'semantic' | 'off';
   semanticHits: ISemanticSearchHit[] | null;
   semanticSearchStatus: 'idle' | 'loading' | 'ready' | 'error' | 'unavailable';
   semanticIndexProgress: SemanticIndexProgress | null;
@@ -449,7 +435,7 @@ interface ImageState {
   setClusteringProgress: (progress: { current: number; total: number; message: string } | null) => void;
   setSimilarityGroupProgress: (progress: { current: number; total: number; message: string } | null) => void;
   setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'semantic' | null) => void;
-  setSemanticMode: (mode: 'auto' | 'semantic' | 'off') => void;
+  setSemanticMode: (mode: 'semantic' | 'off') => void;
   runSemanticSearch: (query: string) => Promise<void>;
   clearSemanticSearch: () => void;
   semanticIndexImages: (options?: { force?: boolean }) => Promise<void>;
@@ -1253,11 +1239,11 @@ export const useImageStore = create<ImageState>((set, get) => {
         });
 
         // Semantic overlay (§8.2): ranked hits replace the keyword ordering
-        // whenever hits are present and the mode is not 'off'. Falls through
+        // whenever hits are present and semantic mode is on. Falls through
         // to the normal sorted results otherwise — byte-identical behavior
         // when the feature is unused.
         let filteredImages = sorted;
-        if (state.semanticMode !== 'off' && state.semanticHits && state.semanticHits.length > 0) {
+        if (state.semanticMode === 'semantic' && state.semanticHits && state.semanticHits.length > 0) {
             filteredImages = applySemanticMerge(sorted, state.semanticHits, curationVisible, state.semanticMode);
         }
 
@@ -1321,7 +1307,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         isStackingEnabled: true,
         undoAvailable: false,
         searchQuery: '',
-        semanticMode: 'auto',
+        semanticMode: 'off',
         semanticHits: null,
         semanticSearchStatus: 'idle',
         semanticIndexProgress: null,
@@ -2026,12 +2012,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return;
             }
             set(state => ({ ...filterAndSort({ ...state, searchQuery: query }), searchQuery: query }));
-            // Phase 6 (§9): typing → semantic search. Fire-and-forget — the
-            // action has its own 300 ms debounce + latest-query-wins seq and
-            // gates internally (status 'unavailable' when the feature is off,
-            // which the hidden toggle never surfaces). The mode check keeps
-            // 'off' from computing hits that the merge would ignore anyway.
-            if (get().semanticMode !== 'off') {
+            // Phase 6 (§9): typing → semantic search, but only in semantic
+            // mode. Fire-and-forget — the action has its own 300 ms debounce
+            // + latest-query-wins seq and gates internally (status
+            // 'unavailable' when the feature is off, which the hidden toggle
+            // never surfaces). In 'off' mode the query stays pure keyword.
+            if (get().semanticMode === 'semantic') {
                 void get().runSemanticSearch(query);
             }
         },
@@ -3910,7 +3896,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             // reflect the switched ranking ('semantic' replaces the keyword
             // filter entirely). Debounced + seq-guarded; no-op when 'off' or
             // no query. Hits are NOT cleared — mode only changes the merge.
-            if (mode !== 'off') {
+            if (mode === 'semantic') {
                 const query = get().searchQuery;
                 if (query && query.trim()) {
                     void get().runSemanticSearch(query);

@@ -94,7 +94,7 @@ const flush = async () => {
 /** Seed images + directories + semantic state, then re-run the filter. */
 const setupLibrary = (
   images: IndexedImage[],
-  semantic: { hits: Hit[] | null; mode: 'auto' | 'semantic' | 'off' },
+  semantic: { hits: Hit[] | null; mode: 'semantic' | 'off' },
   extra: Record<string, unknown> = {},
 ) => {
   useImageStore.setState({
@@ -144,7 +144,7 @@ beforeEach(() => {
     selectedFolders: new Set(),
     excludedFolders: new Set(),
     searchQuery: '',
-    semanticMode: 'auto',
+    semanticMode: 'off',
     semanticHits: null,
     semanticSearchStatus: 'idle',
     semanticIndexProgress: null,
@@ -178,25 +178,10 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
 
   it('returns textResults unchanged when there are no hits', () => {
     const results = [imgA];
-    expect(applySemanticMerge(results, [], results, 'auto')).toBe(results);
     expect(applySemanticMerge(results, [], results, 'semantic')).toBe(results);
   });
 
-  it('auto mode: keyword matches first (score order), relatives appended (score order)', () => {
-    const visible = [imgA, imgB];
-    const out = applySemanticMerge(
-      [imgA], // only imgA matches the keyword
-      [
-        { imageId: 'b', score: 0.9 },
-        { imageId: 'a', score: 0.5 },
-      ],
-      visible,
-      'auto',
-    );
-    expect(out.map((i) => i.id)).toEqual(['a', 'b']);
-  });
-
-  it('auto mode: drops hits that are not curation-visible', () => {
+  it('drops hits that are not curation-visible', () => {
     const out = applySemanticMerge(
       [imgA],
       [
@@ -204,7 +189,7 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
         { imageId: 'a', score: 0.5 },
       ],
       [imgA], // imgC is not curation-visible
-      'auto',
+      'semantic',
     );
     expect(out.map((i) => i.id)).toEqual(['a']);
   });
@@ -233,7 +218,7 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
         { imageId: 'b', score: 0.7 },
       ],
       visible,
-      'auto',
+      'semantic',
     );
     expect(out.map((i) => i.id)).toEqual(['a', 'b']);
   });
@@ -256,21 +241,6 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
 describe('filterAndSort semantic overlay (store integration)', () => {
   const fox = () => createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
   const mountain = () => createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1' });
-
-  it('auto mode: keyword matches first, semantic relatives appended', () => {
-    setupLibrary(
-      [fox(), mountain()],
-      {
-        hits: [
-          { imageId: 'imgB', score: 0.8 },
-          { imageId: 'imgA', score: 0.6 },
-        ],
-        mode: 'auto',
-      },
-      { searchQuery: 'fox' },
-    );
-    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
-  });
 
   it('semantic mode: replaces keyword filtering entirely (score order)', () => {
     setupLibrary(
@@ -393,11 +363,11 @@ describe('filterAndSort semantic overlay (store integration)', () => {
           { imageId: 'imgB', score: 0.8 },
           { imageId: 'imgA', score: 0.6 },
         ],
-        mode: 'auto',
+        mode: 'semantic',
       },
       { searchQuery: 'fox' },
     );
-    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA']);
     useImageStore.getState().setSemanticMode('off');
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
   });
@@ -613,9 +583,9 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
 });
 
 describe('setSearchQuery → semantic search wiring (Phase 6)', () => {
-  it('fires runSemanticSearch for a non-empty query when mode is not off', async () => {
+  it('fires runSemanticSearch for a non-empty query when mode is semantic', async () => {
     vi.useFakeTimers();
-    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: '', semanticMode: 'semantic' });
     coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
 
     useImageStore.getState().setSearchQuery('red fox');
@@ -629,7 +599,7 @@ describe('setSearchQuery → semantic search wiring (Phase 6)', () => {
 
   it('coalesces rapid keystrokes into a single search (debounce)', async () => {
     vi.useFakeTimers();
-    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: '', semanticMode: 'semantic' });
 
     useImageStore.getState().setSearchQuery('red');
     useImageStore.getState().setSearchQuery('red fox');
@@ -654,7 +624,7 @@ describe('setSearchQuery → semantic search wiring (Phase 6)', () => {
   it('empty query still clears without touching the worker (regression)', async () => {
     useImageStore.setState({
       searchQuery: 'fox',
-      semanticMode: 'auto',
+      semanticMode: 'semantic',
       semanticHits: [{ imageId: 'a', score: 0.9 }],
       semanticSearchStatus: 'ready',
     });
@@ -668,9 +638,9 @@ describe('setSearchQuery → semantic search wiring (Phase 6)', () => {
 });
 
 describe('setSemanticMode re-search (Phase 6)', () => {
-  it('re-runs the current query when switching to a non-off mode', async () => {
+  it('re-runs the current query when switching to semantic mode', async () => {
     vi.useFakeTimers();
-    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'off' });
     vi.clearAllMocks(); // forget the wiring-era calls (implementations persist)
 
     useImageStore.getState().setSemanticMode('semantic');
@@ -683,12 +653,12 @@ describe('setSemanticMode re-search (Phase 6)', () => {
 
   it('does not fire a search when switching to off or with an empty query', async () => {
     vi.useFakeTimers();
-    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'semantic' });
     useImageStore.getState().setSemanticMode('off');
     await vi.advanceTimersByTimeAsync(400);
     expect(coordinatorMock.search).not.toHaveBeenCalled();
 
-    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: '', semanticMode: 'off' });
     vi.clearAllMocks();
     useImageStore.getState().setSemanticMode('semantic');
     await vi.advanceTimersByTimeAsync(400);
@@ -732,7 +702,7 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
   it('records the error message on search failure', async () => {
     vi.useFakeTimers();
     coordinatorMock.search.mockRejectedValueOnce(new Error('search exploded'));
-    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    useImageStore.setState({ searchQuery: '', semanticMode: 'semantic' });
 
     useImageStore.getState().runSemanticSearch('fox');
     await vi.advanceTimersByTimeAsync(400);

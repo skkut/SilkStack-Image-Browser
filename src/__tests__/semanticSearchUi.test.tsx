@@ -114,7 +114,7 @@ beforeEach(() => {
     excludedFolders: new Set(),
     searchQuery: '',
     semanticHits: null,
-    semanticMode: 'auto',
+    semanticMode: 'off',
     semanticSearchStatus: 'idle',
     semanticIndexProgress: null,
     semanticIndexedCount: 0,
@@ -197,7 +197,7 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
     expect((screen.getByTestId('search-input') as HTMLInputElement).placeholder).toBe('Search (semantic)');
 
     fireEvent.click(toggle);
-    expect(useImageStore.getState().semanticMode).toBe('auto');
+    expect(useImageStore.getState().semanticMode).toBe('off');
 
     // Let the subscription-triggered Δ-index run (fired when the pref was
     // set true above) settle so nothing leaks into the next test.
