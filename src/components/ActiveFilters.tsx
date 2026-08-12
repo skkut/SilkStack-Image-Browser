@@ -1,6 +1,6 @@
 import React from 'react';
 import { useImageStore } from '../store/useImageStore';
-import { X, Calendar, Settings } from 'lucide-react';
+import { X, Calendar, Settings, Sparkles } from 'lucide-react';
 
 const ActiveFilters: React.FC = () => {
     const selectedModels = useImageStore((state) => state.selectedModels);
@@ -8,6 +8,7 @@ const ActiveFilters: React.FC = () => {
     const selectedSchedulers = useImageStore((state) => state.selectedSchedulers);
     const selectedTags = useImageStore((state) => state.selectedTags);
     const searchQuery = useImageStore((state) => state.searchQuery);
+    const semanticHits = useImageStore((state) => state.semanticHits);
     const showFavoritesOnly = useImageStore((state) => state.showFavoritesOnly);
     const advancedFilters = useImageStore((state) => state.advancedFilters);
 
@@ -16,13 +17,15 @@ const ActiveFilters: React.FC = () => {
     const setSearchQuery = useImageStore((state) => state.setSearchQuery);
     const setShowFavoritesOnly = useImageStore((state) => state.setShowFavoritesOnly);
     const setAdvancedFilters = useImageStore((state) => state.setAdvancedFilters);
+    const clearSemanticSearch = useImageStore((state) => state.clearSemanticSearch);
 
-    const hasActiveFilters = 
+    const hasActiveFilters =
         selectedModels.length > 0 ||
         selectedLoras.length > 0 ||
         selectedSchedulers.length > 0 ||
         selectedTags.length > 0 ||
         !!searchQuery ||
+        semanticHits !== null ||
         showFavoritesOnly ||
         (advancedFilters && Object.keys(advancedFilters).length > 0);
 
@@ -76,6 +79,22 @@ const ActiveFilters: React.FC = () => {
                     <button
                         onClick={clearSearch}
                         className="ml-1 hover:text-white rounded-full hover:bg-gray-600 p-0.5 transition-colors"
+                    >
+                        <X size={12} />
+                    </button>
+                </div>
+            )}
+
+            {/* Semantic Search Tag (Phase 6) — clears hits only; the search
+                chip's setSearchQuery('') remains the full reset. */}
+            {semanticHits !== null && (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-900/40 text-purple-200 border border-purple-700/50 flex-shrink-0 animate-fade-in group">
+                    <Sparkles size={10} />
+                    <span className="opacity-70 group-hover:opacity-100 transition-opacity">Semantic</span>
+                    <button
+                        onClick={clearSemanticSearch}
+                        aria-label="Clear semantic search"
+                        className="ml-1 hover:text-purple-100 rounded-full hover:bg-purple-800/50 p-0.5 transition-colors"
                     >
                         <X size={12} />
                     </button>

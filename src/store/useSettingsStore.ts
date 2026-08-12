@@ -35,6 +35,7 @@ const electronStorage: StateStorage = {
 import { Keymap, StackGroupByDimension } from '../types';
 import type { LicenseState, LicenseStatus } from '../services/licenseService';
 import { getDefaultLicenseState } from '../services/licenseService';
+import { AI_DEVICE_PREFERENCES, type AiDevicePreference } from '../services/gpuPreference';
 
 const detectDefaultIndexingConcurrency = (): number => {
   if (typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number') {
@@ -71,6 +72,7 @@ interface SettingsState {
   displayStarredFirst: boolean;
   confirmOnDelete: boolean;
   disableAiFallback: boolean;
+  aiDevicePreference: AiDevicePreference;
 
   // A1111 Integration settings
   a1111ServerUrl: string;
@@ -118,6 +120,7 @@ interface SettingsState {
   setComfyUIConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
   setConfirmOnDelete: (value: boolean) => void;
   setDisableAiFallback: (value: boolean) => void;
+  setAiDevicePreference: (value: AiDevicePreference) => void;
   setSidebarCollapsed: (value: boolean) => void;
   setStackingEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
@@ -160,6 +163,7 @@ export const useSettingsStore = create<SettingsState>()(
       displayStarredFirst: false,
       confirmOnDelete: true,
       disableAiFallback: false,
+      aiDevicePreference: 'auto',
 
       // A1111 Integration initial state
       a1111ServerUrl: 'http://127.0.0.1:7860',
@@ -216,6 +220,7 @@ export const useSettingsStore = create<SettingsState>()(
       setDisplayStarredFirst: (value) => set({ displayStarredFirst: !!value }),
       setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
       setDisableAiFallback: (value) => set({ disableAiFallback: !!value }),
+      setAiDevicePreference: (value) => set({ aiDevicePreference: value }),
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
@@ -270,6 +275,7 @@ export const useSettingsStore = create<SettingsState>()(
         comfyUILastConnectionStatus: 'unknown',
         confirmOnDelete: true,
         disableAiFallback: false,
+        aiDevicePreference: 'auto',
         isSidebarCollapsed: true,
         isStackingEnabled: false,
         isSemanticSearchEnabled: false,
@@ -306,6 +312,11 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.disableAiFallback !== 'boolean') {
           state.disableAiFallback = false;
+        }
+
+        if (state && !AI_DEVICE_PREFERENCES.includes(state.aiDevicePreference)) {
+          // New pref (ships after users exist) — backfill anything unknown.
+          state.aiDevicePreference = 'auto';
         }
 
         if (state && typeof state.isSidebarCollapsed !== 'boolean') {

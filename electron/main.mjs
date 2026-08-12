@@ -365,6 +365,34 @@ async function getCacheRootPath() {
 }
 // --- End Settings Management ---
 
+// --- AI GPU preference (Settings → AI Intelligence) ---
+// WebGPU cannot select a GPU by name: `powerPreference` in requestAdapter
+// is only a hint, and on dual-GPU Windows machines Chromium's GPU process
+// typically keeps the display-connected adapter (usually the integrated
+// GPU) active — so WebLLM gets the iGPU even when 'high-performance' is
+// requested. These Chromium switches make the GPU process itself prefer
+// the chosen adapter class before the first window (and thus the GPU
+// process) starts; the WebGPU adapter selection then honors it.
+// Best-effort: some drivers and Windows power plans can still override.
+// 'auto' and 'software' need no switch here — gpuPreference.ts handles
+// software via forceFallbackAdapter at request time. A restart is required
+// for a change to take effect (the switch is only read at startup).
+const AI_GPU_PREFERENCE_SWITCHES = {
+  "high-performance": "force_high_performance_gpu",
+  "low-power": "force_low_power_gpu",
+};
+
+try {
+  const settings = await readSettings();
+  const gpuSwitch = AI_GPU_PREFERENCE_SWITCHES[settings?.aiDevicePreference];
+  if (gpuSwitch) {
+    app.commandLine.appendSwitch(gpuSwitch);
+  }
+} catch {
+  // Default: Chromium's own adapter selection (see gpuPreference.ts).
+}
+// --- End AI GPU preference ---
+
 // --- Application Menu ---
 function createApplicationMenu() {
   const template = [

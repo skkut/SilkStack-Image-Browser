@@ -9,6 +9,21 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SemanticSearchCoordinator, type SemanticIndexProgress } from '../services/semanticSearchEngine';
+import { useSettingsStore } from '../store/useSettingsStore';
+
+// The coordinator imports useSettingsStore (for the GPU preference at send
+// time) — the persisted store needs a Storage-shaped global, like every
+// other test file that loads a persisted store.
+vi.hoisted(() => {
+  global.localStorage = {
+    getItem: vi.fn().mockReturnValue(null),
+    setItem: vi.fn(),
+    removeItem: vi.fn(),
+    clear: vi.fn(),
+    length: 0,
+    key: vi.fn(),
+  } as any;
+});
 import type { ISemanticTextBuilder, ISemanticVectorRecord } from '../services/aiBridge';
 import type { WorkerMessage } from '../services/workers/aiWorker';
 import type { IndexedImage } from '../types';
@@ -142,6 +157,7 @@ beforeEach(() => {
   vi.stubGlobal('Worker', FakeWorker);
   bridgeMocks.createSemanticTextBuilder.mockResolvedValue(textBuilderMock);
   featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(true);
+  useSettingsStore.setState({ aiDevicePreference: 'auto' }); // GPU pref tests mutate this
 });
 
 afterEach(() => {
@@ -158,14 +174,18 @@ describe('SemanticSearchCoordinator — lifecycle', () => {
     const initPromise = coordinator.ensureInitialized();
     const worker = FakeWorker.instances[0];
 
-    // init is sent immediately; premium is stamped by the main thread.
-    expect(worker.messages[0]).toEqual({ type: 'init', payload: { isPremium: true } });
+    // init is sent immediately; premium + GPU preference are stamped by the
+    // main thread (the worker's own store can't see either).
+    expect(worker.messages[0]).toEqual({
+      type: 'init',
+      payload: { isPremium: true, devicePreference: 'auto' },
+    });
 
     worker.emit({ type: 'ready', payload: { modelId: 'fake-embed', dimension: 8 } });
     await flush();
     expect(worker.messages[1]).toEqual({
       type: 'restore',
-      payload: { vectors: [storageMocks.memoryStore.get('img-a')], isPremium: true },
+      payload: { vectors: [storageMocks.memoryStore.get('img-a')], isPremium: true, devicePreference: 'auto' },
     });
     worker.emit({ type: 'restored', payload: { inserted: 1 } });
     await initPromise;
@@ -245,7 +265,42 @@ describe('SemanticSearchCoordinator — lifecycle', () => {
     worker.emit({ type: 'ready', payload: { modelId: 'fake-embed', dimension: 8 } });
     await initPromise;
 
-    expect(worker.messages[0]).toEqual({ type: 'init', payload: { isPremium: false } });
+    expect(worker.messages[0]).toEqual({
+      type: 'init',
+      payload: { isPremium: false, devicePreference: 'auto' },
+    });
+  });
+
+  it('carries the live GPU preference on init', async () => {
+    useSettingsStore.setState({ aiDevicePreference: 'low-power' });
+    const coordinator = new SemanticSearchCoordinator();
+    const initPromise = coordinator.ensureInitialized();
+    const worker = FakeWorker.instances[0];
+
+    expect(worker.messages[0]).toEqual({
+      type: 'init',
+      payload: { isPremium: true, devicePreference: 'low-power' },
+    });
+
+    worker.emit({ type: 'ready', payload: { modelId: 'fake-embed', dimension: 8 } });
+    await initPromise;
+  });
+
+  it('forwards gpu-info from the worker to the onGpuInfo callback', async () => {
+    const onGpuInfo = vi.fn();
+    const coordinator = new SemanticSearchCoordinator(undefined, onGpuInfo);
+    await initCoordinator(coordinator);
+    const worker = FakeWorker.instances[0];
+
+    worker.emit({
+      type: 'gpu-info',
+      payload: { vendor: 'NVIDIA', device: 'RTX 4090', preference: 'high-performance' },
+    });
+    expect(onGpuInfo).toHaveBeenCalledWith({
+      vendor: 'NVIDIA',
+      device: 'RTX 4090',
+      preference: 'high-performance',
+    });
   });
 });
 

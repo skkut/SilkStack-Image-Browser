@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { X, Save, RefreshCw, CheckCircle, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { useImageStore } from '../store/useImageStore';
@@ -9,6 +9,7 @@ import { EMOJI_CATEGORIES } from '../utils/emojiData';
 import { normalizePath } from '../utils/pathUtils';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
+import type { AiDevicePreference } from '../services/gpuPreference';
 
 // ── License Tab — lazy-loaded from the closed-source module ───────────
 // When ai-intelligence is absent at build time, dead-code elimination
@@ -76,13 +77,13 @@ const LicenseSettingsPanel: React.FC = () => {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'folders' | 'hotkeys' | 'license' | 'about';
+  initialTab?: 'general' | 'folders' | 'hotkeys' | 'license' | 'about' | 'ai';
   directories?: Directory[];
   onAddFolder?: () => void;
   onRemoveFolder?: (directoryId: string) => void;
 }
 
-type Tab = 'general' | 'folders' | 'hotkeys' | 'license' | 'about';
+type Tab = 'general' | 'folders' | 'hotkeys' | 'license' | 'about' | 'ai';
 
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ 
@@ -109,8 +110,31 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const disableAiFallback = useSettingsStore((state) => state.disableAiFallback);
   const setDisableAiFallback = useSettingsStore((state) => state.setDisableAiFallback);
 
-  // Runtime gate: the AI fallback toggle is a premium-only setting
+  // GPU preference — one knob for every AI-Intelligence feature (auto-tag,
+  // embeddings, semantic search share one WebLLM engine). The readout shows
+  // the adapter the worker actually requested (gpu-info → detectedGpuInfo).
+  const aiDevicePreference = useSettingsStore((state) => state.aiDevicePreference);
+  const setAiDevicePreference = useSettingsStore((state) => state.setAiDevicePreference);
+  const detectedGpuInfo = useImageStore((state) => state.detectedGpuInfo);
+
+  // Runtime gate: the whole AI section is premium-only
   const aiFeaturesEnabled = useAiFeaturesEnabled();
+
+  // Phase 6 (§9): semantic search settings — toggle (pref), status line
+  // (indexed count / last error), Re-index (force → clearIndex + rebuild).
+  const isSemanticSearchEnabled = useSettingsStore((state) => state.isSemanticSearchEnabled);
+  const setSemanticSearchEnabled = useSettingsStore((state) => state.setSemanticSearchEnabled);
+  const semanticIndexedCount = useImageStore((state) => state.semanticIndexedCount);
+  const semanticLastError = useImageStore((state) => state.semanticLastError);
+  const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
+  const semanticIndexImages = useImageStore((state) => state.semanticIndexImages);
+
+  const handleReindexSemantic = () => {
+    // Full rebuild: force → coordinator.clearIndex() then Δ-index (all
+    // textHashes mismatch after the wipe). Confirm-free; the button is
+    // disabled while a run is active.
+    void semanticIndexImages({ force: true });
+  };
 
   const [sensitiveTagsInput, setSensitiveTagsInput] = useState('');
   const [cacheFolderPath, setCacheFolderPath] = useState('');
@@ -262,6 +286,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Keyboard Shortcuts</span>
             </button>
 
+            {aiFeaturesEnabled && (
+            <button
+              onClick={() => setActiveTab('ai')}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'ai' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+            >
+              <Cpu size={18} />
+              <span>AI Intelligence</span>
+            </button>
+            )}
+
             {import.meta.env.VITE_AI_FEATURES_AVAILABLE && (
             <button
               onClick={() => setActiveTab('license')}
@@ -374,26 +408,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
                         </label>
                       </div>
-
-                      {aiFeaturesEnabled && (
-                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="pr-6">
-                          <p className="text-sm font-medium text-gray-200">Disable AI fallback for auto-tagging</p>
-                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                            If enabled, auto-tagging will only use AI models (Llama 3.2 3B via WebLLM). Rule-based extraction will not be used as a fallback. Useful for testing or when you want consistent AI-quality tags.
-                          </p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                          <input
-                            type="checkbox"
-                            checked={disableAiFallback}
-                            onChange={(event) => setDisableAiFallback(event.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                        </label>
-                      </div>
-                      )}
                     </div>
                   </section>
 
@@ -436,6 +450,111 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       )}
                     </div>
                   </section>
+                </div>
+              )}
+
+              {activeTab === 'ai' && (
+                <div className="space-y-8 animate-in fade-in duration-300 pb-8">
+                  {/* AI Intelligence — one place for every AI setting: the GPU
+                      preference (one knob for ALL AI features — auto-tagging,
+                      embeddings, and semantic search share one WebLLM engine),
+                      the LLM fallback policy, and semantic search. Premium-
+                      gated as a whole: without the module or a license there
+                      is nothing to configure. */}
+                  {aiFeaturesEnabled && (
+                  <section>
+                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">AI Intelligence</h3>
+                    <div className="space-y-4">
+
+                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="pr-6">
+                          <p className="text-sm font-medium text-gray-200">Disable AI fallback for auto-tagging</p>
+                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                            If enabled, auto-tagging will only use AI models (Llama 3.2 3B via WebLLM). Rule-based extraction will not be used as a fallback. Useful for testing or when you want consistent AI-quality tags.
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                          <input
+                            type="checkbox"
+                            checked={disableAiFallback}
+                            onChange={(event) => setDisableAiFallback(event.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="flex items-start justify-between">
+                          <div className="pr-6">
+                            <p className="text-sm font-medium text-gray-200">Semantic search</p>
+                            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                              Natural-language search over the library using AI embeddings. When enabled, the search bar gains a sparkles toggle to switch between keyword and semantic modes.
+                            </p>
+                            {semanticLastError ? (
+                              <p className="text-xs text-red-400 mt-2">Last error: {semanticLastError}</p>
+                            ) : semanticIndexedCount > 0 ? (
+                              <p className="text-xs text-gray-500 mt-2">{semanticIndexedCount} images indexed</p>
+                            ) : null}
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                            <input
+                              type="checkbox"
+                              checked={isSemanticSearchEnabled}
+                              onChange={(event) => setSemanticSearchEnabled(event.target.checked)}
+                              className="sr-only peer"
+                              data-testid="semantic-toggle-checkbox"
+                            />
+                            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                          </label>
+                        </div>
+                        <button
+                          onClick={handleReindexSemantic}
+                          disabled={semanticIndexProgress !== null}
+                          className="mt-4 inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white border border-purple-500/20 hover:border-purple-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-500/10 disabled:hover:text-purple-400"
+                        >
+                          <RefreshCw size={16} className={semanticIndexProgress !== null ? 'animate-spin' : ''} />
+                          Re-index library
+                        </button>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <label htmlFor="ai-device-preference" className="text-sm font-medium text-gray-200 block mb-1">
+                          GPU for AI models
+                        </label>
+                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                          Steers which GPU Chromium uses for all AI-Intelligence features — auto-tagging, embeddings, and semantic search share one WebLLM engine.
+                        </p>
+                        <select
+                          id="ai-device-preference"
+                          data-testid="ai-device-preference-select"
+                          value={aiDevicePreference}
+                          onChange={(event) => setAiDevicePreference(event.target.value as AiDevicePreference)}
+                          className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
+                        >
+                          <option value="auto">Auto (browser default)</option>
+                          <option value="high-performance">High performance — prefer discrete GPU</option>
+                          <option value="low-power">Low power — prefer integrated GPU</option>
+                          <option value="software">Software rendering (SwiftShader, for debugging)</option>
+                        </select>
+                        {detectedGpuInfo?.vendor && detectedGpuInfo.device ? (
+                          <p className="text-xs text-gray-500 mt-3">
+                            Detected GPU: {detectedGpuInfo.vendor} — {detectedGpuInfo.device}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-gray-500 mt-3">
+                            Detected GPU: not reported yet (appears after the first model load)
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
+                          High/low power re-steer the GPU at app start — restart for the full effect (the request-time
+                          preference is re-applied at each model load).
+                        </p>
+                      </div>
+
+                    </div>
+                  </section>
+                  )}
                 </div>
               )}
 

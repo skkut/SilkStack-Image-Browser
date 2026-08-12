@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.hoisted(() => {
   global.localStorage = {
@@ -12,6 +12,7 @@ vi.hoisted(() => {
 });
 
 import { useImageStore } from '../store/useImageStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
@@ -147,5 +148,70 @@ describe('useImageStore Stacking Preservations', () => {
     const ann = annotations.get('img1');
     expect(ann?.similarityGroupId).toBe('sim-manual'); // Should be preserved
     expect(ann?.stackGroupId).toBe('hash-test');
+  });
+});
+
+// ── Auto-tagging GPU preference (start payload + gpu-info) ────────────
+
+describe('useImageStore auto-tagging GPU preference', () => {
+  class FakeTaggingWorker {
+    static lastInstance: FakeTaggingWorker | null = null;
+    posted: Array<{ type: string; payload: Record<string, unknown> }> = [];
+    onmessage: ((e: MessageEvent) => void) | null = null;
+    onerror: ((e: ErrorEvent) => void) | null = null;
+    terminate = vi.fn();
+    postMessage(message: { type: string; payload: Record<string, unknown> }): void {
+      this.posted.push(message);
+    }
+    constructor() {
+      FakeTaggingWorker.lastInstance = this;
+    }
+  }
+
+  beforeEach(() => {
+    FakeTaggingWorker.lastInstance = null;
+    useSettingsStore.setState({ aiDevicePreference: 'auto' });
+    useImageStore.setState({
+      images: [],
+      filteredImages: [createImage({ id: 'img1', prompt: 'a dragon' })],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+      detectedGpuInfo: null,
+    });
+    vi.stubGlobal('Worker', FakeTaggingWorker);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the device preference read at send time ('low-power')", async () => {
+    useSettingsStore.setState({ aiDevicePreference: 'low-power' });
+    await useImageStore.getState().startAutoTagging('', false, {});
+
+    const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
+    expect(start?.payload.devicePreference).toBe('low-power');
+  });
+
+  it("defaults to 'auto' when the pref is unset", async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+
+    const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
+    expect(start?.payload.devicePreference).toBe('auto');
+  });
+
+  it('stores gpu-info from the worker into detectedGpuInfo', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    worker.onmessage?.({
+      data: { type: 'gpu-info', payload: { vendor: 'NVIDIA', device: 'RTX 4090', preference: 'auto' } },
+    } as MessageEvent);
+
+    expect(useImageStore.getState().detectedGpuInfo).toEqual({
+      vendor: 'NVIDIA',
+      device: 'RTX 4090',
+      preference: 'auto',
+    });
   });
 });

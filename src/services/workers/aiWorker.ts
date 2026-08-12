@@ -14,14 +14,14 @@
  * Protocol ─────────────────────────────────────────────────────────
  *
  *  chat / auto-tag (unchanged from autoTaggingWorker.ts):
- *   Main → Worker:  { type: 'start',  payload: { images, topN?, disableFallback?, isPremium? } }
+ *   Main → Worker:  { type: 'start',  payload: { images, topN?, disableFallback?, isPremium?, devicePreference? } }
  *                   { type: 'cancel' }
  *   Worker → Main:  { type: 'progress', payload: { current, total, message } }
  *                   { type: 'complete', payload: { autoTags } }
  *                   { type: 'error',    payload: { error } }
  *
  *  embed (unchanged from embeddingWorker.ts, + isPremium on init):
- *   Main → Worker:  { type: 'init',  payload: { modelId?, isPremium? } }
+ *   Main → Worker:  { type: 'init',  payload: { modelId?, isPremium?, devicePreference? } }
  *                   { type: 'embed', payload: { texts, requestId } }
  *   Worker → Main:  { type: 'progress', payload: { progress, text } }
  *                   { type: 'ready', payload: { modelId, dimension } }
@@ -29,14 +29,18 @@
  *                   { type: 'error', payload: { error, requestId? } }
  *
  *  semantic search (new — Phase 3+ consumers):
- *   Main → Worker:  { type: 'restore', payload: { vectors, isPremium? } }
- *                   { type: 'query',   payload: { text, requestId, limit?, threshold?, isPremium? } }
+ *   Main → Worker:  { type: 'restore', payload: { vectors, isPremium?, devicePreference? } }
+ *                   { type: 'query',   payload: { text, requestId, limit?, threshold?, isPremium?, devicePreference? } }
  *                   { type: 'rerank',  payload: { hits, query, requestId } }
  *                   { type: 'clear' }   — dispose the in-memory index (Settings → Re-index)
  *   Worker → Main:  { type: 'restored', payload: { inserted } }
  *                   { type: 'queryResults', payload: { hits, requestId } }
  *                   { type: 'rerankResults', payload: { hits, requestId } }
  *                   (errors reuse { type: 'error', payload: { error, requestId? } })
+ *
+ *  gpu info (all paths):
+ *   Worker → Main:  { type: 'gpu-info', payload: DetectedGpuInfo } — detected WebGPU
+ *                    adapter, sent when the shared engine requests one
  *
  * Preemption (§5.1): the embed record is one pipeline — embed batches and
  * queries both use it, so they run one at a time. A query arriving mid-batch
@@ -68,6 +72,8 @@ import {
   type ISharedMLEngine,
   type ISemanticVectorRecord,
   type ITagGenerator,
+  type AiDevicePreference,
+  type DetectedGpuInfo,
 } from '../aiBridge';
 
 // Arctic Embed M produces 768-dimensional vectors
@@ -83,13 +89,25 @@ type WorkerMessage =
         disableFallback?: boolean;
         /** Set by main thread — true when the user has a valid premium license. */
         isPremium?: boolean;
+        /** GPU preference (Settings → AI Intelligence) at send time. */
+        devicePreference?: AiDevicePreference;
       };
     }
   // ── embed (unchanged from embeddingWorker.ts, + isPremium) ─────────
-  | { type: 'init'; payload?: { modelId?: string; isPremium?: boolean } }
+  | {
+      type: 'init';
+      payload?: { modelId?: string; isPremium?: boolean; devicePreference?: AiDevicePreference };
+    }
   | { type: 'embed'; payload: { texts: string[]; requestId: string } }
   // ── semantic search (new) ─────────────────────────────────────────
-  | { type: 'restore'; payload: { vectors: ISemanticVectorRecord[]; isPremium?: boolean } }
+  | {
+      type: 'restore';
+      payload: {
+        vectors: ISemanticVectorRecord[];
+        isPremium?: boolean;
+        devicePreference?: AiDevicePreference;
+      };
+    }
   | {
       type: 'query';
       payload: {
@@ -98,6 +116,7 @@ type WorkerMessage =
         limit?: number;
         threshold?: number;
         isPremium?: boolean;
+        devicePreference?: AiDevicePreference;
       };
     }
   | { type: 'rerank'; payload: { hits: ISemanticSearchHit[]; query: string; requestId: string } }
@@ -127,9 +146,17 @@ type WorkerResponse =
   | { type: 'restored'; payload: { inserted: number } }
   | { type: 'queryResults'; payload: { hits: ISemanticSearchHit[]; requestId: string } }
   | { type: 'rerankResults'; payload: { hits: ISemanticSearchHit[]; requestId: string } }
+  | { type: 'gpu-info'; payload: DetectedGpuInfo }
   | { type: 'error'; payload: { error: string; requestId?: string } };
 
 // ── Shared engine (one engine, two records) ──────────────────────────
+
+/**
+ * GPU preference for the shared engine. Read at send time on the main
+ * thread (the worker's own store can't see settings); set synchronously
+ * from each message payload so a load triggered by ANY path honors it.
+ */
+let devicePreference: AiDevicePreference = 'auto';
 
 let sharedEngine: ISharedMLEngine | null = null;
 let engineLoading: Promise<ISharedMLEngine | null> | null = null;
@@ -155,6 +182,8 @@ async function getSharedEngine(
     try {
       sharedEngine = await createSharedEngine({
         skipPremiumCheck: isPremium,
+        devicePreference,
+        onAdapterInfo: (info) => postGpuInfo(info),
         onProgress: (report) => {
           if (isCancelled) return;
           if (engineLoadingFor === 'chat') {
@@ -517,6 +546,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
   switch (message.type) {
     case 'start':
+      devicePreference = message.payload.devicePreference ?? 'auto';
       await startAutoTagging(message.payload.images, {
         topN: message.payload.topN,
         disableFallback: message.payload.disableFallback,
@@ -524,15 +554,18 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       });
       break;
     case 'init':
+      devicePreference = message.payload?.devicePreference ?? 'auto';
       await handleInit(message.payload?.modelId, message.payload?.isPremium);
       break;
     case 'embed':
       await handleEmbed(message.payload.texts, message.payload.requestId);
       break;
     case 'restore':
+      devicePreference = message.payload.devicePreference ?? 'auto';
       await handleRestore(message.payload.vectors, message.payload.isPremium);
       break;
     case 'query':
+      devicePreference = message.payload.devicePreference ?? 'auto';
       await handleQuery(
         message.payload.text,
         message.payload.requestId,
@@ -591,6 +624,13 @@ function postReady(modelId: string): void {
   self.postMessage({
     type: 'ready',
     payload: { modelId, dimension: EMBEDDING_DIMENSION },
+  } satisfies WorkerResponse);
+}
+
+function postGpuInfo(info: DetectedGpuInfo): void {
+  self.postMessage({
+    type: 'gpu-info',
+    payload: info,
   } satisfies WorkerResponse);
 }
 

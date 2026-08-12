@@ -23,7 +23,10 @@
  *
  * All worker traffic is premium-tagged at send time via isAiFeaturesEnabled()
  * (the same pattern as the auto-tag path in useImageStore) — the worker's
- * zustand store is a separate instance and cannot see the license.
+ * zustand store is a separate instance and cannot see the license. The GPU
+ * preference (Settings → AI Intelligence) rides along in the same payloads,
+ * and a `gpu-info` message carries the detected adapter back for the
+ * Settings readout.
  *
  * Protocol: src/services/workers/aiWorker.ts (restore/query/embeddings/
  * queryResults/restored/clear).
@@ -31,8 +34,9 @@
 
 import type { IndexedImage } from '../types';
 import { createSemanticTextBuilder, type ISearchableTextInput, type ISemanticTextBuilder } from './aiBridge';
-import type { ISemanticSearchHit, ISemanticVectorRecord } from './aiBridge';
+import type { ISemanticSearchHit, ISemanticVectorRecord, AiDevicePreference, DetectedGpuInfo } from './aiBridge';
 import { isAiFeaturesEnabled } from './aiFeatureAccess';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { clearAllVectors, countVectors, getAllVectors, putManyVectors } from './semanticVectorsStorage';
 import type { WorkerMessage } from './workers/aiWorker';
 
@@ -96,7 +100,10 @@ export class SemanticSearchCoordinator {
   private textBuilder: ISemanticTextBuilder | null = null;
   private textBuilderPromise: Promise<ISemanticTextBuilder | null> | null = null;
 
-  constructor(private readonly onProgress?: SemanticProgressCallback) {}
+  constructor(
+    private readonly onProgress?: SemanticProgressCallback,
+    private readonly onGpuInfo?: (info: DetectedGpuInfo) => void,
+  ) {}
 
   // ── Lifecycle ──────────────────────────────────────────────────────
 
@@ -121,7 +128,10 @@ export class SemanticSearchCoordinator {
     this.worker = this.createWorker();
     const readyPromise = this.waitForReady();
 
-    this.send({ type: 'init', payload: { isPremium: this.isPremium() } });
+    this.send({
+      type: 'init',
+      payload: { isPremium: this.isPremium(), devicePreference: this.devicePreference() },
+    });
 
     try {
       await readyPromise; // rejects when init errors (e.g. module absent)
@@ -249,6 +259,7 @@ export class SemanticSearchCoordinator {
           limit: options?.limit,
           threshold: options?.threshold,
           isPremium: this.isPremium(),
+          devicePreference: this.devicePreference(),
         },
       });
     });
@@ -354,6 +365,10 @@ export class SemanticSearchCoordinator {
         break;
       }
 
+      case 'gpu-info':
+        this.onGpuInfo?.(data.payload as DetectedGpuInfo);
+        break;
+
       case 'progress': {
         // Embed shape { progress, text } — model loading reports. Forwarded
         // so the store's progress UI can show engine-load progress.
@@ -413,7 +428,10 @@ export class SemanticSearchCoordinator {
   private restoreChunk(chunk: ISemanticVectorRecord[]): Promise<number> {
     return new Promise((resolve, reject) => {
       this.pendingRestore = { resolve, reject };
-      this.send({ type: 'restore', payload: { vectors: chunk, isPremium: this.isPremium() } });
+      this.send({
+        type: 'restore',
+        payload: { vectors: chunk, isPremium: this.isPremium(), devicePreference: this.devicePreference() },
+      });
     });
   }
 
@@ -430,6 +448,15 @@ export class SemanticSearchCoordinator {
       return isAiFeaturesEnabled();
     } catch {
       return false;
+    }
+  }
+
+  /** GPU preference at send time — the worker's store cannot see settings. */
+  private devicePreference(): AiDevicePreference {
+    try {
+      return useSettingsStore.getState().aiDevicePreference;
+    } catch {
+      return 'auto';
     }
   }
 

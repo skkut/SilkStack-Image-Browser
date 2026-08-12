@@ -2,7 +2,8 @@ import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
 import { Settings } from 'lucide-react';
-import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { useAiFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
+import { useImageStore } from '../store/useImageStore';
 
 interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'about') => void;
@@ -33,6 +34,19 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
 }) => {
     // Runtime gate: the Stacks view tab requires premium license
     const aiFeaturesEnabled = useAiFeaturesEnabled();
+    // Semantic search (§9): the sparkles toggle only appears when the
+    // feature is usable; it maps 'auto' ↔ 'semantic' ('off' stays a
+    // store-level value reachable via the Settings pref, which hides the
+    // button). Store state flows down — SearchBar stays presentational.
+    const semanticAvailable = useSemanticSearchEnabled();
+    const semanticMode = useImageStore((state) => state.semanticMode);
+    const semanticSearchStatus = useImageStore((state) => state.semanticSearchStatus);
+    const setSemanticMode = useImageStore((state) => state.setSemanticMode);
+
+    const handleToggleSemantic = () => {
+        setSemanticMode(semanticMode === 'semantic' ? 'auto' : 'semantic');
+    };
+
     const [isDev, setIsDev] = React.useState<boolean>(false);
 
     React.useEffect(() => {
@@ -127,6 +141,10 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         <SearchBar
                             value={searchQuery}
                             onChange={setSearchQuery}
+                            semanticAvailable={semanticAvailable}
+                            semanticMode={semanticMode}
+                            semanticStatus={semanticSearchStatus}
+                            onToggleSemantic={handleToggleSemantic}
                         />
                     </div>
                 )}

@@ -121,6 +121,7 @@ beforeEach(() => {
   featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
   coordinatorMock.ensureInitialized.mockResolvedValue(undefined);
   coordinatorMock.indexImages.mockResolvedValue({ indexed: 0, skipped: 0 });
+  coordinatorMock.clearIndex.mockResolvedValue(undefined);
   coordinatorMock.search.mockResolvedValue([]);
 
   // Reset in-flight search/index state (module-level vars survive between tests).
@@ -140,6 +141,8 @@ beforeEach(() => {
     semanticHits: null,
     semanticSearchStatus: 'idle',
     semanticIndexProgress: null,
+    semanticIndexedCount: 0,
+    semanticLastError: null,
     showFavoritesOnly: false,
     selectedTags: [],
   });
@@ -599,5 +602,157 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
 
     useSettingsStore.getState().setSemanticSearchEnabled(false);
+  });
+});
+
+describe('setSearchQuery → semantic search wiring (Phase 6)', () => {
+  it('fires runSemanticSearch for a non-empty query when mode is not off', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
+
+    useImageStore.getState().setSearchQuery('red fox');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(coordinatorMock.search).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.search).toHaveBeenCalledWith('red fox');
+    expect(useImageStore.getState().semanticSearchStatus).toBe('ready');
+    expect(useImageStore.getState().semanticHits).toEqual([{ imageId: 'imgA', score: 0.9 }]);
+  });
+
+  it('coalesces rapid keystrokes into a single search (debounce)', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+
+    useImageStore.getState().setSearchQuery('red');
+    useImageStore.getState().setSearchQuery('red fox');
+    useImageStore.getState().setSearchQuery('red fox in snow');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(coordinatorMock.search).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.search).toHaveBeenCalledWith('red fox in snow');
+  });
+
+  it('does not fire runSemanticSearch when mode is off', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: '', semanticMode: 'off' });
+
+    useImageStore.getState().setSearchQuery('fox');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(coordinatorMock.search).not.toHaveBeenCalled();
+    expect(useImageStore.getState().semanticSearchStatus).toBe('idle');
+  });
+
+  it('empty query still clears without touching the worker (regression)', async () => {
+    useImageStore.setState({
+      searchQuery: 'fox',
+      semanticMode: 'auto',
+      semanticHits: [{ imageId: 'a', score: 0.9 }],
+      semanticSearchStatus: 'ready',
+    });
+
+    useImageStore.getState().setSearchQuery('');
+
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useImageStore.getState().semanticSearchStatus).toBe('idle');
+    expect(coordinatorMock.search).not.toHaveBeenCalled();
+  });
+});
+
+describe('setSemanticMode re-search (Phase 6)', () => {
+  it('re-runs the current query when switching to a non-off mode', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'auto' });
+    vi.clearAllMocks(); // forget the wiring-era calls (implementations persist)
+
+    useImageStore.getState().setSemanticMode('semantic');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(coordinatorMock.search).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.search).toHaveBeenCalledWith('fox');
+    expect(useImageStore.getState().semanticMode).toBe('semantic');
+  });
+
+  it('does not fire a search when switching to off or with an empty query', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'auto' });
+    useImageStore.getState().setSemanticMode('off');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(coordinatorMock.search).not.toHaveBeenCalled();
+
+    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+    vi.clearAllMocks();
+    useImageStore.getState().setSemanticMode('semantic');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(coordinatorMock.search).not.toHaveBeenCalled();
+  });
+});
+
+describe('semanticIndexImages force + status (Phase 6)', () => {
+  it('{force:true} clears the index then re-indexes', async () => {
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+
+    await useImageStore.getState().semanticIndexImages({ force: true });
+    await flush();
+
+    expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.clearIndex.mock.invocationCallOrder[0])
+      .toBeLessThan(coordinatorMock.indexImages.mock.invocationCallOrder[0]);
+  });
+
+  it('records the persisted count into semanticIndexedCount', async () => {
+    coordinatorMock.getStatus.mockReturnValue({ ready: true, indexed: 7, modelId: 'm', dimension: 768, error: null });
+
+    await useImageStore.getState().semanticIndexImages();
+    await flush();
+
+    expect(useImageStore.getState().semanticIndexedCount).toBe(7);
+    expect(useImageStore.getState().semanticLastError).toBeNull();
+  });
+
+  it('records the error message on indexing failure', async () => {
+    coordinatorMock.indexImages.mockRejectedValueOnce(new Error('embedding failed'));
+
+    await useImageStore.getState().semanticIndexImages();
+    await flush();
+
+    expect(useImageStore.getState().semanticLastError).toBe('embedding failed');
+    expect(useImageStore.getState().semanticIndexedCount).toBe(0);
+  });
+
+  it('records the error message on search failure', async () => {
+    vi.useFakeTimers();
+    coordinatorMock.search.mockRejectedValueOnce(new Error('search exploded'));
+    useImageStore.setState({ searchQuery: '', semanticMode: 'auto' });
+
+    useImageStore.getState().runSemanticSearch('fox');
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(useImageStore.getState().semanticSearchStatus).toBe('error');
+    expect(useImageStore.getState().semanticLastError).toBe('search exploded');
+  });
+
+  it('replays a queued force request (clear still happens before the second run)', async () => {
+    vi.useFakeTimers();
+    let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
+    coordinatorMock.indexImages.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
+
+    // First run hangs mid-embed…
+    const first = useImageStore.getState().semanticIndexImages();
+    await flush();
+    // …a force arrives while it is in flight → queued with the force flag.
+    await useImageStore.getState().semanticIndexImages({ force: true });
+    expect(coordinatorMock.clearIndex).not.toHaveBeenCalled();
+
+    resolveFirst({ indexed: 1, skipped: 0 });
+    await first;
+    await vi.advanceTimersByTimeAsync(600); // queued replay (500 ms)
+
+    expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
+    expect(coordinatorMock.clearIndex.mock.invocationCallOrder[0])
+      .toBeLessThan(coordinatorMock.indexImages.mock.invocationCallOrder[1]);
   });
 });

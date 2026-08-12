@@ -26,6 +26,15 @@
  *   const tagger = await createTagGenerator();  // always succeeds (built-in fallback)
  */
 
+import {
+  applyGpuPreference,
+  type AiDevicePreference,
+  type DetectedGpuInfo,
+} from './gpuPreference';
+
+// Re-exported so workers and stores consume the types through the bridge.
+export type { AiDevicePreference, DetectedGpuInfo };
+
 // ── Local type declarations (mirrored from ai-intelligence) ──────────
 
 /** Progress callback used during model loading. */
@@ -243,7 +252,7 @@ async function loadAiModule(): Promise<Record<string, unknown> | null> {
 export async function createLLMTagGenerator(
   modelId: string = TAG_GENERATION_MODEL_ID,
   onProgress?: (report: LoadProgressReport) => void,
-  opts?: { skipPremiumCheck?: boolean; sharedEngine?: ISharedMLEngine },
+  opts?: { skipPremiumCheck?: boolean; sharedEngine?: ISharedMLEngine; devicePreference?: AiDevicePreference },
 ): Promise<ILLMTagGenerator | null> {
   // Premium gate: LLM-based tag generation requires a valid license.
   // Trusted callers (e.g. the auto-tagging worker) may skip this check when
@@ -253,6 +262,9 @@ export async function createLLMTagGenerator(
 
   const mod = await loadAiModule();
   if (!mod) return null;
+
+  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
+  applyGpuPreference(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -316,7 +328,7 @@ export async function createEmbeddingProvider(
   modelId: string = EMBEDDING_MODEL_ID,
   dimension: number = 768,
   onProgress?: (report: LoadProgressReport) => void,
-  opts?: { sharedEngine?: ISharedMLEngine; skipPremiumCheck?: boolean },
+  opts?: { sharedEngine?: ISharedMLEngine; skipPremiumCheck?: boolean; devicePreference?: AiDevicePreference },
 ): Promise<IEmbeddingProvider | null> {
   // Premium gate: embedding generation requires a valid license.
   // Trusted callers (e.g. the AI worker) may skip this check when the
@@ -325,6 +337,9 @@ export async function createEmbeddingProvider(
 
   const mod = await loadAiModule();
   if (!mod) return null;
+
+  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
+  applyGpuPreference(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,6 +374,9 @@ export async function createEmbeddingProvider(
 export async function createSharedEngine(opts?: {
   onProgress?: (report: SharedEngineProgressReport) => void;
   skipPremiumCheck?: boolean;
+  devicePreference?: AiDevicePreference;
+  /** Receives the detected adapter (vendor/device) when the engine requests one. */
+  onAdapterInfo?: (info: DetectedGpuInfo) => void;
 }): Promise<ISharedMLEngine | null> {
   // Premium gate: the shared engine serves premium features (semantic
   // search + LLM auto-tagging). Trusted callers may skip this check when
@@ -367,6 +385,9 @@ export async function createSharedEngine(opts?: {
 
   const mod = await loadAiModule();
   if (!mod) return null;
+
+  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
+  applyGpuPreference(opts?.devicePreference ?? 'auto', opts?.onAdapterInfo);
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -394,12 +415,16 @@ export async function createSemanticSearchEngine(opts?: {
   sharedEngine?: ISharedMLEngine;
   onProgress?: (report: LoadProgressReport) => void;
   skipPremiumCheck?: boolean;
+  devicePreference?: AiDevicePreference;
 }): Promise<ISemanticSearchEngine | null> {
   // Premium gate: semantic search requires a valid license.
   if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
 
   const mod = await loadAiModule();
   if (!mod) return null;
+
+  // Steer the WebGPU adapter before the engine requests one (see gpuPreference.ts).
+  applyGpuPreference(opts?.devicePreference ?? 'auto');
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
