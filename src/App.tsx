@@ -33,6 +33,7 @@ import SimilarityStackExpandedView from './components/SimilarityStackExpandedVie
 
 import { normalizePath } from './utils/pathUtils';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
+import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
 
 export default function App() {
   // Runtime gate: AI features (Stacks view, smart stacking, auto-tag)
@@ -338,6 +339,13 @@ export default function App() {
       // Fallback for browser
       applyTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
     }
+  }, []);
+
+  // Report the ACTIVE GPU at startup (main-process source — no model load
+  // needed). The worker's adapter.info report refreshes it after a load.
+  useEffect(() => {
+    if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return;
+    fetchMainProcessGpuInfo();
   }, []);
 
   // Dev tools: Ctrl+Y opens the dev-tools window (all testers switchable

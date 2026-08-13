@@ -9,7 +9,8 @@ import { EMOJI_CATEGORIES } from '../utils/emojiData';
 import { normalizePath } from '../utils/pathUtils';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
-import type { AiDevicePreference } from '../services/gpuPreference';
+import { classifyGpuDevice, gpuClassLabel, gpuDeviceKey, type AiDevicePreference, type GpuDeviceReport } from '../services/gpuPreference';
+import { fetchMainProcessGpuInfo } from '../services/mainProcessGpu';
 import {
   getEmbeddingModelOptions,
   getTagModelOptions,
@@ -121,7 +122,67 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   // the adapter the worker actually requested (gpu-info → detectedGpuInfo).
   const aiDevicePreference = useSettingsStore((state) => state.aiDevicePreference);
   const setAiDevicePreference = useSettingsStore((state) => state.setAiDevicePreference);
+  const aiDeviceTarget = useSettingsStore((state) => state.aiDeviceTarget);
+  const setAiDeviceTarget = useSettingsStore((state) => state.setAiDeviceTarget);
   const detectedGpuInfo = useImageStore((state) => state.detectedGpuInfo);
+  const detectedGpuDevices = useImageStore((state) => state.detectedGpuDevices);
+  // A worker report naming a card outside the main-process list (the adapter
+  // a just-loaded model actually used) gets its own line; cards already on
+  // the list are shown there with their active marker.
+  const inferenceGpu =
+    detectedGpuInfo &&
+    !detectedGpuDevices.some(
+      (d) => d.vendor === detectedGpuInfo.vendor && d.device === detectedGpuInfo.device,
+    )
+      ? detectedGpuInfo
+      : null;
+
+  // The dropdown shows the picked GPU (aiDeviceTarget) while it's still
+  // detected; a stale target (card removed) falls back to the effective
+  // class hint — the class still steers until the user picks again.
+  const targetInList =
+    aiDeviceTarget !== 'auto' &&
+    detectedGpuDevices.some((d) => gpuDeviceKey(d) === aiDeviceTarget);
+  const selectedGpuValue = targetInList ? aiDeviceTarget : aiDevicePreference;
+
+  // One option per detected card (value = gpuDeviceKey → sets aiDeviceTarget).
+  const gpuOption = (gpu: GpuDeviceReport) => (
+    <option key={gpuDeviceKey(gpu)} value={gpuDeviceKey(gpu)}>
+      {gpu.device} ({gpuClassLabel(classifyGpuDevice(gpu))})
+    </option>
+  );
+
+  // A detected GPU REPLACES its class's generic option — a real card name
+  // beats an abstract hint, so a hybrid machine shows its two cards instead
+  // of duplicating "prefer discrete" + "prefer integrated". A class with no
+  // detected card keeps its generic entry so every class stays reachable;
+  // cards whose vendor classifies to 'auto' get their own entry and replace
+  // nothing.
+  const renderClassOptions = (preference: 'high-performance' | 'low-power') => {
+    const cards = detectedGpuDevices.filter((gpu) => classifyGpuDevice(gpu) === preference);
+    if (cards.length > 0) return cards.map(gpuOption);
+    return (
+      <option value={preference}>
+        {preference === 'high-performance'
+          ? 'High performance — prefer discrete GPU'
+          : 'Low power — prefer integrated GPU'}
+      </option>
+    );
+  };
+
+  const handleDevicePreferenceChange = (value: string) => {
+    const gpu = detectedGpuDevices.find((d) => gpuDeviceKey(d) === value);
+    if (gpu) {
+      // A specific detected card → remember it AND map to its class hint
+      // (WebGPU cannot target an adapter by name; the class drives the
+      // Chromium switch + request-time powerPreference).
+      setAiDeviceTarget(value);
+      setAiDevicePreference(classifyGpuDevice(gpu));
+      return;
+    }
+    setAiDeviceTarget('auto');
+    setAiDevicePreference(value as AiDevicePreference);
+  };
 
   // Model selection (Settings → AI Intelligence): embedding model (semantic
   // search) + auto-tagging chat model. '' = the module's default.
@@ -133,6 +194,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Runtime gate: the whole AI section is premium-only
   const aiFeaturesEnabled = useAiFeaturesEnabled();
+
+  // Re-query the main process whenever Settings opens — catches GPU
+  // hotplug / driver changes that happened mid-session. The store setter
+  // persists the list only when it actually changed, so the dropdown stays
+  // current without churning storage.
+  useEffect(() => {
+    if (!isOpen || !aiFeaturesEnabled) return;
+    fetchMainProcessGpuInfo();
+  }, [isOpen, aiFeaturesEnabled]);
 
   // Phase 6 (§9): semantic search settings — toggle (pref), status line
   // (indexed count / last error), Re-index (force → clearIndex + rebuild).
@@ -570,22 +640,43 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         <select
                           id="ai-device-preference"
                           data-testid="ai-device-preference-select"
-                          value={aiDevicePreference}
-                          onChange={(event) => setAiDevicePreference(event.target.value as AiDevicePreference)}
+                          value={selectedGpuValue}
+                          onChange={(event) => handleDevicePreferenceChange(event.target.value)}
                           className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
                         >
                           <option value="auto">Auto (browser default)</option>
-                          <option value="high-performance">High performance — prefer discrete GPU</option>
-                          <option value="low-power">Low power — prefer integrated GPU</option>
+                          {renderClassOptions('high-performance')}
+                          {renderClassOptions('low-power')}
+                          {detectedGpuDevices
+                            .filter((gpu) => classifyGpuDevice(gpu) === 'auto')
+                            .map(gpuOption)}
                           <option value="software">Software rendering (SwiftShader, for debugging)</option>
                         </select>
-                        {detectedGpuInfo?.vendor && detectedGpuInfo.device ? (
+                        {detectedGpuDevices.length > 0 ? (
+                          <div data-testid="detected-gpu-readout" className="text-xs text-gray-500 mt-3 space-y-0.5">
+                            <p className="font-medium text-gray-400">Detected GPUs</p>
+                            {detectedGpuDevices.map((gpu) => (
+                              <p key={`${gpu.vendor}|${gpu.device}`} className={gpu.active ? 'text-gray-300' : undefined}>
+                                {gpu.vendor} — {gpu.device}
+                                {gpu.active && <span className="text-emerald-400"> (active)</span>}
+                              </p>
+                            ))}
+                            {inferenceGpu && (
+                              <p className="text-gray-400">
+                                Inference GPU (last model load): {inferenceGpu.vendor} — {inferenceGpu.device}
+                              </p>
+                            )}
+                            <p className="text-gray-600">
+                              '(active)' is the adapter Chromium's GPU process uses for AI features.
+                            </p>
+                          </div>
+                        ) : detectedGpuInfo?.vendor && detectedGpuInfo.device ? (
                           <p className="text-xs text-gray-500 mt-3">
                             Detected GPU: {detectedGpuInfo.vendor} — {detectedGpuInfo.device}
                           </p>
                         ) : (
                           <p className="text-xs text-gray-500 mt-3">
-                            Detected GPU: not reported yet (appears after the first model load)
+                            Detected GPU: not reported yet
                           </p>
                         )}
                         <p className="text-xs text-gray-600 mt-1">

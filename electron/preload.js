@@ -193,6 +193,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setWindowControlsVisibility: (visible) => ipcRenderer.invoke('set-window-controls-visibility', visible),
   executeEditAction: (action) => ipcRenderer.invoke('execute-edit-action', action),
   isDev: () => ipcRenderer.invoke('is-dev'),
+  getGpuInfo: () => ipcRenderer.invoke('get-gpu-info'),
 
   // Dev Tools (tool: which tester to open, e.g. 'auto-tag' | 'semantic-search')
   openDevTools: (tool) => ipcRenderer.invoke('open-dev-tools', tool),

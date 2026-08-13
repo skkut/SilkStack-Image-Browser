@@ -1990,6 +1990,46 @@ function setupFileOperationHandlers() {
 
   ipcMain.handle("is-dev", () => isDev);
 
+  // Report EVERY GPU Chromium's GPU process detected (app.getGPUInfo('basic'))
+  // plus which one is active — the adapter the GPU process actually chose
+  // (honoring force_high_performance_gpu / force_low_power_gpu, see the
+  // AI_GPU_PREFERENCE_SWITCHES block above). This is the same adapter
+  // WebGPU/WebLLM inference runs on, and unlike the renderer-side
+  // adapter.info detection it is available at startup without loading a
+  // model. Showing all devices matters on hybrid laptops: the display-
+  // connected adapter (usually the iGPU) stays active even when a
+  // preference switch is set, and the readout must reflect that reality.
+  // Best-effort: a null return leaves the store's existing value in place.
+  ipcMain.handle("get-gpu-info", async () => {
+    try {
+      const info = await app.getGPUInfo("basic");
+      const devices = info?.gpuDevice ?? [];
+      if (!devices.length) return null;
+      // Prefer the explicitly-active adapter (activeGPUIndex can be -1 or
+      // absent on some platforms); fall back to a per-device active flag.
+      const activeIndex = info.auxAttributes?.activeGPUIndex;
+      const activeDevice =
+        (typeof activeIndex === "number" && activeIndex >= 0 && devices[activeIndex]) ||
+        devices.find((d) => d.active) ||
+        null;
+      const settings = await readSettings();
+      return {
+        devices: devices.map((d) => ({
+          vendor:
+            d.vendorString || (d.vendorId ? `0x${d.vendorId.toString(16)}` : "Unknown"),
+          device: d.deviceString || "Unknown GPU",
+          description: d.driverVersion ? `Driver ${d.driverVersion}` : undefined,
+          vendorId: typeof d.vendorId === "number" ? d.vendorId : undefined,
+          active: d === activeDevice,
+        })),
+        preference: settings?.aiDevicePreference || "auto",
+      };
+    } catch (error) {
+      console.error("❌ Failed to query GPU info:", error);
+      return null;
+    }
+  });
+
   // Handle open cache location (without security restrictions since it's app's internal cache)
   ipcMain.handle("open-cache-location", async (event, cachePath) => {
     try {

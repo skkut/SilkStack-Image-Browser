@@ -1,3 +1,5 @@
+import type { MainProcessGpuReport } from './services/gpuPreference';
+
 export interface ElectronAPI {
   trashFile: (
     filename: string,
@@ -271,6 +273,10 @@ export interface ElectronAPI {
     productId?: string,
   ) => Promise<{ success: boolean; message?: string; purchase?: Record<string, unknown> }>;
   isDev: () => Promise<boolean>;
+  /** Every GPU Chromium's GPU process detected, plus the active one —
+   *  main-process source (app.getGPUInfo), available at startup without a
+   *  model load. */
+  getGpuInfo: () => Promise<MainProcessGpuReport | null>;
 
   // Dev Tools (tool: which tester to open, e.g. 'auto-tag' | 'semantic-search')
   openDevTools: (tool: string) => Promise<{ success: boolean; error?: string }>;

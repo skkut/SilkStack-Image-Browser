@@ -11,7 +11,7 @@ vi.hoisted(() => {
   } as any;
 });
 
-import { useImageStore } from '../store/useImageStore';
+import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
 
@@ -224,7 +224,7 @@ describe('useImageStore auto-tagging GPU preference', () => {
     expect(start?.payload.tagModelId).toBeUndefined();
   });
 
-  it('stores gpu-info from the worker into detectedGpuInfo', async () => {
+  it('stores gpu-info from the worker into detectedGpuInfo and persists it', async () => {
     await useImageStore.getState().startAutoTagging('', false, {});
     const worker = FakeTaggingWorker.lastInstance!;
 
@@ -237,5 +237,209 @@ describe('useImageStore auto-tagging GPU preference', () => {
       device: 'RTX 4090',
       preference: 'auto',
     });
+    // Persisted so Settings shows the GPU without waiting for another load.
+    expect(global.localStorage.setItem).toHaveBeenCalledWith(
+      'image-metahub-detected-gpu',
+      JSON.stringify({ vendor: 'NVIDIA', device: 'RTX 4090', preference: 'auto' }),
+    );
+  });
+
+  it('loadDetectedGpuInfo restores a saved value and rejects corrupt data', () => {
+    const storage = global.localStorage as any;
+    storage.getItem.mockReturnValueOnce(
+      JSON.stringify({ vendor: 'NVIDIA', device: 'RTX 4090', preference: 'low-power' }),
+    );
+    expect(loadDetectedGpuInfo()).toEqual({
+      vendor: 'NVIDIA',
+      device: 'RTX 4090',
+      preference: 'low-power',
+    });
+
+    storage.getItem.mockReturnValueOnce('not json');
+    expect(loadDetectedGpuInfo()).toBeNull();
+
+    storage.getItem.mockReturnValueOnce('true'); // valid JSON, wrong shape
+    expect(loadDetectedGpuInfo()).toBeNull();
+
+    storage.getItem.mockReturnValueOnce(null);
+    expect(loadDetectedGpuInfo()).toBeNull();
+  });
+
+  it('setDetectedGpuInfo(null) clears the persisted detection', () => {
+    useImageStore.getState().setDetectedGpuInfo({ vendor: 'NVIDIA', device: 'RTX 4090', preference: 'auto' });
+    useImageStore.getState().setDetectedGpuInfo(null);
+    expect(global.localStorage.removeItem).toHaveBeenCalledWith('image-metahub-detected-gpu');
+    expect(useImageStore.getState().detectedGpuInfo).toBeNull();
+  });
+
+  it('resetState clears the persisted detection', () => {
+    useImageStore.getState().setDetectedGpuInfo({ vendor: 'NVIDIA', device: 'RTX 4090', preference: 'auto' });
+    useImageStore.getState().resetState();
+    expect(global.localStorage.removeItem).toHaveBeenCalledWith('image-metahub-detected-gpu');
+    expect(useImageStore.getState().detectedGpuInfo).toBeNull();
+  });
+
+  it('ignores a blank worker gpu-info report (opaque WebGPU ids) — keeps the previous value', async () => {
+    useImageStore.setState({
+      detectedGpuInfo: { vendor: 'AMD', device: 'Radeon(TM) Graphics', preference: 'auto' },
+    });
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    worker.onmessage?.({
+      data: { type: 'gpu-info', payload: { vendor: '', device: '', preference: 'auto' } },
+    } as MessageEvent);
+
+    // A blank report must not flip the readout to "not reported yet".
+    expect(useImageStore.getState().detectedGpuInfo).toEqual({
+      vendor: 'AMD',
+      device: 'Radeon(TM) Graphics',
+      preference: 'auto',
+    });
+  });
+
+  it('setDetectedGpuDevices stores the list, persists it, and resetState clears it', () => {
+    const devices = [
+      { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+      { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+    ];
+    useImageStore.getState().setDetectedGpuDevices(devices);
+    expect(useImageStore.getState().detectedGpuDevices).toEqual(devices);
+    // Persisted so the dropdown shows the cards on the next launch before the
+    // async main-process re-fetch resolves.
+    expect(global.localStorage.setItem).toHaveBeenCalledWith(
+      'image-metahub-detected-gpus',
+      JSON.stringify(devices),
+    );
+
+    useImageStore.getState().resetState();
+    expect(useImageStore.getState().detectedGpuDevices).toEqual([]);
+    expect(global.localStorage.removeItem).toHaveBeenCalledWith('image-metahub-detected-gpus');
+  });
+
+  it('setDetectedGpuDevices skips the write when the list is unchanged (startup re-fetch)', () => {
+    const devices = [
+      { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+      { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+    ];
+    useImageStore.getState().setDetectedGpuDevices(devices);
+    const writes = (global.localStorage.setItem as any).mock.calls.length;
+
+    // A byte-identical list (every launch re-queries the main process) must
+    // not re-persist or re-render pointlessly.
+    useImageStore.getState().setDetectedGpuDevices([...devices]);
+    expect(global.localStorage.setItem).toHaveBeenCalledTimes(writes);
+    expect(useImageStore.getState().detectedGpuDevices).toEqual(devices);
+
+    // A genuinely changed list (e.g. a GPU was unplugged) still writes.
+    useImageStore.getState().setDetectedGpuDevices([devices[1]]);
+    expect(global.localStorage.setItem).toHaveBeenCalledTimes(writes + 1);
+    expect(useImageStore.getState().detectedGpuDevices).toEqual([devices[1]]);
+  });
+
+  it('loadDetectedGpuDevices restores a saved list and rejects corrupt data', () => {
+    const storage = global.localStorage as any;
+    storage.getItem.mockReturnValueOnce(
+      JSON.stringify([
+        { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+        { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+      ]),
+    );
+    expect(loadDetectedGpuDevices()).toEqual([
+      { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+      { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+    ]);
+
+    // Corrupt / wrong-shape payloads → empty list, never a crash.
+    storage.getItem.mockReturnValueOnce('not json');
+    expect(loadDetectedGpuDevices()).toEqual([]);
+
+    storage.getItem.mockReturnValueOnce('true'); // valid JSON, wrong shape
+    expect(loadDetectedGpuDevices()).toEqual([]);
+
+    storage.getItem.mockReturnValueOnce(JSON.stringify([{ vendor: 'AMD' }])); // entry missing device
+    expect(loadDetectedGpuDevices()).toEqual([]);
+
+    storage.getItem.mockReturnValueOnce(null);
+    expect(loadDetectedGpuDevices()).toEqual([]);
+  });
+});
+
+// ── Main-process GPU reporting (startup source, no model load) ─────────
+// The worker-side adapter.info detection only fires after a model load and
+// can silently fail; Electron's main process (app.getGPUInfo) knows every
+// GPU Chromium detected at startup. fetchMainProcessGpuInfo feeds that
+// report through the same persisted setter.
+
+describe('fetchMainProcessGpuInfo (main-process startup report)', () => {
+  beforeEach(() => {
+    delete (global.window as any).electronAPI;
+    useImageStore.setState({ detectedGpuInfo: null, detectedGpuDevices: [] });
+  });
+
+  it('stores every detected GPU and seeds the single report from the active one', async () => {
+    (global.window as any).electronAPI = {
+      getGpuInfo: vi.fn().mockResolvedValue({
+        devices: [
+          { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+          { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+        ],
+        preference: 'high-performance',
+      }),
+    };
+    const { fetchMainProcessGpuInfo } = await import('../services/mainProcessGpu');
+
+    await fetchMainProcessGpuInfo();
+
+    expect(useImageStore.getState().detectedGpuDevices).toEqual([
+      { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+      { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+    ]);
+    expect(useImageStore.getState().detectedGpuInfo).toEqual({
+      vendor: 'AMD',
+      device: 'Radeon(TM) Graphics',
+      preference: 'high-performance',
+    });
+    // Persisted so Settings shows the GPU without waiting for another load.
+    expect(global.localStorage.setItem).toHaveBeenCalledWith(
+      'image-metahub-detected-gpu',
+      JSON.stringify({ vendor: 'AMD', device: 'Radeon(TM) Graphics', preference: 'high-performance' }),
+    );
+    // …and the full device list, which feeds the dropdown options.
+    expect(global.localStorage.setItem).toHaveBeenCalledWith(
+      'image-metahub-detected-gpus',
+      JSON.stringify([
+        { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+        { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+      ]),
+    );
+  });
+
+  it('leaves the store untouched when the main process reports nothing', async () => {
+    (global.window as any).electronAPI = { getGpuInfo: vi.fn().mockResolvedValue(null) };
+    const { fetchMainProcessGpuInfo } = await import('../services/mainProcessGpu');
+
+    await fetchMainProcessGpuInfo();
+    expect(useImageStore.getState().detectedGpuInfo).toBeNull();
+    expect(useImageStore.getState().detectedGpuDevices).toEqual([]);
+
+    (global.window as any).electronAPI = {
+      getGpuInfo: vi.fn().mockResolvedValue({ devices: [], preference: 'auto' }),
+    };
+    await fetchMainProcessGpuInfo();
+    expect(useImageStore.getState().detectedGpuDevices).toEqual([]);
+  });
+
+  it('is a no-op without electronAPI (browser preview) and swallows IPC failures', async () => {
+    const { fetchMainProcessGpuInfo } = await import('../services/mainProcessGpu');
+
+    await fetchMainProcessGpuInfo(); // no window.electronAPI → no-op
+    expect(useImageStore.getState().detectedGpuInfo).toBeNull();
+
+    (global.window as any).electronAPI = {
+      getGpuInfo: vi.fn().mockRejectedValue(new Error('no GPU process')),
+    };
+    await expect(fetchMainProcessGpuInfo()).resolves.toBeUndefined();
+    expect(useImageStore.getState().detectedGpuInfo).toBeNull();
   });
 });

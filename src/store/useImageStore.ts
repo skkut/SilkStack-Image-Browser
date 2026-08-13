@@ -14,10 +14,18 @@ import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo } from '../services/aiBridge';
+import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
+// The last WebGPU adapter detected by an AI worker — persisted so Settings
+// shows the GPU without waiting for the next model load.
+const DETECTED_GPU_STORAGE_KEY = 'image-metahub-detected-gpu';
+// Every GPU Chromium detected (main-process report) — persisted so the
+// Settings dropdown shows the detected cards instantly on load, before the
+// async re-fetch completes (which then detects system changes).
+const DETECTED_GPUS_STORAGE_KEY = 'image-metahub-detected-gpus';
 
 // Bump this version whenever the similarity algorithm or threshold changes
 // to force re-computation of similarityGroupId for all images.
@@ -124,6 +132,56 @@ interface UndoEntry {
 }
 const __undoStack: UndoEntry[] = [];
 const MAX_UNDO_STACK = 20;
+
+/**
+ * Restore the last detected WebGPU adapter (Settings → AI Intelligence).
+ * Detection fires only when a model first loads into a worker, so the value
+ * is persisted on detection and restored here — Settings shows the GPU
+ * without waiting for another load. Corrupt/absent data → null (same as
+ * never detected).
+ */
+export function loadDetectedGpuInfo(): DetectedGpuInfo | null {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(DETECTED_GPU_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+        if (parsed && typeof parsed.vendor === 'string' && typeof parsed.device === 'string') {
+            return parsed as unknown as DetectedGpuInfo;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/** Restore the last main-process GPU list (Settings dropdown options).
+ *  Corrupt/absent data → [] (the async re-fetch repopulates it). */
+export function loadDetectedGpuDevices(): GpuDeviceReport[] {
+    if (typeof window === 'undefined') return [];
+    try {
+        const raw = localStorage.getItem(DETECTED_GPUS_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        const devices = parsed.filter(
+            (d): d is GpuDeviceReport =>
+                typeof d === 'object' &&
+                d !== null &&
+                typeof (d as Record<string, unknown>).vendor === 'string' &&
+                typeof (d as Record<string, unknown>).device === 'string',
+        );
+        return devices.map((d) => ({
+            vendor: d.vendor,
+            device: d.device,
+            description: typeof d.description === 'string' ? d.description : undefined,
+            vendorId: typeof d.vendorId === 'number' ? d.vendorId : undefined,
+            active: d.active === true,
+        }));
+    } catch {
+        return [];
+    }
+}
 
 const loadRecentTags = (): string[] => {
     if (typeof window === 'undefined') {
@@ -355,6 +413,9 @@ interface ImageState {
   semanticLastError: string | null;
   /** Detected WebGPU adapter (vendor/device) reported by the AI worker. */
   detectedGpuInfo: DetectedGpuInfo | null;
+  /** Every GPU Chromium detected (main-process report) — the readout lists
+   *  all of them with the active one marked. */
+  detectedGpuDevices: GpuDeviceReport[];
 
   // Actions
   addDirectory: (directory: Directory) => void;
@@ -443,6 +504,7 @@ interface ImageState {
   applySemanticEmbeddingModel: (modelId: string) => Promise<void>;
   setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
   setDetectedGpuInfo: (info: DetectedGpuInfo | null) => void;
+  setDetectedGpuDevices: (devices: GpuDeviceReport[]) => void;
   handleClusterImageDeletion: (deletedImageIds: string[]) => void;
   setClusterNavigationContext: (images: IndexedImage[] | null) => void;
 
@@ -1313,7 +1375,8 @@ export const useImageStore = create<ImageState>((set, get) => {
         semanticIndexProgress: null,
         semanticIndexedCount: 0,
         semanticLastError: null,
-        detectedGpuInfo: null,
+        detectedGpuInfo: loadDetectedGpuInfo(),
+        detectedGpuDevices: loadDetectedGpuDevices(),
         availableModels: [],
         availableLoras: [],
         availableSchedulers: [],
@@ -2218,7 +2281,9 @@ export const useImageStore = create<ImageState>((set, get) => {
                         break;
                     }
                     case 'gpu-info':
-                        set({ detectedGpuInfo: payload });
+                        // Route through the setter so the detection persists
+                        // (Settings shows it without waiting for another load).
+                        useImageStore.getState().setDetectedGpuInfo(payload);
                         break;
                     case 'error':
                         console.error('Auto-tagging error:', payload.error);
@@ -2956,7 +3021,14 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         setActiveView: (view) => set({ activeView: view }),
 
-        resetState: () => set({
+        resetState: () => {
+            try {
+                localStorage.removeItem(DETECTED_GPU_STORAGE_KEY);
+                localStorage.removeItem(DETECTED_GPUS_STORAGE_KEY);
+            } catch {
+                // storage failure — the in-memory state is cleared regardless
+            }
+            set({
             images: [],
             filteredImages: [],
             selectionTotalImages: 0,
@@ -3007,9 +3079,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             autoTaggingWorker: null,
             isAutoTagging: false,
             detectedGpuInfo: null,
+            detectedGpuDevices: [],
             draggedItems: [],
             clearAllThumbnails: () => {},
-        }),
+        });
+        },
 
         cleanupInvalidImages: () => {
             const state = get();
@@ -4076,7 +4150,39 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         setSemanticIndexProgress: (progress) => set({ semanticIndexProgress: progress }),
-        setDetectedGpuInfo: (info) => set({ detectedGpuInfo: info }),
+        setDetectedGpuInfo: (info) => {
+            // WebGPU adapter.info exposes vendor/device as opaque ids that
+            // some drivers leave empty — a blank report is worse than none
+            // (it would flip the readout to "not reported yet"), so ignore
+            // it and keep the previous value. null still clears (reset).
+            if (info && (!info.vendor || !info.device)) return;
+            try {
+                if (info) {
+                    localStorage.setItem(DETECTED_GPU_STORAGE_KEY, JSON.stringify(info));
+                } else {
+                    localStorage.removeItem(DETECTED_GPU_STORAGE_KEY);
+                }
+            } catch (error) {
+                console.warn('Failed to persist detected GPU info:', error);
+            }
+            set({ detectedGpuInfo: info });
+        },
+        setDetectedGpuDevices: (devices) => {
+            // Skip the write when nothing changed — the startup re-fetch runs
+            // on every launch, so an unchanged list would otherwise re-persist
+            // (and re-render) pointlessly.
+            const current = get().detectedGpuDevices;
+            const unchanged =
+                current.length === devices.length &&
+                current.every((d, i) => JSON.stringify(d) === JSON.stringify(devices[i]));
+            if (unchanged) return;
+            try {
+                localStorage.setItem(DETECTED_GPUS_STORAGE_KEY, JSON.stringify(devices));
+            } catch (error) {
+                console.warn('Failed to persist detected GPU devices:', error);
+            }
+            set({ detectedGpuDevices: devices });
+        },
 
         /**
          * Internal helper — delegates to the engine for hybrid similarity

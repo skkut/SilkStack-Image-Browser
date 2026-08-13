@@ -69,3 +69,47 @@ describe('useSettingsStore aiDevicePreference', () => {
     expect(useSettingsStore.getState().aiDevicePreference).toBe('low-power');
   });
 });
+
+describe('useSettingsStore aiDeviceTarget (specific detected GPU)', () => {
+  it("defaults to 'auto' (no specific card chosen)", async () => {
+    const { useSettingsStore } = await import('../store/useSettingsStore');
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('auto');
+  });
+
+  it('round-trips a gpuDeviceKey and persists it to storage', async () => {
+    const { useSettingsStore } = await import('../store/useSettingsStore');
+    useSettingsStore.getState().setAiDeviceTarget('NVIDIA|GeForce RTX 4090');
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('NVIDIA|GeForce RTX 4090');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'image-metahub-settings',
+      expect.stringContaining('"aiDeviceTarget":"NVIDIA|GeForce RTX 4090"'),
+    );
+  });
+
+  it('resetState restores the default', async () => {
+    const { useSettingsStore } = await import('../store/useSettingsStore');
+    useSettingsStore.getState().setAiDeviceTarget('AMD|Radeon(TM) Graphics');
+    useSettingsStore.getState().resetState();
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('auto');
+  });
+
+  it('rehydration preserves a persisted GPU selection', async () => {
+    vi.resetModules();
+    localStorageMock.setSeed(
+      JSON.stringify({ state: { aiDeviceTarget: 'AMD|Radeon(TM) Graphics' } }),
+    );
+    const { useSettingsStore } = await import('../store/useSettingsStore');
+    await flush();
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('AMD|Radeon(TM) Graphics');
+  });
+
+  it('rehydration backfills the default for settings persisted before the field existed', async () => {
+    vi.resetModules();
+    localStorageMock.setSeed(JSON.stringify({ state: { aiDevicePreference: 'high-performance' } }));
+    const { useSettingsStore } = await import('../store/useSettingsStore');
+    await flush();
+    // The zustand shallow merge keeps the persisted pref and supplies 'auto'.
+    expect(useSettingsStore.getState().aiDevicePreference).toBe('high-performance');
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('auto');
+  });
+});

@@ -73,6 +73,11 @@ interface SettingsState {
   confirmOnDelete: boolean;
   disableAiFallback: boolean;
   aiDevicePreference: AiDevicePreference;
+  /** The specific detected GPU the user picked in Settings (gpuDeviceKey,
+   *  e.g. 'NVIDIA|GeForce RTX 3060'), or 'auto' when no specific card was
+   *  chosen. The effective Chromium hint lives in aiDevicePreference (a GPU
+   *  selection maps to its class — WebGPU cannot target an adapter by name). */
+  aiDeviceTarget: string;
   /** User-selected semantic embedding model id (Settings → AI Intelligence); '' = module default. */
   aiEmbeddingModel: string;
   /** User-selected auto-tagging chat model id (Settings → AI Intelligence); '' = module default. */
@@ -125,6 +130,7 @@ interface SettingsState {
   setConfirmOnDelete: (value: boolean) => void;
   setDisableAiFallback: (value: boolean) => void;
   setAiDevicePreference: (value: AiDevicePreference) => void;
+  setAiDeviceTarget: (value: string) => void;
   setAiEmbeddingModel: (value: string) => void;
   setAiTagModel: (value: string) => void;
   setSidebarCollapsed: (value: boolean) => void;
@@ -170,6 +176,7 @@ export const useSettingsStore = create<SettingsState>()(
       confirmOnDelete: true,
       disableAiFallback: false,
       aiDevicePreference: 'auto',
+      aiDeviceTarget: 'auto', // 'auto' = no specific detected GPU chosen
       aiEmbeddingModel: '', // '' = the module's default embedding model
       aiTagModel: '', // '' = the module's default auto-tag model
 
@@ -229,6 +236,7 @@ export const useSettingsStore = create<SettingsState>()(
       setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
       setDisableAiFallback: (value) => set({ disableAiFallback: !!value }),
       setAiDevicePreference: (value) => set({ aiDevicePreference: value }),
+      setAiDeviceTarget: (value) => set({ aiDeviceTarget: value }),
       setAiEmbeddingModel: (value) => set({ aiEmbeddingModel: value }),
       setAiTagModel: (value) => set({ aiTagModel: value }),
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
@@ -286,6 +294,7 @@ export const useSettingsStore = create<SettingsState>()(
         confirmOnDelete: true,
         disableAiFallback: false,
         aiDevicePreference: 'auto',
+        aiDeviceTarget: 'auto',
         aiEmbeddingModel: '',
         aiTagModel: '',
         isSidebarCollapsed: true,

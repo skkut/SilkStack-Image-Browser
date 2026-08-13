@@ -120,6 +120,7 @@ beforeEach(() => {
     semanticIndexedCount: 0,
     semanticLastError: null,
     detectedGpuInfo: null,
+    detectedGpuDevices: [],
   });
   useSettingsStore.setState({
     licenseStatus: 'unchecked',
@@ -389,6 +390,172 @@ describe('SettingsModal AI Intelligence section (GPU preference)', () => {
     });
     rerender(<SettingsModal isOpen onClose={vi.fn()} />);
     expect(screen.queryByText(/NVIDIA/)).toBeNull();
+  });
+
+  it('lists every detected GPU with the active one marked, plus a divergent inference report', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { container, rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+
+    act(() => {
+      useImageStore.setState({
+        detectedGpuDevices: [
+          { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+          { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+        ],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    // Assert against the readout's normalized text: row text spans several
+    // text nodes (vendor, dash, device, marker span), which RTL's element
+    // matcher splits on.
+    const readout = container.querySelector('[data-testid="detected-gpu-readout"]');
+    expect(readout).not.toBeNull();
+    const text = (readout!.textContent ?? '').replace(/\s+/g, ' ').trim();
+    expect(text).toContain('Detected GPUs');
+    expect(text).toContain('AMD — Radeon(TM) Graphics (active)'); // active card marked
+    expect(text).toContain('NVIDIA — GeForce RTX 4090');
+    expect(text).not.toContain('NVIDIA — GeForce RTX 4090 (active)'); // other card not
+
+    // A worker report matching a listed card adds no inference line…
+    act(() => {
+      useImageStore.setState({
+        detectedGpuInfo: { vendor: 'NVIDIA', device: 'GeForce RTX 4090', preference: 'high-performance' },
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+    expect(screen.queryByText(/Inference GPU/)).toBeNull();
+
+    // …but a card outside the main-process list is surfaced separately.
+    act(() => {
+      useImageStore.setState({
+        detectedGpuInfo: { vendor: 'Intel', device: 'Arc A770', preference: 'high-performance' },
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+    expect(screen.getByText(/Inference GPU \(last model load\): Intel — Arc A770/)).toBeDefined();
+  });
+
+  it('replaces the generic class options with the detected GPU names', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+
+    act(() => {
+      useImageStore.setState({
+        detectedGpuDevices: [
+          { vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true },
+          { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: false },
+          // Vendor that classifies to 'auto' — keeps its own entry, replaces nothing.
+          { vendor: 'Microsoft', device: 'Basic Render Driver', active: false },
+        ],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    const select = screen.getByTestId('ai-device-preference-select') as HTMLSelectElement;
+    // auto + one option per detected card + software — the generic
+    // high/low entries are REPLACED, not duplicated. Cards render grouped
+    // by class (discrete group, then integrated, then unrecognized).
+    expect(select.options.length).toBe(5);
+    expect(select.options[1].textContent).toBe('GeForce RTX 4090 (discrete)');
+    expect(select.options[1].value).toBe('NVIDIA|GeForce RTX 4090');
+    expect(select.options[2].textContent).toBe('Radeon(TM) Graphics (integrated)');
+    expect(select.options[2].value).toBe('AMD|Radeon(TM) Graphics');
+    expect(select.options[3].textContent).toBe('Basic Render Driver (auto)');
+    expect(select.options[3].value).toBe('Microsoft|Basic Render Driver');
+    expect(select.options[4].textContent).toBe('Software rendering (SwiftShader, for debugging)');
+
+    const texts = Array.from(select.options).map((o) => o.textContent);
+    expect(texts.some((t) => t?.includes('prefer discrete'))).toBe(false);
+    expect(texts.some((t) => t?.includes('prefer integrated'))).toBe(false);
+  });
+
+  it('keeps the generic class option when no detected GPU maps to that class', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+
+    // Discrete-only machine: the low-power class has no card, so the generic
+    // entry stays selectable.
+    act(() => {
+      useImageStore.setState({
+        detectedGpuDevices: [{ vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: true }],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    const select = screen.getByTestId('ai-device-preference-select') as HTMLSelectElement;
+    expect(select.options.length).toBe(4);
+    expect(select.options[1].textContent).toBe('GeForce RTX 4090 (discrete)');
+    expect(select.options[2].textContent).toBe('Low power — prefer integrated GPU');
+    expect(select.options[2].value).toBe('low-power');
+  });
+
+  it('picking a detected GPU targets that card and derives the class hint', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+    act(() => {
+      useImageStore.setState({
+        detectedGpuDevices: [
+          { vendor: 'NVIDIA', device: 'GeForce RTX 4090', active: true },
+        ],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    fireEvent.change(screen.getByTestId('ai-device-preference-select'), {
+      target: { value: 'NVIDIA|GeForce RTX 4090' },
+    });
+    expect(useSettingsStore.getState().aiDeviceTarget).toBe('NVIDIA|GeForce RTX 4090');
+    expect(useSettingsStore.getState().aiDevicePreference).toBe('high-performance');
+  });
+
+  it('re-shows a persisted GPU selection when the card is still detected', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+    act(() => {
+      useSettingsStore.setState({ aiDeviceTarget: 'AMD|Radeon(TM) Graphics' });
+      useImageStore.setState({
+        detectedGpuDevices: [{ vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true }],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    const select = screen.getByTestId('ai-device-preference-select') as HTMLSelectElement;
+    expect(select.value).toBe('AMD|Radeon(TM) Graphics');
+  });
+
+  it('falls back to the class option when the target card is no longer detected', () => {
+    setElectronAPI();
+    stampPremium();
+
+    const { rerender } = render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+    act(() => {
+      // Card was removed (unplugged / driver change) — the target is stale.
+      useSettingsStore.setState({ aiDeviceTarget: 'NVIDIA|GeForce RTX 4090' });
+      useImageStore.setState({
+        detectedGpuDevices: [{ vendor: 'AMD', device: 'Radeon(TM) Graphics', active: true }],
+      });
+    });
+    rerender(<SettingsModal isOpen onClose={vi.fn()} />);
+
+    const select = screen.getByTestId('ai-device-preference-select') as HTMLSelectElement;
+    expect(select.value).toBe('high-performance'); // class survives, card option gone
   });
 });
 
