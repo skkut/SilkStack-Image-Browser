@@ -213,6 +213,7 @@ export default function DevAutoTaggingTester() {
             <button
               onClick={handleLoadModels}
               className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-500 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               {loadState === 'error' ? 'Retry: load models' : 'Load models'}
             </button>

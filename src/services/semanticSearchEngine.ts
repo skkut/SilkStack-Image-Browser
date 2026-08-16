@@ -63,10 +63,26 @@ export interface TagModelOption {
   description: string;
 }
 
+/**
+ * Index-time text building overrides — mirrors the module's
+ * SearchableTextOptions (ai-intelligence docs/SEARCH-QUALITY-TUNING.md §2).
+ * Omitted fields fall back to module defaults. Only the dev tester passes
+ * these; production callers pass no options.
+ */
+export interface SemanticIndexOptions {
+  promptWeight?: number;
+  tagWeight?: number;
+  modelWeight?: number;
+  maxChars?: number;
+}
+
 /** Structural view of the module's coordinator (no static module imports). */
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
-  indexImages(images: Array<{ id: string; prompt?: string; tags?: string[]; models?: string[] }>): Promise<SemanticIndexResult>;
+  indexImages(
+    images: Array<{ id: string; prompt?: string; tags?: string[]; models?: string[] }>,
+    options?: SemanticIndexOptions,
+  ): Promise<SemanticIndexResult>;
   search(
     query: string,
     options?: {
@@ -78,6 +94,7 @@ interface ModuleCoordinator {
     },
   ): Promise<ISemanticSearchHit[]>;
   clearIndex(): Promise<void>;
+  switchStorageDb(dbName?: string): Promise<void>;
   cancelIndexing(): void;
   getStatus(): SemanticSearchStatus;
   dispose(): void;
@@ -143,6 +160,7 @@ export class SemanticSearchCoordinator {
   constructor(
     private readonly onProgress?: SemanticProgressCallback,
     private readonly onGpuInfo?: (info: DetectedGpuInfo) => void,
+    private readonly storageDbName?: string,
   ) {}
 
   private getModule(): Promise<ModuleCoordinator | null> {
@@ -175,6 +193,9 @@ export class SemanticSearchCoordinator {
               return undefined;
             }
           },
+          // The dev tester's isolated test DB; production callers omit it
+          // (library DB). Mirrors SEMANTIC_TEST_STORE_DB in the module.
+          storageDbName: this.storageDbName,
         }) as ModuleCoordinator;
         return this.coordinator;
       });
@@ -203,10 +224,12 @@ export class SemanticSearchCoordinator {
 
   /**
    * Incremental index by textHash (the module embeds only what changed,
-   * persists, and restores into its worker index).
+   * persists, and restores into its worker index). `options` forwards the
+   * index-time text overrides (weights/cap) — used by the dev tester's
+   * "Indexing parameters" panel; production callers pass nothing.
    */
-  indexImages(images: IndexedImage[]): Promise<SemanticIndexResult> {
-    return this.withModule((coordinator) => coordinator.indexImages(images));
+  indexImages(images: IndexedImage[], options?: SemanticIndexOptions): Promise<SemanticIndexResult> {
+    return this.withModule((coordinator) => coordinator.indexImages(images, options));
   }
 
   // ── Search ─────────────────────────────────────────────────────────
@@ -235,6 +258,17 @@ export class SemanticSearchCoordinator {
   /** Wipe the persisted store AND the worker's in-memory index. */
   clearIndex(): Promise<void> {
     return this.withModule((coordinator) => coordinator.clearIndex());
+  }
+
+  /**
+   * Point the coordinator at a different persistence database (the dev
+   * tester's test/library toggle). `dbName` omitted → the production
+   * library DB. Pending queries settle, the worker index is wiped and
+   * re-restored from the new DB, and subsequent index/search calls act on
+   * that store. No-op when the module is absent.
+   */
+  switchStorageDb(dbName?: string): Promise<void> {
+    return this.withModule((coordinator) => coordinator.switchStorageDb(dbName));
   }
 
   /**

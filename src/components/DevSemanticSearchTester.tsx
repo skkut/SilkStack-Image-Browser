@@ -3,8 +3,11 @@ import {
   SemanticSearchCoordinator,
   type SemanticIndexProgress,
   type SemanticSearchStatus,
+  type SemanticIndexOptions,
 } from '../services/semanticSearchEngine';
 import { getAiLoadError, isAiAvailable } from '../services/aiBridge';
+import { extractRawMetadataFromFile } from '../services/fileIndexer';
+import { loadAllAnnotations } from '../services/imageAnnotationsStorage';
 import type { IndexedImage } from '../types';
 
 /**
@@ -148,6 +151,12 @@ interface QueryResult {
 interface TuningModuleConsts {
   LEXICAL_BLEND_WEIGHT: number;
   SEMANTIC_SEARCH_TOP_N: number;
+  SEMANTIC_PROMPT_WEIGHT: number;
+  SEMANTIC_TAG_WEIGHT: number;
+  SEMANTIC_MODEL_WEIGHT: number;
+  SEMANTIC_TEXT_MAX_CHARS: number;
+  /** The isolated test-store DB name (tester↔module contract, exported from index.ts). */
+  SEMANTIC_TEST_STORE_DB: string;
   queryContentTokens: (text: string) => string[];
   resolveEmbeddingModel: (modelId?: string) => { searchThreshold: number };
 }
@@ -166,6 +175,41 @@ interface TuningState {
 }
 
 const DEFAULT_TUNING: TuningState = { threshold: null, blend: null, topN: null, expand: true, instruct: true };
+
+/**
+ * Index-time text building overrides — the "Indexing parameters" panel.
+ * null = the module's default weight/cap (same "default until dragged"
+ * pattern as TuningState). These are INDEX-time knobs: they reshape the text
+ * that gets embedded, so a run with overrides re-embeds (textHash changes →
+ * coordinator Δ). See ai-intelligence/docs/SEARCH-QUALITY-TUNING.md §2.
+ */
+interface IndexTuningState {
+  promptWeight: number | null;
+  tagWeight: number | null;
+  modelWeight: number | null;
+  maxChars: number | null;
+}
+
+const DEFAULT_INDEX_TUNING: IndexTuningState = {
+  promptWeight: null,
+  tagWeight: null,
+  modelWeight: null,
+  maxChars: null,
+};
+
+/** One file entry from listDirectoryFiles (recursive: name = subfolder-relative path). */
+interface LibraryFile {
+  name: string;
+  lastModified: number;
+  size: number;
+  type: string;
+  birthtimeMs?: number;
+}
+
+/** Weight → repetition readout for the panel (0 drops the segment). */
+function repsLabel(weight: number): string {
+  return weight <= 0 ? 'dropped' : `×${Math.max(1, Math.round(weight * 10))}`;
+}
 
 /** Slider that shows the engine default until the user drags it. */
 function TuningSlider({
@@ -218,6 +262,19 @@ export default function DevSemanticSearchTester() {
   const [preempting, setPreempting] = useState(false);
   const [query, setQuery] = useState(QUERY_PRESETS[0].value);
   const [tuning, setTuning] = useState<TuningState>(DEFAULT_TUNING);
+  const [indexTuning, setIndexTuning] = useState<IndexTuningState>(DEFAULT_INDEX_TUNING);
+  const [libraryIndexing, setLibraryIndexing] = useState(false);
+  const [libraryProgress, setLibraryProgress] = useState<{ current: number; total: number } | null>(null);
+  /** Result of the last library scan (shown under the Index button). */
+  const [librarySummary, setLibrarySummary] = useState<{ folders: number; files: number } | null>(null);
+  /**
+   * Search target store. true = the isolated test DB (all test indexing
+   * writes here, never the library's); false = the library's production
+   * store, read-only from the tester (index actions are disabled).
+   */
+  const [useTestStore, setUseTestStore] = useState(true);
+  /** True while switchStorageDb is re-restoring the worker index. */
+  const [storeSwitching, setStoreSwitching] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [log, setLog] = useState<string[]>([]);
   /** imageId → preview info: blob URL when loaded, or a short failure reason. */
@@ -428,6 +485,13 @@ export default function DevSemanticSearchTester() {
             moduleRef.current = {
               LEXICAL_BLEND_WEIGHT: mod.LEXICAL_BLEND_WEIGHT,
               SEMANTIC_SEARCH_TOP_N: mod.SEMANTIC_SEARCH_TOP_N,
+              SEMANTIC_PROMPT_WEIGHT: mod.SEMANTIC_PROMPT_WEIGHT,
+              SEMANTIC_TAG_WEIGHT: mod.SEMANTIC_TAG_WEIGHT,
+              SEMANTIC_MODEL_WEIGHT: mod.SEMANTIC_MODEL_WEIGHT,
+              SEMANTIC_TEXT_MAX_CHARS: mod.SEMANTIC_TEXT_MAX_CHARS,
+              // Fallback must stay in sync with the module's constant — it
+              // only ever matters if the export above is ever dropped.
+              SEMANTIC_TEST_STORE_DB: mod.SEMANTIC_TEST_STORE_DB ?? 'image-metahub-semantic-test',
               queryContentTokens: mod.queryContentTokens,
               resolveEmbeddingModel: mod.resolveEmbeddingModel,
             };
@@ -442,9 +506,16 @@ export default function DevSemanticSearchTester() {
       // and engine only start inside ensureInitialized). Opening the tester
       // must not trigger a multi-second model load; the user clicks
       // "Load models" (handleLoadModels) to run it explicitly.
-      const coordinator = new SemanticSearchCoordinator((p) => {
-        if (!cancelled) setProgress(p);
-      });
+      // Third positional arg = the isolated test DB — test indexing never
+      // touches the library's production store from day one. Switching to
+      // the library store is the Retrieval-tuning checkbox (handleToggleStore).
+      const coordinator = new SemanticSearchCoordinator(
+        (p) => {
+          if (!cancelled) setProgress(p);
+        },
+        undefined,
+        moduleRef.current?.SEMANTIC_TEST_STORE_DB,
+      );
       coordinatorRef.current = coordinator;
     }
 
@@ -463,7 +534,9 @@ export default function DevSemanticSearchTester() {
 
   const handleIndexFixtures = useCallback(async () => {
     const coordinator = coordinatorRef.current;
-    if (!coordinator || loadState !== 'ready' || indexing) return;
+    // Index actions are test-store-only: they must never write to the
+    // library's production store.
+    if (!coordinator || loadState !== 'ready' || indexing || !useTestStore) return;
     setIndexing(true);
     setError(null);
     try {
@@ -480,7 +553,7 @@ export default function DevSemanticSearchTester() {
       setIndexing(false);
       setProgress(null);
     }
-  }, [loadState, indexing, appendLog, refreshStatus]);
+  }, [loadState, indexing, useTestStore, appendLog, refreshStatus]);
 
   const handleSearch = useCallback(
     async (text?: string) => {
@@ -527,6 +600,147 @@ export default function DevSemanticSearchTester() {
     appendLog('retrieval tuning reset to engine defaults');
   }, [appendLog]);
 
+  const handleResetIndexTuning = useCallback(() => {
+    setIndexTuning(DEFAULT_INDEX_TUNING);
+    appendLog('indexing tuning reset to engine defaults');
+  }, [appendLog]);
+
+  /**
+   * Index the REAL library — every image in the app's configured folders —
+   * into the shared persisted store, using the selected indexing parameters.
+   * Replicates the main app's pipeline exactly (same enumeration, same
+   * parser, same id convention), so the tester's store overlays the app's:
+   *
+   *   folders:  localStorage 'image-metahub-directories' (shared session)
+   *   files:    listDirectoryFiles({dirPath, recursive}) — `name` is the
+   *             subfolder-relative path, forward slashes (app convention)
+   *   paths:    joinPathsBatch — path.resolve(basePath, relativeName)
+   *   metadata: extractRawMetadataFromFile — the SAME parser the app's
+   *             indexer uses (prompt/models), via the readFile IPC
+   *   tags:     loadAllAnnotations() from the shared IndexedDB, merged the
+   *             way the app does (dedupe union of tags + autoTags + metadataTags)
+   *   ids:      `${dirPath}::${relativePath}` — the persisted convention
+   *
+   * Metadata extraction runs in small concurrent chunks per folder; a file
+   * that fails to parse still indexes with whatever tags it has.
+   */
+  const handleIndexLibrary = useCallback(async () => {
+    const coordinator = coordinatorRef.current;
+    if (!coordinator || loadState !== 'ready' || libraryIndexing || indexing || preempting) return;
+    if (!useTestStore) return; // index actions are test-store-only
+    if (!window.electronAPI?.listDirectoryFiles) {
+      setError('Library indexing requires the Electron app (listDirectoryFiles IPC).');
+      return;
+    }
+    setLibraryIndexing(true);
+    setLibraryProgress(null);
+    setError(null);
+    try {
+      // 1. The app's configured folders (shared localStorage — the devtools
+      // window sees the main window's persisted list).
+      let folders: string[] = [];
+      try {
+        const raw = localStorage.getItem('image-metahub-directories');
+        folders = raw ? JSON.parse(raw) : [];
+      } catch {
+        folders = [];
+      }
+      if (!Array.isArray(folders)) folders = [];
+      if (folders.length === 0) {
+        setError('No library folders configured (image-metahub-directories is empty).');
+        return;
+      }
+
+      // 2. Annotations once — tag merging needs them for every image.
+      const annotations = await loadAllAnnotations();
+
+      // 3. Enumerate every folder, then extract metadata per file.
+      const images: Array<{ id: string; prompt?: string; tags: string[]; models?: string[] }> = [];
+      let total = 0;
+      const folderFiles: { dirPath: string; files: LibraryFile[] }[] = [];
+      for (const dirPath of folders) {
+        const resp = await window.electronAPI.listDirectoryFiles({ dirPath, recursive: true });
+        const files = resp.success && resp.files ? resp.files : [];
+        folderFiles.push({ dirPath, files });
+        total += files.length;
+      }
+      appendLog(`library scan: ${folders.length} folder(s), ${total} file(s)`);
+
+      const CHUNK = 10; // concurrent metadata reads per folder
+      let done = 0;
+      for (const { dirPath, files } of folderFiles) {
+        const joined = await window.electronAPI.joinPathsBatch({
+          basePath: dirPath,
+          fileNames: files.map((f) => f.name),
+        });
+        const paths = joined.success && joined.paths ? joined.paths : [];
+        for (let c = 0; c < files.length; c += CHUNK) {
+          const slice = files.slice(c, c + CHUNK);
+          const pathSlice = paths.slice(c, c + CHUNK);
+          const metas = await Promise.allSettled(
+            slice.map((_, i) => extractRawMetadataFromFile(pathSlice[i])),
+          );
+          for (let i = 0; i < slice.length; i++) {
+            const file = slice[i];
+            const id = `${dirPath}::${file.name}`;
+            const annotation = annotations.get(id);
+            const tags = annotation
+              ? [
+                  ...new Set([
+                    ...(annotation.tags ?? []),
+                    ...(annotation.autoTags ?? []),
+                    ...(annotation.metadataTags ?? []),
+                  ]),
+                ]
+              : [];
+            const metaResult = metas[i];
+            const meta = metaResult.status === 'fulfilled' ? metaResult.value : null;
+            images.push({
+              id,
+              prompt: meta?.prompt,
+              tags,
+              models: meta?.models ?? (meta?.model ? [meta.model] : undefined),
+            });
+          }
+          done += slice.length;
+          if (done % 25 === 0 || done === total) {
+            setLibraryProgress({ current: done, total });
+          }
+        }
+      }
+      setLibraryProgress(null);
+      setLibrarySummary({ folders: folders.length, files: images.length });
+      if (images.length === 0) {
+        appendLog('library scan found no image/video files');
+        return;
+      }
+
+      // 4. Index with the selected parameters (only non-default overrides).
+      const options: SemanticIndexOptions = {};
+      if (indexTuning.promptWeight !== null) options.promptWeight = indexTuning.promptWeight;
+      if (indexTuning.tagWeight !== null) options.tagWeight = indexTuning.tagWeight;
+      if (indexTuning.modelWeight !== null) options.modelWeight = indexTuning.modelWeight;
+      if (indexTuning.maxChars !== null) options.maxChars = indexTuning.maxChars;
+      const hasOverrides = Object.keys(options).length > 0;
+      if (hasOverrides) appendLog(`index overrides: ${JSON.stringify(options)}`);
+
+      const start = performance.now();
+      const result = await coordinator.indexImages(
+        images as unknown as IndexedImage[],
+        hasOverrides ? options : undefined,
+      );
+      refreshStatus(coordinator);
+      appendLog(
+        `library: ${images.length} image(s) → indexed ${result.indexed}, skipped ${result.skipped} in ${Math.round(performance.now() - start)}ms`,
+      );
+    } catch (err) {
+      setError(`Library indexing failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLibraryIndexing(false);
+      setLibraryProgress(null);
+    }
+  }, [loadState, libraryIndexing, indexing, preempting, indexTuning, useTestStore, appendLog, refreshStatus]);
+
   /**
    * Explicit model load — nothing loads until this button is clicked.
    * ensureInitialized is lazy and idempotent: a failed init clears its
@@ -553,7 +767,7 @@ export default function DevSemanticSearchTester() {
   /** §5.1 preemption check: a query fired mid-index must resolve first. */
   const handlePreemptDemo = useCallback(async () => {
     const coordinator = coordinatorRef.current;
-    if (!coordinator || loadState !== 'ready' || preempting) return;
+    if (!coordinator || loadState !== 'ready' || preempting || !useTestStore) return;
     setPreempting(true);
     setError(null);
     try {
@@ -575,20 +789,55 @@ export default function DevSemanticSearchTester() {
       setPreempting(false);
       setProgress(null);
     }
-  }, [loadState, preempting, appendLog, refreshStatus]);
+  }, [loadState, preempting, useTestStore, appendLog, refreshStatus]);
 
   const handleClearIndex = useCallback(async () => {
     const coordinator = coordinatorRef.current;
-    if (!coordinator) return;
+    // Test-store-only: clearing the library store is Settings → Re-index in
+    // the main app — the tester must never wipe production vectors.
+    if (!coordinator || !useTestStore) return;
     setError(null);
     try {
       await coordinator.clearIndex();
       refreshStatus(coordinator);
-      appendLog('index cleared (store + worker heap)');
+      appendLog('test index cleared (store + worker heap)');
     } catch (err) {
       setError(`Clear failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, [appendLog, refreshStatus]);
+  }, [appendLog, refreshStatus, useTestStore]);
+
+  /**
+   * Toggle the search store (Retrieval tuning checkbox): isolated test DB
+   * ↔ the library's production DB. switchStorageDb settles pending work
+   * and re-restores the worker index from the target DB chunked, so
+   * subsequent searches hit the new store. On failure the state is left
+   * untouched → the checkbox stays on the old value (automatic revert).
+   * In library mode the tester is read-only: search (and previews) only.
+   */
+  const handleToggleStore = useCallback(async () => {
+    const coordinator = coordinatorRef.current;
+    if (!coordinator || storeSwitching) return;
+    const target = !useTestStore; // the value we're switching TO
+    setStoreSwitching(true);
+    setError(null);
+    const testStoreName = moduleRef.current?.SEMANTIC_TEST_STORE_DB ?? 'image-metahub-semantic-test';
+    try {
+      await coordinator.switchStorageDb(target ? testStoreName : undefined);
+      setUseTestStore(target);
+      refreshStatus(coordinator);
+      // Hits from the previous store would be presented as current — clear.
+      setResult(null);
+      appendLog(
+        target
+          ? 'search store → TEST (isolated DB — test indexing only lands here)'
+          : 'search store → LIBRARY (production DB — read-only from the tester)',
+      );
+    } catch (err) {
+      setError(`Store switch failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setStoreSwitching(false);
+    }
+  }, [useTestStore, storeSwitching, appendLog, refreshStatus]);
 
   // Ctrl+Y closes this window
   useEffect(() => {
@@ -623,6 +872,17 @@ export default function DevSemanticSearchTester() {
   const nQ = moduleRef.current ? moduleRef.current.queryContentTokens(query).length : 0;
   const blendScale = nQ > 0 ? effBlend / nQ : 0;
 
+  // Effective index-time defaults: module constants until the user drags.
+  const effPromptW = indexTuning.promptWeight ?? moduleRef.current?.SEMANTIC_PROMPT_WEIGHT ?? 1.0;
+  const effTagW = indexTuning.tagWeight ?? moduleRef.current?.SEMANTIC_TAG_WEIGHT ?? 0.8;
+  const effModelW = indexTuning.modelWeight ?? moduleRef.current?.SEMANTIC_MODEL_WEIGHT ?? 0.5;
+  const effMaxChars = indexTuning.maxChars ?? moduleRef.current?.SEMANTIC_TEXT_MAX_CHARS ?? 1600;
+
+  // The isolated test DB name (module contract; fallback stays in sync).
+  const testStoreName = moduleRef.current?.SEMANTIC_TEST_STORE_DB ?? 'image-metahub-semantic-test';
+  /** Index actions are test-store-only — the checkbox in Retrieval tuning gates them. */
+  const storeBusy = storeSwitching || indexing || libraryIndexing || preempting;
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950 text-gray-200 font-sans">
       {/* Header — draggable region (titleBarStyle: hidden needs explicit drag region) */}
@@ -644,6 +904,16 @@ export default function DevSemanticSearchTester() {
             <span className="px-2 py-0.5 text-xs font-mono bg-gray-800 text-gray-400 rounded-md border border-gray-700 font-normal">
               {status?.modelId ?? 'qwen3-embedding-4b'}
             </span>
+            <span
+              className={`px-2 py-0.5 text-xs font-mono rounded-md border font-normal ${
+                useTestStore
+                  ? 'bg-blue-900/40 text-blue-300 border-blue-800'
+                  : 'bg-gray-800 text-gray-300 border-gray-700'
+              }`}
+              title={useTestStore ? 'Searching the isolated test DB' : 'Searching the library production DB (read-only)'}
+            >
+              {useTestStore ? 'test store' : 'library store'}
+            </span>
           </h1>
           <p className="text-sm text-gray-500">Natural-language search over prompts/tags — local via WebLLM</p>
         </div>
@@ -652,6 +922,7 @@ export default function DevSemanticSearchTester() {
             <button
               onClick={handleLoadModels}
               className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-500 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
               {loadState === 'error' ? 'Retry: load models' : 'Load models'}
             </button>
@@ -700,21 +971,21 @@ export default function DevSemanticSearchTester() {
             <div className="flex items-center gap-4">
               <button
                 onClick={handleIndexFixtures}
-                disabled={loadState !== 'ready' || indexing || preempting}
+                disabled={loadState !== 'ready' || indexing || preempting || !useTestStore}
                 className="px-5 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {indexing ? 'Indexing...' : 'Index fixture library'}
               </button>
               <button
                 onClick={handlePreemptDemo}
-                disabled={loadState !== 'ready' || indexing || preempting}
+                disabled={loadState !== 'ready' || indexing || preempting || !useTestStore}
                 className="px-5 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {preempting ? 'Running...' : 'Index 60 + query mid-run'}
               </button>
               <button
                 onClick={handleClearIndex}
-                disabled={loadState === 'loading' || indexing || preempting}
+                disabled={loadState === 'loading' || indexing || preempting || !useTestStore}
                 className={btnChipClass}
               >
                 Clear index
@@ -722,7 +993,94 @@ export default function DevSemanticSearchTester() {
               <span className="text-xs text-gray-500 ml-auto">{FIXTURES.length} fixture images</span>
             </div>
             <p className={labelClass + ' mt-4 mb-0'}>
-              Indexing is Δ by textHash — re-running is a no-op unless fixture text changes.
+              Indexing is Δ by textHash — re-running is a no-op unless fixture text changes. Index
+              actions write to the isolated test store only (see the store toggle in Retrieval
+              tuning) — the library store is never written by the tester.
+            </p>
+          </div>
+
+          {/* Indexing parameters card */}
+          <div className={`${cardClass} shrink-0`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-200">Indexing parameters</h3>
+              <button onClick={handleResetIndexTuning} className={btnChipClass}>
+                Reset to defaults
+              </button>
+            </div>
+            <div className="space-y-4">
+              <TuningSlider
+                label="Prompt weight (segment repetition)"
+                min={0}
+                max={2}
+                step={0.05}
+                value={indexTuning.promptWeight}
+                defaultValue={effPromptW}
+                display={(v) => `${v.toFixed(2)} → ${repsLabel(v)}`}
+                onChange={(v) => setIndexTuning({ ...indexTuning, promptWeight: v })}
+              />
+              <TuningSlider
+                label="Tags weight (segment repetition)"
+                min={0}
+                max={2}
+                step={0.05}
+                value={indexTuning.tagWeight}
+                defaultValue={effTagW}
+                display={(v) => `${v.toFixed(2)} → ${repsLabel(v)}`}
+                onChange={(v) => setIndexTuning({ ...indexTuning, tagWeight: v })}
+              />
+              <TuningSlider
+                label="Models weight (segment repetition)"
+                min={0}
+                max={2}
+                step={0.05}
+                value={indexTuning.modelWeight}
+                defaultValue={effModelW}
+                display={(v) => `${v.toFixed(2)} → ${repsLabel(v)}`}
+                onChange={(v) => setIndexTuning({ ...indexTuning, modelWeight: v })}
+              />
+              <TuningSlider
+                label="Max chars (global cap on built text)"
+                min={100}
+                max={3000}
+                step={50}
+                value={indexTuning.maxChars}
+                defaultValue={effMaxChars}
+                display={(v) => `${Math.round(v)} chars`}
+                onChange={(v) => setIndexTuning({ ...indexTuning, maxChars: v })}
+              />
+            </div>
+            <p className="text-[11px] text-gray-500 mt-3">
+              effective:{' '}
+              <span className="font-mono text-gray-400">
+                prompt {repsLabel(effPromptW)} · tags {repsLabel(effTagW)} · models {repsLabel(effModelW)}
+              </span>{' '}
+              · cap <span className="font-mono text-gray-400">{effMaxChars}</span>
+            </p>
+            <div className="flex items-center gap-4 mt-4">
+              <button
+                onClick={handleIndexLibrary}
+                disabled={loadState !== 'ready' || libraryIndexing || indexing || preempting || !useTestStore}
+                className="px-5 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {libraryIndexing ? 'Indexing library...' : 'Index all library images'}
+              </button>
+              {libraryProgress && (
+                <span className="text-xs text-gray-400">
+                  reading {libraryProgress.current}/{libraryProgress.total} files...
+                </span>
+              )}
+              <span className="text-xs text-gray-500 ml-auto">
+                {librarySummary
+                  ? `${librarySummary.folders} folder(s), ${librarySummary.files} image(s) found`
+                  : "scans the app's configured folders"}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-600 mt-3">
+              Index-time only — rebuilds the searchable text with these weights and re-indexes the
+              REAL library into the isolated TEST store ({testStoreName}); the library store is
+              never written by the tester. Changing a weight re-embeds (textHash changes). Custom
+              weights persist in the test DB — the app's startup Δ only self-heals the library
+              store. See ai-intelligence/docs/SEARCH-QUALITY-TUNING.md §2 and §5.1.
             </p>
           </div>
 
@@ -766,6 +1124,24 @@ export default function DevSemanticSearchTester() {
               <button onClick={handleResetTuning} className={btnChipClass}>
                 Reset to defaults
               </button>
+            </div>
+            <div className="mb-4 pb-4 border-b border-gray-800">
+              <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useTestStore}
+                  disabled={storeBusy}
+                  onChange={handleToggleStore}
+                  className="accent-blue-500"
+                />
+                Search from isolated test store
+              </label>
+              <p className="text-[11px] text-gray-500 mt-1">
+                {useTestStore
+                  ? `Test indexing lives in its own DB (${testStoreName}) — the library's production store is untouched.`
+                  : 'Searching the library production DB — read-only: index actions and clear are disabled.'}
+                {storeSwitching && <span className="text-blue-300"> Switching… (re-restoring worker index)</span>}
+              </p>
             </div>
             <div className="space-y-4">
               <TuningSlider
