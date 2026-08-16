@@ -781,8 +781,15 @@ function setupFileOperationHandlers() {
     if (!filePath || typeof filePath !== 'string') return false;
     if (allowedDirectoryPaths.size === 0) return false;
     const normalizedFilePath = path.normalize(filePath);
+    // Windows paths are case-insensitive: compare folded so a stored path
+    // whose casing differs from the directory picker's still matches (the
+    // main grid never notices such mismatches — it reads via handles, not
+    // path IPC — but path-based reads fail hard on case).
+    const fold =
+      process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
+    const needle = fold(normalizedFilePath);
     return Array.from(allowedDirectoryPaths).some((allowedPath) =>
-      normalizedFilePath.startsWith(allowedPath),
+      needle.startsWith(fold(path.normalize(allowedPath))),
     );
   };
   const userDataPath = path.normalize(app.getPath("userData"));

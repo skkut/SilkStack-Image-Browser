@@ -55,9 +55,80 @@ const QUERY_PRESETS = [
   { label: 'Lion', value: 'lion on the savanna' },
   { label: 'Underwater', value: 'underwater ocean life' },
   { label: 'Cat', value: 'a cat' },
+  // Cross-lingual probes: Qwen3-Embedding is multilingual; the CJK entries
+  // in the module's QUERY_EXPANSIONS realign these to English doc vocabulary.
+  { label: '猫 (cat)', value: '猫' },
+  { label: '狗 (dog)', value: '狗' },
+  { label: '花 (flower)', value: '花' },
 ];
 
 const fixtureById = new Map(FIXTURES.map((f) => [f.id, f]));
+
+/** Full-res file reads for previews are expensive — cap how many hits get one. */
+const MAX_RESULT_PREVIEWS = 50;
+
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  avif: 'image/avif',
+};
+
+function mimeForPath(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  return IMAGE_MIME_BY_EXT[ext] ?? 'application/octet-stream';
+}
+
+function basename(filePath: string): string {
+  const parts = filePath.split(/[\\/]/);
+  return parts[parts.length - 1] ?? filePath;
+}
+
+function dirname(filePath: string): string {
+  const idx = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'));
+  return idx === -1 ? '' : filePath.slice(0, idx);
+}
+
+/**
+ * Recover the real filesystem path from a stored image id. The persisted
+ * vector records use `{directoryPath}::{filename}` (verified in the app's
+ * IndexedDB, e.g. `H:\Images::cat.webp`) while the current indexer builds
+ * `{directoryId}::{absolute-path}` — and legacy records may carry a bare
+ * path with no separator at all. Handle all three shapes.
+ */
+function filePathFromImageId(imageId: string): string {
+  const sep = imageId.indexOf('::');
+  if (sep === -1) return imageId;
+  const left = imageId.slice(0, sep);
+  const right = imageId.slice(sep + 2);
+  // Right side is already a full path (has separators or a drive letter).
+  if (/[\\/]/.test(right) || /^[A-Za-z]:/.test(right)) return right;
+  // Legacy format: left is the directory path, right is the bare filename.
+  return left.endsWith('\\') || left.endsWith('/') ? left + right : left + '\\' + right;
+}
+
+/** Compact failure label for the preview placeholder. */
+function shortError(err?: string, fallback = 'unavailable'): string {
+  if (!err) return fallback;
+  const known = err.match(/PERMISSION_DENIED|FILE_NOT_FOUND|ENOENT|EACCES|EPERM/i);
+  return known ? known[0].toUpperCase() : err.length > 24 ? `${err.slice(0, 24)}…` : err;
+}
+
+/**
+ * Electron IPC delivers Node Buffers as an ArrayBuffer or a typed-array view
+ * (possibly into a pooled buffer) — normalize to a standalone ArrayBuffer so
+ * the bytes are safe to hand to Blob. Same conversion as fileIndexer.ts.
+ */
+function toArrayBuffer(data: ArrayBuffer | ArrayBufferView): ArrayBuffer {
+  if (data instanceof ArrayBuffer) return data;
+  const view = data as ArrayBufferView;
+  const copy = new Uint8Array(view.byteLength);
+  copy.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+  return copy.buffer;
+}
 
 type LoadState = 'loading' | 'ready' | 'error';
 
@@ -78,12 +149,154 @@ export default function DevSemanticSearchTester() {
   const [query, setQuery] = useState(QUERY_PRESETS[0].value);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [log, setLog] = useState<string[]>([]);
+  /** imageId → preview info: blob URL when loaded, or a short failure reason. */
+  const [previews, setPreviews] = useState<Map<string, { url?: string; reason?: string }>>(new Map());
+  /** The currently displayed map — its object URLs are revoked on replace. */
+  const previewsRef = useRef<Map<string, { url?: string; reason?: string }>>(new Map());
+  /** Bumped per search — a superseded search's late previews are dropped. */
+  const searchSeqRef = useRef(0);
 
   const coordinatorRef = useRef<SemanticSearchCoordinator | null>(null);
 
   const appendLog = useCallback((line: string) => {
     setLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${line}`]);
   }, []);
+
+  const revokeThumbs = useCallback(
+    (map: Map<string, { url?: string; reason?: string }>) => {
+      for (const { url } of map.values()) if (url) URL.revokeObjectURL(url);
+    },
+    [],
+  );
+
+  /**
+   * Best-effort previews, rendered like the app's grid: look up each hit's
+   * cached webp thumbnail via the SAME key the app uses (`${imageId}-
+   * ${lastModified}`, with lastModified = birthtime as in fileIndexer) and
+   * the same get-thumbnail IPC — a cache miss falls back to a full-res
+   * per-file readFile. Per-hit IPC calls are independent, so a stale/denied
+   * path fails alone. Revokes the previous result's URLs; a response for a
+   * superseded search is dropped (seq guard).
+   */
+  const loadThumbnails = useCallback(
+    async (hits: QueryResult['hits'], seq: number) => {
+      const targets = hits
+        .slice(0, MAX_RESULT_PREVIEWS)
+        .filter((h) => !fixtureById.has(h.imageId))
+        .map((h) => ({ imageId: h.imageId, path: filePathFromImageId(h.imageId) }));
+      if (targets.length === 0 || !window.electronAPI?.getThumbnail) return;
+
+      const results = await Promise.allSettled(
+        targets.map(
+          async (
+            { imageId, path: p },
+          ): Promise<[string, { url?: string; reason?: string }] | null> => {
+            try {
+              // Match the app's cache key: `${id}-${lastModified}` where
+              // lastModified is birthtimeMs with an mtime fallback (fileIndexer).
+              let key = `${imageId}-0`;
+              if (window.electronAPI.getFileStats) {
+                const stats = await window.electronAPI.getFileStats(p);
+                if (stats.success && stats.stats) {
+                  const lm = stats.stats.birthtimeMs ?? stats.stats.mtimeMs;
+                  if (typeof lm === 'number') key = `${imageId}-${lm}`;
+                } else {
+                  return [imageId, { reason: shortError(stats.error, 'unreadable') }];
+                }
+              }
+              const cached = await window.electronAPI.getThumbnail(key);
+              if (cached.success && cached.data) {
+                return [
+                  imageId,
+                  {
+                    url: URL.createObjectURL(
+                      new Blob([toArrayBuffer(cached.data as ArrayBuffer | ArrayBufferView)], { type: 'image/webp' }),
+                    ),
+                  },
+                ];
+              }
+              // Cache miss → full-res read (independent per-path failures).
+              if (!window.electronAPI.readFile) {
+                return [imageId, { reason: 'no readFile API' }];
+              }
+              const resp = await window.electronAPI.readFile(p);
+              if (!resp.success || !resp.data) {
+                return [imageId, { reason: shortError(resp.error, resp.errorType ?? 'read failed') }];
+              }
+              return [
+                imageId,
+                {
+                  url: URL.createObjectURL(
+                    new Blob([toArrayBuffer(resp.data as ArrayBuffer | ArrayBufferView)], { type: mimeForPath(p) }),
+                  ),
+                },
+              ];
+            } catch {
+              return [imageId, { reason: 'ipc error' }];
+            }
+          },
+        ),
+      );
+
+      const next = new Map<string, { url?: string; reason?: string }>();
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) next.set(r.value[0], r.value[1]);
+      }
+
+      if (seq !== searchSeqRef.current) {
+        revokeThumbs(next);
+        return; // superseded by a newer search
+      }
+      revokeThumbs(previewsRef.current);
+      previewsRef.current = next;
+      setPreviews(next);
+    },
+    [revokeThumbs],
+  );
+
+  /**
+   * Double-click a real hit → open the image in the Electron Image Modal
+   * (a separate viewer window). The devtools window has no access to the main
+   * window's IndexedImage objects, so we serialize a minimal image list built
+   * from the hits themselves: ImageModal falls back to joinPaths(dirPath,
+   * name) + readFile when an image has no usable handle, so a path + name is
+   * all it needs to render. Navigation arrows move through the hit list.
+   */
+  const openInViewer = useCallback(
+    (hits: QueryResult['hits'], index: number) => {
+      const hit = hits[index];
+      if (!hit || fixtureById.has(hit.imageId)) return; // no file on disk
+      if (!window.electronAPI?.openImageViewer) return;
+      const imageList = hits
+        .filter((h) => !fixtureById.has(h.imageId))
+        .map((h) => {
+          const p = filePathFromImageId(h.imageId);
+          return {
+            // Keep the full `directoryId::path` id: the main window's store
+            // is keyed by it, so delete/rename/favorite actions still sync.
+            id: h.imageId,
+            name: basename(p),
+            fileType: mimeForPath(p),
+            directoryId: dirname(p),
+            directoryPath: dirname(p),
+            lastModified: 0,
+          };
+        });
+      const realIndex = imageList.findIndex((img) => img.id === hit.imageId);
+      void window.electronAPI
+        .openImageViewer({
+          imageId: hit.imageId,
+          directoryPath: dirname(filePathFromImageId(hit.imageId)),
+          currentIndex: realIndex,
+          totalImages: imageList.length,
+          imageList,
+        })
+        .catch(() => {
+          // Opening a viewer is best-effort from the tester
+        });
+    },
+    [],
+  );
 
   // Apply theme on mount (same pattern as DevAutoTaggingTester)
   useEffect(() => {
@@ -158,8 +371,9 @@ export default function DevSemanticSearchTester() {
     return () => {
       cancelled = true;
       coordinatorRef.current?.dispose();
+      revokeThumbs(previewsRef.current); // preview blob URLs must not leak
     };
-  }, [appendLog]);
+  }, [appendLog, revokeThumbs]);
 
   const refreshStatus = useCallback((coordinator: SemanticSearchCoordinator) => {
     setStatus(coordinator.getStatus());
@@ -193,17 +407,19 @@ export default function DevSemanticSearchTester() {
       if (!coordinator || loadState !== 'ready' || !q) return;
       setSearching(true);
       setError(null);
+      const seq = ++searchSeqRef.current;
       const start = performance.now();
       try {
         const hits = await coordinator.search(q);
         setResult({ q, hits, elapsed: Math.round(performance.now() - start) });
+        void loadThumbnails(hits, seq); // fire-and-forget; seq guard drops late responses
       } catch (err) {
         setError(`Search failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         setSearching(false);
       }
     },
-    [loadState, query],
+    [loadState, query, loadThumbnails],
   );
 
   /** §5.1 preemption check: a query fired mid-index must resolve first. */
@@ -289,7 +505,7 @@ export default function DevSemanticSearchTester() {
           <h1 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
             Semantic Search Test
             <span className="px-2 py-0.5 text-xs font-mono bg-gray-800 text-gray-400 rounded-md border border-gray-700 font-normal">
-              {status?.modelId ?? 'arctic-embed-m'}
+              {status?.modelId ?? 'qwen3-embedding-4b'}
             </span>
           </h1>
           <p className="text-sm text-gray-500">Natural-language search over prompts/tags — local via WebLLM</p>
@@ -419,28 +635,57 @@ export default function DevSemanticSearchTester() {
               </span>
             ) : result.hits.length === 0 ? (
               <span className="text-sm text-gray-500">
-                No hits above the 0.55 threshold for “{result.q}”.
+                No hits above the model's search threshold for “{result.q}”.
               </span>
             ) : (
               <div className="space-y-2 overflow-y-auto scrollbar-adaptive">
                 {result.hits.map((hit, i) => {
                   const fixture = fixtureById.get(hit.imageId);
+                  const isReal = !fixture;
+                  const realPath = isReal ? filePathFromImageId(hit.imageId) : '';
+                  const pv = previews.get(hit.imageId);
+                  const thumbUrl = pv?.url;
                   return (
                     <div
                       key={hit.imageId}
-                      className="p-3 bg-gray-950 border border-gray-800 rounded-lg"
+                      onDoubleClick={() => openInViewer(result.hits, i)}
+                      title={isReal ? 'Double-click to open in Image Modal' : 'Fixture — no file on disk'}
+                      className="p-3 bg-gray-950 border border-gray-800 rounded-lg flex gap-3 cursor-pointer select-none"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-sm font-medium text-gray-200">
-                          #{i + 1} {fixture?.id ?? hit.imageId}
-                        </span>
-                        <span className="text-xs font-mono text-green-400 shrink-0">
-                          {(hit.score * 100).toFixed(1)}%
-                        </span>
+                      {/* Preview: real library images render from IPC-read blob
+                          URLs; fixtures have no file on disk — honest label. */}
+                      <div className="w-24 h-24 shrink-0 rounded-md overflow-hidden bg-gray-900 border border-gray-800 flex items-center justify-center">
+                        {thumbUrl ? (
+                          <img
+                            src={thumbUrl}
+                            alt={basename(realPath)}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-gray-600 px-1 text-center" title={pv?.reason}>
+                            {isReal ? (pv?.reason ?? 'no preview') : 'fixture'}
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                        {fixture?.prompt ?? ''}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-gray-200 truncate" title={isReal ? realPath : undefined}>
+                            #{i + 1} {isReal ? basename(realPath) : (fixture?.id ?? hit.imageId)}
+                          </span>
+                          <span className="text-xs font-mono text-green-400 shrink-0">
+                            {(hit.score * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        {isReal && (
+                          <p className="text-[11px] font-mono text-gray-500 mt-0.5 break-all" title={realPath}>
+                            {realPath}
+                          </p>
+                        )}
+                        {fixture?.prompt && (
+                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{fixture.prompt}</p>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

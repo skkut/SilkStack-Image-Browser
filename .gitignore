@@ -10,6 +10,9 @@ tmp/
 .cache
 Notes/
 
+# Diagnostic scratch output (extracted workflows, probe corpora, one-off scripts)
+scratch/
+
 # Logs
 logs
 *.log
