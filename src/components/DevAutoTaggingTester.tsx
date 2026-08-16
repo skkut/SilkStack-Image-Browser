@@ -8,7 +8,8 @@ import {
   type ILLMTagGenerator,
 } from '../services/aiBridge';
 
-type LoadState = 'loading' | 'ready' | 'error';
+/** idle = mounted but the model has NOT been loaded (explicit button). */
+type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 const PRESETS = [
   { label: 'SD prompt', value: 'masterpiece, best quality, 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, high resolution' },
@@ -19,7 +20,7 @@ const PRESETS = [
 ];
 
 export default function DevAutoTaggingTester() {
-  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [loadState, setLoadState] = useState<LoadState>('idle');
   const [loadProgress, setLoadProgress] = useState(0);
   const [loadText, setLoadText] = useState('Initializing...');
   const [error, setError] = useState<string | null>(null);
@@ -65,12 +66,13 @@ export default function DevAutoTaggingTester() {
     }
   }, []);
 
-  // Initialize the LLM on mount
+  // Module availability check on mount only — the LLM (chat) model itself
+  // is loaded exclusively via the "Load models" button (handleLoadModels):
+  // opening the tester must not trigger the model download/initialization.
   useEffect(() => {
     let cancelled = false;
 
     async function init() {
-      // First check if the AI module is even available
       const available = await isAiAvailable();
       if (!available) {
         if (!cancelled) {
@@ -83,39 +85,6 @@ export default function DevAutoTaggingTester() {
           );
           setLoadText('AI module unavailable');
         }
-        return;
-      }
-
-      const llm = await createLLMTagGenerator(TAG_GENERATION_MODEL_ID, (report) => {
-        if (!cancelled) {
-          setLoadProgress(Math.round(report.progress * 100));
-          setLoadText(report.text);
-        }
-      });
-
-      if (!llm) {
-        if (!cancelled) {
-          setLoadState('error');
-          setError('Failed to create LLM tag generator. Check that WebGPU is supported and the model is available.');
-          setLoadText('Generator creation failed');
-        }
-        return;
-      }
-
-      llmRef.current = llm;
-
-      try {
-        await llm.initialize();
-        if (!cancelled) {
-          setLoadState('ready');
-          setLoadText('Model ready');
-        }
-      } catch (err: any) {
-        if (!cancelled) {
-          setLoadState('error');
-          setError(`Model initialization failed: ${err.message || err}`);
-          setLoadText('Model failed to load');
-        }
       }
     }
 
@@ -126,6 +95,41 @@ export default function DevAutoTaggingTester() {
       llmRef.current?.dispose();
     };
   }, []);
+
+  /**
+   * Explicit model load — the LLM generator is created and initialized
+   * (WebGPU engine + chat model download) only when this button is clicked,
+   * never on mount. A failed load disposes the broken generator so a retry
+   * starts clean.
+   */
+  const handleLoadModels = useCallback(async () => {
+    if (loadState === 'loading' || loadState === 'ready') return;
+    llmRef.current?.dispose();
+    llmRef.current = null;
+    setLoadState('loading');
+    setLoadText('Initializing...');
+    setError(null);
+    try {
+      const llm = await createLLMTagGenerator(TAG_GENERATION_MODEL_ID, (report) => {
+        setLoadProgress(Math.round(report.progress * 100));
+        setLoadText(report.text);
+      });
+      if (!llm) {
+        setLoadState('error');
+        setError('Failed to create LLM tag generator. Check that WebGPU is supported and the model is available.');
+        setLoadText('Generator creation failed');
+        return;
+      }
+      llmRef.current = llm;
+      await llm.initialize();
+      setLoadState('ready');
+      setLoadText('Model ready');
+    } catch (err: any) {
+      setLoadState('error');
+      setError(`Model initialization failed: ${err.message || err}`);
+      setLoadText('Model failed to load');
+    }
+  }, [loadState]);
 
   const handleGenerate = useCallback(async () => {
     const llm = llmRef.current;
@@ -205,14 +209,27 @@ export default function DevAutoTaggingTester() {
           <p className="text-sm text-gray-500">Local inference via WebLLM</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <div className={`w-2 h-2 rounded-full ${
-            loadState === 'loading' ? 'bg-yellow-500' :
-            loadState === 'ready' ? 'bg-green-500' : 'bg-red-500'
-          }`} />
+          {loadState === 'idle' || loadState === 'error' ? (
+            <button
+              onClick={handleLoadModels}
+              className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-500 transition-colors"
+            >
+              {loadState === 'error' ? 'Retry: load models' : 'Load models'}
+            </button>
+          ) : (
+            <div className={`w-2 h-2 rounded-full ${
+              loadState === 'loading' ? 'bg-yellow-500' :
+              loadState === 'ready' ? 'bg-green-500' : 'bg-red-500'
+            }`} />
+          )}
           <span className="text-sm text-gray-400">
-            {loadState === 'loading' && loadProgress > 0
-              ? `Loading: ${loadProgress}% — ${loadText}`
-              : loadText}
+            {loadState === 'idle'
+              ? 'model not loaded'
+              : loadState === 'loading'
+                ? loadProgress > 0
+                  ? `Loading: ${loadProgress}% — ${loadText}`
+                  : 'Loading model...'
+                : loadText}
           </span>
           {loadState === 'loading' && (
             <div className="w-32 h-1 bg-gray-800 rounded-full overflow-hidden">

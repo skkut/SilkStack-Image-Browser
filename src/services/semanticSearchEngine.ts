@@ -67,7 +67,16 @@ export interface TagModelOption {
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
   indexImages(images: Array<{ id: string; prompt?: string; tags?: string[]; models?: string[] }>): Promise<SemanticIndexResult>;
-  search(query: string, options?: { limit?: number; threshold?: number }): Promise<ISemanticSearchHit[]>;
+  search(
+    query: string,
+    options?: {
+      limit?: number;
+      threshold?: number;
+      blendWeight?: number;
+      expandQuery?: boolean;
+      applyInstruction?: boolean;
+    },
+  ): Promise<ISemanticSearchHit[]>;
   clearIndex(): Promise<void>;
   cancelIndexing(): void;
   getStatus(): SemanticSearchStatus;
@@ -202,8 +211,22 @@ export class SemanticSearchCoordinator {
 
   // ── Search ─────────────────────────────────────────────────────────
 
-  /** Single-shot semantic query; preempts indexing worker-side. */
-  search(query: string, options?: { limit?: number; threshold?: number }): Promise<ISemanticSearchHit[]> {
+  /**
+   * Single-shot semantic query; preempts indexing worker-side. `options`
+   * forwards the module's SemanticQueryOptions — limit/threshold, plus the
+   * live-tuning overrides blendWeight / expandQuery / applyInstruction (used
+   * by the DevSemanticSearchTester; see ai-intelligence/docs/SEARCH-QUALITY-TUNING.md).
+   */
+  search(
+    query: string,
+    options?: {
+      limit?: number;
+      threshold?: number;
+      blendWeight?: number;
+      expandQuery?: boolean;
+      applyInstruction?: boolean;
+    },
+  ): Promise<ISemanticSearchHit[]> {
     return this.withModule((coordinator) => coordinator.search(query, options));
   }
 

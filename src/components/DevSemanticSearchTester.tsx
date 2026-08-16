@@ -130,7 +130,8 @@ function toArrayBuffer(data: ArrayBuffer | ArrayBufferView): ArrayBuffer {
   return copy.buffer;
 }
 
-type LoadState = 'loading' | 'ready' | 'error';
+/** idle = mounted but the model has NOT been loaded (explicit button). */
+type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 interface QueryResult {
   q: string;
@@ -138,8 +139,77 @@ interface QueryResult {
   elapsed: number;
 }
 
+/**
+ * Live-tuning helpers stashed from the ai-intelligence module via the same
+ * guarded dynamic import the coordinator wrapper uses (absent in
+ * open-source builds) — the displayed defaults can never drift from the
+ * module's real constants.
+ */
+interface TuningModuleConsts {
+  LEXICAL_BLEND_WEIGHT: number;
+  SEMANTIC_SEARCH_TOP_N: number;
+  queryContentTokens: (text: string) => string[];
+  resolveEmbeddingModel: (modelId?: string) => { searchThreshold: number };
+}
+
+/**
+ * Per-query tuning overrides. null = leave the engine's default in place
+ * (the model's catalog searchThreshold / the module's LEXICAL_BLEND_WEIGHT /
+ * SEMANTIC_SEARCH_TOP_N). See ai-intelligence/docs/SEARCH-QUALITY-TUNING.md.
+ */
+interface TuningState {
+  threshold: number | null;
+  blend: number | null;
+  topN: number | null;
+  expand: boolean;
+  instruct: boolean;
+}
+
+const DEFAULT_TUNING: TuningState = { threshold: null, blend: null, topN: null, expand: true, instruct: true };
+
+/** Slider that shows the engine default until the user drags it. */
+function TuningSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  defaultValue,
+  display,
+  onChange,
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number | null;
+  defaultValue: number;
+  display: (v: number) => string;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-gray-400">{label}</span>
+        <span className={`text-xs font-mono ${value === null ? 'text-gray-500' : 'text-blue-300'}`}>
+          {value === null ? `default ${display(defaultValue)}` : display(value)}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value ?? defaultValue}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-blue-500"
+      />
+    </div>
+  );
+}
+
 export default function DevSemanticSearchTester() {
-  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [loadState, setLoadState] = useState<LoadState>('idle');
   const [status, setStatus] = useState<SemanticSearchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<SemanticIndexProgress | null>(null);
@@ -147,6 +217,7 @@ export default function DevSemanticSearchTester() {
   const [searching, setSearching] = useState(false);
   const [preempting, setPreempting] = useState(false);
   const [query, setQuery] = useState(QUERY_PRESETS[0].value);
+  const [tuning, setTuning] = useState<TuningState>(DEFAULT_TUNING);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [log, setLog] = useState<string[]>([]);
   /** imageId → preview info: blob URL when loaded, or a short failure reason. */
@@ -157,6 +228,8 @@ export default function DevSemanticSearchTester() {
   const searchSeqRef = useRef(0);
 
   const coordinatorRef = useRef<SemanticSearchCoordinator | null>(null);
+  /** Live-tuning constants, filled by the guarded module import in init(). */
+  const moduleRef = useRef<TuningModuleConsts | null>(null);
 
   const appendLog = useCallback((line: string) => {
     setLog((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${line}`]);
@@ -344,26 +417,35 @@ export default function DevSemanticSearchTester() {
         return;
       }
 
+      // Stash live-tuning constants from the module (same guarded dynamic
+      // import as the coordinator wrapper — dead-code-eliminated when the
+      // module is absent at build time). Absence is already reported above.
+      if (import.meta.env.VITE_AI_FEATURES_AVAILABLE) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const mod = (await import('@ai-images-browser/ai-intelligence')) as any;
+          if (!cancelled) {
+            moduleRef.current = {
+              LEXICAL_BLEND_WEIGHT: mod.LEXICAL_BLEND_WEIGHT,
+              SEMANTIC_SEARCH_TOP_N: mod.SEMANTIC_SEARCH_TOP_N,
+              queryContentTokens: mod.queryContentTokens,
+              resolveEmbeddingModel: mod.resolveEmbeddingModel,
+            };
+          }
+        } catch {
+          // module absence is already reported by isAiAvailable()
+        }
+      }
+
+      // The coordinator is created but NOT initialized: constructing it is
+      // inert (no worker, no WebGPU engine, no model download — the worker
+      // and engine only start inside ensureInitialized). Opening the tester
+      // must not trigger a multi-second model load; the user clicks
+      // "Load models" (handleLoadModels) to run it explicitly.
       const coordinator = new SemanticSearchCoordinator((p) => {
         if (!cancelled) setProgress(p);
       });
       coordinatorRef.current = coordinator;
-
-      try {
-        await coordinator.ensureInitialized();
-        if (!cancelled) {
-          setStatus(coordinator.getStatus());
-          setLoadState('ready');
-          appendLog('worker ready — persisted index restored (chunked)');
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setLoadState('error');
-          setError(
-            `Semantic search failed to initialize: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
     }
 
     init();
@@ -409,8 +491,26 @@ export default function DevSemanticSearchTester() {
       setError(null);
       const seq = ++searchSeqRef.current;
       const start = performance.now();
+
+      // Live-tuning overrides — only send what differs from the engine
+      // defaults (null = engine default, resolved worker-side).
+      const options: {
+        threshold?: number;
+        limit?: number;
+        blendWeight?: number;
+        expandQuery?: boolean;
+        applyInstruction?: boolean;
+      } = {};
+      if (tuning.threshold !== null) options.threshold = tuning.threshold;
+      if (tuning.topN !== null) options.limit = tuning.topN;
+      if (tuning.blend !== null) options.blendWeight = tuning.blend;
+      if (!tuning.expand) options.expandQuery = false;
+      if (!tuning.instruct) options.applyInstruction = false;
+      const hasOverrides = Object.keys(options).length > 0;
+      if (hasOverrides) appendLog(`search overrides: ${JSON.stringify(options)}`);
+
       try {
-        const hits = await coordinator.search(q);
+        const hits = await coordinator.search(q, hasOverrides ? options : undefined);
         setResult({ q, hits, elapsed: Math.round(performance.now() - start) });
         void loadThumbnails(hits, seq); // fire-and-forget; seq guard drops late responses
       } catch (err) {
@@ -419,8 +519,36 @@ export default function DevSemanticSearchTester() {
         setSearching(false);
       }
     },
-    [loadState, query, loadThumbnails],
+    [loadState, query, tuning, loadThumbnails, appendLog],
   );
+
+  const handleResetTuning = useCallback(() => {
+    setTuning(DEFAULT_TUNING);
+    appendLog('retrieval tuning reset to engine defaults');
+  }, [appendLog]);
+
+  /**
+   * Explicit model load — nothing loads until this button is clicked.
+   * ensureInitialized is lazy and idempotent: a failed init clears its
+   * promise, so a retry re-attempts with a fresh worker.
+   */
+  const handleLoadModels = useCallback(async () => {
+    const coordinator = coordinatorRef.current;
+    if (!coordinator || loadState === 'loading' || loadState === 'ready') return;
+    setLoadState('loading');
+    setError(null);
+    try {
+      await coordinator.ensureInitialized();
+      setLoadState('ready');
+      setStatus(coordinator.getStatus());
+      appendLog('worker ready — persisted index restored (chunked)');
+    } catch (err) {
+      setLoadState('error');
+      setError(
+        `Semantic search failed to initialize: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }, [loadState, appendLog]);
 
   /** §5.1 preemption check: a query fired mid-index must resolve first. */
   const handlePreemptDemo = useCallback(async () => {
@@ -486,6 +614,15 @@ export default function DevSemanticSearchTester() {
     'w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-3 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30';
   const labelClass = 'block text-sm font-medium text-gray-200 mb-2';
 
+  // Effective values for the tuning panel: engine/model defaults until the
+  // user drags a slider (module constants come from the guarded import).
+  const effBlend = tuning.blend ?? moduleRef.current?.LEXICAL_BLEND_WEIGHT ?? 0.15;
+  const effTopN = tuning.topN ?? moduleRef.current?.SEMANTIC_SEARCH_TOP_N ?? 200;
+  const modelThreshold =
+    moduleRef.current?.resolveEmbeddingModel(status?.modelId ?? undefined).searchThreshold ?? 0.45;
+  const nQ = moduleRef.current ? moduleRef.current.queryContentTokens(query).length : 0;
+  const blendScale = nQ > 0 ? effBlend / nQ : 0;
+
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-gray-950 text-gray-200 font-sans">
       {/* Header — draggable region (titleBarStyle: hidden needs explicit drag region) */}
@@ -511,15 +648,28 @@ export default function DevSemanticSearchTester() {
           <p className="text-sm text-gray-500">Natural-language search over prompts/tags — local via WebLLM</p>
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <div
-            className={`w-2 h-2 rounded-full ${
-              loadState === 'loading' ? 'bg-yellow-500' : loadState === 'ready' ? 'bg-green-500' : 'bg-red-500'
-            }`}
-          />
+          {loadState === 'idle' || loadState === 'error' ? (
+            <button
+              onClick={handleLoadModels}
+              className="px-4 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-500 transition-colors"
+            >
+              {loadState === 'error' ? 'Retry: load models' : 'Load models'}
+            </button>
+          ) : (
+            <div
+              className={`w-2 h-2 rounded-full ${
+                loadState === 'loading' ? 'bg-yellow-500' : loadState === 'ready' ? 'bg-green-500' : 'bg-red-500'
+              }`}
+            />
+          )}
           <span className="text-sm text-gray-400">
-            {loadState === 'loading'
-              ? 'Initializing worker...'
-              : `indexed: ${status?.indexed ?? 0}${status?.dimension ? ` · ${status.dimension} dims` : ''}`}
+            {loadState === 'idle'
+              ? 'model not loaded'
+              : loadState === 'loading'
+                ? 'Loading model...'
+                : loadState === 'error'
+                  ? 'load failed'
+                  : `indexed: ${status?.indexed ?? 0}${status?.dimension ? ` · ${status.dimension} dims` : ''}`}
           </span>
           {progress && (
             <div className="flex items-center gap-2">
@@ -607,6 +757,85 @@ export default function DevSemanticSearchTester() {
                 Queries preempt a running index batch (worker §5.1)
               </span>
             </div>
+          </div>
+
+          {/* Retrieval tuning card */}
+          <div className={`${cardClass} shrink-0`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-200">Retrieval tuning</h3>
+              <button onClick={handleResetTuning} className={btnChipClass}>
+                Reset to defaults
+              </button>
+            </div>
+            <div className="space-y-4">
+              <TuningSlider
+                label="Threshold (min cosine for a hit)"
+                min={0.3}
+                max={0.8}
+                step={0.005}
+                value={tuning.threshold}
+                defaultValue={modelThreshold}
+                display={(v) => v.toFixed(3)}
+                onChange={(v) => setTuning({ ...tuning, threshold: v })}
+              />
+              <TuningSlider
+                label="Lexical blend weight (exact-word boost)"
+                min={0}
+                max={0.5}
+                step={0.005}
+                value={tuning.blend}
+                defaultValue={effBlend}
+                display={(v) => v.toFixed(3)}
+                onChange={(v) => setTuning({ ...tuning, blend: v })}
+              />
+              <TuningSlider
+                label="Top-N (max hits returned)"
+                min={1}
+                max={500}
+                step={5}
+                value={tuning.topN}
+                defaultValue={effTopN}
+                display={(v) => String(Math.round(v))}
+                onChange={(v) => setTuning({ ...tuning, topN: v })}
+              />
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tuning.expand}
+                    onChange={(e) => setTuning({ ...tuning, expand: e.target.checked })}
+                    className="accent-blue-500"
+                  />
+                  Query expansion (hypernym / CJK)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={tuning.instruct}
+                    onChange={(e) => setTuning({ ...tuning, instruct: e.target.checked })}
+                    className="accent-blue-500"
+                  />
+                  Qwen3 instruction prefix
+                </label>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                lexical tokens: <span className="font-mono text-gray-400">{nQ}</span>
+                {nQ > 0 ? (
+                  <>
+                    {' '}
+                    → blend scale{' '}
+                    <span className="font-mono text-gray-400">{blendScale.toFixed(3)}</span> per matched
+                    token
+                  </>
+                ) : (
+                  <> → lexical blend off (non-Latin query)</>
+                )}
+              </p>
+            </div>
+            <p className="text-[11px] text-gray-600 mt-3">
+              Query-time only — applies to the next search, no re-index. See
+              ai-intelligence/docs/SEARCH-QUALITY-TUNING.md §1.
+            </p>
           </div>
 
           {/* Activity log */}
