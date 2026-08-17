@@ -52,7 +52,7 @@ const defaultIndexingConcurrency = detectDefaultIndexingConcurrency();
 // Define the state shape
 interface SettingsState {
   // App settings
-  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random';
+  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance';
   scanSubfolders: boolean;
   imageSize: number; // For backward compatibility
   viewZoomLevels: {

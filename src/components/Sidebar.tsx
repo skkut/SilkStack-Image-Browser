@@ -32,6 +32,8 @@ interface SidebarProps {
   sortOrder: string;
   onSortOrderChange: (value: string) => void;
   onReshuffle?: () => void;
+  /** True while a semantic search's results are on screen — shows the "Relevance" sort option. */
+  semanticActive?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -59,7 +61,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onManageFolders,
   sortOrder,
   onSortOrderChange,
-  onReshuffle
+  onReshuffle,
+  semanticActive = false
 }) => {
 
   const [expandedSections, setExpandedSections] = useState({
@@ -246,6 +249,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             onChange={(e) => onSortOrderChange(e.target.value)}
             className="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
+            {semanticActive && <option value="relevance">Relevance</option>}
             <option value="date-desc">Newest First</option>
             <option value="date-asc">Oldest First</option>
             <option value="asc">A-Z</option>

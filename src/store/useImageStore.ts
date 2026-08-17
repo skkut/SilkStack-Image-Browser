@@ -369,7 +369,7 @@ interface ImageState {
   selectedModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
-  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random';
+  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance';
   randomSeed: number;
   advancedFilters: any;
 
@@ -465,7 +465,7 @@ interface ImageState {
   setSearchQuery: (query: string) => void;
   setFilterOptions: (options: { models: string[]; loras: string[]; schedulers: string[]; dimensions: string[] }) => void;
   setSelectedFilters: (filters: { models?: string[]; loras?: string[]; schedulers?: string[] }) => void;
-  setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random') => void;
+  setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance') => void;
   reshuffle: () => void;
   setAdvancedFilters: (filters: any) => void;
   filterAndSortImages: () => void;
@@ -1297,6 +1297,9 @@ export const useImageStore = create<ImageState>((set, get) => {
             if (sortOrder === 'date-asc') return compareByDateAsc(a, b);
             if (sortOrder === 'date-desc') return compareByDateDesc(a, b);
             if (sortOrder === 'random') return compareRandom(a, b);
+            // 'relevance' outside a semantic overlay (stale state from an
+            // ended search) behaves like the app default — newest first.
+            if (sortOrder === 'relevance') return compareByDateDesc(a, b);
             return compareById(a, b);
         });
 
@@ -1307,6 +1310,19 @@ export const useImageStore = create<ImageState>((set, get) => {
         let filteredImages = sorted;
         if (state.semanticMode === 'semantic' && state.semanticHits && state.semanticHits.length > 0) {
             filteredImages = applySemanticMerge(sorted, state.semanticHits, curationVisible, state.semanticMode);
+            // The sort box is honest in semantic mode: 'relevance' (the
+            // auto-selected default while hits are on screen) keeps the
+            // merge's score order; any other chosen sort re-orders the hit
+            // subset so the box never claims an order the grid doesn't show.
+            if (filteredImages.length > 1 && state.sortOrder !== 'relevance') {
+                const compareHit =
+                    state.sortOrder === 'asc' ? compareByNameAsc :
+                    state.sortOrder === 'desc' ? compareByNameDesc :
+                    state.sortOrder === 'date-asc' ? compareByDateAsc :
+                    state.sortOrder === 'date-desc' ? compareByDateDesc :
+                    state.sortOrder === 'random' ? compareRandom : null;
+                if (compareHit) filteredImages = [...filteredImages].sort(compareHit);
+            }
         }
 
         return {
@@ -2059,19 +2075,11 @@ export const useImageStore = create<ImageState>((set, get) => {
         setSearchQuery: (query) => {
             if (!(query ?? '').trim()) {
                 // Clearing the search bar also clears semantic hits and any
-                // pending search, restoring the normal sort order (§8.2).
-                if (__semanticSearchTimer) {
-                    clearTimeout(__semanticSearchTimer);
-                    __semanticSearchTimer = null;
-                }
-                __semanticSearchSeq++;
-                set(state => ({
-                    ...filterAndSort({ ...state, searchQuery: query, semanticHits: null }),
-                    searchQuery: query,
-                    semanticHits: null,
-                    semanticSearchStatus: 'idle',
-                    semanticLastError: null,
-                }));
+                // pending search. Delegating to clearSemanticSearch keeps the
+                // two clear paths in lockstep — it restores the previous
+                // (durable) sort order when 'relevance' was active (§8.2).
+                get().clearSemanticSearch();
+                set(state => ({ ...filterAndSort({ ...state, searchQuery: query }), searchQuery: query }));
                 return;
             }
             set(state => ({ ...filterAndSort({ ...state, searchQuery: query }), searchQuery: query }));
@@ -2111,8 +2119,9 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         setSortOrder: (order) => {
           set(state => ({ ...filterAndSort({ ...state, sortOrder: order }), sortOrder: order }));
-          // Persist to settings
-          useSettingsStore.getState().setSortOrder(order);
+          // Persist to settings — except 'relevance', which is meaningful
+          // only while a semantic search's results are on screen.
+          if (order !== 'relevance') useSettingsStore.getState().setSortOrder(order);
         },
         
         reshuffle: () => set(state => {
@@ -3965,6 +3974,9 @@ export const useImageStore = create<ImageState>((set, get) => {
             set(state => ({
                 ...filterAndSort({ ...state, semanticMode: mode }),
                 semanticMode: mode,
+                ...(mode === 'off' && state.sortOrder === 'relevance'
+                    ? { sortOrder: useSettingsStore.getState().sortOrder || 'date-desc' }
+                    : {}),
             }));
             // Phase 6: re-run the current query in the new mode so results
             // reflect the switched ranking ('semantic' replaces the keyword
@@ -4016,7 +4028,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                         semanticHits: hits,
                         semanticSearchStatus: 'ready',
                         semanticLastError: null,
-                        ...filterAndSort({ ...state, semanticHits: hits }),
+                        // Semantic results default to relevance order — the
+                        // sort box shows "Relevance" while they're on screen.
+                        sortOrder: 'relevance',
+                        ...filterAndSort({ ...state, semanticHits: hits, sortOrder: 'relevance' }),
                     });
                 } catch (error) {
                     if (seq !== __semanticSearchSeq) return;
@@ -4042,6 +4057,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 semanticHits: null,
                 semanticSearchStatus: 'idle',
                 semanticLastError: null,
+                // 'relevance' exists only while semantic hits are on screen;
+                // restore the user's durable sort (last persisted choice)
+                // when the search ends or the mode turns off.
+                ...(state.sortOrder === 'relevance'
+                    ? { sortOrder: useSettingsStore.getState().sortOrder || 'date-desc' }
+                    : {}),
             }));
         },
 

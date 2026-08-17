@@ -163,6 +163,11 @@ export default function App() {
   const imageStoreSetSortOrder = useImageStore((state) => state.setSortOrder);
   const sortOrder = useImageStore((state) => state.sortOrder);
   const reshuffle = useImageStore((state) => state.reshuffle);
+  const semanticMode = useImageStore((state) => state.semanticMode);
+  const semanticHits = useImageStore((state) => state.semanticHits);
+  // The "Relevance" sort option is only meaningful while semantic hits are
+  // on screen (hits are score-ordered by default); hide it otherwise.
+  const semanticActive = semanticMode === 'semantic' && (semanticHits?.length ?? 0) > 0;
   const updateDirectoryStatus = useImageStore((state) => state.updateDirectoryStatus);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
   const processPostIndexingPipeline = useImageStore((state) => state.processPostIndexingPipeline);
@@ -976,6 +981,7 @@ export default function App() {
             sortOrder={sortOrder}
             onSortOrderChange={imageStoreSetSortOrder}
             onReshuffle={reshuffle}
+            semanticActive={semanticActive}
           >
             <DirectoryList
               directories={safeDirectories}

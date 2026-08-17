@@ -252,8 +252,9 @@ describe('filterAndSort semantic overlay (store integration)', () => {
         ],
         mode: 'semantic',
       },
-      { searchQuery: 'fox' },
+      { searchQuery: 'fox', sortOrder: 'relevance' },
     );
+    // 'relevance' = pure score order (the semantic default).
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA']);
   });
 
@@ -355,6 +356,21 @@ describe('filterAndSort semantic overlay (store integration)', () => {
     expect(s.searchQuery).toBe('');
   });
 
+  it('clearing the search bar restores the previous sort order after relevance', () => {
+    useSettingsStore.getState().setSortOrder('asc');
+    useImageStore.setState({
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+      semanticSearchStatus: 'ready',
+      sortOrder: 'relevance',
+      searchQuery: 'fox',
+    });
+    useImageStore.getState().setSearchQuery('');
+    const s = useImageStore.getState();
+    expect(s.sortOrder).toBe('asc');
+    expect(s.semanticHits).toBeNull();
+    expect(s.searchQuery).toBe('');
+  });
+
   it('setSemanticMode re-runs the merge with the new mode', () => {
     setupLibrary(
       [fox(), mountain()],
@@ -365,11 +381,40 @@ describe('filterAndSort semantic overlay (store integration)', () => {
         ],
         mode: 'semantic',
       },
-      { searchQuery: 'fox' },
+      { searchQuery: 'fox', sortOrder: 'relevance' },
     );
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA']);
     useImageStore.getState().setSemanticMode('off');
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
+  });
+
+  it('semantic mode + explicit sort re-orders hits by that sort (box stays honest)', () => {
+    const older = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', lastModified: 1000 });
+    const newer = createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1', lastModified: 2000 });
+    setupLibrary(
+      [older, newer],
+      {
+        hits: [
+          { imageId: 'imgB', score: 0.8 },
+          { imageId: 'imgA', score: 0.6 },
+        ],
+        mode: 'semantic',
+      },
+      { searchQuery: 'fox', sortOrder: 'date-asc' },
+    );
+    // Score order would be ['imgB', 'imgA']; the chosen 'date-asc' sort wins.
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
+  });
+
+  it("'relevance' without semantic hits falls back to newest-first", () => {
+    const older = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', lastModified: 1000 });
+    const newer = createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1', lastModified: 2000 });
+    setupLibrary(
+      [older, newer],
+      { hits: null, mode: 'semantic' },
+      { searchQuery: '', sortOrder: 'relevance' },
+    );
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA']);
   });
 });
 
@@ -480,6 +525,77 @@ describe('runSemanticSearch', () => {
     const s = useImageStore.getState();
     expect(s.semanticHits).toBeNull();
     expect(s.semanticSearchStatus).toBe('idle');
+  });
+
+  it('auto-selects "relevance" on success without persisting it to settings', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({
+      images: [createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' })],
+      directories: [
+        { id: 'dir1', name: 'lib', path: 'C:/lib', handle: {} as FileSystemDirectoryHandle, visible: true },
+      ],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      searchQuery: 'fox',
+    });
+    const durableBefore = useSettingsStore.getState().sortOrder;
+    coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
+
+    const p = useImageStore.getState().runSemanticSearch('fox');
+    await vi.advanceTimersByTimeAsync(400);
+    await p;
+
+    const s = useImageStore.getState();
+    expect(s.sortOrder).toBe('relevance');
+    // 'relevance' is semantic-only state — the durable settings sort is untouched.
+    expect(useSettingsStore.getState().sortOrder).toBe(durableBefore);
+  });
+
+  it('clearSemanticSearch restores the durable settings sort after relevance', () => {
+    useSettingsStore.getState().setSortOrder('asc');
+    useImageStore.setState({
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+      semanticSearchStatus: 'ready',
+      sortOrder: 'relevance',
+    });
+    useImageStore.getState().clearSemanticSearch();
+    expect(useImageStore.getState().sortOrder).toBe('asc');
+    expect(useImageStore.getState().semanticHits).toBeNull();
+  });
+
+  it('setSemanticMode("off") restores the durable settings sort after relevance', () => {
+    useSettingsStore.getState().setSortOrder('asc');
+    useImageStore.setState({
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+      semanticMode: 'semantic',
+      sortOrder: 'relevance',
+    });
+    useImageStore.getState().setSemanticMode('off');
+    expect(useImageStore.getState().sortOrder).toBe('asc');
+  });
+
+  it('full loop: search selects relevance, clearing the bar restores the previous sort', async () => {
+    vi.useFakeTimers();
+    useSettingsStore.getState().setSortOrder('asc');
+    useImageStore.setState({
+      images: [createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' })],
+      directories: [
+        { id: 'dir1', name: 'lib', path: 'C:/lib', handle: {} as FileSystemDirectoryHandle, visible: true },
+      ],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      semanticMode: 'semantic',
+    });
+    coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
+
+    useImageStore.getState().setSearchQuery('fox');
+    await vi.advanceTimersByTimeAsync(400);
+    await flush();
+    expect(useImageStore.getState().sortOrder).toBe('relevance');
+
+    useImageStore.getState().setSearchQuery('');
+    expect(useImageStore.getState().sortOrder).toBe('asc');
+    expect(useImageStore.getState().semanticHits).toBeNull();
   });
 });
 

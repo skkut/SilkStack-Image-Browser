@@ -72,7 +72,7 @@ const hashWithSeed = (str: string, seed: number): number => {
 
 const sortItems = (
   items: StackItem[],
-  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random',
+  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance',
   displayStarredFirst: boolean,
   randomSeed?: number
 ): StackItem[] => {
@@ -106,6 +106,13 @@ const sortItems = (
       const hashB = hashWithSeed(imgB.id, seed);
       if (hashA !== hashB) return hashA - hashB;
       return compareById(imgA, imgB);
+    }
+    // 'relevance' (semantic-only) never reaches the stack grid with hits on
+    // screen — the stack view shows the whole library, so fall back like the
+    // main chain does: newest first.
+    if (sortOrder === 'relevance') {
+      const c = (imgB.lastModified || 0) - (imgA.lastModified || 0);
+      return c !== 0 ? c : compareByNameAsc(imgA, imgB);
     }
     return compareById(imgA, imgB);
   });
