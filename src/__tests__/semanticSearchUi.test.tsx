@@ -21,6 +21,13 @@ const coordinatorMock = vi.hoisted(() => ({
   clearIndex: vi.fn().mockResolvedValue(undefined),
   cancelIndexing: vi.fn(),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
+  unloadModels: vi.fn().mockResolvedValue(undefined),
+  getModelsStatus: vi.fn(() => ({
+    chatLoaded: false,
+    embedLoaded: false,
+    chatModelId: null,
+    embedModelId: null,
+  })),
   dispose: vi.fn(),
 }));
 

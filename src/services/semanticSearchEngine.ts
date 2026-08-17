@@ -21,7 +21,7 @@
  */
 
 import type { IndexedImage } from '../types';
-import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo } from './aiBridge';
+import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo, AiModelsStatus } from './aiBridge';
 import { isAiFeaturesEnabled } from './aiFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 
@@ -97,6 +97,10 @@ interface ModuleCoordinator {
   switchStorageDb(dbName?: string): Promise<void>;
   cancelIndexing(): void;
   getStatus(): SemanticSearchStatus;
+  /** Unload both model records from GPU memory (footer eject). */
+  unloadModels(): Promise<void>;
+  /** Which model records are resident in the worker's engine (footer chips). */
+  getModelsStatus(): AiModelsStatus;
   dispose(): void;
 }
 
@@ -161,6 +165,7 @@ export class SemanticSearchCoordinator {
     private readonly onProgress?: SemanticProgressCallback,
     private readonly onGpuInfo?: (info: DetectedGpuInfo) => void,
     private readonly storageDbName?: string,
+    private readonly onModelsStatus?: (status: AiModelsStatus) => void,
   ) {}
 
   private getModule(): Promise<ModuleCoordinator | null> {
@@ -171,6 +176,7 @@ export class SemanticSearchCoordinator {
         this.coordinator = new Coordinator({
           onProgress: this.onProgress,
           onGpuInfo: this.onGpuInfo,
+          onModelsStatus: this.onModelsStatus,
           isPremium: () => {
             try {
               return isAiFeaturesEnabled();
@@ -282,6 +288,25 @@ export class SemanticSearchCoordinator {
   getStatus(): SemanticSearchStatus {
     if (this.coordinator) return this.coordinator.getStatus();
     return { ready: false, indexed: 0, modelId: null, dimension: null, error: null };
+  }
+
+  /**
+   * Unload both model records from GPU memory (footer eject). The module
+   * terminates its worker — every WebGPU allocation dies with it — and
+   * resets ready state, so the next ensureInitialized() reloads lazily and
+   * re-restores the persisted index. No-op when the module is absent.
+   */
+  unloadModels(): Promise<void> {
+    return this.withModule((coordinator) => coordinator.unloadModels());
+  }
+
+  /**
+   * Which model records are resident in the worker's engine (footer chips).
+   * Empty shape when the module is absent.
+   */
+  getModelsStatus(): AiModelsStatus {
+    if (this.coordinator) return this.coordinator.getModelsStatus();
+    return { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null };
   }
 
   dispose(): void {

@@ -365,6 +365,67 @@ describe('useImageStore auto-tagging GPU preference', () => {
   });
 });
 
+// ── Footer AI-model chips (models-status + eject) ──────────────────────
+// The auto-tag worker's engine carries both records (CreateMLCEngine
+// ([chatId, embedId])); its models-status push feeds the footer chips and
+// every worker-death path clears this source of the union.
+
+describe('useImageStore AI model chips (models-status + eject)', () => {
+  beforeEach(() => {
+    FakeTaggingWorker.lastInstance = null;
+    useSettingsStore.setState({ aiDevicePreference: 'auto', aiTagModel: '' });
+    useImageStore.setState({
+      images: [],
+      filteredImages: [createImage({ id: 'img1', prompt: 'a dragon' })],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+      aiModelsLoaded: { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null },
+    });
+    vi.stubGlobal('Worker', FakeTaggingWorker);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const LOADED = {
+    chatLoaded: true,
+    embedLoaded: true,
+    chatModelId: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
+    embedModelId: 'Qwen3-Embedding-8B-q4f16_1-MLC',
+  };
+  const EMPTY = { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null };
+
+  it('shows the chips when the auto-tag worker reports its models resident, clears on run end', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    worker.onmessage?.({ data: { type: 'models-status', payload: LOADED } } as MessageEvent);
+    expect(useImageStore.getState().aiModelsLoaded).toEqual(LOADED);
+
+    // The run completes → the worker is terminated → its engine is gone →
+    // this source of the chips clears (no semantic worker reporting).
+    worker.onmessage?.({
+      data: { type: 'complete', payload: { autoTags: { img1: [{ tag: 'dragon', sourceType: 'prompt' }] } } },
+    } as MessageEvent);
+    expect(useImageStore.getState().aiModelsLoaded).toEqual(EMPTY);
+    expect(useImageStore.getState().autoTaggingWorker).toBeNull();
+  });
+
+  it('unloadAiModels terminates the auto-tag worker and clears its chips', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const worker = FakeTaggingWorker.lastInstance!;
+    worker.onmessage?.({ data: { type: 'models-status', payload: LOADED } } as MessageEvent);
+    expect(useImageStore.getState().aiModelsLoaded).toEqual(LOADED);
+
+    await useImageStore.getState().unloadAiModels();
+
+    expect(worker.terminate).toHaveBeenCalled();
+    expect(useImageStore.getState().autoTaggingWorker).toBeNull();
+    expect(useImageStore.getState().aiModelsLoaded).toEqual(EMPTY);
+  });
+});
+
 // ── Main-process GPU reporting (startup source, no model load) ─────────
 // The worker-side adapter.info detection only fires after a model load and
 // can silently fail; Electron's main process (app.getGPUInfo) knows every

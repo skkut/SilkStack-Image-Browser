@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, PanelRight, X } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, PanelRight, X, Unplug } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
@@ -40,6 +40,51 @@ const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ childr
   </span>
 );
 
+/**
+ * One resident AI model chip (footer). Shows WHILE the model is loaded in
+ * GPU memory; the eject button unloads BOTH records (the shared engine
+ * holds the tag + embed models together — web-llm has no per-record
+ * unload, so the worker is terminated and the chips clear together).
+ */
+const ModelChip: React.FC<{
+  label: string;
+  tone: 'purple' | 'indigo';
+  title: string;
+  onEject: () => void;
+  unloading: boolean;
+}> = ({ label, tone, title, onEject, unloading }) => {
+  const dot = tone === 'purple' ? 'bg-purple-400' : 'bg-indigo-400';
+  const ejectHover = tone === 'purple' ? 'hover:bg-purple-500/20 hover:text-purple-300' : 'hover:bg-indigo-500/20 hover:text-indigo-300';
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-800/60 text-gray-300 border border-gray-700/50"
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      <span className="ml-1.5">{label}</span>
+      <button
+        onClick={onEject}
+        disabled={unloading}
+        className={`ml-1.5 p-0.5 rounded transition-colors text-gray-500 ${ejectHover} disabled:opacity-40 disabled:cursor-wait`}
+        title="Unload AI models from GPU memory"
+        aria-label={`Unload ${label} from GPU memory`}
+      >
+        <Unplug size={11} />
+      </button>
+    </span>
+  );
+};
+
+/** Compact footer label for a model id ('Qwen3-Embedding-8B-q4f16_1-MLC' → 'Qwen3-8B'). */
+function shortModelName(modelId: string): string {
+  const qwen = /^Qwen3-Embedding-(\d+B)/.exec(modelId);
+  if (qwen) return `Qwen3-${qwen[1]}`;
+  if (modelId.startsWith('Hermes-3-Llama-3.2-3B')) return 'Hermes-3 3B';
+  if (modelId.startsWith('snowflake-arctic-embed')) return 'Arctic Embed';
+  const first = modelId.split('-')[0];
+  return first || modelId;
+}
+
 const Footer: React.FC<FooterProps> = ({
   viewMode,
   onViewModeChange,
@@ -74,6 +119,19 @@ const Footer: React.FC<FooterProps> = ({
   const indexingProgress = useImageStore((state) => state.progress);
   const pipelinePhase = useImageStore((state) => state.pipelinePhase);
   const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
+  // Which AI models are resident in GPU memory (union of the semantic
+  // coordinator worker and the per-run auto-tag worker).
+  const aiModelsLoaded = useImageStore((state) => state.aiModelsLoaded);
+  const [isUnloading, setIsUnloading] = useState(false);
+  const handleEjectModels = async () => {
+    if (isUnloading) return;
+    setIsUnloading(true);
+    try {
+      await useImageStore.getState().unloadAiModels();
+    } finally {
+      setIsUnloading(false);
+    }
+  };
 
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
   const hasAutoTaggingJob = autoTaggingProgress && autoTaggingProgress.total > 0;
@@ -255,6 +313,29 @@ const Footer: React.FC<FooterProps> = ({
       </div>
       <div className="flex items-center gap-2 ml-auto">
         <div className="w-px h-4 bg-gray-700/50 mx-2" />
+        {/* AI model residency chips (footer eject) — before the stacking toggle */}
+        {aiModelsLoaded && (aiModelsLoaded.chatLoaded || aiModelsLoaded.embedLoaded) && (
+          <div className="flex items-center gap-2">
+            {aiModelsLoaded.chatLoaded && aiModelsLoaded.chatModelId && (
+              <ModelChip
+                label={shortModelName(aiModelsLoaded.chatModelId)}
+                tone="purple"
+                title={`${aiModelsLoaded.chatModelId} — loaded in GPU memory. Eject to free it.`}
+                onEject={handleEjectModels}
+                unloading={isUnloading}
+              />
+            )}
+            {aiModelsLoaded.embedLoaded && aiModelsLoaded.embedModelId && (
+              <ModelChip
+                label={shortModelName(aiModelsLoaded.embedModelId)}
+                tone="indigo"
+                title={`${aiModelsLoaded.embedModelId} — loaded in GPU memory. Eject to free it.`}
+                onEject={handleEjectModels}
+                unloading={isUnloading}
+              />
+            )}
+          </div>
+        )}
         {/* Stacking Toggle */}
         {aiFeaturesEnabled && showStackingToggle && (
           <button

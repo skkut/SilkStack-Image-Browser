@@ -136,6 +136,19 @@ export interface ISemanticSearchHit {
   score: number;
 }
 
+/**
+ * Which AI model records are resident in GPU memory (footer chips + eject).
+ * Mirrored from the module's ModelsStatus
+ * (ai-intelligence/src/worker/aiWorker.ts) — the module's own types never
+ * flow into the app.
+ */
+export interface AiModelsStatus {
+  chatLoaded: boolean;
+  embedLoaded: boolean;
+  chatModelId: string | null;
+  embedModelId: string | null;
+}
+
 /** Interface for semantic search (WebLLM embeddings + in-memory index). */
 export interface ISemanticSearchEngine {
   initialize(): Promise<void>;

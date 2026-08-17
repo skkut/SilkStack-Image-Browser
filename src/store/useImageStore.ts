@@ -13,7 +13,7 @@ import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
-import type { ISemanticSearchHit, DetectedGpuInfo } from '../services/aiBridge';
+import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 
@@ -67,6 +67,39 @@ let __semanticSearchSeq = 0;
 // One coordinator per app lifetime — owns the AI worker + progress callbacks.
 let __semanticCoordinator: SemanticSearchCoordinator | null = null;
 
+// Footer chips (aiModelsLoaded): which workers hold AI models in GPU memory.
+// Tracked per source — the long-lived semantic coordinator worker and the
+// per-run auto-tag worker each report their own residency, and the footer
+// shows the union. Both engines carry BOTH records (CreateMLCEngine
+// ([chatId, embedId])), so each source's flags flip together; the union
+// clears a source when its worker is terminated (auto-tag run end, eject).
+let __semanticModelsStatus: AiModelsStatus | null = null;
+let __autoTagModelsStatus: AiModelsStatus | null = null;
+
+const EMPTY_AI_MODELS_STATUS: AiModelsStatus = {
+    chatLoaded: false,
+    embedLoaded: false,
+    chatModelId: null,
+    embedModelId: null,
+};
+
+function recomputeAiModelsLoaded(): void {
+    const chatModelId =
+        (__semanticModelsStatus?.chatLoaded ? __semanticModelsStatus.chatModelId : null) ??
+        (__autoTagModelsStatus?.chatLoaded ? __autoTagModelsStatus.chatModelId : null);
+    const embedModelId =
+        (__semanticModelsStatus?.embedLoaded ? __semanticModelsStatus.embedModelId : null) ??
+        (__autoTagModelsStatus?.embedLoaded ? __autoTagModelsStatus.embedModelId : null);
+    useImageStore.setState({
+        aiModelsLoaded: {
+            chatLoaded: chatModelId !== null,
+            embedLoaded: embedModelId !== null,
+            chatModelId,
+            embedModelId,
+        },
+    });
+}
+
 const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
     if (!__semanticCoordinator) {
         const { SemanticSearchCoordinator } = await import('../services/semanticSearchEngine');
@@ -76,6 +109,10 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
             // The shared engine loads in the worker — its detected adapter
             // (from the requestAdapter patch) comes back via gpu-info.
             useImageStore.getState().setDetectedGpuInfo(info);
+        }, undefined, (status) => {
+            // The worker reports which records its engine holds (pushed after
+            // every load); unloadModels() clears it when the worker dies.
+            useImageStore.getState().setSemanticModelsStatus(status);
         });
     }
     return __semanticCoordinator;
@@ -416,6 +453,10 @@ interface ImageState {
   /** Every GPU Chromium detected (main-process report) — the readout lists
    *  all of them with the active one marked. */
   detectedGpuDevices: GpuDeviceReport[];
+  /** Which AI model records are resident in GPU memory — footer chips + eject.
+   *  Union of the semantic coordinator worker and the per-run auto-tag
+   *  worker; each worker reports its own residency (models-status). */
+  aiModelsLoaded: AiModelsStatus;
 
   // Actions
   addDirectory: (directory: Directory) => void;
@@ -503,6 +544,13 @@ interface ImageState {
   cancelSemanticIndexing: () => void;
   applySemanticEmbeddingModel: (modelId: string) => Promise<void>;
   setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
+  /** Footer chips: the semantic coordinator worker's model residency. */
+  setSemanticModelsStatus: (status: AiModelsStatus) => void;
+  /** Footer chips: the per-run auto-tag worker's model residency (null = worker gone). */
+  setAutoTagModelsStatus: (status: AiModelsStatus | null) => void;
+  /** Footer eject: terminate the auto-tag worker (if running) and unload the
+   *  semantic coordinator's engine from GPU memory. */
+  unloadAiModels: () => Promise<void>;
   setDetectedGpuInfo: (info: DetectedGpuInfo | null) => void;
   setDetectedGpuDevices: (devices: GpuDeviceReport[]) => void;
   handleClusterImageDeletion: (deletedImageIds: string[]) => void;
@@ -1393,6 +1441,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         semanticLastError: null,
         detectedGpuInfo: loadDetectedGpuInfo(),
         detectedGpuDevices: loadDetectedGpuDevices(),
+        aiModelsLoaded: EMPTY_AI_MODELS_STATUS,
         availableModels: [],
         availableLoras: [],
         availableSchedulers: [],
@@ -2191,6 +2240,8 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             if (existingWorker) {
                 existingWorker.terminate();
+                // Its engine dies with it — the footer chips lose this source.
+                useImageStore.getState().setAutoTagModelsStatus(null);
             }
 
             // The AI worker lives in the closed-source ai-intelligence module
@@ -2282,6 +2333,10 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                         worker.terminate();
                         set({ autoTaggingWorker: null });
+                        // The worker's engine died with it — clear this source
+                        // of the footer chips (the semantic worker, if loaded,
+                        // still reports its own residency).
+                        useImageStore.getState().setAutoTagModelsStatus(null);
                         console.log(`Auto-tagging complete: ${tagMap.size} images tagged`);
 
                         if (payload.autoTags) {
@@ -2294,6 +2349,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // (Settings shows it without waiting for another load).
                         useImageStore.getState().setDetectedGpuInfo(payload);
                         break;
+                    case 'models-status':
+                        // This worker's engine holds the tag model (and the
+                        // embed record — CreateMLCEngine loads both together).
+                        useImageStore.getState().setAutoTagModelsStatus(payload);
+                        break;
                     case 'error':
                         console.error('Auto-tagging error:', payload.error);
                         set({
@@ -2303,6 +2363,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                         });
                         worker.terminate();
                         set({ autoTaggingWorker: null });
+                        useImageStore.getState().setAutoTagModelsStatus(null);
                         break;
                 }
             };
@@ -2337,6 +2398,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                     autoTaggingProgress: null,
                     isAutoTagging: false,
                 });
+                // The worker's engine died with it — clear this source of the
+                // footer chips (the semantic worker, if loaded, still reports
+                // its own residency).
+                useImageStore.getState().setAutoTagModelsStatus(null);
             }
         },
 
@@ -3089,6 +3154,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             isAutoTagging: false,
             detectedGpuInfo: null,
             detectedGpuDevices: [],
+            aiModelsLoaded: EMPTY_AI_MODELS_STATUS,
             draggedItems: [],
             clearAllThumbnails: () => {},
         });
@@ -4171,6 +4237,35 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         setSemanticIndexProgress: (progress) => set({ semanticIndexProgress: progress }),
+        setSemanticModelsStatus: (status) => {
+            __semanticModelsStatus = status;
+            recomputeAiModelsLoaded();
+        },
+        setAutoTagModelsStatus: (status) => {
+            __autoTagModelsStatus = status;
+            recomputeAiModelsLoaded();
+        },
+        unloadAiModels: async () => {
+            // Stop an in-flight auto-tag run first — its per-run worker holds
+            // its own engine, so terminating it frees that context too.
+            const { autoTaggingWorker } = get();
+            if (autoTaggingWorker) {
+                autoTaggingWorker.terminate();
+                set({ autoTaggingWorker: null, isAutoTagging: false, autoTaggingProgress: null });
+                __autoTagModelsStatus = null;
+                recomputeAiModelsLoaded();
+            }
+            // The long-lived semantic worker: the coordinator terminates it
+            // (releasing the WebGPU device) and resets ready state — the next
+            // semantic use reloads lazily and re-restores the persisted index.
+            if (__semanticCoordinator) {
+                try {
+                    await __semanticCoordinator.unloadModels();
+                } catch (error) {
+                    console.warn('Failed to unload AI models:', error);
+                }
+            }
+        },
         setDetectedGpuInfo: (info) => {
             // WebGPU adapter.info exposes vendor/device as opaque ids that
             // some drivers leave empty — a blank report is worse than none

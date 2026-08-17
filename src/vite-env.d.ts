@@ -191,10 +191,19 @@ declare module '@ai-images-browser/ai-intelligence' {
   export interface SemanticSearchCoordinatorOptions {
     onProgress?: SemanticProgressCallback;
     onGpuInfo?: (info: DetectedGpuInfo) => void;
+    /** Footer chips: which model records are resident (worker push + eject). */
+    onModelsStatus?: (status: AiModelsStatus) => void;
     isPremium?: () => boolean;
     devicePreference?: () => AiDevicePreference;
     /** User-selected embedding model id at send time; empty/unknown → the catalog default. */
     embedModelId?: () => string | undefined;
+  }
+
+  export interface AiModelsStatus {
+    chatLoaded: boolean;
+    embedLoaded: boolean;
+    chatModelId: string | null;
+    embedModelId: string | null;
   }
 
   export class SemanticSearchCoordinator {
@@ -205,6 +214,8 @@ declare module '@ai-images-browser/ai-intelligence' {
     clearIndex(): Promise<void>;
     cancelIndexing(): void;
     getStatus(): SemanticSearchStatus;
+    unloadModels(): Promise<void>;
+    getModelsStatus(): AiModelsStatus;
     dispose(): void;
   }
 
