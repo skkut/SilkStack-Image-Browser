@@ -252,6 +252,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     ? aiTagModel
     : (tagModelOptions?.[0]?.modelId ?? '');
 
+  // VRAM tier labels for the auto-tagging model list (optgroups).
+  const TAG_TIER_LABELS: Record<string, string> = {
+    low: 'Low VRAM',
+    mid: 'Mid VRAM',
+    high: 'High VRAM',
+  };
+
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
   const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].name);
   const folderPreferences = useImageStore((state) => state.folderPreferences);
@@ -708,7 +715,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           >
                             {embeddingModelOptions.map((option) => (
                               <option key={option.modelId} value={option.modelId}>
-                                {option.label}
+                                {option.label} · {option.vram}
                               </option>
                             ))}
                           </select>
@@ -739,11 +746,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             onChange={(event) => setAiTagModel(event.target.value)}
                             className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
                           >
-                            {tagModelOptions.map((option) => (
-                              <option key={option.modelId} value={option.modelId}>
-                                {option.label}
-                              </option>
-                            ))}
+                            {(['low', 'mid', 'high'] as const).map((tier) => {
+                              const tierOptions = tagModelOptions.filter((option) => option.tier === tier);
+                              if (tierOptions.length === 0) return null;
+                              return (
+                                <optgroup key={tier} label={TAG_TIER_LABELS[tier]}>
+                                  {tierOptions.map((option) => (
+                                    <option key={option.modelId} value={option.modelId}>
+                                      {option.label} · {option.vram}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                           </select>
                         )}
                         <p className="text-xs text-gray-600 mt-1">

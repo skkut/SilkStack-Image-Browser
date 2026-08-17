@@ -53,6 +53,8 @@ export interface EmbeddingModelOption {
   modelId: string;
   dimension: number;
   label: string;
+  /** Recommended VRAM footprint (weights + runtime overhead) — shown next to the label in Settings. */
+  vram: string;
   description: string;
 }
 
@@ -60,6 +62,10 @@ export interface EmbeddingModelOption {
 export interface TagModelOption {
   modelId: string;
   label: string;
+  /** Recommended VRAM footprint of the q4f16_1 build — shown next to the label in Settings. */
+  vram: string;
+  /** VRAM tier for the Settings optgroup grouping: 'low' | 'mid' | 'high'. */
+  tier: 'low' | 'mid' | 'high';
   description: string;
 }
 
@@ -117,32 +123,41 @@ const MODULE_UNAVAILABLE =
   'Semantic search is unavailable: the ai-intelligence module is not present.';
 
 // ── Lazy module load (mirrors aiBridge's guard-then-import) ───────────
-let moduleLoaded = false;
+// The load PROMISE is cached, not a started-flag + namespace pair: the
+// Settings modal calls getEmbeddingModelOptions() and getTagModelOptions()
+// back-to-back, and with a flag the second caller can observe the namespace
+// before the import settles — `null` → the tag list rendered as "No models
+// available" on the deployed build. All concurrent callers await the same
+// in-flight import; the result is sticky (no retry on failure).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let moduleNamespace: any = null;
+let moduleLoadPromise: Promise<any> | null = null;
 
 /**
- * Load the module namespace once and cache it. Returns null when the module
- * is absent at build time (compile-time guard) or fails to load.
+ * Load the module namespace once, caching the in-flight promise so
+ * concurrent first callers share a single import. Resolves null when the
+ * module is absent at build time (compile-time guard) or fails to load.
  */
-async function getModuleNamespace(): Promise<typeof moduleNamespace> {
-  if (moduleLoaded) return moduleNamespace;
-  moduleLoaded = true;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function getModuleNamespace(): Promise<any> {
+  if (!moduleLoadPromise) {
+    moduleLoadPromise = (async () => {
+      // Compile-time guard: when ai-intelligence wasn't present at build
+      // time, Vite dead-code-eliminates the import() below.
+      if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return null;
 
-  // Compile-time guard: when ai-intelligence wasn't present at build time,
-  // Vite dead-code-eliminates the import() below.
-  if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return null;
-
-  try {
-    moduleNamespace = await import('@ai-images-browser/ai-intelligence');
-  } catch (err) {
-    console.warn('[SemanticSearch] ai-intelligence module unavailable:', err);
-    moduleNamespace = null;
+      try {
+        return await import('@ai-images-browser/ai-intelligence');
+      } catch (err) {
+        console.warn('[SemanticSearch] ai-intelligence module unavailable:', err);
+        return null;
+      }
+    })();
   }
-  return moduleNamespace;
+  return moduleLoadPromise;
 }
 
-async function getCoordinatorClass(): Promise<typeof moduleNamespace> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getCoordinatorClass(): Promise<any> {
   const mod = await getModuleNamespace();
   return mod?.SemanticSearchCoordinator ?? null;
 }

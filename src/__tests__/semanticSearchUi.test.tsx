@@ -41,12 +41,12 @@ vi.mock('../services/semanticSearchEngine', () => ({
   // them async via useEffect. Two options each so "defaults to options[0]",
   // "reflects the persisted choice", and "stale id falls back" are distinct.
   getEmbeddingModelOptions: vi.fn().mockResolvedValue([
-    { modelId: 'embed-768', dimension: 768, label: 'Arctic Embed M (768d)', description: 'default' },
-    { modelId: 'embed-384', dimension: 384, label: 'Arctic Embed S (384d)', description: 'light' },
+    { modelId: 'embed-768', dimension: 768, label: 'Arctic Embed M (768d)', vram: '~0.5 GB', description: 'default' },
+    { modelId: 'embed-384', dimension: 384, label: 'Arctic Embed S (384d)', vram: '~0.3 GB', description: 'light' },
   ]),
   getTagModelOptions: vi.fn().mockResolvedValue([
-    { modelId: 'tag-hermes', label: 'Hermes 3 3B', description: 'default' },
-    { modelId: 'tag-qwen', label: 'Qwen3 4B', description: 'big' },
+    { modelId: 'tag-hermes', label: 'Hermes 3 3B', vram: '~2.0 GB', tier: 'mid', description: 'default' },
+    { modelId: 'tag-qwen', label: 'Qwen3 4B', vram: '~2.6 GB', tier: 'mid', description: 'big' },
   ]),
 }));
 

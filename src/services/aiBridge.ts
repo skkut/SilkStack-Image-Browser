@@ -221,7 +221,12 @@ Output: ["1girl", "solo", "cyberpunk city", "neon lights"]`;
 
 // ── Dynamic module loader ───────────────────────────────────────────
 
-let aiModule: Record<string, unknown> | null = null;
+let loadError: string | null = null;
+// The load PROMISE is cached, not a started-flag + namespace pair: when two
+// callers fire concurrently (e.g. the Settings modal's options fetch and a
+// boot-time factory), the flag pattern lets the second caller observe the
+// namespace before the import settles and treat the module as missing.
+let aiModuleLoadPromise: Promise<Record<string, unknown> | null> | null = null;
 
 // ── License gate ─────────────────────────────────────────────────────
 
@@ -241,30 +246,28 @@ async function checkPremiumLicense(): Promise<boolean> {
     return false;
   }
 }
-let loadAttempted = false;
-let loadError: string | null = null;
+function loadAiModule(): Promise<Record<string, unknown> | null> {
+  if (!aiModuleLoadPromise) {
+    aiModuleLoadPromise = (async () => {
+      // Compile-time guard: when ai-intelligence wasn't present at build
+      // time, Vite dead-code-eliminates the import() below, so the module is
+      // never resolved. This is what makes the dependency truly optional.
+      if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) {
+        loadError = 'AI features not available (ai-intelligence package not present at build time)';
+        console.warn('[aiBridge] AI intelligence module not available at build time');
+        return null;
+      }
 
-async function loadAiModule(): Promise<Record<string, unknown> | null> {
-  if (loadAttempted) return aiModule;
-  loadAttempted = true;
-
-  // Compile-time guard: when ai-intelligence wasn't present at build time,
-  // Vite dead-code-eliminates the import() below, so the module is never
-  // resolved. This is what makes the dependency truly optional.
-  if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) {
-    loadError = 'AI features not available (ai-intelligence package not present at build time)';
-    console.warn('[aiBridge] AI intelligence module not available at build time');
-    return null;
+      try {
+        return await import('@ai-images-browser/ai-intelligence');
+      } catch (err) {
+        loadError = err instanceof Error ? err.message : String(err);
+        console.warn('[aiBridge] AI intelligence module unavailable:', loadError);
+        return null;
+      }
+    })();
   }
-
-  try {
-    aiModule = await import('@ai-images-browser/ai-intelligence');
-    return aiModule;
-  } catch (err) {
-    loadError = err instanceof Error ? err.message : String(err);
-    console.warn('[aiBridge] AI intelligence module unavailable:', loadError);
-    return null;
-  }
+  return aiModuleLoadPromise;
 }
 
 // ── Factory functions ────────────────────────────────────────────────
