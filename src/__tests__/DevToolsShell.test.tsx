@@ -22,11 +22,11 @@ describe('DevToolsShell', () => {
     expect(screen.queryByTestId('pane-auto-tag')).toBeNull();
   });
 
-  it('falls back to the first tool for unknown ids', () => {
+  it('falls back to the first tool for unknown ids (Semantic Search is the default)', () => {
     render(<DevToolsShell initialTool="bogus-tool" />);
-    const autoTag = screen.getByTestId('pane-auto-tag');
-    expect(autoTag).toBeTruthy();
-    expect(autoTag.style.display).not.toBe('none');
+    const semantic = screen.getByTestId('pane-semantic-search');
+    expect(semantic).toBeTruthy();
+    expect(semantic.style.display).not.toBe('none');
   });
 
   it('switches tools lazily and keeps visited panes alive', () => {

@@ -14,8 +14,8 @@ interface DevToolDef {
 }
 
 const DEV_TOOLS: DevToolDef[] = [
-  { id: 'auto-tag', label: 'Auto-Tag', Component: DevAutoTaggingTester },
   { id: 'semantic-search', label: 'Semantic Search', Component: DevSemanticSearchTester },
+  { id: 'auto-tag', label: 'Auto-Tag', Component: DevAutoTaggingTester },
 ];
 
 /**
