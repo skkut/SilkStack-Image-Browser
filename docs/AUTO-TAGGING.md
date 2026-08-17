@@ -33,4 +33,7 @@ If you want to start fresh or re-evaluate your library with a different tagging 
 ### Integration with Manual Tags
 Auto-tags coexist seamlessly with your manual tags. When you view an image, you will see a unified list of tags. You can manually remove an auto-generated tag if it's incorrect, and that removal will be saved to the database.
 
+### Search Enrichment (hidden)
+When **semantic search** is enabled, an auto-tag run also generates English synonyms for each image's core tags using the same local model (one extra call per image, stored hidden). These synonyms never appear in the tag list — they are embedded into the semantic index text so that cross-language queries (e.g. a Japanese search for a concept described in English in the prompt) can match. Each image is enriched exactly once; re-running auto-tag or clearing auto-tags re-opens that gate. See `ai-intelligence/docs/dual-model-enriched-semantic-search.md` for the design.
+
 > **Note:** Auto-tagging relies primarily on the `prompt` metadata embedded in the generated images. Images without any embedded prompt metadata cannot be effectively auto-tagged.

@@ -71,6 +71,9 @@ vi.mock('../services/aiBridge', () => ({
     }),
     computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
   }),
+  // Mirrored by the store's enrichment gate — keep in sync with the real
+  // constant (src/services/aiBridge.ts).
+  SEARCH_ENRICHMENT_VERSION: 1,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

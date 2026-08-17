@@ -32,6 +32,11 @@ export default function DevAutoTaggingTester() {
   const [rawResponse, setRawResponse] = useState('');
   const [systemPrompt, setSystemPrompt] = useState(SYSTEM_PROMPT);
   const systemPromptModified = systemPrompt !== SYSTEM_PROMPT;
+  // Search enrichment: hidden synonym map per tag (temp 0, one extra chat
+  // call) — never merged into display tags, only into the semantic index.
+  const [synonyms, setSynonyms] = useState<Record<string, string[]> | null>(null);
+  const [synGenerating, setSynGenerating] = useState(false);
+  const [synTime, setSynTime] = useState<number | null>(null);
 
   const llmRef = useRef<ILLMTagGenerator | null>(null);
 
@@ -153,6 +158,31 @@ export default function DevAutoTaggingTester() {
       setGenerating(false);
     }
   }, [loadState, prompt, topN, systemPrompt]);
+
+  /**
+   * Second chat pass over the CURRENT tags — the same call the worker makes
+   * per image inside startAutoTagging (ai-intelligence aiWorker.ts). Shows
+   * the parsed map; empty/invalid entries are filtered by the module.
+   */
+  const handleGenerateSynonyms = useCallback(async () => {
+    const llm = llmRef.current;
+    if (!llm || loadState !== 'ready' || tags.length === 0) return;
+
+    setSynGenerating(true);
+    setError(null);
+    const start = performance.now();
+    try {
+      const map = await llm.generateSynonymsForTags(tags);
+      setSynonyms(map);
+      setSynTime(Math.round(performance.now() - start));
+    } catch (err: any) {
+      setError(`Synonym generation failed: ${err.message || err}`);
+      setSynonyms(null);
+      setSynTime(null);
+    } finally {
+      setSynGenerating(false);
+    }
+  }, [loadState, tags]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.ctrlKey && e.key === 'Enter') {
@@ -358,6 +388,54 @@ export default function DevAutoTaggingTester() {
                   >
                     {tag}
                   </span>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Search-enrichment synonyms card */}
+          <div className={`${cardClass} shrink-0`}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-medium text-gray-200">Search synonyms (hidden enrichment)</h3>
+              {synTime !== null && (
+                <span className="text-xs text-gray-400">
+                  {Object.keys(synonyms ?? {}).length} tag(s) mapped in {synTime}ms
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mb-3">
+              The same second chat call the worker runs per image during auto-tag: English synonyms for
+              the tags above — never shown in the UI, embedded into the semantic index text so
+              cross-language queries can match.
+            </p>
+            <button
+              onClick={handleGenerateSynonyms}
+              disabled={loadState !== 'ready' || synGenerating || tags.length === 0}
+              className="px-4 py-1.5 bg-gray-700 text-white text-xs font-medium rounded-lg hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors mb-3"
+            >
+              {synGenerating ? 'Generating...' : 'Generate synonyms for current tags'}
+            </button>
+            <div className="space-y-2 min-h-[20px]">
+              {synonyms === null ? (
+                <span className="text-sm text-gray-500">
+                  {tags.length === 0
+                    ? 'Generate tags first, then run the synonym pass.'
+                    : 'Click above to run the synonym pass (temp 0, max 300 tokens).'}
+                </span>
+              ) : Object.keys(synonyms).length === 0 ? (
+                <span className="text-sm text-gray-500">
+                  No valid synonyms returned — the model's response parsed to an empty map.
+                </span>
+              ) : (
+                Object.entries(synonyms).map(([tag, syns]) => (
+                  <div key={tag} className="flex items-start gap-2">
+                    <span className="px-2.5 py-1 bg-gray-800 border border-gray-700 rounded-full text-xs text-gray-200 shrink-0">
+                      {tag}
+                    </span>
+                    <span className="text-sm text-gray-400 leading-7">
+                      → {syns.length > 0 ? syns.join(', ') : '(no valid synonyms)'}
+                    </span>
+                  </div>
                 ))
               )}
             </div>

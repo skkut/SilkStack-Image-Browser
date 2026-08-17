@@ -49,6 +49,14 @@ export interface ILLMTagGenerator extends ITagGenerator {
   dispose(): void;
   readonly lastRawResponse: string | null;
   generateTagsFromPrompt(prompt: string, systemPrompt?: string): Promise<string[]>;
+  /**
+   * Generate English synonyms for the given tags (search enrichment —
+   * embedded into the semantic index, hidden from the UI).
+   */
+  generateSynonymsForTags(
+    tags: string[],
+    systemPrompt?: string,
+  ): Promise<Record<string, string[]>>;
 }
 
 /** Interface for text embedding generation (WebLLM/WebGPU). */
@@ -179,6 +187,15 @@ export const TAG_GENERATION_MODEL_ID = 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC';
 
 /** Model used for prompt embedding generation. */
 export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';
+
+/**
+ * Enrichment version for auto-tag search enrichment — must match
+ * ai-intelligence's SEARCH_ENRICHMENT_VERSION
+ * (ai-intelligence/src/modules/llm-tag-generator.ts, the source of truth).
+ * Images whose annotation.searchTagVersion !== this value are (re-)enriched
+ * by the next auto-tag run, so bumping it re-enriches the whole library once.
+ */
+export const SEARCH_ENRICHMENT_VERSION = 1;
 
 /** Default system prompt for LLM tag generation. */
 export const SYSTEM_PROMPT = `You are an expert image tagging and analyzing system that extracts visual concept tags from image generation prompts.

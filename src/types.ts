@@ -966,6 +966,8 @@ export interface IndexedImage {
   tags?: string[]; // All tags merged (manual + auto + metadata) for unified display
   autoTags?: string[]; // Auto-generated tags from LLM analysis
   isAutoTagged?: boolean; // Whether the image has been processed by the auto-tagging engine
+  synonymTags?: string[]; // English search synonyms (hidden — index enrichment only, never merged into display tags)
+  searchTagVersion?: number; // SEARCH_ENRICHMENT_VERSION this image was enriched with; drives auto-tag idempotency
   metadataTags?: string[]; // Tags imported from image file metadata
   stackGroupId?: string; // Prompt hash — groups images with identical prompts into stacks
   isStackAnalyzed?: boolean; // Whether the image has been checked for stack membership
@@ -985,6 +987,8 @@ export interface ImageAnnotations {
   tags: string[]; // Manually-added tags (lowercase normalized)
   autoTags: string[]; // Auto-generated tags from LLM analysis
   isAutoTagged?: boolean; // Whether the image has been processed by the auto-tagging engine
+  synonymTags?: string[]; // English search synonyms (hidden — index enrichment only, never merged into display tags)
+  searchTagVersion?: number; // SEARCH_ENRICHMENT_VERSION this image was enriched with; drives auto-tag idempotency
   metadataTags: string[]; // Tags imported from image file metadata
   stackGroupId?: string; // Prompt hash — groups images with identical prompts into stacks
   isStackAnalyzed?: boolean; // Whether the image has been checked for stack membership

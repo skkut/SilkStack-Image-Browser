@@ -28,25 +28,31 @@ interface FixtureImage {
   prompt: string;
   tags: string[];
   models: string[];
+  /**
+   * Search-enrichment terms — the app spelling (IndexedImage.synonymTags),
+   * so the fixtures exercise the real app path through the coordinator's
+   * dual-read (synonyms ?? synonymTags).
+   */
+  synonymTags?: string[];
 }
 
 const FIXTURES: FixtureImage[] = [
-  { id: 'fixture-fox-snow', prompt: 'a red fox sitting in a snowy forest, digital painting', tags: ['red fox', 'snowy forest', 'digital painting'], models: ['sd-1.5'] },
-  { id: 'fixture-cyberpunk', prompt: '1girl, solo, cyberpunk city, neon lights, night rain', tags: ['cyberpunk city', 'neon lights', '1girl'], models: ['sd-1.5'] },
-  { id: 'fixture-dragon-castle', prompt: 'a dragon flying over a medieval castle at sunset, fantasy art', tags: ['dragon', 'medieval castle', 'fantasy art'], models: ['sd-1.5'] },
-  { id: 'fixture-fisherman', prompt: 'close-up portrait of an old fisherman, weathered skin, dramatic lighting, black and white', tags: ['portrait', 'old fisherman', 'black and white'], models: ['sd-1.5'] },
-  { id: 'fixture-cottage', prompt: 'a cozy cottage in a magical forest, soft ambient lighting, fairycore', tags: ['cozy cottage', 'magical forest', 'fairycore'], models: ['sd-1.5'] },
-  { id: 'fixture-lion', prompt: 'a majestic lion with a flowing mane, african savanna, golden hour', tags: ['lion', 'african savanna', 'golden hour'], models: ['sd-1.5'] },
-  { id: 'fixture-robot', prompt: 'a small cute robot in a garden full of flowers, soft light, studio ghibli style', tags: ['robot', 'garden', 'flowers', 'studio ghibli'], models: ['sd-1.5'] },
-  { id: 'fixture-ocean', prompt: 'underwater scene, colorful coral reef, tropical fish, sun rays', tags: ['underwater', 'coral reef', 'tropical fish'], models: ['sd-1.5'] },
-  { id: 'fixture-coffee', prompt: 'a cup of coffee on a rustic wooden table, morning light, cozy cafe', tags: ['coffee', 'wooden table', 'cozy cafe'], models: ['sd-1.5'] },
-  { id: 'fixture-mountain', prompt: 'a lone hiker on a mountain ridge above the clouds, epic landscape', tags: ['hiker', 'mountain ridge', 'epic landscape'], models: ['sd-1.5'] },
-  { id: 'fixture-cat-window', prompt: 'a cat sitting on a windowsill watching the rain, melancholic mood', tags: ['cat', 'windowsill', 'rain'], models: ['sd-1.5'] },
-  { id: 'fixture-astronaut', prompt: 'an astronaut floating in space above a glowing earth, stars', tags: ['astronaut', 'space', 'earth'], models: ['sd-1.5'] },
-  { id: 'fixture-forest-path', prompt: 'sunlight through pine trees on a forest path, morning mist', tags: ['pine forest', 'sunlight', 'morning mist'], models: ['sd-1.5'] },
-  { id: 'fixture-market', prompt: 'a bustling street market with colorful fruit stalls, warm afternoon light', tags: ['street market', 'fruit stalls', 'warm light'], models: ['sd-1.5'] },
-  { id: 'fixture-owl', prompt: 'a wise owl perched on a mossy branch at night, full moon', tags: ['owl', 'mossy branch', 'full moon'], models: ['sd-1.5'] },
-  { id: 'fixture-train', prompt: 'a steam locomotive crossing a viaduct bridge, autumn landscape', tags: ['steam locomotive', 'viaduct', 'autumn'], models: ['sd-1.5'] },
+  { id: 'fixture-fox-snow', prompt: 'a red fox sitting in a snowy forest, digital painting', tags: ['red fox', 'snowy forest', 'digital painting'], models: ['sd-1.5'], synonymTags: ['vulpes', 'winter woods', 'painting style'] },
+  { id: 'fixture-cyberpunk', prompt: '1girl, solo, cyberpunk city, neon lights, night rain', tags: ['cyberpunk city', 'neon lights', '1girl'], models: ['sd-1.5'], synonymTags: ['futuristic city', 'neon glow', 'rainy night'] },
+  { id: 'fixture-dragon-castle', prompt: 'a dragon flying over a medieval castle at sunset, fantasy art', tags: ['dragon', 'medieval castle', 'fantasy art'], models: ['sd-1.5'], synonymTags: ['mythical beast', 'fortress', 'sunset sky'] },
+  { id: 'fixture-fisherman', prompt: 'close-up portrait of an old fisherman, weathered skin, dramatic lighting, black and white', tags: ['portrait', 'old fisherman', 'black and white'], models: ['sd-1.5'], synonymTags: ['old man', 'wrinkled skin', 'monochrome'] },
+  { id: 'fixture-cottage', prompt: 'a cozy cottage in a magical forest, soft ambient lighting, fairycore', tags: ['cozy cottage', 'magical forest', 'fairycore'], models: ['sd-1.5'], synonymTags: ['small house', 'enchanted woods', 'fairy tale'] },
+  { id: 'fixture-lion', prompt: 'a majestic lion with a flowing mane, african savanna, golden hour', tags: ['lion', 'african savanna', 'golden hour'], models: ['sd-1.5'], synonymTags: ['big cat', 'savanna plains', 'golden light'] },
+  { id: 'fixture-robot', prompt: 'a small cute robot in a garden full of flowers, soft light, studio ghibli style', tags: ['robot', 'garden', 'flowers', 'studio ghibli'], models: ['sd-1.5'], synonymTags: ['machine', 'flower bed', 'anime style'] },
+  { id: 'fixture-ocean', prompt: 'underwater scene, colorful coral reef, tropical fish, sun rays', tags: ['underwater', 'coral reef', 'tropical fish'], models: ['sd-1.5'], synonymTags: ['sea life', 'reef', 'sunbeams'] },
+  { id: 'fixture-coffee', prompt: 'a cup of coffee on a rustic wooden table, morning light, cozy cafe', tags: ['coffee', 'wooden table', 'cozy cafe'], models: ['sd-1.5'], synonymTags: ['espresso cup', 'rustic table', 'morning glow'] },
+  { id: 'fixture-mountain', prompt: 'a lone hiker on a mountain ridge above the clouds, epic landscape', tags: ['hiker', 'mountain ridge', 'epic landscape'], models: ['sd-1.5'], synonymTags: ['trekker', 'summit ridge', 'cloud sea'] },
+  { id: 'fixture-cat-window', prompt: 'a cat sitting on a windowsill watching the rain, melancholic mood', tags: ['cat', 'windowsill', 'rain'], models: ['sd-1.5'], synonymTags: ['kitten', 'window sill', 'rainy day'] },
+  { id: 'fixture-astronaut', prompt: 'an astronaut floating in space above a glowing earth, stars', tags: ['astronaut', 'space', 'earth'], models: ['sd-1.5'], synonymTags: ['spaceman', 'orbit', 'blue planet'] },
+  { id: 'fixture-forest-path', prompt: 'sunlight through pine trees on a forest path, morning mist', tags: ['pine forest', 'sunlight', 'morning mist'], models: ['sd-1.5'], synonymTags: ['pine grove', 'light rays', 'dawn fog'] },
+  { id: 'fixture-market', prompt: 'a bustling street market with colorful fruit stalls, warm afternoon light', tags: ['street market', 'fruit stalls', 'warm light'], models: ['sd-1.5'], synonymTags: ['bazaar', 'fruit stand', 'afternoon sun'] },
+  { id: 'fixture-owl', prompt: 'a wise owl perched on a mossy branch at night, full moon', tags: ['owl', 'mossy branch', 'full moon'], models: ['sd-1.5'], synonymTags: ['night bird', 'tree branch', 'moonlight'] },
+  { id: 'fixture-train', prompt: 'a steam locomotive crossing a viaduct bridge, autumn landscape', tags: ['steam locomotive', 'viaduct', 'autumn'], models: ['sd-1.5'], synonymTags: ['steam engine', 'rail bridge', 'fall colors'] },
 ];
 
 const QUERY_PRESETS = [
@@ -153,6 +159,7 @@ interface TuningModuleConsts {
   SEMANTIC_SEARCH_TOP_N: number;
   SEMANTIC_PROMPT_WEIGHT: number;
   SEMANTIC_TAG_WEIGHT: number;
+  SEMANTIC_SYNONYM_WEIGHT: number;
   SEMANTIC_MODEL_WEIGHT: number;
   SEMANTIC_TEXT_MAX_CHARS: number;
   /** The isolated test-store DB name (tester↔module contract, exported from index.ts). */
@@ -186,6 +193,7 @@ const DEFAULT_TUNING: TuningState = { threshold: null, blend: null, topN: null, 
 interface IndexTuningState {
   promptWeight: number | null;
   tagWeight: number | null;
+  synonymWeight: number | null;
   modelWeight: number | null;
   maxChars: number | null;
 }
@@ -193,6 +201,7 @@ interface IndexTuningState {
 const DEFAULT_INDEX_TUNING: IndexTuningState = {
   promptWeight: null,
   tagWeight: null,
+  synonymWeight: null,
   modelWeight: null,
   maxChars: null,
 };
@@ -487,6 +496,7 @@ export default function DevSemanticSearchTester() {
               SEMANTIC_SEARCH_TOP_N: mod.SEMANTIC_SEARCH_TOP_N,
               SEMANTIC_PROMPT_WEIGHT: mod.SEMANTIC_PROMPT_WEIGHT,
               SEMANTIC_TAG_WEIGHT: mod.SEMANTIC_TAG_WEIGHT,
+              SEMANTIC_SYNONYM_WEIGHT: mod.SEMANTIC_SYNONYM_WEIGHT,
               SEMANTIC_MODEL_WEIGHT: mod.SEMANTIC_MODEL_WEIGHT,
               SEMANTIC_TEXT_MAX_CHARS: mod.SEMANTIC_TEXT_MAX_CHARS,
               // Fallback must stay in sync with the module's constant — it
@@ -655,7 +665,13 @@ export default function DevSemanticSearchTester() {
       const annotations = await loadAllAnnotations();
 
       // 3. Enumerate every folder, then extract metadata per file.
-      const images: Array<{ id: string; prompt?: string; tags: string[]; models?: string[] }> = [];
+      const images: Array<{
+        id: string;
+        prompt?: string;
+        tags: string[];
+        models?: string[];
+        synonymTags?: string[];
+      }> = [];
       let total = 0;
       const folderFiles: { dirPath: string; files: LibraryFile[] }[] = [];
       for (const dirPath of folders) {
@@ -700,6 +716,9 @@ export default function DevSemanticSearchTester() {
               prompt: meta?.prompt,
               tags,
               models: meta?.models ?? (meta?.model ? [meta.model] : undefined),
+              // Enrichment terms ride the annotation → image path, exactly as
+              // the store does; the coordinator dual-reads them.
+              synonymTags: annotation?.synonymTags ?? [],
             });
           }
           done += slice.length;
@@ -719,6 +738,7 @@ export default function DevSemanticSearchTester() {
       const options: SemanticIndexOptions = {};
       if (indexTuning.promptWeight !== null) options.promptWeight = indexTuning.promptWeight;
       if (indexTuning.tagWeight !== null) options.tagWeight = indexTuning.tagWeight;
+      if (indexTuning.synonymWeight !== null) options.synonymWeight = indexTuning.synonymWeight;
       if (indexTuning.modelWeight !== null) options.modelWeight = indexTuning.modelWeight;
       if (indexTuning.maxChars !== null) options.maxChars = indexTuning.maxChars;
       const hasOverrides = Object.keys(options).length > 0;
@@ -875,6 +895,7 @@ export default function DevSemanticSearchTester() {
   // Effective index-time defaults: module constants until the user drags.
   const effPromptW = indexTuning.promptWeight ?? moduleRef.current?.SEMANTIC_PROMPT_WEIGHT ?? 1.0;
   const effTagW = indexTuning.tagWeight ?? moduleRef.current?.SEMANTIC_TAG_WEIGHT ?? 0.8;
+  const effSynW = indexTuning.synonymWeight ?? moduleRef.current?.SEMANTIC_SYNONYM_WEIGHT ?? 0.6;
   const effModelW = indexTuning.modelWeight ?? moduleRef.current?.SEMANTIC_MODEL_WEIGHT ?? 0.5;
   const effMaxChars = indexTuning.maxChars ?? moduleRef.current?.SEMANTIC_TEXT_MAX_CHARS ?? 1600;
 
@@ -1029,6 +1050,16 @@ export default function DevSemanticSearchTester() {
                 onChange={(v) => setIndexTuning({ ...indexTuning, tagWeight: v })}
               />
               <TuningSlider
+                label="Synonyms weight (hidden enrichment, segment repetition)"
+                min={0}
+                max={2}
+                step={0.05}
+                value={indexTuning.synonymWeight}
+                defaultValue={effSynW}
+                display={(v) => `${v.toFixed(2)} → ${repsLabel(v)}`}
+                onChange={(v) => setIndexTuning({ ...indexTuning, synonymWeight: v })}
+              />
+              <TuningSlider
                 label="Models weight (segment repetition)"
                 min={0}
                 max={2}
@@ -1052,7 +1083,8 @@ export default function DevSemanticSearchTester() {
             <p className="text-[11px] text-gray-500 mt-3">
               effective:{' '}
               <span className="font-mono text-gray-400">
-                prompt {repsLabel(effPromptW)} · tags {repsLabel(effTagW)} · models {repsLabel(effModelW)}
+                prompt {repsLabel(effPromptW)} · tags {repsLabel(effTagW)} · synonyms {repsLabel(effSynW)} ·
+                models {repsLabel(effModelW)}
               </span>{' '}
               · cap <span className="font-mono text-gray-400">{effMaxChars}</span>
             </p>

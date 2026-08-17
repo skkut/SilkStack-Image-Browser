@@ -72,6 +72,8 @@ export interface TagModelOption {
 export interface SemanticIndexOptions {
   promptWeight?: number;
   tagWeight?: number;
+  /** Hidden search-enrichment synonyms (auto-tag) — mirrored from the module's SearchableTextOptions. */
+  synonymWeight?: number;
   modelWeight?: number;
   maxChars?: number;
 }
@@ -80,7 +82,14 @@ export interface SemanticIndexOptions {
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
   indexImages(
-    images: Array<{ id: string; prompt?: string; tags?: string[]; models?: string[] }>,
+    images: Array<{
+      id: string;
+      prompt?: string;
+      tags?: string[];
+      models?: string[];
+      /** App spelling of the enrichment terms — the module dual-reads this. */
+      synonymTags?: string[];
+    }>,
     options?: SemanticIndexOptions,
   ): Promise<SemanticIndexResult>;
   search(

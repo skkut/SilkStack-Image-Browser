@@ -14,8 +14,18 @@ import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
+import { SEARCH_ENRICHMENT_VERSION } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
+
+// Search-enrichment idempotency gate (mirrors SEARCH_ENRICHMENT_VERSION in
+// the ai-intelligence worker — that module is the source of truth). An image
+// needs (re)enrichment when its stored version differs from the current one:
+// never-tagged images carry no version, and images tagged before synonyms
+// existed are isAutoTagged but version-less, so they get enriched exactly
+// once on the next auto-tag run.
+export const needsSearchEnrichment = (annotation?: ImageAnnotations): boolean =>
+    annotation?.searchTagVersion !== SEARCH_ENRICHMENT_VERSION;
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
@@ -984,6 +994,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                         isStackAnalyzed: annotation.isStackAnalyzed,
                         similarityGroupId: annotation.similarityGroupId,
                         isSimilarityAnalyzed: annotation.isSimilarityAnalyzed,
+                        // Enrichment metadata rides annotations → images so the
+                        // indexer's Δ pass sees stable text after a restart.
+                        synonymTags: annotation.synonymTags ?? [],
+                        searchTagVersion: annotation.searchTagVersion,
                     };
                 }
             }
@@ -2234,10 +2248,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return;
             }
 
-            // Filter to images that still need auto-tagging BEFORE creating the worker
+            // Filter to images that still need auto-tagging (or search
+            // enrichment) BEFORE creating the worker. The enrichment gate
+            // re-includes previously-tagged, version-less images exactly once
+            // so they pick up synonyms for the semantic index.
             const taggingImages = filteredImages.filter(img => {
                 const annotation = annotations.get(img.id);
-                return !annotation?.isAutoTagged;
+                return needsSearchEnrichment(annotation);
             }).map(img => ({
                 id: img.id,
                 prompt: img.prompt,
@@ -2290,6 +2307,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                             tagMap.set(id, normalizedTags);
                         });
 
+                        // Search enrichment: the worker also generated English
+                        // synonyms for the core tags — hidden from the UI, but
+                        // embedded into the semantic index text below.
+                        const synonymMap = (payload.synonymTags || {}) as Record<string, string[]>;
+
                         // Add generated tags to autoTags (not manual tags)
                         const { annotations } = get();
                         const updatedAnnotations: ImageAnnotations[] = [];
@@ -2308,6 +2330,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                                 addedAt: current?.addedAt ?? generatedAt,
                                 updatedAt: generatedAt,
                                 isAutoTagged: true,
+                                // Enrichment metadata: synonyms feed the semantic
+                                // index text; the version stamp makes enrichment
+                                // idempotent across runs (see needsSearchEnrichment).
+                                synonymTags: synonymMap[imageId] ?? current?.synonymTags ?? [],
+                                searchTagVersion: SEARCH_ENRICHMENT_VERSION,
                             });
                         }
 
@@ -2328,7 +2355,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                                 const annotation = newAnnotations.get(img.id);
                                 if (annotation) {
                                     const mergedTags = mergeAnnotationTags(annotation);
-                                    return { ...img, tags: mergedTags, autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged };
+                                    return { ...img, tags: mergedTags, autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged, synonymTags: annotation.synonymTags ?? [], searchTagVersion: annotation.searchTagVersion };
                                 }
                                 return img;
                             });
@@ -2350,6 +2377,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // still reports its own residency).
                         useImageStore.getState().setAutoTagModelsStatus(null);
                         console.log(`Auto-tagging complete: ${tagMap.size} images tagged`);
+
+                        // Enrichment changed the indexed text for these images —
+                        // re-run the Δ indexer so the synonyms land in the
+                        // semantic DB (a no-op when semantic search is off).
+                        void get().semanticIndexImages();
 
                         if (payload.autoTags) {
                             // clusterCacheManager removed — auto-tag cache save disabled
@@ -2388,7 +2420,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                 type: 'start',
                 payload: {
                     images: taggingImages,
-                    topN: options?.topN,
+                    topN: options?.topN ?? 10,
                     minScore: options?.minScore,
                     disableFallback: disableAiFallback,
                     devicePreference: aiDevicePreference,
@@ -2972,6 +3004,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                         metadataTags: annotation.metadataTags || [],
                         addedAt: annotation.addedAt,
                         updatedAt: Date.now(),
+                        // Synonyms die with the auto-tags; dropping the
+                        // searchTagVersion re-opens the enrichment gate so a
+                        // future run re-enriches from scratch.
+                        synonymTags: [],
                     });
                 }
             }
@@ -3006,6 +3042,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                             autoTags: [],
                             metadataTags: annotation.metadataTags,
                             isAutoTagged: false,
+                            // Drop the spread-inherited stale enrichment state
+                            // so the indexer stops embedding these synonyms.
+                            synonymTags: [],
+                            searchTagVersion: undefined,
                         };
                     });
 
