@@ -209,8 +209,12 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
 // ── ActiveFilters (chip) ──────────────────────────────────────────────
 
 describe('ActiveFilters semantic chip (Phase 6)', () => {
-  it('shows the chip while hits exist and the X clears only the hits', () => {
-    useImageStore.setState({ searchQuery: 'cat', semanticHits: [{ imageId: '1', score: 0.9 }] });
+  it('shows the chip while hits exist and the X clears the hits AND turns the sparkle off', () => {
+    useImageStore.setState({
+      searchQuery: 'cat',
+      semanticHits: [{ imageId: '1', score: 0.9 }],
+      semanticMode: 'semantic',
+    });
     render(<ActiveFilters />);
 
     expect(screen.getByText('Semantic')).toBeDefined();
@@ -218,6 +222,7 @@ describe('ActiveFilters semantic chip (Phase 6)', () => {
     fireEvent.click(screen.getByLabelText('Clear semantic search'));
 
     expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useImageStore.getState().semanticMode).toBe('off'); // sparkle clears
     expect(useImageStore.getState().searchQuery).toBe('cat'); // query survives
     expect(screen.queryByText('Semantic')).toBeNull();
     expect(screen.getByText('"cat"')).toBeDefined(); // search chip persists

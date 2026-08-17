@@ -609,6 +609,37 @@ describe('runSemanticSearch', () => {
     useSettingsStore.setState({ displayStarredFirst: false });
     expect(useImageStore.getState().sortOrder).toBe('relevance');
   });
+
+  it('re-activating semantic mode after the chip-clear re-runs the query and restores hits', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({
+      images: [createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' })],
+      directories: [
+        { id: 'dir1', name: 'lib', path: 'C:/lib', handle: {} as FileSystemDirectoryHandle, visible: true },
+      ],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      searchQuery: 'fox',
+      semanticMode: 'semantic',
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+    });
+    coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
+
+    // The footer chip: hits go away AND the sparkle turns off.
+    useImageStore.getState().clearSemanticSearch();
+    useImageStore.getState().setSemanticMode('off');
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useImageStore.getState().semanticMode).toBe('off');
+
+    // Re-activating the sparkle re-runs the surviving query.
+    useImageStore.getState().setSemanticMode('semantic');
+    await vi.advanceTimersByTimeAsync(400);
+    await flush();
+
+    expect(coordinatorMock.search).toHaveBeenCalledWith('fox');
+    expect(useImageStore.getState().semanticHits).toEqual([{ imageId: 'imgA', score: 0.9 }]);
+    expect(useImageStore.getState().sortOrder).toBe('relevance');
+  });
 });
 
 describe('semanticIndexImages + pipeline Phase 3', () => {
