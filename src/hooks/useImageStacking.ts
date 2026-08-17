@@ -80,6 +80,12 @@ const sortItems = (
     const imgA = getRepImage(a);
     const imgB = getRepImage(b);
 
+    // 'relevance' (semantic-only): the store already delivered the merge's
+    // score order — keep it. A 0 comparator + the ES2019 stable sort leaves
+    // the incoming order untouched. Starred-first is likewise skipped to
+    // match the library grid, which shows pure score order in semantic mode.
+    if (sortOrder === 'relevance') return 0;
+
     if (displayStarredFirst) {
       const favA = isItemStarred(a);
       const favB = isItemStarred(b);
@@ -106,13 +112,6 @@ const sortItems = (
       const hashB = hashWithSeed(imgB.id, seed);
       if (hashA !== hashB) return hashA - hashB;
       return compareById(imgA, imgB);
-    }
-    // 'relevance' (semantic-only) never reaches the stack grid with hits on
-    // screen — the stack view shows the whole library, so fall back like the
-    // main chain does: newest first.
-    if (sortOrder === 'relevance') {
-      const c = (imgB.lastModified || 0) - (imgA.lastModified || 0);
-      return c !== 0 ? c : compareByNameAsc(imgA, imgB);
     }
     return compareById(imgA, imgB);
   });

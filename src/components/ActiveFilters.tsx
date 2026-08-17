@@ -18,6 +18,7 @@ const ActiveFilters: React.FC = () => {
     const setShowFavoritesOnly = useImageStore((state) => state.setShowFavoritesOnly);
     const setAdvancedFilters = useImageStore((state) => state.setAdvancedFilters);
     const clearSemanticSearch = useImageStore((state) => state.clearSemanticSearch);
+    const setSemanticMode = useImageStore((state) => state.setSemanticMode);
 
     const hasActiveFilters =
         selectedModels.length > 0 ||
@@ -59,6 +60,14 @@ const ActiveFilters: React.FC = () => {
         setSearchQuery('');
     };
 
+    const clearSemanticChip = () => {
+        // The footer X exits semantic search mode entirely: hits go away AND
+        // the sparkle turns off. The query survives — re-activating the
+        // sparkle re-runs the search, so the results come back.
+        clearSemanticSearch();
+        setSemanticMode('off');
+    };
+
     const clearFavorites = () => {
         setShowFavoritesOnly(false);
     };
@@ -85,14 +94,15 @@ const ActiveFilters: React.FC = () => {
                 </div>
             )}
 
-            {/* Semantic Search Tag (Phase 6) — clears hits only; the search
-                chip's setSearchQuery('') remains the full reset. */}
+            {/* Semantic Search Tag (Phase 6) — exits semantic mode entirely
+                (hits cleared + sparkle off); the query survives, and the
+                search chip's setSearchQuery('') remains the full reset. */}
             {semanticHits !== null && (
                 <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-900/40 text-purple-200 border border-purple-700/50 flex-shrink-0 animate-fade-in group">
                     <Sparkles size={10} />
                     <span className="opacity-70 group-hover:opacity-100 transition-opacity">Semantic</span>
                     <button
-                        onClick={clearSemanticSearch}
+                        onClick={clearSemanticChip}
                         aria-label="Clear semantic search"
                         className="ml-1 hover:text-purple-100 rounded-full hover:bg-purple-800/50 p-0.5 transition-colors"
                     >

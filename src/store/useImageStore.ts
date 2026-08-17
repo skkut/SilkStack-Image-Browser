@@ -4212,9 +4212,13 @@ export const useImageStore = create<ImageState>((set, get) => {
     };
 });
 
-// Sync sort order from settings changes (e.g. rehydration or settings UI)
+// Sync sort order from settings changes (e.g. rehydration or settings UI).
+// 'relevance' is semantic-session-only state (never persisted) — it must
+// NOT be clobbered while a semantic search's hits are on screen; the
+// durable settings sort resumes via clearSemanticSearch's restore.
 useSettingsStore.subscribe((state) => {
     const currentSortOrder = useImageStore.getState().sortOrder;
+    if (currentSortOrder === 'relevance') return;
     if (state.sortOrder && state.sortOrder !== currentSortOrder) {
         useImageStore.getState().setSortOrder(state.sortOrder);
     }

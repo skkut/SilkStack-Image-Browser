@@ -297,4 +297,25 @@ describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking H
     expect(stack.subGroups[1].prompt).toBe('Prompt A');
     expect(stack.subGroups[1].size).toBe(3);
   });
+
+  it('preserves the incoming (semantic score) order when sortOrder is relevance', () => {
+    useImageStore.setState({ sortOrder: 'relevance' });
+    useSettingsStore.setState({ displayStarredFirst: false });
+
+    // This is the order the store's semantic merge delivered (score order):
+    // '2' first even though it is neither the newest (id '1', 1000), the
+    // earliest, nor alphabetically first — date, name, and id sorts would
+    // each reorder it differently, so a pass proves 'relevance' really
+    // keeps the incoming order rather than coincidentally matching.
+    const images: IndexedImage[] = [
+      createImage({ id: '2', prompt: 'A playful dog', lastModified: 500 }),
+      createImage({ id: '1', prompt: 'A beautiful cat', lastModified: 1000 }),
+      createImage({ id: '3', prompt: 'A snowy mountain', lastModified: 700 }),
+    ];
+
+    const { result } = renderHook(() => useImageStacking(images, true));
+    const stacked = result.current.stackedItems;
+
+    expect(stacked.map((item: any) => item.id)).toEqual(['2', '1', '3']);
+  });
 });

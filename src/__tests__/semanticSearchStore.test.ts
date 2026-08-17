@@ -597,6 +597,18 @@ describe('runSemanticSearch', () => {
     expect(useImageStore.getState().sortOrder).toBe('asc');
     expect(useImageStore.getState().semanticHits).toBeNull();
   });
+
+  it('settings-store writes do not clobber the semantic relevance sort', () => {
+    useImageStore.setState({
+      sortOrder: 'relevance',
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+      semanticMode: 'semantic',
+    });
+    // The settings→image sort sync must skip 'relevance' (semantic-session
+    // state); otherwise ANY settings write mid-search snaps the sort back.
+    useSettingsStore.setState({ displayStarredFirst: false });
+    expect(useImageStore.getState().sortOrder).toBe('relevance');
+  });
 });
 
 describe('semanticIndexImages + pipeline Phase 3', () => {
