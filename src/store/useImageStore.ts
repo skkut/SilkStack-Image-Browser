@@ -81,6 +81,8 @@ const EMPTY_AI_MODELS_STATUS: AiModelsStatus = {
     embedLoaded: false,
     chatModelId: null,
     embedModelId: null,
+    chatVramMb: null,
+    embedVramMb: null,
 };
 
 function recomputeAiModelsLoaded(): void {
@@ -90,12 +92,22 @@ function recomputeAiModelsLoaded(): void {
     const embedModelId =
         (__semanticModelsStatus?.embedLoaded ? __semanticModelsStatus.embedModelId : null) ??
         (__autoTagModelsStatus?.embedLoaded ? __autoTagModelsStatus.embedModelId : null);
+    // VRAM figures pair with their model id — take them from whichever source
+    // contributed the id (same precedence: semantic first, auto-tag fallback).
+    const chatVramMb =
+        (__semanticModelsStatus?.chatLoaded ? __semanticModelsStatus.chatVramMb : null) ??
+        (__autoTagModelsStatus?.chatLoaded ? __autoTagModelsStatus.chatVramMb : null);
+    const embedVramMb =
+        (__semanticModelsStatus?.embedLoaded ? __semanticModelsStatus.embedVramMb : null) ??
+        (__autoTagModelsStatus?.embedLoaded ? __autoTagModelsStatus.embedVramMb : null);
     useImageStore.setState({
         aiModelsLoaded: {
             chatLoaded: chatModelId !== null,
             embedLoaded: embedModelId !== null,
             chatModelId,
             embedModelId,
+            chatVramMb,
+            embedVramMb,
         },
     });
 }

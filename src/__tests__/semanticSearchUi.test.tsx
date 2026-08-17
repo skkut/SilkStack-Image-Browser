@@ -27,6 +27,8 @@ const coordinatorMock = vi.hoisted(() => ({
     embedLoaded: false,
     chatModelId: null,
     embedModelId: null,
+    chatVramMb: null,
+    embedVramMb: null,
   })),
   dispose: vi.fn(),
 }));

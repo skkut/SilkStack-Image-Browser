@@ -204,6 +204,8 @@ declare module '@ai-images-browser/ai-intelligence' {
     embedLoaded: boolean;
     chatModelId: string | null;
     embedModelId: string | null;
+    chatVramMb: number | null;
+    embedVramMb: number | null;
   }
 
   export class SemanticSearchCoordinator {

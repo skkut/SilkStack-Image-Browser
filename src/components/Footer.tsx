@@ -40,34 +40,58 @@ const Token: React.FC<{ children: React.ReactNode; title?: string }> = ({ childr
   </span>
 );
 
-/**
- * One resident AI model chip (footer). Shows WHILE the model is loaded in
- * GPU memory; the eject button unloads BOTH records (the shared engine
- * holds the tag + embed models together — web-llm has no per-record
- * unload, so the worker is terminated and the chips clear together).
- */
-const ModelChip: React.FC<{
-  label: string;
+/** One resident model's identity inside the combined footer pill. */
+interface ResidentModelSegment {
+  /** Full web-llm model id (tooltip). */
+  modelId: string;
+  /** Declared VRAM requirement in MB — null when the record declared none. */
+  vramMb: number | null;
+  /** tag = purple, embed = indigo. */
   tone: 'purple' | 'indigo';
-  title: string;
+}
+
+/** Declared record VRAM (MB) → compact label ('6900' → '6.9 GB'). Decimal like the model catalog's own "~6.9 GB" descriptions. */
+function formatVramMb(mb: number | null): string | null {
+  return mb == null ? null : `${(mb / 1000).toFixed(1)} GB`;
+}
+
+/**
+ * Combined resident-model pill (footer). ONE pill for both records: shows
+ * which models the shared engine holds plus each one's declared VRAM
+ * requirement, with ONE eject button — the engine holds the tag + embed
+ * records together (web-llm has no per-record unload), so they always
+ * unload as a pair via worker termination.
+ */
+const ModelResidencyPill: React.FC<{
+  segments: ResidentModelSegment[];
   onEject: () => void;
   unloading: boolean;
-}> = ({ label, tone, title, onEject, unloading }) => {
-  const dot = tone === 'purple' ? 'bg-purple-400' : 'bg-indigo-400';
-  const ejectHover = tone === 'purple' ? 'hover:bg-purple-500/20 hover:text-purple-300' : 'hover:bg-indigo-500/20 hover:text-indigo-300';
+}> = ({ segments, onEject, unloading }) => {
+  const title =
+    segments
+      .map((s) => `${s.modelId} (~${formatVramMb(s.vramMb) ?? 'VRAM unknown'})`)
+      .join(' + ') + ' — loaded in GPU memory. Eject to free it.';
   return (
     <span
       title={title}
-      className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-800/60 text-gray-300 border border-gray-700/50"
+      className="inline-flex items-center rounded-full bg-gray-800/60 border border-gray-700/50 pl-3 pr-1 py-0.5 text-xs text-gray-300 select-none"
     >
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      <span className="ml-1.5">{label}</span>
+      {segments.map((seg, i) => (
+        <span key={seg.tone} className="inline-flex items-center">
+          {i > 0 && <span className="text-gray-600 mx-1.5">·</span>}
+          <span className={`w-1.5 h-1.5 rounded-full ${seg.tone === 'purple' ? 'bg-purple-400' : 'bg-indigo-400'}`} />
+          <span className="ml-1.5 font-medium">{shortModelName(seg.modelId)}</span>
+          {formatVramMb(seg.vramMb) && (
+            <span className="ml-1 text-gray-500">{formatVramMb(seg.vramMb)}</span>
+          )}
+        </span>
+      ))}
       <button
         onClick={onEject}
         disabled={unloading}
-        className={`ml-1.5 p-0.5 rounded transition-colors text-gray-500 ${ejectHover} disabled:opacity-40 disabled:cursor-wait`}
+        className="ml-2 p-0.5 rounded transition-colors text-gray-500 hover:bg-gray-700/60 hover:text-gray-300 disabled:opacity-40 disabled:cursor-wait"
         title="Unload AI models from GPU memory"
-        aria-label={`Unload ${label} from GPU memory`}
+        aria-label="Unload AI models from GPU memory"
       >
         <Unplug size={11} />
       </button>
@@ -132,6 +156,23 @@ const Footer: React.FC<FooterProps> = ({
       setIsUnloading(false);
     }
   };
+  // One segment per resident record (tag = purple, embed = indigo), each with
+  // its declared VRAM — rendered as a single pill with one eject button.
+  const residentSegments: ResidentModelSegment[] = [];
+  if (aiModelsLoaded.chatLoaded && aiModelsLoaded.chatModelId) {
+    residentSegments.push({
+      modelId: aiModelsLoaded.chatModelId,
+      vramMb: aiModelsLoaded.chatVramMb,
+      tone: 'purple',
+    });
+  }
+  if (aiModelsLoaded.embedLoaded && aiModelsLoaded.embedModelId) {
+    residentSegments.push({
+      modelId: aiModelsLoaded.embedModelId,
+      vramMb: aiModelsLoaded.embedVramMb,
+      tone: 'indigo',
+    });
+  }
 
   const hasEnrichmentJob = enrichmentProgress && enrichmentProgress.total > 0;
   const hasAutoTaggingJob = autoTaggingProgress && autoTaggingProgress.total > 0;
@@ -313,28 +354,13 @@ const Footer: React.FC<FooterProps> = ({
       </div>
       <div className="flex items-center gap-2 ml-auto">
         <div className="w-px h-4 bg-gray-700/50 mx-2" />
-        {/* AI model residency chips (footer eject) — before the stacking toggle */}
-        {aiModelsLoaded && (aiModelsLoaded.chatLoaded || aiModelsLoaded.embedLoaded) && (
-          <div className="flex items-center gap-2">
-            {aiModelsLoaded.chatLoaded && aiModelsLoaded.chatModelId && (
-              <ModelChip
-                label={shortModelName(aiModelsLoaded.chatModelId)}
-                tone="purple"
-                title={`${aiModelsLoaded.chatModelId} — loaded in GPU memory. Eject to free it.`}
-                onEject={handleEjectModels}
-                unloading={isUnloading}
-              />
-            )}
-            {aiModelsLoaded.embedLoaded && aiModelsLoaded.embedModelId && (
-              <ModelChip
-                label={shortModelName(aiModelsLoaded.embedModelId)}
-                tone="indigo"
-                title={`${aiModelsLoaded.embedModelId} — loaded in GPU memory. Eject to free it.`}
-                onEject={handleEjectModels}
-                unloading={isUnloading}
-              />
-            )}
-          </div>
+        {/* AI model residency pill (footer eject) — before the stacking toggle */}
+        {aiModelsLoaded && residentSegments.length > 0 && (
+          <ModelResidencyPill
+            segments={residentSegments}
+            onEject={handleEjectModels}
+            unloading={isUnloading}
+          />
         )}
         {/* Stacking Toggle */}
         {aiFeaturesEnabled && showStackingToggle && (

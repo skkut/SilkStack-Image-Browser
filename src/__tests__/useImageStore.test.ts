@@ -379,7 +379,14 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
       filteredImages: [createImage({ id: 'img1', prompt: 'a dragon' })],
       annotations: new Map(),
       isAnnotationsLoaded: true,
-      aiModelsLoaded: { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null },
+      aiModelsLoaded: {
+        chatLoaded: false,
+        embedLoaded: false,
+        chatModelId: null,
+        embedModelId: null,
+        chatVramMb: null,
+        embedVramMb: null,
+      },
     });
     vi.stubGlobal('Worker', FakeTaggingWorker);
   });
@@ -388,13 +395,23 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
     vi.unstubAllGlobals();
   });
 
+  // Realistic declared VRAM (record vram_required_MB): Hermes 3B ~2.3 GB, Qwen3-8B 6.9 GB.
   const LOADED = {
     chatLoaded: true,
     embedLoaded: true,
     chatModelId: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
     embedModelId: 'Qwen3-Embedding-8B-q4f16_1-MLC',
+    chatVramMb: 2262,
+    embedVramMb: 6900,
   };
-  const EMPTY = { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null };
+  const EMPTY = {
+    chatLoaded: false,
+    embedLoaded: false,
+    chatModelId: null,
+    embedModelId: null,
+    chatVramMb: null,
+    embedVramMb: null,
+  };
 
   it('shows the chips when the auto-tag worker reports its models resident, clears on run end', async () => {
     await useImageStore.getState().startAutoTagging('', false, {});

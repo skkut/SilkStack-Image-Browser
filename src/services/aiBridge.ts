@@ -147,6 +147,9 @@ export interface AiModelsStatus {
   embedLoaded: boolean;
   chatModelId: string | null;
   embedModelId: string | null;
+  /** Each record's DECLARED VRAM requirement in MB (vram_required_MB) — the footer's per-model "~X GB". */
+  chatVramMb: number | null;
+  embedVramMb: number | null;
 }
 
 /** Interface for semantic search (WebLLM embeddings + in-memory index). */

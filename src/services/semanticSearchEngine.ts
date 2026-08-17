@@ -306,7 +306,14 @@ export class SemanticSearchCoordinator {
    */
   getModelsStatus(): AiModelsStatus {
     if (this.coordinator) return this.coordinator.getModelsStatus();
-    return { chatLoaded: false, embedLoaded: false, chatModelId: null, embedModelId: null };
+    return {
+      chatLoaded: false,
+      embedLoaded: false,
+      chatModelId: null,
+      embedModelId: null,
+      chatVramMb: null,
+      embedVramMb: null,
+    };
   }
 
   dispose(): void {
