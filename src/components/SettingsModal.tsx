@@ -730,7 +730,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           Auto-tagging model
                         </label>
                         <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-                          Generates tags from image prompts when you run auto-tagging. Each run loads its own worker, so the change applies to the next run.
+                          Generates tags from image prompts when you run auto-tagging. The worker stays resident between runs — switching models here applies on the next run. Use the footer eject to unload it early.
                         </p>
                         {tagModelOptions === null ? (
                           <select disabled data-testid="ai-tag-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">

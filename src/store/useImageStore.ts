@@ -14,7 +14,7 @@ import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
-import { SEARCH_ENRICHMENT_VERSION } from '../services/aiBridge';
+import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 
@@ -82,7 +82,8 @@ let __semanticCoordinator: SemanticSearchCoordinator | null = null;
 // per-run auto-tag worker each report their own residency, and the footer
 // shows the union. Both engines carry BOTH records (CreateMLCEngine
 // ([chatId, embedId])), so each source's flags flip together; the union
-// clears a source when its worker is terminated (auto-tag run end, eject).
+// clears a source when its worker is terminated (auto-tag eject, cancel,
+// error — the auto-tag worker now stays resident between runs).
 let __semanticModelsStatus: AiModelsStatus | null = null;
 let __autoTagModelsStatus: AiModelsStatus | null = null;
 
@@ -462,6 +463,12 @@ interface ImageState {
   autoTaggingProgress: { current: number; total: number; message: string } | null;
   autoTaggingWorker: Worker | null;
   isAutoTagging: boolean;
+  /** Which tag model id the resident auto-tag worker was loaded with
+   *  (resolved — '' is stored as the default id). Drives worker reuse:
+   *  runs with the same model keep the worker; a different id spawns a
+   *  fresh one. Cleared when the worker is terminated (eject, cancel,
+   *  error). */
+  autoTagWorkerModelId: string | null;
 
   // Semantic Search State (Phase 5)
   semanticMode: 'semantic' | 'off';
@@ -1509,6 +1516,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         autoTaggingProgress: null,
         autoTaggingWorker: null,
+        autoTagWorkerModelId: null,
         isAutoTagging: false,
         draggedItems: [],
 
@@ -2267,27 +2275,46 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return;
             }
 
-            if (existingWorker) {
+            // Resolve the model this run would use. The default lives in
+            // aiBridge (TAG_GENERATION_MODEL_ID); '' (fresh install) means
+            // "the default" — compare the RESOLVED id so '' and the default
+            // id reuse each other's worker.
+            const aiTagModel = useSettingsStore.getState().aiTagModel;
+            const resolvedTagModelId = aiTagModel || TAG_GENERATION_MODEL_ID;
+
+            // Worker reuse: the engine is designed to stay resident for the
+            // worker's lifetime, so a run with the SAME model keeps the
+            // existing worker — no model reload, the big per-run cost. Only
+            // a model switch (or a missing worker) spawns a new one; the old
+            // worker is terminated so its GPU memory is released.
+            let activeWorker = existingWorker;
+            if (existingWorker && get().autoTagWorkerModelId !== resolvedTagModelId) {
                 existingWorker.terminate();
                 // Its engine dies with it — the footer chips lose this source.
                 useImageStore.getState().setAutoTagModelsStatus(null);
+                activeWorker = null;
             }
 
-            // The AI worker lives in the closed-source ai-intelligence module
-            // (moved 2026-08-12). Guarded load: no-module builds fall through
-            // here — auto-tagging is premium-only, so there is no fallback.
-            let createAiWorker: ((...args: unknown[]) => Worker) | null = null;
-            try {
-                createAiWorker = (await import('@ai-images-browser/ai-intelligence')).createAiWorker ?? null;
-            } catch { /* module absent */ }
-            if (!createAiWorker) {
-                console.warn('AI auto-tagging unavailable: ai-intelligence module not present');
-                return;
+            if (!activeWorker) {
+                // The AI worker lives in the closed-source ai-intelligence
+                // module (moved 2026-08-12). Guarded load: no-module builds
+                // fall through here — auto-tagging is premium-only, so there
+                // is no fallback.
+                let createAiWorker: ((...args: unknown[]) => Worker) | null = null;
+                try {
+                    createAiWorker = (await import('@ai-images-browser/ai-intelligence')).createAiWorker ?? null;
+                } catch { /* module absent */ }
+                if (!createAiWorker) {
+                    console.warn('AI auto-tagging unavailable: ai-intelligence module not present');
+                    return;
+                }
+                activeWorker = createAiWorker();
             }
-            const worker = createAiWorker();
+            const worker = activeWorker;
 
             set({
                 autoTaggingWorker: worker,
+                autoTagWorkerModelId: resolvedTagModelId,
                 isAutoTagging: true,
                 autoTaggingProgress: { current: 0, total: taggingImages.length, message: 'Initializing...' }
             });
@@ -2370,12 +2397,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                             };
                         });
 
-                        worker.terminate();
-                        set({ autoTaggingWorker: null });
-                        // The worker's engine died with it — clear this source
-                        // of the footer chips (the semantic worker, if loaded,
-                        // still reports its own residency).
-                        useImageStore.getState().setAutoTagModelsStatus(null);
+                        // Worker reuse: KEEP the worker alive — the engine is
+                        // designed to stay resident for the worker's lifetime,
+                        // and the next run with the same model reuses it (no
+                        // reload). The footer chips keep reporting this source;
+                        // only eject (unloadAiModels) releases it.
                         console.log(`Auto-tagging complete: ${tagMap.size} images tagged`);
 
                         // Enrichment changed the indexed text for these images —
@@ -2406,7 +2432,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                             error: `Auto-tagging failed: ${payload.error}`,
                         });
                         worker.terminate();
-                        set({ autoTaggingWorker: null });
+                        set({ autoTaggingWorker: null, autoTagWorkerModelId: null });
                         useImageStore.getState().setAutoTagModelsStatus(null);
                         break;
                 }
@@ -2414,7 +2440,6 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             const disableAiFallback = useSettingsStore.getState().disableAiFallback;
             const aiDevicePreference = useSettingsStore.getState().aiDevicePreference;
-            const aiTagModel = useSettingsStore.getState().aiTagModel;
 
             worker.postMessage({
                 type: 'start',
@@ -2439,6 +2464,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                 autoTaggingWorker.terminate();
                 set({
                     autoTaggingWorker: null,
+                    autoTagWorkerModelId: null,
                     autoTaggingProgress: null,
                     isAutoTagging: false,
                 });
@@ -2568,6 +2594,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             const newIsFavorite = !(currentAnnotation?.isFavorite ?? false);
 
             const updatedAnnotation: ImageAnnotations = {
+                // Spread first: preserves synonymTags/searchTagVersion and the
+                // stack/similarity fields — a hardcoded rebuild drops them,
+                // which re-queues enriched images on every auto-tag run.
+                ...currentAnnotation,
                 imageId,
                 isFavorite: newIsFavorite,
                 tags: currentAnnotation?.tags ?? [],
@@ -2611,6 +2641,9 @@ export const useImageStore = create<ImageState>((set, get) => {
             for (const imageId of imageIds) {
                 const current = annotations.get(imageId);
                 updatedAnnotations.push({
+                    // Spread first — preserves synonymTags/searchTagVersion
+                    // and the stack/similarity fields (see toggleFavorite).
+                    ...current,
                     imageId,
                     isFavorite,
                     tags: current?.tags ?? [],
@@ -2672,6 +2705,9 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
 
             const updatedAnnotation: ImageAnnotations = {
+                // Spread first — preserves synonymTags/searchTagVersion and
+                // the stack/similarity fields (see toggleFavorite).
+                ...currentAnnotation,
                 imageId,
                 isFavorite: currentAnnotation?.isFavorite ?? false,
                 tags: [...(currentAnnotation?.tags ?? []), normalizedTag],
@@ -2785,6 +2821,9 @@ export const useImageStore = create<ImageState>((set, get) => {
                 }
 
                 updatedAnnotations.push({
+                    // Spread first — preserves synonymTags/searchTagVersion
+                    // and the stack/similarity fields (see toggleFavorite).
+                    ...current,
                     imageId,
                     isFavorite: current?.isFavorite ?? false,
                     tags: [...(current?.tags ?? []), normalizedTag],
@@ -3203,6 +3242,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             clusterNavigationContext: null,
 
             autoTaggingWorker: null,
+            autoTagWorkerModelId: null,
             isAutoTagging: false,
             detectedGpuInfo: null,
             detectedGpuDevices: [],
@@ -4298,12 +4338,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             recomputeAiModelsLoaded();
         },
         unloadAiModels: async () => {
-            // Stop an in-flight auto-tag run first — its per-run worker holds
+            // Stop an in-flight auto-tag run first — the resident worker holds
             // its own engine, so terminating it frees that context too.
             const { autoTaggingWorker } = get();
             if (autoTaggingWorker) {
                 autoTaggingWorker.terminate();
-                set({ autoTaggingWorker: null, isAutoTagging: false, autoTaggingProgress: null });
+                set({ autoTaggingWorker: null, autoTagWorkerModelId: null, isAutoTagging: false, autoTaggingProgress: null });
                 __autoTagModelsStatus = null;
                 recomputeAiModelsLoaded();
             }

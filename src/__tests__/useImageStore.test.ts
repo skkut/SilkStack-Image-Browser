@@ -74,10 +74,15 @@ vi.mock('../services/aiBridge', () => ({
   // Mirrored by the store's enrichment gate — keep in sync with the real
   // constant (src/services/aiBridge.ts).
   SEARCH_ENRICHMENT_VERSION: 1,
+  // Mirrored default tag model — the store resolves '' (fresh install) to
+  // this id for worker-reuse comparison.
+  TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({
   bulkSaveAnnotations: vi.fn().mockResolvedValue(true),
+  saveAnnotation: vi.fn().mockResolvedValue(true),
+  getAllTags: vi.fn().mockResolvedValue([]),
 }));
 
 describe('useImageStore Stacking Preservations', () => {
@@ -189,6 +194,12 @@ describe('useImageStore auto-tagging GPU preference', () => {
       annotations: new Map(),
       isAnnotationsLoaded: true,
       detectedGpuInfo: null,
+      // Worker reuse means a finished worker STAYS in state — each test must
+      // start from a clean worker so `posted` arrays are per-run.
+      autoTaggingWorker: null,
+      autoTagWorkerModelId: null,
+      isAutoTagging: false,
+      autoTaggingProgress: null,
     });
     vi.stubGlobal('Worker', FakeTaggingWorker);
   });
@@ -390,6 +401,12 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
         chatVramMb: null,
         embedVramMb: null,
       },
+      // Worker reuse means a finished worker STAYS in state — each test must
+      // start from a clean worker so `posted` arrays are per-run.
+      autoTaggingWorker: null,
+      autoTagWorkerModelId: null,
+      isAutoTagging: false,
+      autoTaggingProgress: null,
     });
     vi.stubGlobal('Worker', FakeTaggingWorker);
   });
@@ -416,20 +433,53 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
     embedVramMb: null,
   };
 
-  it('shows the chips when the auto-tag worker reports its models resident, clears on run end', async () => {
+  it('keeps the chips and the worker after a run completes (worker reuse)', async () => {
     await useImageStore.getState().startAutoTagging('', false, {});
     const worker = FakeTaggingWorker.lastInstance!;
 
     worker.onmessage?.({ data: { type: 'models-status', payload: LOADED } } as MessageEvent);
     expect(useImageStore.getState().aiModelsLoaded).toEqual(LOADED);
 
-    // The run completes → the worker is terminated → its engine is gone →
-    // this source of the chips clears (no semantic worker reporting).
+    // The run completes → the worker STAYS resident (engine reuse across
+    // runs is the point) → its chips source stays in the union.
     worker.onmessage?.({
       data: { type: 'complete', payload: { autoTags: { img1: [{ tag: 'dragon', sourceType: 'prompt' }] } } },
     } as MessageEvent);
-    expect(useImageStore.getState().aiModelsLoaded).toEqual(EMPTY);
-    expect(useImageStore.getState().autoTaggingWorker).toBeNull();
+    expect(worker.terminate).not.toHaveBeenCalled();
+    expect(useImageStore.getState().autoTaggingWorker).toBe(worker);
+    expect(useImageStore.getState().autoTagWorkerModelId).toBe('Hermes-3-Llama-3.2-3B-q4f16_1-MLC');
+    expect(useImageStore.getState().aiModelsLoaded).toEqual(LOADED);
+  });
+
+  it('reuses the resident worker when the model is unchanged', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const first = FakeTaggingWorker.lastInstance!;
+    expect(first.terminate).not.toHaveBeenCalled();
+
+    // Second run, same resolved model ('' → TAG_GENERATION_MODEL_ID) — the
+    // existing worker is reused; no terminate, no new construction.
+    await useImageStore.getState().startAutoTagging('', false, {});
+    expect(FakeTaggingWorker.lastInstance).toBe(first);
+    expect(first.terminate).not.toHaveBeenCalled();
+    expect(useImageStore.getState().autoTaggingWorker).toBe(first);
+    // Both runs' starts went to the same worker.
+    const starts = first.posted.filter((m) => m.type === 'start');
+    expect(starts).toHaveLength(2);
+  });
+
+  it('spawns a fresh worker when the tag model changes', async () => {
+    await useImageStore.getState().startAutoTagging('', false, {});
+    const first = FakeTaggingWorker.lastInstance!;
+
+    useSettingsStore.setState({ aiTagModel: 'Qwen3-4B-q4f16_1-MLC' });
+    await useImageStore.getState().startAutoTagging('', false, {});
+
+    const second = FakeTaggingWorker.lastInstance!;
+    expect(second).not.toBe(first);
+    expect(first.terminate).toHaveBeenCalled();
+    expect(useImageStore.getState().autoTagWorkerModelId).toBe('Qwen3-4B-q4f16_1-MLC');
+    const start = second.posted.find((m) => m.type === 'start');
+    expect(start?.payload.tagModelId).toBe('Qwen3-4B-q4f16_1-MLC');
   });
 
   it('unloadAiModels terminates the auto-tag worker and clears its chips', async () => {
@@ -442,7 +492,81 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
 
     expect(worker.terminate).toHaveBeenCalled();
     expect(useImageStore.getState().autoTaggingWorker).toBeNull();
+    expect(useImageStore.getState().autoTagWorkerModelId).toBeNull();
     expect(useImageStore.getState().aiModelsLoaded).toEqual(EMPTY);
+  });
+});
+
+// ── Annotation enrichment preservation (version-wipe regression) ───────
+// toggleFavorite / addTagToImage / bulkToggleFavorite / bulkAddTag used to
+// rebuild ImageAnnotations from hardcoded field lists, dropping
+// synonymTags/searchTagVersion (re-queueing enriched images on EVERY
+// auto-tag run) and the stack/similarity fields. They must spread the
+// current annotation instead — regression-tested here.
+
+describe('useImageStore annotation enrichment preservation', () => {
+  const ENRICHED: ImageAnnotations = {
+    imageId: 'img1',
+    isFavorite: false,
+    tags: ['manual'],
+    autoTags: ['dragon'],
+    isAutoTagged: true,
+    metadataTags: [],
+    addedAt: 1000,
+    updatedAt: 1000,
+    synonymTags: ['wyvern', 'serpent'],
+    searchTagVersion: 1,
+    stackGroupId: 'stack-1',
+    isStackAnalyzed: true,
+  };
+
+  beforeEach(() => {
+    useImageStore.setState({
+      images: [createImage({ id: 'img1', prompt: 'a dragon' })],
+      filteredImages: [createImage({ id: 'img1', prompt: 'a dragon' })],
+      annotations: new Map([['img1', { ...ENRICHED }]]),
+      isAnnotationsLoaded: true,
+      directories: [],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      autoTaggingWorker: null,
+      autoTagWorkerModelId: null,
+    });
+  });
+
+  it('toggleFavorite preserves synonymTags/searchTagVersion and stack fields', async () => {
+    await useImageStore.getState().toggleFavorite('img1');
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(1);
+    expect(a.stackGroupId).toBe('stack-1');
+    expect(a.isStackAnalyzed).toBe(true);
+    expect(a.isFavorite).toBe(true);
+  });
+
+  it('addTagToImage preserves synonymTags/searchTagVersion', async () => {
+    await useImageStore.getState().addTagToImage('img1', 'newtag');
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(1);
+    expect(a.tags).toContain('newtag');
+  });
+
+  it('bulkToggleFavorite preserves synonymTags/searchTagVersion and stack fields', async () => {
+    await useImageStore.getState().bulkToggleFavorite(['img1'], true);
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(1);
+    expect(a.stackGroupId).toBe('stack-1');
+    expect(a.isFavorite).toBe(true);
+  });
+
+  it('bulkAddTag preserves synonymTags/searchTagVersion', async () => {
+    await useImageStore.getState().bulkAddTag(['img1'], 'newtag');
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(1);
+    expect(a.tags).toContain('newtag');
   });
 });
 
