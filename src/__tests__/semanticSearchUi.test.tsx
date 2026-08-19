@@ -213,6 +213,42 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
     // set true above) settle so nothing leaks into the next test.
     await flush();
   });
+
+  it('toggling the sparkle off drops the hits so the Semantic chip disappears', async () => {
+    setElectronAPI();
+    stampPremium();
+    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+    useImageStore.setState({
+      searchQuery: 'fox',
+      semanticMode: 'semantic',
+      semanticSearchStatus: 'ready',
+      semanticHits: [{ imageId: '1', score: 0.9 }],
+    });
+
+    render(
+      <TopMenuBar
+        onOpenSettings={vi.fn()}
+        onAddFolder={vi.fn()}
+        onToggleView={vi.fn()}
+        searchQuery="fox"
+        setSearchQuery={vi.fn()}
+        activeView="library"
+        onLibraryViewChange={vi.fn()}
+      />,
+    );
+    render(<ActiveFilters />);
+    expect(screen.getByText('Semantic')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('semantic-toggle-button'));
+
+    // The chip lives only while hits are on screen; the toggle-off must
+    // clear them (reversal regression), not just flip the mode.
+    expect(useImageStore.getState().semanticMode).toBe('off');
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(screen.queryByText('Semantic')).toBeNull();
+
+    await flush();
+  });
 });
 
 // ── ActiveFilters (chip) ──────────────────────────────────────────────

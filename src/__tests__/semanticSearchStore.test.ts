@@ -59,7 +59,7 @@ vi.mock('../services/imageAnnotationsStorage', () => ({
 import { useImageStore, applySemanticMerge } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { normalizePath } from '../utils/pathUtils';
-import { type IndexedImage } from '../types';
+import { type ImageAnnotations, type IndexedImage } from '../types';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   id: overrides.id || 'id',
@@ -825,6 +825,67 @@ describe('setSemanticMode re-search (Phase 6)', () => {
   });
 });
 
+describe('setSemanticMode toggle-off invalidation (reversal regression)', () => {
+  it('toggle-off cancels a pending debounced search (no stale landing after OFF)', async () => {
+    vi.useFakeTimers();
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'semantic' });
+    vi.clearAllMocks(); // forget the wiring-era calls (implementations persist)
+    coordinatorMock.search.mockResolvedValue([{ imageId: 'imgA', score: 0.9 }]);
+
+    // Search fired while ON, then toggled OFF before the 300 ms debounce
+    // fires. The timer must be cancelled — otherwise the search runs and
+    // lands after the toggle, resurrecting hits under a gray sparkle.
+    useImageStore.getState().runSemanticSearch('fox');
+    useImageStore.getState().setSemanticMode('off');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(coordinatorMock.search).not.toHaveBeenCalled();
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useImageStore.getState().semanticSearchStatus).toBe('idle');
+    expect(useImageStore.getState().semanticMode).toBe('off');
+  });
+
+  it('toggle-off while inference is in flight discards the landing (seq bump)', async () => {
+    vi.useFakeTimers();
+    let resolveSearch!: (v: Hit[]) => void;
+    coordinatorMock.search.mockReturnValueOnce(new Promise((resolve) => { resolveSearch = resolve; }));
+    useImageStore.setState({ searchQuery: 'fox', semanticMode: 'semantic', sortOrder: 'date-desc' });
+
+    const p = useImageStore.getState().runSemanticSearch('fox');
+    await vi.advanceTimersByTimeAsync(400); // debounce elapsed — inference running
+
+    useImageStore.getState().setSemanticMode('off');
+    resolveSearch([{ imageId: 'imgA', score: 0.9 }]);
+    await p;
+
+    // The landing must be discarded: no hits, no 'ready', no relevance sort
+    // under a gray sparkle.
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useImageStore.getState().semanticSearchStatus).toBe('idle');
+    expect(useImageStore.getState().sortOrder).toBe('date-desc');
+    expect(useImageStore.getState().semanticMode).toBe('off');
+  });
+
+  it('toggle-off drops existing hits and the relevance sort (chip + sort box stay honest)', () => {
+    useSettingsStore.getState().setSortOrder('date-asc');
+    useImageStore.setState({
+      semanticHits: [{ imageId: 'imgA', score: 0.9 }],
+      semanticMode: 'semantic',
+      semanticSearchStatus: 'ready',
+      sortOrder: 'relevance',
+      searchQuery: 'fox',
+    });
+
+    useImageStore.getState().setSemanticMode('off');
+
+    const s = useImageStore.getState();
+    expect(s.semanticHits).toBeNull();
+    expect(s.semanticMode).toBe('off');
+    expect(s.semanticSearchStatus).toBe('idle');
+    expect(s.sortOrder).toBe('date-asc');
+  });
+});
+
 describe('semanticIndexImages force + status (Phase 6)', () => {
   it('{force:true} clears the index then re-indexes', async () => {
     useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
@@ -1008,5 +1069,173 @@ describe('applySemanticEmbeddingModel (Settings model switch)', () => {
     expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
     expect(useSettingsStore.getState().aiEmbeddingModel).toBe('embed-b32');
+  });
+});
+
+describe('semanticIndexImages split payload + tag-mutation re-index', () => {
+  const annotationFor = (imageId: string, extra: Partial<ImageAnnotations> = {}): ImageAnnotations => ({
+    imageId,
+    isFavorite: false,
+    tags: [],
+    autoTags: [],
+    metadataTags: [],
+    isAutoTagged: false,
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
+    ...extra,
+  });
+
+  const lastPayload = () => coordinatorMock.indexImages.mock.calls[0][0] as Array<Record<string, unknown>>;
+
+  it('sends the split payload — auto-tags in their own segment, manual + metadata in tags', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      // The merged IndexedImage.tags (annotation echo) must NOT leak through.
+      images: [{ ...img, tags: ['merged-echo'] }],
+      annotations: new Map([
+        ['imgA', annotationFor('imgA', { tags: ['manual'], autoTags: ['concept'], metadataTags: ['meta'] })],
+      ]),
+    });
+
+    await useImageStore.getState().semanticIndexImages();
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({
+        id: 'imgA',
+        prompt: 'a red fox',
+        tags: ['manual', 'meta'],
+        autoTags: ['concept'],
+        synonyms: [],
+      }),
+    ]);
+  });
+
+  it('falls back to the image fields for never-annotated images', async () => {
+    const img = createImage({
+      id: 'imgA',
+      name: 'red fox.png',
+      directoryId: 'dir1',
+      tags: ['legacy-tag'],
+      autoTags: ['legacy-concept'],
+      synonymTags: ['legacy-syn'],
+    });
+    useImageStore.setState({ images: [img], annotations: new Map() });
+
+    await useImageStore.getState().semanticIndexImages();
+    await flush();
+
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ tags: ['legacy-tag'], autoTags: ['legacy-concept'], synonyms: ['legacy-syn'] }),
+    ]);
+  });
+
+  it('addTagToImage Δ-re-indexes so a manual tag is searchable immediately', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({ images: [img], annotations: new Map([['imgA', annotationFor('imgA')]]) });
+
+    await useImageStore.getState().addTagToImage('imgA', 'furry');
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: ['furry'], autoTags: [] }),
+    ]);
+  });
+
+  it('removeTagFromImage Δ-re-indexes the removal', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({
+      images: [img],
+      annotations: new Map([['imgA', annotationFor('imgA', { tags: ['furry'] })]]),
+    });
+
+    await useImageStore.getState().removeTagFromImage('imgA', 'furry');
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: [], autoTags: [] }),
+    ]);
+  });
+
+  it('bulkAddTag Δ-re-indexes the bulk edit', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({ images: [img], annotations: new Map([['imgA', annotationFor('imgA')]]) });
+
+    await useImageStore.getState().bulkAddTag(['imgA'], 'furry');
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: ['furry'], autoTags: [] }),
+    ]);
+  });
+
+  it('bulkRemoveTag Δ-re-indexes the bulk removal', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({
+      images: [img],
+      annotations: new Map([['imgA', annotationFor('imgA', { tags: ['furry'] })]]),
+    });
+
+    await useImageStore.getState().bulkRemoveTag(['imgA'], 'furry');
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: [], autoTags: [] }),
+    ]);
+  });
+
+  it('importMetadataTags Δ-re-indexes imported metadata tags', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({ images: [img], annotations: new Map([['imgA', annotationFor('imgA')]]) });
+
+    const withMeta = {
+      ...img,
+      metadata: { normalizedMetadata: { tags: ['style-x'] } },
+    } as unknown as IndexedImage;
+    await useImageStore.getState().importMetadataTags([withMeta]);
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    // Metadata tags ride the same 0.8 segment as manual tags (split from autoTags).
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: ['style-x'], autoTags: [] }),
+    ]);
+  });
+
+  it('clearAutoTags Δ-re-indexes so cleared concepts drop out of the index', async () => {
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
+    useImageStore.setState({
+      images: [img],
+      annotations: new Map([
+        ['imgA', annotationFor('imgA', { autoTags: ['concept'], isAutoTagged: true })],
+      ]),
+    });
+
+    await useImageStore.getState().clearAutoTags();
+    await flush();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    expect(lastPayload()).toEqual([
+      expect.objectContaining({ id: 'imgA', tags: [], autoTags: [] }),
+    ]);
+  });
+});
+
+describe('keyword catalog text — models coverage', () => {
+  it('matches model family names in the search box (mode off / keyword path)', () => {
+    const img = createImage({ id: 'imgA', name: 'render.png', directoryId: 'dir1', models: ['sdxl', 'flux1-dev'] });
+    setupLibrary([img], { hits: null, mode: 'off' }, { searchQuery: 'sdxl' });
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
+  });
+
+  it('does not match a model name that is absent (no false positives)', () => {
+    const img = createImage({ id: 'imgA', name: 'render.png', directoryId: 'dir1', models: ['flux1-dev'] });
+    setupLibrary([img], { hits: null, mode: 'off' }, { searchQuery: 'sdxl' });
+    expect(useImageStore.getState().filteredImages).toEqual([]);
   });
 });

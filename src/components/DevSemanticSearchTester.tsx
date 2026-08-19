@@ -160,7 +160,7 @@ interface TuningModuleConsts {
   SEMANTIC_PROMPT_WEIGHT: number;
   SEMANTIC_TAG_WEIGHT: number;
   SEMANTIC_SYNONYM_WEIGHT: number;
-  SEMANTIC_MODEL_WEIGHT: number;
+  SEMANTIC_AUTOTAG_WEIGHT: number;
   SEMANTIC_TEXT_MAX_CHARS: number;
   /** The isolated test-store DB name (tester↔module contract, exported from index.ts). */
   SEMANTIC_TEST_STORE_DB: string;
@@ -193,16 +193,16 @@ const DEFAULT_TUNING: TuningState = { threshold: null, blend: null, topN: null, 
 interface IndexTuningState {
   promptWeight: number | null;
   tagWeight: number | null;
+  autoTagWeight: number | null;
   synonymWeight: number | null;
-  modelWeight: number | null;
   maxChars: number | null;
 }
 
 const DEFAULT_INDEX_TUNING: IndexTuningState = {
   promptWeight: null,
   tagWeight: null,
+  autoTagWeight: null,
   synonymWeight: null,
-  modelWeight: null,
   maxChars: null,
 };
 
@@ -497,7 +497,7 @@ export default function DevSemanticSearchTester() {
               SEMANTIC_PROMPT_WEIGHT: mod.SEMANTIC_PROMPT_WEIGHT,
               SEMANTIC_TAG_WEIGHT: mod.SEMANTIC_TAG_WEIGHT,
               SEMANTIC_SYNONYM_WEIGHT: mod.SEMANTIC_SYNONYM_WEIGHT,
-              SEMANTIC_MODEL_WEIGHT: mod.SEMANTIC_MODEL_WEIGHT,
+              SEMANTIC_AUTOTAG_WEIGHT: mod.SEMANTIC_AUTOTAG_WEIGHT,
               SEMANTIC_TEXT_MAX_CHARS: mod.SEMANTIC_TEXT_MAX_CHARS,
               // Fallback must stay in sync with the module's constant — it
               // only ever matters if the export above is ever dropped.
@@ -627,8 +627,8 @@ export default function DevSemanticSearchTester() {
    *   paths:    joinPathsBatch — path.resolve(basePath, relativeName)
    *   metadata: extractRawMetadataFromFile — the SAME parser the app's
    *             indexer uses (prompt/models), via the readFile IPC
-   *   tags:     loadAllAnnotations() from the shared IndexedDB, merged the
-   *             way the app does (dedupe union of tags + autoTags + metadataTags)
+   *   tags:     loadAllAnnotations() from the shared IndexedDB — manual +
+   *             metadata tags in the 0.8 segment, autoTags separate (0.9)
    *   ids:      `${dirPath}::${relativePath}` — the persisted convention
    *
    * Metadata extraction runs in small concurrent chunks per folder; a file
@@ -669,7 +669,7 @@ export default function DevSemanticSearchTester() {
         id: string;
         prompt?: string;
         tags: string[];
-        models?: string[];
+        autoTags?: string[];
         synonymTags?: string[];
       }> = [];
       let total = 0;
@@ -700,11 +700,12 @@ export default function DevSemanticSearchTester() {
             const file = slice[i];
             const id = `${dirPath}::${file.name}`;
             const annotation = annotations.get(id);
+            // Manual + metadata tags share the 0.8 segment; auto-tags get
+            // their own 0.9 segment — the same split the store performs.
             const tags = annotation
               ? [
                   ...new Set([
                     ...(annotation.tags ?? []),
-                    ...(annotation.autoTags ?? []),
                     ...(annotation.metadataTags ?? []),
                   ]),
                 ]
@@ -715,7 +716,7 @@ export default function DevSemanticSearchTester() {
               id,
               prompt: meta?.prompt,
               tags,
-              models: meta?.models ?? (meta?.model ? [meta.model] : undefined),
+              autoTags: annotation?.autoTags ?? [],
               // Enrichment terms ride the annotation → image path, exactly as
               // the store does; the coordinator dual-reads them.
               synonymTags: annotation?.synonymTags ?? [],
@@ -739,7 +740,7 @@ export default function DevSemanticSearchTester() {
       if (indexTuning.promptWeight !== null) options.promptWeight = indexTuning.promptWeight;
       if (indexTuning.tagWeight !== null) options.tagWeight = indexTuning.tagWeight;
       if (indexTuning.synonymWeight !== null) options.synonymWeight = indexTuning.synonymWeight;
-      if (indexTuning.modelWeight !== null) options.modelWeight = indexTuning.modelWeight;
+      if (indexTuning.autoTagWeight !== null) options.autoTagWeight = indexTuning.autoTagWeight;
       if (indexTuning.maxChars !== null) options.maxChars = indexTuning.maxChars;
       const hasOverrides = Object.keys(options).length > 0;
       if (hasOverrides) appendLog(`index overrides: ${JSON.stringify(options)}`);
@@ -896,7 +897,7 @@ export default function DevSemanticSearchTester() {
   const effPromptW = indexTuning.promptWeight ?? moduleRef.current?.SEMANTIC_PROMPT_WEIGHT ?? 1.0;
   const effTagW = indexTuning.tagWeight ?? moduleRef.current?.SEMANTIC_TAG_WEIGHT ?? 0.8;
   const effSynW = indexTuning.synonymWeight ?? moduleRef.current?.SEMANTIC_SYNONYM_WEIGHT ?? 0.6;
-  const effModelW = indexTuning.modelWeight ?? moduleRef.current?.SEMANTIC_MODEL_WEIGHT ?? 0.5;
+  const effAutoTagW = indexTuning.autoTagWeight ?? moduleRef.current?.SEMANTIC_AUTOTAG_WEIGHT ?? 0.9;
   const effMaxChars = indexTuning.maxChars ?? moduleRef.current?.SEMANTIC_TEXT_MAX_CHARS ?? 1600;
 
   // The isolated test DB name (module contract; fallback stays in sync).
@@ -1060,14 +1061,14 @@ export default function DevSemanticSearchTester() {
                 onChange={(v) => setIndexTuning({ ...indexTuning, synonymWeight: v })}
               />
               <TuningSlider
-                label="Models weight (segment repetition)"
+                label="Auto-tags weight (LLM visual concepts, segment repetition)"
                 min={0}
                 max={2}
                 step={0.05}
-                value={indexTuning.modelWeight}
-                defaultValue={effModelW}
+                value={indexTuning.autoTagWeight}
+                defaultValue={effAutoTagW}
                 display={(v) => `${v.toFixed(2)} → ${repsLabel(v)}`}
-                onChange={(v) => setIndexTuning({ ...indexTuning, modelWeight: v })}
+                onChange={(v) => setIndexTuning({ ...indexTuning, autoTagWeight: v })}
               />
               <TuningSlider
                 label="Max chars (global cap on built text)"
@@ -1083,8 +1084,8 @@ export default function DevSemanticSearchTester() {
             <p className="text-[11px] text-gray-500 mt-3">
               effective:{' '}
               <span className="font-mono text-gray-400">
-                prompt {repsLabel(effPromptW)} · tags {repsLabel(effTagW)} · synonyms {repsLabel(effSynW)} ·
-                models {repsLabel(effModelW)}
+                prompt {repsLabel(effPromptW)} · tags {repsLabel(effTagW)} · autoTags {repsLabel(effAutoTagW)} ·
+                synonyms {repsLabel(effSynW)}
               </span>{' '}
               · cap <span className="font-mono text-gray-400">{effMaxChars}</span>
             </p>

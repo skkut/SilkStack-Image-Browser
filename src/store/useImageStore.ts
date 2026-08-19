@@ -340,8 +340,9 @@ const buildCatalogSearchText = (image: IndexedImage): string => {
     const tags = (image.tags || []).join(' ').toLowerCase();
     const autoTags = (image.autoTags || []).join(' ').toLowerCase();
     const metadataTags = (image.metadataTags || []).join(' ').toLowerCase();
+    const models = (image.models || []).join(' ').toLowerCase();
 
-    return [name, relativePath, directory, tags, autoTags, metadataTags].filter(Boolean).join(' ');
+    return [name, relativePath, directory, tags, autoTags, metadataTags, models].filter(Boolean).join(' ');
 };
 
 const buildEnrichedSearchText = (image: IndexedImage): string => {
@@ -2750,6 +2751,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (error) {
                 console.error('Failed to save annotation:', error);
             }
+
+            // Tag text feeds the semantic index — Δ-re-index so the edit is
+            // immediately searchable (no-op when semantic search is off).
+            void get().semanticIndexImages();
         },
 
         removeTagFromImage: async (imageId, tag) => {
@@ -2800,6 +2805,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (error) {
                 console.error('Failed to save annotation:', error);
             }
+
+            // Tag text feeds the semantic index — Δ-re-index so the edit is
+            // immediately searchable (no-op when semantic search is off).
+            void get().semanticIndexImages();
         },
 
         bulkAddTag: async (imageIds, tag) => {
@@ -2873,6 +2882,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (error) {
                 console.error('Failed to bulk save annotations:', error);
             }
+
+            // Tag text feeds the semantic index — Δ-re-index so the edit is
+            // immediately searchable (no-op when semantic search is off).
+            void get().semanticIndexImages();
         },
 
         bulkRemoveTag: async (imageIds, tag) => {
@@ -2929,6 +2942,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (error) {
                 console.error('Failed to bulk save annotations:', error);
             }
+
+            // Tag text feeds the semantic index — Δ-re-index so the edit is
+            // immediately searchable (no-op when semantic search is off).
+            void get().semanticIndexImages();
         },
 
         setSelectedTags: (tags) => set(state => {
@@ -3025,6 +3042,10 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             // Refresh available tags
             get().refreshAvailableTags();
+
+            // Tag text feeds the semantic index — Δ-re-index so the edit is
+            // immediately searchable (no-op when semantic search is off).
+            void get().semanticIndexImages();
         },
 
         clearAutoTags: async () => {
@@ -3099,6 +3120,10 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                 console.log(`Cleared auto-tags from ${updatedAnnotations.length} images`);
             }
+
+            // Auto-tag text feeds the semantic index — Δ-re-index so the
+            // cleared state is searchable immediately.
+            void get().semanticIndexImages();
 
             // clusterCacheManager removed — auto-tag cache invalidation disabled
         },
@@ -4129,6 +4154,17 @@ export const useImageStore = create<ImageState>((set, get) => {
         // ── Semantic Search Actions (Phase 5) ─────────────────────────
 
         setSemanticMode: (mode) => {
+            // Turning OFF must invalidate the semantic pipeline. A search
+            // fired while ON (300 ms debounce + WebGPU inference can take
+            // seconds) must not land after the toggle: without the cancel +
+            // seq bump it resurrects hits and the relevance sort under a
+            // gray sparkle, and the next ON instantly merges those stale
+            // hits before the fresh search lands. clearSemanticSearch drops
+            // hits + restores the durable sort — re-enabling re-runs the
+            // query, so nothing is lost.
+            if (mode === 'off' && get().semanticMode === 'semantic') {
+                get().clearSemanticSearch();
+            }
             set(state => ({
                 ...filterAndSort({ ...state, semanticMode: mode }),
                 semanticMode: mode,
@@ -4139,7 +4175,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             // Phase 6: re-run the current query in the new mode so results
             // reflect the switched ranking ('semantic' replaces the keyword
             // filter entirely). Debounced + seq-guarded; no-op when 'off' or
-            // no query. Hits are NOT cleared — mode only changes the merge.
+            // no query.
             if (mode === 'semantic') {
                 const query = get().searchQuery;
                 if (query && query.trim()) {
@@ -4264,7 +4300,23 @@ export const useImageStore = create<ImageState>((set, get) => {
                 // embed model, so a fully-indexed library costs zero model
                 // load — startup runs finish instantly instead of loading
                 // WebGPU models for no work.
-                const result = await coordinator.indexImages(get().images);
+                // Split each image's index text into its weighted segments —
+                // the module now weights auto-tags (0.9) separately from
+                // manual + metadata tags (0.8), so the merged IndexedImage.tags
+                // can't be passed whole. Images never annotated fall back to
+                // their stored tags.
+                const { images, annotations } = get();
+                const payload = images.map(img => {
+                    const ann = annotations.get(img.id);
+                    return {
+                        id: img.id,
+                        prompt: img.prompt,
+                        tags: ann ? [...(ann.tags ?? []), ...(ann.metadataTags ?? [])] : (img.tags ?? []),
+                        autoTags: ann?.autoTags ?? img.autoTags ?? [],
+                        synonyms: img.synonymTags ?? [],
+                    };
+                });
+                const result = await coordinator.indexImages(payload);
                 const status = coordinator.getStatus(); // authoritative persisted count
                 set({ semanticIndexedCount: status.indexed, semanticLastError: null });
                 console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);

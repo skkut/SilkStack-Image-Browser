@@ -20,7 +20,6 @@
  * a clear error and `getStatus()` returns the empty shape.
  */
 
-import type { IndexedImage } from '../types';
 import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo, AiModelsStatus } from './aiBridge';
 import { isAiFeaturesEnabled } from './aiFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -78,24 +77,36 @@ export interface TagModelOption {
 export interface SemanticIndexOptions {
   promptWeight?: number;
   tagWeight?: number;
+  /** LLM visual-concept tags — weighted separately from manual tags (0.9). Mirrored from SearchableTextOptions. */
+  autoTagWeight?: number;
   /** Hidden search-enrichment synonyms (auto-tag) — mirrored from the module's SearchableTextOptions. */
   synonymWeight?: number;
-  modelWeight?: number;
   maxChars?: number;
+}
+
+/**
+ * Per-image semantic index payload — mirrors the module's SemanticIndexInput.
+ * The store splits IndexedImage.tags into weighted segments before sending:
+ * `tags` = manual + metadata (0.8), `autoTags` = LLM visual concepts (0.9).
+ * IndexedImage is structurally assignable (its extra fields are ignored).
+ */
+export interface SemanticIndexPayload {
+  id: string;
+  prompt?: string;
+  tags?: string[];
+  /** LLM visual-concept tags — own 0.9-weight segment in the module. */
+  autoTags?: string[];
+  /** Module spelling of the enrichment terms — dual-read with synonymTags. */
+  synonyms?: string[];
+  /** App spelling of the enrichment terms — the module dual-reads this. */
+  synonymTags?: string[];
 }
 
 /** Structural view of the module's coordinator (no static module imports). */
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
   indexImages(
-    images: Array<{
-      id: string;
-      prompt?: string;
-      tags?: string[];
-      models?: string[];
-      /** App spelling of the enrichment terms — the module dual-reads this. */
-      synonymTags?: string[];
-    }>,
+    images: Array<SemanticIndexPayload>,
     options?: SemanticIndexOptions,
   ): Promise<SemanticIndexResult>;
   search(
@@ -258,7 +269,7 @@ export class SemanticSearchCoordinator {
    * index-time text overrides (weights/cap) — used by the dev tester's
    * "Indexing parameters" panel; production callers pass nothing.
    */
-  indexImages(images: IndexedImage[], options?: SemanticIndexOptions): Promise<SemanticIndexResult> {
+  indexImages(images: Array<SemanticIndexPayload>, options?: SemanticIndexOptions): Promise<SemanticIndexResult> {
     return this.withModule((coordinator) => coordinator.indexImages(images, options));
   }
 
