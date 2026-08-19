@@ -88,18 +88,24 @@ interface SettingsModalProps {
   directories?: Directory[];
   onAddFolder?: () => void;
   onRemoveFolder?: (directoryId: string) => void;
+  /** Reprocess Images: wipe derived image data + re-scan + rebuild pipelines. */
+  onReprocessImages?: () => Promise<void>;
+  /** True while a reprocess run is in flight (spinner + disabled state). */
+  reprocessing?: boolean;
 }
 
 type Tab = 'general' | 'folders' | 'hotkeys' | 'license' | 'about' | 'ai';
 
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  isOpen, 
-  onClose, 
+const SettingsModal: React.FC<SettingsModalProps> = ({
+  isOpen,
+  onClose,
   initialTab = 'general',
   directories = [],
   onAddFolder,
-  onRemoveFolder
+  onRemoveFolder,
+  onReprocessImages,
+  reprocessing = false
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
@@ -213,6 +219,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
   const semanticIndexImages = useImageStore((state) => state.semanticIndexImages);
 
+  // Reprocess Images — disabled while ANY processing is in flight (a wipe
+  // mid-scan/auto-tag/pipeline would corrupt the run).
+  const indexingState = useImageStore((state) => state.indexingState);
+  const isAutoTagging = useImageStore((state) => state.isAutoTagging);
+  const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
+  const pipelinePhase = useImageStore((state) => state.pipelinePhase);
+  const isProcessing = reprocessing || indexingState === 'indexing' || isAutoTagging
+    || enrichmentProgress !== null || pipelinePhase !== null || semanticIndexProgress !== null;
+
   const handleReindexSemantic = () => {
     // Full rebuild: force → coordinator.clearIndex() then Δ-index (all
     // textHashes mismatch after the wipe). Confirm-free; the button is
@@ -316,7 +331,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       '  • Remove all loaded directories\n' +
       '  • Clear all search filters and selections\n' +
       '  • Delete existing thumbnails (will be regenerated at higher quality)\n\n' +
-      '⚙️ SETTINGS:\n' +
+      '⚙️ SETTINGS & LICENSE:\n' +
+      '  • DELETE YOUR LICENSE — the app returns to the unlicensed state;\n' +
+      '    premium/AI features stay locked until you re-enter your license key\n' +
       '  • Reset cache location to default\n' +
       '  • Reset auto-update preference\n' +
       '  • Clear all localStorage preferences\n\n' +
@@ -358,6 +375,27 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         console.error('Failed to clear auto-tags:', error);
         alert('Failed to clear auto-tags. Check console for details.');
       }
+    }
+  };
+
+  const handleReprocessImages = async () => {
+    const confirmed = window.confirm(
+      'REPROCESS ALL IMAGES?\n\n' +
+      'KEPT:\n' +
+      '  • Favorites and manually-added tags\n' +
+      '  • Library folders and folder monitoring settings\n' +
+      '  • License and all other settings\n\n' +
+      'CLEARED (rebuilt from scratch):\n' +
+      '  • Auto-tags, metadata tags and search enrichment (synonyms)\n' +
+      '  • Stacks, similarity groups and the semantic search index\n' +
+      '  • Metadata caches and thumbnails\n\n' +
+      'All library folders will be fully re-scanned now, then reprocessed in sequence:\n' +
+      'metadata → stacking → similarity → auto-tagging → semantic search index.\n\n' +
+      'This action CANNOT be undone. Continue?'
+    );
+
+    if (confirmed && onReprocessImages) {
+      await onReprocessImages();
     }
   };
 
@@ -545,6 +583,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         >
                           <Tag size={16} />
                           Clear Auto-Tags
+                        </button>
+                        <button
+                          onClick={handleReprocessImages}
+                          disabled={isProcessing}
+                          title={isProcessing ? 'Wait for the current operation to finish' : undefined}
+                          className="bg-amber-500/10 text-amber-400 hover:bg-amber-500 hover:text-white border border-amber-500/20 hover:border-amber-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-amber-500/10 disabled:hover:text-amber-400"
+                        >
+                          <RefreshCw size={16} className={reprocessing ? 'animate-spin' : ''} />
+                          Reprocess Images
                         </button>
                         <button
                           onClick={handleClearCache}

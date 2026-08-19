@@ -517,6 +517,115 @@ export default function App() {
     }
   }, [loadDirectory, safeDirectories, globalAutoWatch, addDirectory]);
 
+  // ── Reprocess Images (Settings → Cache Management) ─────────────────────
+  // Wipes all derived image data (caches, thumbnails, semantic vectors,
+  // auto-tags, stack/similarity groups) keeping user data + folders + license,
+  // re-scans every folder from scratch, and lets the post-indexing pipeline
+  // rebuild stacks/similarity/semantic index — then runs auto-tag BEFORE the
+  // final semantic index so search embeds the fresh tags and synonyms.
+  const [reprocessing, setReprocessing] = useState(false);
+
+  // Sustained-idle poll: the pipeline runs fire-and-forget (phaseB.then) with
+  // a 500ms queued re-run gap, and finalizeDirectoryLoad lingers ~100ms — so
+  // require 3 consecutive idle polls (~1s) before reporting quiescence.
+  const waitForReprocessIdle = useCallback(async (timeoutMs = 30 * 60 * 1000): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    let idleStreak = 0;
+    while (Date.now() < deadline) {
+      const s = useImageStore.getState();
+      const busy = s.indexingState === 'indexing'
+        || s.enrichmentProgress !== null
+        || s.pipelinePhase !== null
+        || s.semanticIndexProgress !== null
+        || s.isAutoTagging
+        || s.refreshingDirectories.size > 0;
+      if (!busy) {
+        idleStreak += 1;
+        if (idleStreak >= 3) return true;
+      } else {
+        idleStreak = 0;
+      }
+      await new Promise(r => setTimeout(r, 350));
+    }
+    return false;
+  }, []);
+
+  const handleReprocessImages = useCallback(async () => {
+    const dirs = useImageStore.getState().directories;
+    if (dirs.length === 0) {
+      alert('No library folders loaded — add a folder first.');
+      return;
+    }
+
+    // 1. Silence watchers BEFORE the wipe — an onNewImagesDetected event
+    //    mid-reload would appendToCache (resurrecting cache chunks) and fire
+    //    the pipeline against half-cleared state.
+    if (window.electronAPI) {
+      for (const dir of dirs) {
+        if (dir.autoWatch) {
+          await window.electronAPI.stopWatchingDirectory({ directoryId: dir.id }).catch(() => {});
+        }
+      }
+    }
+
+    setReprocessing(true);
+    try {
+      // 2. Wipe all derived data (throws if a scan/pipeline/semantic run is
+      //    in flight; the Settings button is also disabled while busy).
+      await useImageStore.getState().clearDerivedImageData();
+
+      // 3. Suppress the startup pipeline effect (above) — it must not
+      //    double-fire if this happens before its first run.
+      pipelineStartedRef.current = true;
+
+      // 4. Full reload of every folder, sequentially. Caches are gone, so
+      //    validateCacheAndGetDiff reports everything as new → full
+      //    re-catalog + re-enrichment. loadDirectory resolves after Phase A;
+      //    Phase B enrichment and the pipeline auto-fire in the background
+      //    (useImageLoader's phaseB.then). NEVER call the pipeline here:
+      //    stacking un-enriched stubs would permanently poison stack
+      //    membership (isStackAnalyzed with no stackGroupId = "intentional
+      //    unmerge", skipped forever by computeSimilarityGroups).
+      for (const dir of dirs) {
+        await loadDirectory(dir, true, undefined, true);
+      }
+
+      // 5. Wait for enrichment + the automatic pipeline (stacking →
+      //    similarity → semantic Δ; the wiped vector store makes the Δ a
+      //    full re-embed).
+      const pipelineSettled = await waitForReprocessIdle();
+
+      // 6. Auto-tag BEFORE the final semantic index — the index text embeds
+      //    auto-tags + English synonyms, so search becomes more accurate.
+      //    Every image is eligible again (searchTagVersion was cleared); the
+      //    worker's 'complete' handler persists tags and fires the Δ
+      //    re-index. A missing ai-intelligence module makes this a no-op.
+      if (primaryPath) {
+        await startAutoTagging(primaryPath, scanSubfolders);
+        await waitForReprocessIdle(); // auto-tag run + its trailing re-index
+      }
+
+      setSuccess(
+        pipelineSettled
+          ? 'Library reprocessed: caches rebuilt, stacking/similarity/semantic index refreshed.'
+          : 'Library reprocessed — post-indexing steps are still finishing in the background.'
+      );
+    } catch (error) {
+      console.error('Reprocess failed:', error);
+      alert(`❌ Reprocess failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // 7. Restore watchers regardless of outcome.
+      if (window.electronAPI) {
+        for (const dir of useImageStore.getState().directories) {
+          if (dir.autoWatch) {
+            await window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path }).catch(() => {});
+          }
+        }
+      }
+      setReprocessing(false);
+    }
+  }, [loadDirectory, waitForReprocessIdle, primaryPath, scanSubfolders, startAutoTagging, setSuccess]);
+
   // On mount, load directories stored in localStorage
   useEffect(() => {
     // Only run once on mount
@@ -1186,6 +1295,8 @@ export default function App() {
         directories={safeDirectories}
         onAddFolder={handleSelectFolder}
         onRemoveFolder={handleRemoveDirectory}
+        onReprocessImages={handleReprocessImages}
+        reprocessing={reprocessing}
       />
 
 

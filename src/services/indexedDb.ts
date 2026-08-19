@@ -145,4 +145,25 @@ export function getIsPersistenceDisabled() {
   return isPersistenceDisabled;
 }
 
+/**
+ * Clear ONLY the semanticVectors store (defensive path when the semantic
+ * coordinator is unusable — e.g. semantic search disabled). Does NOT touch
+ * imageAnnotations, folderSelection, or folderPreferences, so user data and
+ * folder settings survive (Reprocess Images).
+ */
+export async function clearSemanticVectorsStore(): Promise<void> {
+  const db = await openDatabase();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('semanticVectors', 'readwrite');
+    tx.objectStore('semanticVectors').clear();
+    // resolve on every terminal event — clear() failures must not throw into
+    // the reprocess flow; the caller logs and continues.
+    tx.oncomplete = tx.onabort = tx.onerror = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
 export { DB_NAME };

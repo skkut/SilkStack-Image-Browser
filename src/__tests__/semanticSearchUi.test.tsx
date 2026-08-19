@@ -692,3 +692,56 @@ describe('SettingsModal AI Intelligence section (model selection)', () => {
       .toBe('embed-768');
   });
 });
+
+// ── SettingsModal Reprocess Images button (Cache Management) ────────────
+
+describe('SettingsModal Reprocess Images button', () => {
+  it('sits between Clear Auto-Tags and Clear All Cache in Cache Management', () => {
+    render(<SettingsModal isOpen onClose={vi.fn()} onReprocessImages={vi.fn()} />);
+
+    const section = screen.getByText('Cache Management').closest('section') as HTMLElement;
+    const labels = Array.from(section.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels.indexOf('Clear Auto-Tags')).toBeGreaterThanOrEqual(0);
+    expect(labels.indexOf('Reprocess Images')).toBe(labels.indexOf('Clear Auto-Tags') + 1);
+    expect(labels.indexOf('Clear All Cache')).toBe(labels.indexOf('Reprocess Images') + 1);
+  });
+
+  it('confirms the destructive action before calling onReprocessImages', async () => {
+    const onReprocessImages = vi.fn().mockResolvedValue(undefined);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<SettingsModal isOpen onClose={vi.fn()} onReprocessImages={onReprocessImages} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reprocess Images/ }));
+
+    await flush();
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/favorites/i));
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('CLEARED'));
+    expect(onReprocessImages).toHaveBeenCalledTimes(1);
+    confirmSpy.mockRestore();
+  });
+
+  it('does nothing when the user cancels the confirm', () => {
+    const onReprocessImages = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    render(<SettingsModal isOpen onClose={vi.fn()} onReprocessImages={onReprocessImages} />);
+    fireEvent.click(screen.getByRole('button', { name: /Reprocess Images/ }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onReprocessImages).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('is disabled while any processing is in flight', () => {
+    act(() => {
+      useImageStore.setState({ isAutoTagging: true });
+    });
+    render(<SettingsModal isOpen onClose={vi.fn()} onReprocessImages={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /Reprocess Images/ }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    act(() => {
+      useImageStore.setState({ isAutoTagging: false });
+    });
+  });
+});

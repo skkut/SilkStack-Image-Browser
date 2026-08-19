@@ -17,6 +17,9 @@ import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../ser
 import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
+import cacheManager from '../services/cacheManager';
+import { thumbnailManager } from '../services/thumbnailManager';
+import { clearSemanticVectorsStore } from '../services/indexedDb';
 
 // Search-enrichment idempotency gate (mirrors SEARCH_ENRICHMENT_VERSION in
 // the ai-intelligence worker — that module is the source of truth). An image
@@ -611,6 +614,12 @@ interface ImageState {
   getImageAnnotations: (imageId: string) => ImageAnnotations | null;
   refreshAvailableTags: () => Promise<void>;
   clearAutoTags: () => Promise<void>;
+  /** Reprocess Images: wipe all derived image data (caches, thumbnails,
+   *  semantic vectors, auto-tags, stack/similarity groups) — keeps favorites,
+   *  manual tags, folders, license and settings. The caller then re-scans and
+   *  the post-indexing pipeline rebuilds everything. Throws when a scan,
+   *  pipeline, or semantic run is in flight. */
+  clearDerivedImageData: () => Promise<void>;
   importMetadataTags: (images: IndexedImage[]) => Promise<void>;
   flushPendingImages: () => void;
   setDirectoryRefreshing: (directoryId: string, isRefreshing: boolean) => void;
@@ -3126,6 +3135,130 @@ export const useImageStore = create<ImageState>((set, get) => {
             void get().semanticIndexImages();
 
             // clusterCacheManager removed — auto-tag cache invalidation disabled
+        },
+
+        clearDerivedImageData: async () => {
+            const state = get();
+
+            // ── Guards ─────────────────────────────────────────────────────
+            // An in-flight auto-tag run would WRITE autoTags/synonymTags back
+            // through its 'complete' handler mid-wipe — terminate it (its
+            // results are derived data being cleared anyway).
+            if (state.isAutoTagging) get().cancelAutoTagging();
+            if (state.indexingState === 'indexing') {
+                throw new Error('An indexing operation is in progress — wait for it to finish.');
+            }
+            if (__pipelineInProgress || __syncInProgress || __similaritySyncInProgress) {
+                throw new Error('Stacking/similarity processing is in progress — try again shortly.');
+            }
+            if (__semanticIndexInProgress) {
+                throw new Error('Semantic indexing is in progress — try again shortly.');
+            }
+            // Drop queued re-runs so nothing replays stale data after the wipe.
+            __semanticIndexQueued = false;
+            __semanticIndexQueuedForce = false;
+            __pipelineQueued = false;
+
+            // ── 1. Disk caches: per-directory metadata (BOTH scan variants —
+            //    main <cacheRoot>/<cacheId>.json + json_cache chunks) and the
+            //    whole thumbnails dir. clearDirectoryCache self-guards
+            //    !isElectron; the window.electronAPI check is belt-and-braces.
+            if (window.electronAPI) {
+                for (const dir of state.directories) {
+                    try {
+                        await cacheManager.clearDirectoryCache(dir.path, true);
+                        await cacheManager.clearDirectoryCache(dir.path, false);
+                    } catch (error) {
+                        console.error(`Failed to clear metadata cache for ${dir.path}:`, error);
+                    }
+                }
+                try {
+                    await window.electronAPI.clearThumbnailCache();
+                } catch (error) {
+                    console.error('Failed to clear thumbnail cache:', error);
+                }
+            }
+            // Revoke in-memory blob URLs so stale thumbnails can't be served.
+            thumbnailManager.clearAllUrls();
+
+            // ── 2. Semantic vectors: coordinator (worker memory + IndexedDB
+            //    store) when it exists or the feature is enabled; direct store
+            //    clear otherwise (the module may be unusable when disabled).
+            try {
+                if (__semanticCoordinator) {
+                    await __semanticCoordinator.clearIndex();
+                } else if (isSemanticSearchEnabled()) {
+                    const coordinator = await getSemanticCoordinator();
+                    await coordinator.clearIndex();
+                } else {
+                    await clearSemanticVectorsStore();
+                }
+                set({ semanticIndexedCount: 0, semanticLastError: null });
+            } catch (error) {
+                console.error('Failed to clear semantic vectors:', error);
+            }
+
+            // ── 3. Surgical annotation rewrite — keep user data (favorites,
+            //    manual tags, addedAt), zero the 9 derived fields. Zeroing
+            //    searchTagVersion re-opens the auto-tag enrichment gate and
+            //    the stack/similarity flags re-open those pipeline gates, so
+            //    the post-rescan pipeline genuinely reprocesses every image.
+            const updatedAnnotations: ImageAnnotations[] = [];
+            const newAnnotations = new Map(state.annotations);
+            const now = Date.now();
+            for (const [imageId, annotation] of state.annotations) {
+                const hasDerived = (annotation.autoTags?.length ?? 0) > 0
+                    || !!annotation.isAutoTagged
+                    || (annotation.synonymTags?.length ?? 0) > 0
+                    || annotation.searchTagVersion !== undefined
+                    || (annotation.metadataTags?.length ?? 0) > 0
+                    || annotation.stackGroupId !== undefined
+                    || !!annotation.isStackAnalyzed
+                    || annotation.similarityGroupId !== undefined
+                    || !!annotation.isSimilarityAnalyzed;
+                if (!hasDerived) continue; // already clean — skip the write
+
+                const updated: ImageAnnotations = {
+                    imageId: annotation.imageId,
+                    isFavorite: annotation.isFavorite,   // KEEP
+                    tags: annotation.tags ?? [],        // KEEP — manual tags
+                    autoTags: [],                       // CLEAR
+                    isAutoTagged: false,                // CLEAR
+                    synonymTags: [],                    // CLEAR
+                    searchTagVersion: undefined,        // CLEAR — enrichment gate
+                    metadataTags: [],                   // CLEAR — re-extracted on rescan
+                    stackGroupId: undefined,            // CLEAR — re-stack
+                    isStackAnalyzed: false,             // CLEAR
+                    similarityGroupId: undefined,       // CLEAR — re-group
+                    isSimilarityAnalyzed: false,        // CLEAR
+                    addedAt: annotation.addedAt,        // KEEP
+                    updatedAt: now,                     // bump
+                };
+                updatedAnnotations.push(updated);
+                newAnnotations.set(imageId, updated);
+            }
+            if (updatedAnnotations.length > 0) {
+                try {
+                    await bulkSaveAnnotations(updatedAnnotations);
+                } catch (error) {
+                    console.error('Failed to save cleared annotations:', error);
+                }
+            }
+
+            // ── 4. In-memory state: re-apply annotations to images + filters.
+            //    (Same shape as loadAnnotations — applyAnnotationsToImages
+            //    re-merges the zeroed annotation onto each IndexedImage.)
+            set(state => {
+                const newState = {
+                    ...state,
+                    annotations: newAnnotations,
+                    images: applyAnnotationsToImages(state.images, newAnnotations),
+                };
+                return { ...newState, ...filterAndSort(newState) };
+            });
+            await get().refreshAvailableTags();
+
+            console.log(`[Reprocess] Cleared derived data for ${updatedAnnotations.length} images`);
         },
 
         flushPendingImages: () => {
