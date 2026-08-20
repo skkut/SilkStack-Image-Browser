@@ -3667,6 +3667,15 @@ export const useImageStore = create<ImageState>((set, get) => {
             const state = get();
             const { images, annotations } = state;
 
+            // Premium gate: stacking is an AI feature — without a valid
+            // license nothing here may run. (The aiBridge factory also
+            // returns null, but the gate must be explicit and testable at
+            // this layer — defense in depth.)
+            if (!isAiFeaturesEnabled()) {
+                console.log('[Stacks] Premium not enabled — skipping stack sync');
+                return;
+            }
+
             // Prevent concurrent runs (module-level guard — survives state updates)
             if (__syncInProgress) return;
 
@@ -4136,6 +4145,14 @@ export const useImageStore = create<ImageState>((set, get) => {
         computeSimilarityGroups: async () => {
             const state = get();
             const { images, annotations } = state;
+
+            // Premium gate: similarity grouping is an AI feature — skip
+            // BEFORE any progress reporting so non-premium users never see
+            // a "Loading similarity engine..." flash for work that can't run.
+            if (!isAiFeaturesEnabled()) {
+                console.log('[SimilarityGroups] Premium not enabled — skipping similarity computation');
+                return;
+            }
 
             // Prevent concurrent runs (module-level guard — survives state updates)
             if (__similaritySyncInProgress) {
