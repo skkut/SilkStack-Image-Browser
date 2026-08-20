@@ -46,6 +46,32 @@ const getIsElectron = () => {
   return isElectron;
 };
 
+/**
+ * Pure decision helper for the empty-listing bail-out in loadDirectory.
+ * A directory scan can come back empty for two very different reasons:
+ *   (a) the drive is unreachable (offline network share, unplugged disk), or
+ *   (b) the folder is genuinely empty.
+ * In case (a) the in-memory images must be PRESERVED — the reconnect rescan
+ * reconciles later; wiping here would silently empty the library.
+ *
+ * Returns true when the load should be SKIPPED without clearing images:
+ *   - files were found                    → false (normal path)
+ *   - probe says the directory is gone    → true  (preserve images)
+ *   - reachable, but the cache has images → true  (transient listing
+ *                                            failure — same preserve rule)
+ *   - reachable and no cache              → false (genuinely empty — proceed,
+ *                                            which clears stale images)
+ */
+export function shouldSkipLoadDueToOffline(params: {
+  fileCount: number;
+  cachedImageCount: number;
+  probeConnected: boolean;
+}): boolean {
+  if (params.fileCount > 0) return false;
+  if (!params.probeConnected) return true;
+  return params.cachedImageCount > 0;
+}
+
 // Global cache for file data to avoid Zustand serialization issues
 const fileDataCache = new Map<string, Uint8Array>();
 
@@ -582,19 +608,12 @@ export function useImageLoader() {
     };
   }, []);
 
-  const finalizeDirectoryLoad = useCallback(
+  const finalizeDirectoryLoadCore = useCallback(
     async (
       directory: Directory,
-      options: { suppressIndexingState?: boolean } = {},
+      suppressIndexingState: boolean,
     ) => {
-      const suppressIndexingState = options.suppressIndexingState ?? false;
-
-      // Prevent multiple finalizations for the same directory
       const finalizationKey = `finalized_${directory.id}`;
-      if ((window as any)[finalizationKey]) {
-        return;
-      }
-      (window as any)[finalizationKey] = true;
 
       // Flush any pending batched image inserts before final counts
       const flushPending = useImageStore.getState().flushPendingImages;
@@ -680,6 +699,40 @@ export function useImageLoader() {
       setProgress,
       setDirectoryRefreshing,
       scheduleGlobalFilterRefresh,
+    ],
+  );
+
+  const finalizeDirectoryLoad = useCallback(
+    async (
+      directory: Directory,
+      options: { suppressIndexingState?: boolean } = {},
+    ) => {
+      const suppressIndexingState = options.suppressIndexingState ?? false;
+
+      // Prevent multiple finalizations for the same directory.
+      // The key is deleted in a finally, so a stale key (e.g. left behind
+      // when a previous run's 3 s completion window was interrupted) can
+      // never permanently block later finalizations — the old code also
+      // skipped the refreshing reset here, leaving directories stuck on
+      // "refreshing" forever after a reprocess.
+      const finalizationKey = `finalized_${directory.id}`;
+      if ((window as any)[finalizationKey]) {
+        delete (window as any)[finalizationKey];
+        setDirectoryRefreshing(directory.id, false);
+        setProgress(null);
+        return;
+      }
+      (window as any)[finalizationKey] = true;
+      try {
+        await finalizeDirectoryLoadCore(directory, suppressIndexingState);
+      } finally {
+        delete (window as any)[finalizationKey];
+      }
+    },
+    [
+      setDirectoryRefreshing,
+      setProgress,
+      finalizeDirectoryLoadCore,
     ],
   );
 
@@ -825,6 +878,7 @@ export function useImageLoader() {
       isUpdate: boolean,
       refreshPath?: string,
       skipPermissionUpdate = false,
+      options: { awaitEnrichment?: boolean; suppressPipelineTrigger?: boolean } = {},
     ) => {
       console.log(
         `[loadDirectory] Starting for ${directory.name}, isUpdate: ${isUpdate}, refreshPath: ${refreshPath || "full"}, skipPermissionUpdate: ${skipPermissionUpdate}`,
@@ -897,14 +951,31 @@ export function useImageLoader() {
           shouldScanSubfolders,
         );
 
-        // Safeguard: if the directory listing came back empty but the cache
-        // has previously indexed this directory, the drive may be temporarily
-        // inaccessible (network reconnect, disk spin-up).  Bail out without
-        // deleting any images — the 5 s polling loop will retry later.
+        // Safeguard: if the directory listing came back empty, the drive may
+        // be temporarily inaccessible (network reconnect, disk spin-up) — or
+        // the folder may genuinely be empty. Probe the connection before
+        // deciding (see shouldSkipLoadDueToOffline): an unreachable directory
+        // preserves its in-memory images and bails out WITHOUT deleting them;
+        // the reconnect rescan / pending-reprocess flow reloads later.
         if (allCurrentFiles.length === 0) {
-          const cached = await cacheManager.getCachedData(directory.path, shouldScanSubfolders);
-          if (cached && cached.imageCount > 0) {
-            console.warn(`[loadDirectory] Directory ${directory.name} returned 0 files but cache has ${cached.imageCount} — drive may be disconnected, skipping sync`);
+          let probeConnected = true;
+          let cachedImageCount = 0;
+          if (getIsElectron()) {
+            const cached = await cacheManager.getCachedData(directory.path, shouldScanSubfolders);
+            cachedImageCount = cached?.imageCount ?? 0;
+            try {
+              const probe = await window.electronAPI.checkDirectoryConnection(directory.path);
+              probeConnected = probe?.isConnected ?? false;
+            } catch {
+              probeConnected = false; // the probe itself failed → treat as offline
+            }
+          }
+          if (shouldSkipLoadDueToOffline({
+            fileCount: allCurrentFiles.length,
+            cachedImageCount,
+            probeConnected,
+          })) {
+            console.warn(`[loadDirectory] Directory ${directory.name} returned 0 files${probeConnected ? ` but cache has ${cachedImageCount}` : " and is unreachable"} — skipping sync, images preserved`);
             if (suppressIndexingState) {
               setDirectoryRefreshing(directory.id, false);
               setProgress(null);
@@ -1065,6 +1136,12 @@ export function useImageLoader() {
 
         const handleEnrichmentBatch = (batch: IndexedImage[]) => {
           mergeImages(batch);
+          // Data quality: the addImages → flushPendingImages path imports
+          // metadataTags, but the merge path above dropped them — so after a
+          // reprocess every image's metadataTags was empty. Import them
+          // explicitly so auto-tag and semantic indexing see the real
+          // metadata (prompt-derived tags feed both phases).
+          void useImageStore.getState().importMetadataTags(batch);
         };
 
         const handleEnrichmentProgress = (
@@ -1122,13 +1199,17 @@ export function useImageLoader() {
             },
           );
 
-          phaseB
+          const phaseBContinuation = phaseB
             .then(() => {
               console.log('[Indexing] Phase B enrichment complete — triggering post-indexing pipeline');
               // Run the unified pipeline AFTER enrichment completes, so
               // images have their prompt/model metadata populated before
-              // stacking and similarity grouping run.
-              useImageStore.getState().processPostIndexingPipeline();
+              // stacking and similarity grouping run. Sequential callers
+              // (reprocess, reconnect) suppress this — they run one round
+              // for ALL directories instead of one per directory.
+              if (!options.suppressPipelineTrigger) {
+                useImageStore.getState().processPostIndexingPipeline();
+              }
               // Keep the progress bar visible for 2 seconds after completion
               setTimeout(() => setEnrichmentProgress(null), 2000);
             })
@@ -1136,10 +1217,20 @@ export function useImageLoader() {
               console.error("Phase B enrichment failed", err);
               // Still attempt pipeline on partial enrichment — some images
               // may have been enriched successfully.
-              useImageStore.getState().processPostIndexingPipeline();
+              if (!options.suppressPipelineTrigger) {
+                useImageStore.getState().processPostIndexingPipeline();
+              }
               // Keep error visible for 2 seconds
               setTimeout(() => setEnrichmentProgress(null), 2000);
             });
+
+          // Callers that need enrichment fully finished before proceeding
+          // (sequential reprocess / reconnect) await the continuation — the
+          // normal watcher path stays fire-and-forget. Errors are already
+          // handled above, so don't let a rejection escape.
+          if (options.awaitEnrichment) {
+            await phaseBContinuation.catch(() => {});
+          }
 
           if (!shouldCancelIndexing(suppressIndexingState)) {
             finalizeDirectoryLoad(directory, { suppressIndexingState });

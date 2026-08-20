@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useImageStore } from './store/useImageStore';
+import { useImageStore, runPipelineRound } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
@@ -34,6 +34,7 @@ import SimilarityStackExpandedView from './components/SimilarityStackExpandedVie
 import { normalizePath } from './utils/pathUtils';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
+import { processingQueue } from './services/processingQueue';
 
 export default function App() {
   // Runtime gate: AI features (Stacks view, smart stacking, auto-tag)
@@ -309,6 +310,10 @@ export default function App() {
   // persistent — if annotations load after indexing, the pipeline fires
   // when both conditions are met.
   const pipelineStartedRef = useRef(false);
+  // Directories whose watcher died because the drive vanished (USB pull,
+  // network drop). Transient (not persisted): the 5 s connection poll picks
+  // up the reconnect and runs the reconnect flow for them.
+  const watcherErrorPendingRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (isAnnotationsLoaded && indexingState === 'idle' && !pipelineStartedRef.current) {
       pipelineStartedRef.current = true;
@@ -525,31 +530,6 @@ export default function App() {
   // final semantic index so search embeds the fresh tags and synonyms.
   const [reprocessing, setReprocessing] = useState(false);
 
-  // Sustained-idle poll: the pipeline runs fire-and-forget (phaseB.then) with
-  // a 500ms queued re-run gap, and finalizeDirectoryLoad lingers ~100ms — so
-  // require 3 consecutive idle polls (~1s) before reporting quiescence.
-  const waitForReprocessIdle = useCallback(async (timeoutMs = 30 * 60 * 1000): Promise<boolean> => {
-    const deadline = Date.now() + timeoutMs;
-    let idleStreak = 0;
-    while (Date.now() < deadline) {
-      const s = useImageStore.getState();
-      const busy = s.indexingState === 'indexing'
-        || s.enrichmentProgress !== null
-        || s.pipelinePhase !== null
-        || s.semanticIndexProgress !== null
-        || s.isAutoTagging
-        || s.refreshingDirectories.size > 0;
-      if (!busy) {
-        idleStreak += 1;
-        if (idleStreak >= 3) return true;
-      } else {
-        idleStreak = 0;
-      }
-      await new Promise(r => setTimeout(r, 350));
-    }
-    return false;
-  }, []);
-
   const handleReprocessImages = useCallback(async () => {
     const dirs = useImageStore.getState().directories;
     if (dirs.length === 0) {
@@ -560,6 +540,15 @@ export default function App() {
     // 1. Silence watchers BEFORE the wipe — an onNewImagesDetected event
     //    mid-reload would appendToCache (resurrecting cache chunks) and fire
     //    the pipeline against half-cleared state.
+    const restartWatchers = async () => {
+      if (window.electronAPI) {
+        for (const dir of useImageStore.getState().directories) {
+          if (dir.autoWatch) {
+            await window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path }).catch(() => {});
+          }
+        }
+      }
+    };
     if (window.electronAPI) {
       for (const dir of dirs) {
         if (dir.autoWatch) {
@@ -568,63 +557,90 @@ export default function App() {
       }
     }
 
+    // 2. Nothing else may be mid-flight — the wipe refuses while a round
+    //    runs, and this check gives a clearer message than the throw.
+    if (!processingQueue.isIdle()) {
+      const settled = await processingQueue.waitForIdle(60 * 1000);
+      if (!settled) {
+        alert('Another processing run is still active — wait for it to finish, then try again.');
+        await restartWatchers();
+        return;
+      }
+    }
+
     setReprocessing(true);
     try {
-      // 2. Wipe all derived data (throws if a scan/pipeline/semantic run is
-      //    in flight; the Settings button is also disabled while busy).
-      await useImageStore.getState().clearDerivedImageData();
+      // 3. ONE queued job = the entire sequential reprocess. Every step
+      //    inside runs strictly one after another, with the Footer showing
+      //    the phase progress (1/4…4/4) as the final round advances.
+      await processingQueue.enqueue(async () => {
+        // 3a. Wipe all derived data (caches, thumbnails, semantic vectors,
+        //     auto-tags, stack/similarity groups) — user data, folders and
+        //     the license survive.
+        await useImageStore.getState().clearDerivedImageData();
 
-      // 3. Suppress the startup pipeline effect (above) — it must not
-      //    double-fire if this happens before its first run.
-      pipelineStartedRef.current = true;
+        // 3b. Suppress the startup pipeline effect — the round below is the
+        //     authoritative run.
+        pipelineStartedRef.current = true;
 
-      // 4. Full reload of every folder, sequentially. Caches are gone, so
-      //    validateCacheAndGetDiff reports everything as new → full
-      //    re-catalog + re-enrichment. loadDirectory resolves after Phase A;
-      //    Phase B enrichment and the pipeline auto-fire in the background
-      //    (useImageLoader's phaseB.then). NEVER call the pipeline here:
-      //    stacking un-enriched stubs would permanently poison stack
-      //    membership (isStackAnalyzed with no stackGroupId = "intentional
-      //    unmerge", skipped forever by computeSimilarityGroups).
-      for (const dir of dirs) {
-        await loadDirectory(dir, true, undefined, true);
-      }
+        // 3c. Probe every directory: ONLINE dirs reload now (caches are
+        //     gone, so everything re-catalogs + re-enriches); OFFLINE dirs
+        //     keep their in-memory images, get flagged reprocess-pending,
+        //     and are processed automatically once reconnected.
+        const onlineDirs: Directory[] = [];
+        const offlineDirs: Directory[] = [];
+        if (window.electronAPI) {
+          for (const dir of dirs) {
+            try {
+              const probe = await window.electronAPI.checkDirectoryConnection(dir.path);
+              if (probe?.isConnected) onlineDirs.push(dir);
+              else offlineDirs.push(dir);
+            } catch {
+              offlineDirs.push(dir);
+            }
+          }
+        } else {
+          onlineDirs.push(...dirs); // browser fallback: no connection concept
+        }
+        for (const dir of offlineDirs) {
+          useImageStore.getState().markReprocessPending(dir.id, true);
+        }
 
-      // 5. Wait for enrichment + the automatic pipeline (stacking →
-      //    similarity → semantic Δ; the wiped vector store makes the Δ a
-      //    full re-embed).
-      const pipelineSettled = await waitForReprocessIdle();
+        // 3d. Reload each online folder sequentially, AWAITING full
+        //     enrichment (awaitEnrichment) and suppressing the per-dir
+        //     pipeline fire (one round for the whole library comes after).
+        for (const dir of onlineDirs) {
+          await loadDirectory(dir, true, undefined, true, {
+            awaitEnrichment: true,
+            suppressPipelineTrigger: true,
+          });
+        }
 
-      // 6. Auto-tag BEFORE the final semantic index — the index text embeds
-      //    auto-tags + English synonyms, so search becomes more accurate.
-      //    Every image is eligible again (searchTagVersion was cleared); the
-      //    worker's 'complete' handler persists tags and fires the Δ
-      //    re-index. A missing ai-intelligence module makes this a no-op.
-      if (primaryPath) {
-        await startAutoTagging(primaryPath, scanSubfolders);
-        await waitForReprocessIdle(); // auto-tag run + its trailing re-index
-      }
+        // 3e. ONE round for the whole library, in canonical order:
+        //     stacking → similarity → auto-tag → semantic. Raw call — we
+        //     are already inside a queued job (deadlock rule).
+        await runPipelineRound();
+      }, { label: 'reprocess images' });
 
+      // 4. Coarse completion wait — the round's phases may have enqueued
+      //    their own jobs; queue idleness is the true "everything done".
+      const settled = await processingQueue.waitForIdle(30 * 60 * 1000);
+      const pendingCount = useImageStore.getState().directories.filter(d => d.reprocessPending).length;
       setSuccess(
-        pipelineSettled
-          ? 'Library reprocessed: caches rebuilt, stacking/similarity/semantic index refreshed.'
-          : 'Library reprocessed — post-indexing steps are still finishing in the background.'
+        (settled
+          ? 'Library reprocessed: caches rebuilt, stacking/similarity/auto-tag/semantic index refreshed.'
+          : 'Library reprocessed — post-indexing steps are still finishing in the background.')
+        + (pendingCount > 0 ? ` ${pendingCount} offline folder(s) will be processed automatically when reconnected.` : '')
       );
     } catch (error) {
       console.error('Reprocess failed:', error);
       alert(`❌ Reprocess failed: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      // 7. Restore watchers regardless of outcome.
-      if (window.electronAPI) {
-        for (const dir of useImageStore.getState().directories) {
-          if (dir.autoWatch) {
-            await window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path }).catch(() => {});
-          }
-        }
-      }
+      // 5. Restore watchers regardless of outcome.
+      await restartWatchers();
       setReprocessing(false);
     }
-  }, [loadDirectory, waitForReprocessIdle, primaryPath, scanSubfolders, startAutoTagging, setSuccess]);
+  }, [loadDirectory, setSuccess]);
 
   // On mount, load directories stored in localStorage
   useEffect(() => {
@@ -650,7 +666,7 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI) return;
 
-    const unsubscribe = window.electronAPI.onNewImagesDetected(async (data) => {
+    const unsubscribe = window.electronAPI.onNewImagesDetected((data) => {
       const { directoryId, files } = data;
       const normalizedId = normalizePath(directoryId);
       const directory = directories.find(d => normalizePath(d.id) === normalizedId);
@@ -660,15 +676,37 @@ export default function App() {
       // Show toast notification
       setNewImagesToast({ count: files.length, directoryName: directory.name });
 
-      // Processar novos arquivos usando a função do useImageLoader
-      await processNewWatchedFiles(directory, files);
-
-      // Run unified post-indexing pipeline (stacking → similarity)
-      useImageStore.getState().processPostIndexingPipeline();
+      // One queued job per event: catalog + enrichment first, then the
+      // pipeline round. processNewWatchedFiles fires its own pipeline call
+      // internally (queue-coalesced) — the old duplicate fire here caused
+      // double rounds. The global queue serializes events, so a burst of
+      // concurrent drops processes one at a time instead of racing (and
+      // freezing) the UI.
+      processingQueue.enqueue(
+        () => processNewWatchedFiles(directory, files),
+        { label: `watcher: ${files.length} new images in ${directory.name}` },
+      );
     });
 
     return () => unsubscribe();
   }, [directories, processNewWatchedFiles, sortOrder]);
+
+  // Watcher errors: a watched folder whose drive vanished stops watching.
+  // Mark it offline + transient-pending; the 5 s poll detects the reconnect
+  // and runs the reconnect flow (re-catalog + one full round + watcher
+  // restart). Do NOT restart the watcher here — the drive is gone.
+  useEffect(() => {
+    if (!window.electronAPI?.onWatcherError) return;
+    const unsubscribe = window.electronAPI.onWatcherError(({ directoryId, error }) => {
+      console.warn(`[App] Watcher error for ${directoryId}: ${error}`);
+      const normalizedId = normalizePath(directoryId);
+      const dir = useImageStore.getState().directories.find(d => normalizePath(d.id) === normalizedId);
+      if (!dir) return;
+      watcherErrorPendingRef.current.add(dir.id);
+      useImageStore.getState().updateDirectoryStatus(dir.id, false);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Listen for deleted images from file watcher
   useEffect(() => {
@@ -833,20 +871,70 @@ export default function App() {
     }
   }, [selectedImage, safeDirectories, setSelectedImage]);
 
+  // Reconnect flow: a previously-offline directory (reprocess-pending, or its
+  // watcher errored) is back. ONE queued job re-catalogs it from scratch
+  // (its caches are stale — the drive's contents may have changed while it
+  // was away), awaits full enrichment, then runs one full pipeline round.
+  // Pending flags clear only AFTER a successful load — if the drive drops
+  // again mid-load, the next reconnect retries.
+  const handleDirectoryReconnected = useCallback(async (dir: Directory) => {
+    await processingQueue.enqueue(async () => {
+      // Re-probe inside the job: a false→true transition may have been a
+      // poll glitch — if it's gone again, bail and keep the pending flags.
+      if (window.electronAPI) {
+        try {
+          const probe = await window.electronAPI.checkDirectoryConnection(dir.path);
+          if (!probe?.isConnected) return;
+        } catch {
+          return;
+        }
+      }
+
+      try {
+        await cacheManager.clearDirectoryCache(dir.path, true);
+        await cacheManager.clearDirectoryCache(dir.path, false);
+      } catch (err) {
+        console.warn(`[Reconnect] Failed to clear caches for ${dir.name}:`, err);
+      }
+
+      await loadDirectory(dir, true, undefined, true, {
+        awaitEnrichment: true,
+        suppressPipelineTrigger: true,
+      });
+      await runPipelineRound();
+
+      // Success — clear the deferred state and restart the watcher the
+      // vanished drive took down with it.
+      useImageStore.getState().markReprocessPending(dir.id, false);
+      watcherErrorPendingRef.current.delete(dir.id);
+      if (dir.autoWatch && window.electronAPI) {
+        window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path }).catch((err) => {
+          console.error(`Failed to restart watcher for ${dir.path}:`, err);
+        });
+      }
+    }, { label: `reconnected directory ${dir.name}` });
+  }, [loadDirectory]);
+
   // Poll for directory connection status (for removable storage)
   useEffect(() => {
     if (!window.electronAPI) return;
 
     const checkConnections = async () => {
         const { directories, updateDirectoryStatus } = useImageStore.getState();
-        
+
         for (const dir of directories) {
             try {
                 const result = await window.electronAPI.checkDirectoryConnection(dir.path);
-                
+
                 // Only update if status changed (handled by store action to avoid redundant re-renders)
                 if (dir.isConnected !== result.isConnected) {
                     updateDirectoryStatus(dir.id, result.isConnected);
+
+                    // false → true AND something was deferred while offline:
+                    // run the reconnect flow (queued, sequential).
+                    if (result.isConnected && (dir.reprocessPending || watcherErrorPendingRef.current.has(dir.id))) {
+                        void handleDirectoryReconnected(dir);
+                    }
                 }
             } catch (e) {
                 console.warn(`Failed to poll connection for ${dir.path}`, e);
@@ -856,12 +944,41 @@ export default function App() {
 
     // Check every 5 seconds
     const intervalId = setInterval(checkConnections, 5000);
-    
+
     // Also run immediately on mount/change
     checkConnections();
 
     return () => clearInterval(intervalId);
-  }, [directories.length]); // Re-setup when directory count changes (added/removed)
+  }, [directories.length, handleDirectoryReconnected]); // Re-setup when directory count changes (added/removed)
+
+  // Pending-reprocess restore on startup: folders that were offline during a
+  // reprocess persist their pending ids; re-mark them and immediately process
+  // the ones already reachable — no false→true transition will ever fire for
+  // a directory that has been connected all along.
+  useEffect(() => {
+    if (directories.length === 0) return;
+    let pendingIds: string[] = [];
+    try {
+      const raw = localStorage.getItem('image-metahub-reprocess-pending');
+      pendingIds = raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      pendingIds = [];
+    }
+    if (!Array.isArray(pendingIds) || pendingIds.length === 0) return;
+
+    const store = useImageStore.getState();
+    for (const dir of store.directories) {
+      if (!pendingIds.includes(dir.id)) continue;
+      store.markReprocessPending(dir.id, true);
+      if (window.electronAPI) {
+        window.electronAPI.checkDirectoryConnection(dir.path)
+          .then((probe) => {
+            if (probe?.isConnected) void handleDirectoryReconnected(dir);
+          })
+          .catch(() => {});
+      }
+    }
+  }, [directories.length, handleDirectoryReconnected]);
 
 
   // --- Memoized Callbacks for UI ---

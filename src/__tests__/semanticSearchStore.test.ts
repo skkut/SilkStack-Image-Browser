@@ -651,10 +651,12 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
 
     const iStacking = phases.indexOf('stacking');
     const iSimilarity = phases.indexOf('similarity');
+    const iAutoTag = phases.indexOf('autoTag');
     const iSemantic = phases.indexOf('semantic');
     expect(iStacking).toBeGreaterThan(-1);
     expect(iSimilarity).toBeGreaterThan(iStacking);
-    expect(iSemantic).toBeGreaterThan(iSimilarity);
+    expect(iAutoTag).toBeGreaterThan(iSimilarity);
+    expect(iSemantic).toBeGreaterThan(iAutoTag);
     expect(coordinatorMock.ensureInitialized).toHaveBeenCalledTimes(1);
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
@@ -692,21 +694,22 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
   });
 
   it('queues a second indexImages run while one is in progress', async () => {
-    vi.useFakeTimers();
     let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
 
     const store = useImageStore.getState();
     const p1 = store.semanticIndexImages();
-    const p2 = store.semanticIndexImages(); // in-progress guard → queued
-    await flush(); // let p1 reach the coordinator (dynamic import + init)
+    await flush(); // let p1 become the RUNNING queue job (dynamic import + init)
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+
+    // A running job does NOT swallow a new enqueue — it is appended.
+    const p2 = store.semanticIndexImages();
+    await flush();
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); // still waiting its turn
 
     resolveIndex({ indexed: 1, skipped: 0 });
     await p1;
     await p2;
-
-    await vi.advanceTimersByTimeAsync(600); // queued re-run (500ms)
     await flush();
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
   });
@@ -932,20 +935,21 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
   });
 
   it('replays a queued force request (clear still happens before the second run)', async () => {
-    vi.useFakeTimers();
     let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
 
     // First run hangs mid-embed…
     const first = useImageStore.getState().semanticIndexImages();
+    await flush(); // let it become the RUNNING queue job
+    // …a force arrives while it is in flight → appended with the force flag.
+    const second = useImageStore.getState().semanticIndexImages({ force: true });
     await flush();
-    // …a force arrives while it is in flight → queued with the force flag.
-    await useImageStore.getState().semanticIndexImages({ force: true });
-    expect(coordinatorMock.clearIndex).not.toHaveBeenCalled();
+    expect(coordinatorMock.clearIndex).not.toHaveBeenCalled(); // force is deferred
 
     resolveFirst({ indexed: 1, skipped: 0 });
     await first;
-    await vi.advanceTimersByTimeAsync(600); // queued replay (500 ms)
+    await second;
+    await flush();
 
     expect(coordinatorMock.clearIndex).toHaveBeenCalledTimes(1);
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2);
@@ -993,15 +997,14 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
   });
 
   it('cancelSemanticIndexing clears the bar, drops a queued replay, and aborts the coordinator', async () => {
-    vi.useFakeTimers();
     let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
 
     // A run hangs mid-embed…
     const run = useImageStore.getState().semanticIndexImages();
     await flush();
-    // …a second invocation is queued…
-    await useImageStore.getState().semanticIndexImages();
+    // …a second invocation is queued behind it…
+    const queued = useImageStore.getState().semanticIndexImages();
     useImageStore.setState({ semanticIndexProgress: { current: 1, total: 4, message: 'embedding' } });
 
     // …then the user cancels: bar clears, queue drops, coordinator aborts.
@@ -1011,7 +1014,8 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
 
     resolveIndex({ indexed: 1, skipped: 0 });
     await run;
-    await vi.advanceTimersByTimeAsync(600); // queued replay (500 ms) must NOT fire
+    await queued; // dropped jobs resolve as no-ops
+    await flush();
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
 });
@@ -1042,7 +1046,6 @@ describe('applySemanticEmbeddingModel (Settings model switch)', () => {
   });
 
   it('cancels a hanging run before disposing; the deferred force replay still re-indexes', async () => {
-    vi.useFakeTimers();
     useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
     let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveFirst = r; }));
@@ -1059,10 +1062,9 @@ describe('applySemanticEmbeddingModel (Settings model switch)', () => {
       .toBeLessThan(coordinatorMock.dispose.mock.invocationCallOrder[0]);
     expect(coordinatorMock.clearIndex).not.toHaveBeenCalled(); // force is deferred
 
-    // …and the queued force replay (500 ms) still clears + re-indexes.
+    // …the queued force run still clears + re-indexes once the hang settles.
     resolveFirst({ indexed: 1, skipped: 0 });
     await first;
-    await vi.advanceTimersByTimeAsync(600);
     await apply;
     await flush();
 

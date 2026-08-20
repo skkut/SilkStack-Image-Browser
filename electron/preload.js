@@ -171,6 +171,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('images-deleted', subscription);
     return () => ipcRenderer.removeListener('images-deleted', subscription);
   },
+  onWatcherError: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('watcher-error', subscription);
+    return () => ipcRenderer.removeListener('watcher-error', subscription);
+  },
   onWatcherDebug: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('watcher-debug', subscription);

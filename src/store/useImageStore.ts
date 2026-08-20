@@ -20,6 +20,7 @@ import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../servic
 import cacheManager from '../services/cacheManager';
 import { thumbnailManager } from '../services/thumbnailManager';
 import { clearSemanticVectorsStore } from '../services/indexedDb';
+import { processingQueue } from '../services/processingQueue';
 
 // Search-enrichment idempotency gate (mirrors SEARCH_ENRICHMENT_VERSION in
 // the ai-intelligence worker — that module is the source of truth). An image
@@ -51,8 +52,11 @@ const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
 let __syncInProgress = false;
 let __similaritySyncInProgress = false;
 let __similaritySyncQueued = false;
-let __pipelineInProgress = false;
-let __pipelineQueued = false;
+// Pipeline + semantic serialization now live in processingQueue (the global
+// sequencer) — the queue guarantees one phase-set at a time app-wide, so the
+// old in-progress/queued setTimeout-replay flags are gone. syncNewImagesToStacks
+// and computeSimilarityGroups keep their own guards because they can also be
+// invoked directly (not only through the round).
 
 // ── Semantic search (Phase 5) ──────────────────────────────────────────
 // Debounce window for runSemanticSearch — coalesces keystrokes so the
@@ -64,15 +68,15 @@ const SEMANTIC_SEARCH_DEBOUNCE_MS = 300;
 // swallow a user-cancelled run without surfacing it as a failure.
 const SEMANTIC_INDEX_CANCELLED = 'Semantic indexing cancelled by user';
 
-// Module-level guards — same rationale as the pipeline guards above
-// (Zustand's get() returns a fresh snapshot after every set(), so
-// state-attached flags would be invisible to concurrent calls).
-let __semanticIndexInProgress = false;
-let __semanticIndexQueued = false;
 // A force (Settings → Re-index) requested while a run is in flight — the
-// queued replay must also clear the index or the rebuild silently degrades
-// to a Δ run.
+// queued run must also clear the index or the rebuild silently degrades
+// to a Δ run. Survives coalescing into a pending non-force job.
 let __semanticIndexQueuedForce = false;
+// Auto-tag in-flight bookkeeping: the run's promise (resolved on 'complete'/
+// 'error'/cancel) lets callers await the run — the round awaits it before its
+// semantic phase. Module-scoped for the same reason as the guards above.
+let __autoTagInFlight: Promise<void> | null = null;
+let __autoTagResolve: (() => void) | null = null;
 let __semanticSearchTimer: ReturnType<typeof setTimeout> | null = null;
 // Monotonic sequence for latest-query-wins: results from a superseded
 // search (or a search invalidated by clearSemanticSearch) are discarded.
@@ -143,6 +147,137 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
     }
     return __semanticCoordinator;
 };
+
+/**
+ * RAW semantic Δ-index run — the implementation behind the queue-wrapped
+ * `semanticIndexImages` action. Call this directly from inside queued jobs
+ * (the pipeline round): awaiting the wrapped action there would deadlock
+ * (FIFO — the semantic job can't start until the outer job finishes).
+ * Only images whose textHash changed get embedded.
+ */
+export async function runSemanticIndexNow(options?: { force?: boolean }): Promise<void> {
+    if (!isSemanticSearchEnabled()) {
+        console.log('[SemanticIndex] Semantic search disabled — skipping');
+        return;
+    }
+
+    if (!useImageStore.getState().isAnnotationsLoaded) {
+        console.log('[SemanticIndex] Annotations not yet loaded — deferring');
+        return;
+    }
+
+    try {
+        const coordinator = await getSemanticCoordinator();
+        if (options?.force || __semanticIndexQueuedForce) {
+            __semanticIndexQueuedForce = false;
+            await coordinator.clearIndex();
+        }
+        // Δ-only: the coordinator computes the delta BEFORE loading the
+        // embed model, so a fully-indexed library costs zero model load —
+        // startup runs finish instantly instead of loading WebGPU models for
+        // no work.
+        // Split each image's index text into its weighted segments — the
+        // module now weights auto-tags (0.9) separately from manual +
+        // metadata tags (0.8), so the merged IndexedImage.tags can't be
+        // passed whole. Images never annotated fall back to their stored tags.
+        const { images, annotations } = useImageStore.getState();
+        const payload = images.map(img => {
+            const ann = annotations.get(img.id);
+            return {
+                id: img.id,
+                prompt: img.prompt,
+                tags: ann ? [...(ann.tags ?? []), ...(ann.metadataTags ?? [])] : (img.tags ?? []),
+                autoTags: ann?.autoTags ?? img.autoTags ?? [],
+                synonyms: img.synonymTags ?? [],
+            };
+        });
+        const result = await coordinator.indexImages(payload);
+        const status = coordinator.getStatus(); // authoritative persisted count
+        useImageStore.setState({ semanticIndexedCount: status.indexed, semanticLastError: null });
+        console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);
+    } catch (error) {
+        if (error instanceof Error && error.message === SEMANTIC_INDEX_CANCELLED) {
+            // User cancel — a normal outcome, not an error.
+            console.log('[SemanticIndex] Indexing cancelled by user');
+        } else {
+            // A missing module lands here — report but don't fail the
+            // pipeline.
+            console.error('[SemanticIndex] Indexing failed:', error);
+            useImageStore.setState({ semanticLastError: error instanceof Error ? error.message : String(error) });
+        }
+    } finally {
+        // Always close the progress bar — success, failure, or cancel.
+        // Without this the bar sticks at the last progress event
+        // (e.g. "100/100 — Finish loading on WebGPU") forever.
+        useImageStore.getState().setSemanticIndexProgress(null);
+    }
+}
+
+/**
+ * RAW pipeline round — the implementation behind the queue-wrapped
+ * `processPostIndexingPipeline` action. One strictly sequential round:
+ *
+ *   Phase 1/4 — stacking (exact prompt hashing → stackGroupId)
+ *   Phase 2/4 — similarity grouping (semantic clustering)
+ *   Phase 3/4 — auto-tagging (AI enrichment, LIBRARY scope)
+ *   Phase 4/4 — semantic search indexing (textHash Δ → semanticVectors)
+ *
+ * Auto-tag sits between similarity and semantic so enrichment results feed
+ * both downstream phases — and so it always completes before the semantic
+ * index consumes tag changes. Only images that actually need each phase
+ * (e.g. un-stacked images, changed textHashes) do work — an idle round is
+ * cheap.
+ *
+ * Called from INSIDE queued jobs (reprocess, watcher events, reconnect):
+ * awaiting the queue-wrapped `processPostIndexingPipeline` action here
+ * would deadlock (FIFO — the pipeline job can't start until the outer job
+ * finishes), so the raw function is what queued jobs await. `pipelinePhase`
+ * drives the Footer's "Phase N/4" label one phase at a time.
+ */
+export async function runPipelineRound(): Promise<void> {
+    const store = useImageStore.getState();
+
+    if (!store.isAnnotationsLoaded) {
+        console.log('[Pipeline] Annotations not yet loaded — deferring (will retry on next trigger)');
+        return;
+    }
+
+    try {
+        // Phase 1: Exact-prompt hash stacking (syncNewImagesToStacks)
+        // Only processes images where isStackAnalyzed is false.
+        console.log('[Pipeline] Phase 1/4: Prompt stacking (exact-match hashing)...');
+        store.setPipelinePhase('stacking');
+        await store.syncNewImagesToStacks();
+
+        // Phase 2: Semantic similarity grouping
+        // Only processes images where isSimilarityAnalyzed is false
+        // (or where similarityGroupId was never assigned by the engine).
+        console.log('[Pipeline] Phase 2/4: Similarity grouping (semantic clustering)...');
+        store.setPipelinePhase('similarity');
+        await store.computeSimilarityGroups();
+
+        // Phase 3: Auto-tagging — library scope so it covers images outside
+        // the current view (the view-scoped default only ever saw what the
+        // user was looking at, which is why reprocess never tagged anything).
+        console.log('[Pipeline] Phase 3/4: Auto-tagging (library scope)...');
+        store.setPipelinePhase('autoTag');
+        await store.startAutoTagging('', false, { scope: 'library' });
+
+        // Phase 4: Semantic search indexing (§8.3) — raw call, see above.
+        // Δ by textHash — only images missing a vector record (or whose
+        // searchable text changed) get embedded. Skipped silently when
+        // semantic search is disabled.
+        console.log('[Pipeline] Phase 4/4: Semantic search indexing...');
+        store.setPipelinePhase('semantic');
+        await runSemanticIndexNow();
+
+        console.log('[Pipeline] All phases complete.');
+    } catch (error) {
+        console.error('[Pipeline] Post-indexing pipeline failed:', error);
+    } finally {
+        useImageStore.getState().setPipelinePhase(null);
+    }
+}
 
 /**
  * Pure §8.2 merge: overlay ranked semantic hits on the synchronous text
@@ -460,7 +595,7 @@ interface ImageState {
   similarityGroupProgress: { current: number; total: number; message: string } | null;
 
   // Pipeline State
-  pipelinePhase: 'idle' | 'stacking' | 'similarity' | 'semantic' | null;
+  pipelinePhase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | null;
 
   // Auto-Tagging State (Phase 3)
 
@@ -495,6 +630,7 @@ interface ImageState {
   addDirectory: (directory: Directory) => void;
   updateDirectoryStatus: (directoryId: string, isConnected: boolean) => void;
   removeDirectory: (directoryId: string) => void;
+  markReprocessPending: (directoryId: string, pending: boolean) => void;
   reorderDirectories: (orderedIds: string[]) => void;
   toggleDirectoryVisibility: (directoryId: string) => void;
   toggleAutoWatch: (directoryId: string) => void;
@@ -569,7 +705,7 @@ interface ImageState {
   setClusters: (clusters: any[]) => void;
   setClusteringProgress: (progress: { current: number; total: number; message: string } | null) => void;
   setSimilarityGroupProgress: (progress: { current: number; total: number; message: string } | null) => void;
-  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'semantic' | null) => void;
+  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | null) => void;
   setSemanticMode: (mode: 'semantic' | 'off') => void;
   runSemanticSearch: (query: string) => Promise<void>;
   clearSemanticSearch: () => void;
@@ -593,7 +729,7 @@ interface ImageState {
   startAutoTagging: (
     directoryPath: string,
     scanSubfolders: boolean,
-    options?: { topN?: number; minScore?: number }
+    options?: { topN?: number; minScore?: number; scope?: 'view' | 'library' }
   ) => Promise<void>;
   cancelAutoTagging: () => void;
   setAutoTaggingProgress: (progress: { current: number; total: number; message: string } | null) => void;
@@ -1560,6 +1696,22 @@ export const useImageStore = create<ImageState>((set, get) => {
             return { ...newState, ...filterAndSort(newState) };
         }),
 
+        // Reprocess Images marks offline dirs as pending — when the drive
+        // reconnects (5s connection poll) the canonical round re-runs for it.
+        // The pending ids survive a restart via localStorage.
+        markReprocessPending: (directoryId, pending) => set(state => {
+            const directories = state.directories.map(dir =>
+                dir.id === directoryId ? { ...dir, reprocessPending: pending } : dir
+            );
+            try {
+                localStorage.setItem(
+                    'image-metahub-reprocess-pending',
+                    JSON.stringify(directories.filter(d => d.reprocessPending).map(d => d.id)),
+                );
+            } catch { /* storage unavailable */ }
+            return { directories };
+        }),
+
         toggleDirectoryVisibility: (directoryId) => set(state => {
             const updatedDirectories = state.directories.map(dir =>
                 dir.id === directoryId ? { ...dir, visible: !(dir.visible ?? true) } : dir
@@ -1819,6 +1971,16 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const baseState = { ...state, directories: newDirectories, selectedFolders: updatedSelection, folderPreferences: updatedPrefs };
                 return _updateState(baseState, newImages);
             });
+
+            // Hygiene: a removed dir must not stay in the reprocess-pending
+            // list (ids are paths, so a re-added folder would otherwise
+            // rescan on connect).
+            try {
+                localStorage.setItem(
+                    'image-metahub-reprocess-pending',
+                    JSON.stringify(newDirectories.filter(d => d.reprocessPending).map(d => d.id)),
+                );
+            } catch { /* storage unavailable */ }
 
             saveSelectedFolders(Array.from(updatedSelection)).catch((error) => {
                 console.error('Failed to persist folder selection state', error);
@@ -2259,10 +2421,33 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         // Auto-Tagging Actions (Phase 3)
         startAutoTagging: async (directoryPath, scanSubfolders, options) => {
-            const { filteredImages, annotations, autoTaggingWorker: existingWorker } = get();
+            // In-flight coalesce: a second request (e.g. the manual button
+            // while the round's library-scoped phase runs) joins the running
+            // run instead of clobbering the worker's onmessage.
+            if (get().isAutoTagging && __autoTagInFlight) {
+                return __autoTagInFlight;
+            }
 
-            if (filteredImages.length === 0) {
-                console.log('No images in current view to auto-tag');
+            // Premium-only — there is no fallback without the ai-intelligence
+            // module, so skip before doing any work (no-op for non-premium).
+            if (!isAiFeaturesEnabled()) {
+                console.log('[AutoTag] Premium not enabled — skipping');
+                return;
+            }
+
+            const { images, filteredImages, annotations, directories, autoTaggingWorker: existingWorker } = get();
+
+            // Scope: the pipeline round tags the WHOLE library ('library' —
+            // connected dirs only, so offline drives aren't re-tagged from
+            // stale memory); the manual Auto-Tag button tags the current view.
+            const scope = options?.scope ?? 'view';
+            const sourceImages = scope === 'library'
+                ? images.filter(img =>
+                    directories.some(d => d.id === img.directoryId && d.isConnected !== false))
+                : filteredImages;
+
+            if (sourceImages.length === 0) {
+                console.log(`[AutoTag] No images in ${scope} scope to auto-tag`);
                 return;
             }
 
@@ -2270,7 +2455,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             // enrichment) BEFORE creating the worker. The enrichment gate
             // re-includes previously-tagged, version-less images exactly once
             // so they pick up synonyms for the semantic index.
-            const taggingImages = filteredImages.filter(img => {
+            const taggingImages = sourceImages.filter(img => {
                 const annotation = annotations.get(img.id);
                 return needsSearchEnrichment(annotation);
             }).map(img => ({
@@ -2281,7 +2466,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             }));
 
             if (taggingImages.length === 0) {
-                console.log('No new images in current view to auto-tag');
+                console.log(`[AutoTag] No images need enrichment (${scope} scope) — nothing to do`);
                 return;
             }
 
@@ -2329,12 +2514,24 @@ export const useImageStore = create<ImageState>((set, get) => {
                 autoTaggingProgress: { current: 0, total: taggingImages.length, message: 'Initializing...' }
             });
 
+            // Resolve-on-complete: the returned promise settles when the run
+            // ends ('complete' / 'error' / cancel). The pipeline round awaits
+            // it before running the semantic phase so the fresh tags and
+            // synonyms land in the index — strictly sequenced. Created BEFORE
+            // postMessage so a fast 'complete' can't race the resolver capture.
+            __autoTagInFlight = new Promise<void>((resolve) => {
+                __autoTagResolve = resolve;
+            });
+
             worker.onmessage = (e: MessageEvent) => {
                 const { type, payload } = e.data;
 
                 switch (type) {
                     case 'progress':
-                        set({ autoTaggingProgress: payload });
+                        // The worker's payload may omit a human-readable
+                        // message — fall back to a stable description so the
+                        // footer bar always explains what it is doing.
+                        set({ autoTaggingProgress: { ...payload, message: payload.message || 'Generating tags…' } });
                         break;
                     case 'complete': {
                         const generatedAt = Date.now();
@@ -2414,14 +2611,19 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // only eject (unloadAiModels) releases it.
                         console.log(`Auto-tagging complete: ${tagMap.size} images tagged`);
 
-                        // Enrichment changed the indexed text for these images —
-                        // re-run the Δ indexer so the synonyms land in the
-                        // semantic DB (a no-op when semantic search is off).
-                        void get().semanticIndexImages();
+                        // NOTE: the semantic Δ re-index is NOT fired here
+                        // anymore — the pipeline round awaits this run's
+                        // promise and then runs its semantic phase
+                        // (runSemanticIndexNow), so the fresh tags + synonyms
+                        // land in the index strictly sequenced.
 
                         if (payload.autoTags) {
                             // clusterCacheManager removed — auto-tag cache save disabled
                         }
+                        const resolveAutoTag = __autoTagResolve;
+                        __autoTagResolve = null;
+                        __autoTagInFlight = null;
+                        resolveAutoTag?.();
                         break;
                     }
                     case 'gpu-info':
@@ -2444,6 +2646,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                         worker.terminate();
                         set({ autoTaggingWorker: null, autoTagWorkerModelId: null });
                         useImageStore.getState().setAutoTagModelsStatus(null);
+                        // Resolve, not reject — the error is already surfaced
+                        // in store.error; the round must still proceed to
+                        // semantic with whatever was tagged before the failure.
+                        const resolveAutoTag = __autoTagResolve;
+                        __autoTagResolve = null;
+                        __autoTagInFlight = null;
+                        resolveAutoTag?.();
                         break;
                 }
             };
@@ -2465,6 +2674,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     isPremium: isAiFeaturesEnabled(),
                 },
             });
+            return __autoTagInFlight;
         },
 
         cancelAutoTagging: () => {
@@ -2483,6 +2693,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 // its own residency).
                 useImageStore.getState().setAutoTagModelsStatus(null);
             }
+            // Resolve any in-flight run's promise so a cancelled round phase
+            // doesn't hang the queue job awaiting it (terminate() means the
+            // worker's 'complete'/'error' handlers will never fire).
+            __autoTagResolve?.();
+            __autoTagResolve = null;
+            __autoTagInFlight = null;
         },
 
         setAutoTaggingProgress: (progress) => set({ autoTaggingProgress: progress }),
@@ -3148,16 +3364,18 @@ export const useImageStore = create<ImageState>((set, get) => {
             if (state.indexingState === 'indexing') {
                 throw new Error('An indexing operation is in progress — wait for it to finish.');
             }
-            if (__pipelineInProgress || __syncInProgress || __similaritySyncInProgress) {
+            if (__syncInProgress || __similaritySyncInProgress) {
                 throw new Error('Stacking/similarity processing is in progress — try again shortly.');
             }
-            if (__semanticIndexInProgress) {
-                throw new Error('Semantic indexing is in progress — try again shortly.');
+            // Pipeline/semantic work lives on the global serial queue — refuse
+            // to wipe while a round or an index job is RUNNING, and drop any
+            // queued ones so nothing replays stale data after the wipe.
+            if (processingQueue.hasRunning('pipeline') || processingQueue.hasRunning('semantic')) {
+                throw new Error('Processing is in progress — wait for the current phase to finish.');
             }
-            // Drop queued re-runs so nothing replays stale data after the wipe.
-            __semanticIndexQueued = false;
+            processingQueue.dropQueued('pipeline');
+            processingQueue.dropQueued('semantic');
             __semanticIndexQueuedForce = false;
-            __pipelineQueued = false;
 
             // ── 1. Disk caches: per-directory metadata (BOTH scan variants —
             //    main <cacheRoot>/<cacheId>.json + json_cache chunks) and the
@@ -4113,6 +4331,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                     // each existing similarity group (not just one representative).
                     groupIdToSimId = new Map<string, string>();
 
+                    // Pre-index new entries by groupId — the per-pair `.find`
+                    // made this loop O(n²); a Map lookup keeps it O(n).
+                    const newEntriesById = new Map(newEntries.map(e => [e.groupId, e] as const));
+
+                    // Yield to the event loop every 50 pairs — synchronous
+                    // similarity math over a large library visibly froze the UI.
+                    let pairsSinceYield = 0;
                     for (const entry of newEntries) {
                         let bestMatch: string | null = null;
                         let bestScore = 0;
@@ -4125,17 +4350,23 @@ export const useImageStore = create<ImageState>((set, get) => {
                                     bestScore = score;
                                     bestMatch = simId;
                                 }
+                                if (++pairsSinceYield % 50 === 0) {
+                                    await new Promise(r => setTimeout(r, 0));
+                                }
                             }
                         }
 
                         // Also check against other new entries (already-processed ones)
                         for (const [sgId, simId] of groupIdToSimId) {
-                            const otherEntry = newEntries.find(e => e.groupId === sgId);
+                            const otherEntry = newEntriesById.get(sgId);
                             if (!otherEntry) continue;
                             const score = engine.computePromptSimilarity(entry.prompt, otherEntry.prompt);
                             if (score >= 0.85 && score > bestScore) {
                                 bestScore = score;
                                 bestMatch = simId;
+                            }
+                            if (++pairsSinceYield % 50 === 0) {
+                                await new Promise(r => setTimeout(r, 0));
                             }
                         }
 
@@ -4220,69 +4451,30 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         /**
-         * Unified post-indexing pipeline coordinator.
+         * Unified post-indexing pipeline coordinator — a thin queue wrapper
+         * around the raw `runPipelineRound()` (module level, above).
          *
          * Runs processing phases SEQUENTIALLY for images that need them:
          *   1. Stacking (exact prompt hashing → stackGroupId)
          *   2. Similarity grouping (semantic clustering → similarityGroupId)
-         *   3. Semantic search indexing (textHash Δ → semanticVectors)
+         *   3. Auto-tagging (AI enrichment, library scope)
+         *   4. Semantic search indexing (textHash Δ → semanticVectors)
          *
          * Called from:
          *   - App.tsx on startup (when annotations loaded + indexing idle)
          *   - useImageLoader.ts after file watcher detects new images
          *
-         * Guards: module-level __pipelineInProgress prevents concurrent runs.
-         * If a call arrives while one is running, it's queued (__pipelineQueued)
-         * and re-invoked after the current run completes.
+         * Serialization: the global processingQueue runs ONE job at a time,
+         * FIFO — no more module-level flags + 500 ms setTimeout replays.
+         * Rapid calls coalesce while a round is PENDING, but a call arriving
+         * while a round RUNS is appended, so freshly added images always get
+         * their own pass.
+         *
+         * ⚠️ Never `await` this from INSIDE a queued job — FIFO would
+         * deadlock. Queued jobs call the raw `runPipelineRound()` instead.
          */
-        processPostIndexingPipeline: async () => {
-            if (__pipelineInProgress) {
-                __pipelineQueued = true;
-                return;
-            }
-            __pipelineInProgress = true;
-
-            try {
-                const state = get();
-                if (!state.isAnnotationsLoaded) {
-                    console.log('[Pipeline] Annotations not yet loaded — deferring (will retry on next trigger)');
-                    return;
-                }
-
-                // Phase 1: Exact-prompt hash stacking (syncNewImagesToStacks)
-                // Only processes images where isStackAnalyzed is false.
-                console.log('[Pipeline] Phase 1/3: Prompt stacking (exact-match hashing)...');
-                get().setPipelinePhase('stacking');
-                await get().syncNewImagesToStacks();
-
-                // Phase 2: Semantic similarity grouping
-                // Only processes images where isSimilarityAnalyzed is false
-                // (or where similarityGroupId was never assigned by the engine).
-                console.log('[Pipeline] Phase 2/3: Similarity grouping (semantic clustering)...');
-                get().setPipelinePhase('similarity');
-                await get().computeSimilarityGroups();
-
-                // Phase 3: Semantic search indexing (§8.3)
-                // Δ by textHash — only images missing a vector record (or
-                // whose searchable text changed) get embedded. Skipped
-                // silently when semantic search is disabled.
-                console.log('[Pipeline] Phase 3/3: Semantic search indexing...');
-                get().setPipelinePhase('semantic');
-                await get().semanticIndexImages();
-
-                console.log('[Pipeline] All phases complete.');
-            } catch (error) {
-                console.error('[Pipeline] Post-indexing pipeline failed:', error);
-            } finally {
-                get().setPipelinePhase(null);
-                __pipelineInProgress = false;
-                if (__pipelineQueued) {
-                    __pipelineQueued = false;
-                    console.log('[Pipeline] Running queued pipeline invocation');
-                    setTimeout(() => get().processPostIndexingPipeline(), 500);
-                }
-            }
-        },
+        processPostIndexingPipeline: () =>
+            processingQueue.enqueueOnce('pipeline', runPipelineRound, { label: 'post-indexing pipeline' }),
 
         // ── Semantic Search Actions (Phase 5) ─────────────────────────
 
@@ -4394,87 +4586,25 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         /**
-         * Pipeline Phase 3 (§8.3): Δ-index the library for semantic search
-         * (only images whose textHash changed get embedded). Guarded by
-         * isSemanticSearchEnabled() — skipped silently when the premium
-         * feature is off. Module-level in-progress/queued guards mirror
-         * computeSimilarityGroups so direct calls (Settings → Re-index)
-         * don't overlap pipeline runs.
+         * Queue-wrapped semantic indexing (§8.3 — pipeline phase, Settings →
+         * Re-index, tag edits). Serialized app-wide by processingQueue:
+         * pending duplicates coalesce by key; a run in flight does NOT
+         * swallow a new request (the queue appends it after).
          *
-         * `options.force` (Settings → Re-index, Phase 6): wipe the index
-         * (storage + worker) first, then rebuild everything — every textHash
-         * mismatches after the wipe, so the Δ run becomes a full embed.
+         * ⚠️ NEVER await this from inside a queued job (FIFO deadlock) — call
+         * the raw `runSemanticIndexNow` implementation instead.
+         *
+         * `options.force` (Settings → Re-index): wipes the index first, so
+         * the Δ run becomes a full re-embed.
          */
-        semanticIndexImages: async (options?: { force?: boolean }) => {
-            if (__semanticIndexInProgress) {
-                __semanticIndexQueued = true;
-                __semanticIndexQueuedForce = __semanticIndexQueuedForce || !!options?.force;
-                return;
+        semanticIndexImages: (options?: { force?: boolean }) => {
+            if (options?.force) {
+                // Survives coalescing into a pending non-force job: the run
+                // must also clear the index or the rebuild silently degrades
+                // to a Δ run.
+                __semanticIndexQueuedForce = true;
             }
-
-            if (!isSemanticSearchEnabled()) {
-                console.log('[SemanticIndex] Semantic search disabled — skipping');
-                return;
-            }
-
-            if (!get().isAnnotationsLoaded) {
-                console.log('[SemanticIndex] Annotations not yet loaded — deferring');
-                return;
-            }
-
-            __semanticIndexInProgress = true;
-            try {
-                const coordinator = await getSemanticCoordinator();
-                if (options?.force || __semanticIndexQueuedForce) {
-                    __semanticIndexQueuedForce = false;
-                    await coordinator.clearIndex();
-                }
-                // Δ-only: the coordinator computes the delta BEFORE loading the
-                // embed model, so a fully-indexed library costs zero model
-                // load — startup runs finish instantly instead of loading
-                // WebGPU models for no work.
-                // Split each image's index text into its weighted segments —
-                // the module now weights auto-tags (0.9) separately from
-                // manual + metadata tags (0.8), so the merged IndexedImage.tags
-                // can't be passed whole. Images never annotated fall back to
-                // their stored tags.
-                const { images, annotations } = get();
-                const payload = images.map(img => {
-                    const ann = annotations.get(img.id);
-                    return {
-                        id: img.id,
-                        prompt: img.prompt,
-                        tags: ann ? [...(ann.tags ?? []), ...(ann.metadataTags ?? [])] : (img.tags ?? []),
-                        autoTags: ann?.autoTags ?? img.autoTags ?? [],
-                        synonyms: img.synonymTags ?? [],
-                    };
-                });
-                const result = await coordinator.indexImages(payload);
-                const status = coordinator.getStatus(); // authoritative persisted count
-                set({ semanticIndexedCount: status.indexed, semanticLastError: null });
-                console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);
-            } catch (error) {
-                if (error instanceof Error && error.message === SEMANTIC_INDEX_CANCELLED) {
-                    // User cancel — a normal outcome, not an error.
-                    console.log('[SemanticIndex] Indexing cancelled by user');
-                } else {
-                    // A missing module lands here — report but don't fail the
-                    // pipeline.
-                    console.error('[SemanticIndex] Indexing failed:', error);
-                    set({ semanticLastError: error instanceof Error ? error.message : String(error) });
-                }
-            } finally {
-                __semanticIndexInProgress = false;
-                // Always close the progress bar — success, failure, or cancel.
-                // Without this the bar sticks at the last progress event
-                // (e.g. "100/100 — Finish loading on WebGPU") forever.
-                useImageStore.getState().setSemanticIndexProgress(null);
-                if (__semanticIndexQueued) {
-                    __semanticIndexQueued = false;
-                    console.log('[SemanticIndex] Running queued indexing invocation');
-                    setTimeout(() => get().semanticIndexImages(), 500);
-                }
-            }
+            return processingQueue.enqueueOnce('semantic', () => runSemanticIndexNow(options), { label: 'semantic indexing' });
         },
 
         /**
@@ -4486,8 +4616,8 @@ export const useImageStore = create<ImageState>((set, get) => {
          */
         cancelSemanticIndexing: () => {
             set({ semanticIndexProgress: null });
-            __semanticIndexQueued = false;
             __semanticIndexQueuedForce = false;
+            processingQueue.dropQueued('semantic');
             __semanticCoordinator?.cancelIndexing();
         },
 

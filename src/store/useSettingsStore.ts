@@ -41,10 +41,13 @@ const detectDefaultIndexingConcurrency = (): number => {
   if (typeof navigator !== 'undefined' && typeof navigator.hardwareConcurrency === 'number') {
     const cores = navigator.hardwareConcurrency;
     if (Number.isFinite(cores) && cores > 0) {
-      return Math.max(1, Math.min(16, Math.floor(cores)));
+      // Cap at 4: enrichment metadata parsing competes with the UI thread,
+      // and the sequential processing queue already serializes rounds — more
+      // concurrent workers per directory only multiplied the freeze.
+      return Math.max(1, Math.min(4, Math.floor(cores)));
     }
   }
-  return 8;
+  return 4;
 };
 
 const defaultIndexingConcurrency = detectDefaultIndexingConcurrency();

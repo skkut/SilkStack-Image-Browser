@@ -179,38 +179,52 @@ export async function bulkSaveAnnotations(annotations: ImageAnnotations[]): Prom
     return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE_NAME, 'readwrite');
-    const store = transaction.objectStore(STORE_NAME);
-
-    const close = () => {
-      try {
-        db.close();
-      } catch (error) {
-        console.warn('Failed to close image annotations storage after bulk save', error);
-      }
-    };
-
-    transaction.oncomplete = () => {
-      close();
-      resolve();
-    };
-    transaction.onabort = () => {
-      close();
-      reject(transaction.error);
-    };
-    transaction.onerror = () => {
-      close();
-      console.error('Failed to bulk save image annotations', transaction.error);
-      reject(transaction.error);
-    };
-
-    for (const annotation of annotations) {
-      store.put(annotation);
+  const close = () => {
+    try {
+      db.close();
+    } catch (error) {
+      console.warn('Failed to close image annotations storage after bulk save', error);
     }
-  }).catch((error) => {
-    console.error('IndexedDB bulk save error for image annotations:', error);
-  });
+  };
+
+  try {
+    // Chunk into 500-record transactions: one mega-transaction for a full
+    // reprocess (thousands of records) blocked the IndexedDB thread for
+    // seconds and contributed to the UI freeze. A setTimeout(0) yield
+    // between chunks lets the renderer breathe. Chunking is internal — the
+    // caller contract (all records saved, errors logged) is unchanged.
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < annotations.length; i += CHUNK_SIZE) {
+      const chunk = annotations.slice(i, i + CHUNK_SIZE);
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        transaction.oncomplete = () => {
+          resolve();
+        };
+        transaction.onabort = () => {
+          reject(transaction.error);
+        };
+        transaction.onerror = () => {
+          console.error('Failed to bulk save image annotations', transaction.error);
+          reject(transaction.error);
+        };
+
+        for (const annotation of chunk) {
+          store.put(annotation);
+        }
+      }).catch((error) => {
+        console.error('IndexedDB bulk save error for image annotations:', error);
+      });
+
+      if (i + CHUNK_SIZE < annotations.length) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  } finally {
+    close();
+  }
 }
 
 /**

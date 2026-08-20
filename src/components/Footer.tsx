@@ -233,7 +233,10 @@ const Footer: React.FC<FooterProps> = ({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                 </span>
                 <span className="font-medium">
-                  {pipelinePhase === 'stacking' ? 'Phase 1/2: Stacking…' : 'Phase 2/2: Similarity…'}
+                  {pipelinePhase === 'stacking' ? 'Phase 1/4: Stacking…'
+                    : pipelinePhase === 'similarity' ? 'Phase 2/4: Similarity…'
+                    : pipelinePhase === 'autoTag' ? 'Phase 3/4: Auto-tagging…'
+                    : 'Phase 4/4: Semantic indexing…'}
                 </span>
               </div>
             )}
@@ -333,7 +336,14 @@ const Footer: React.FC<FooterProps> = ({
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
                   </span>
-                  <span className="font-medium">{autoTaggingProgress!.current}/{autoTaggingProgress!.total}</span>
+                  <span className="font-medium">
+                    Auto-tagging {autoTaggingProgress!.current}/{autoTaggingProgress!.total}
+                    {autoTaggingProgress!.message && (
+                      <span className="text-gray-500 ml-1 font-normal truncate max-w-[200px] inline-block align-bottom">
+                        — {autoTaggingProgress!.message}
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="w-20 h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
                   <div className="h-full bg-purple-500 transition-all duration-500 ease-out" style={{ width: `${(autoTaggingProgress!.total > 0 ? (autoTaggingProgress!.current / autoTaggingProgress!.total) * 100 : 0)}%` }} />

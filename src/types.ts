@@ -260,6 +260,9 @@ export interface ElectronAPI {
     }) => void,
   ) => () => void;
   onWatcherDebug: (callback: (data: { message: string }) => void) => () => void;
+  onWatcherError: (
+    callback: (data: { directoryId: string; error: string }) => void,
+  ) => () => void;
 
   // External Apps
 
@@ -1014,6 +1017,7 @@ export interface Directory {
   visible?: boolean; // Whether images from this directory should be shown (default: true)
   isConnected?: boolean; // Whether the directory is currently accessible (e.g. removable storage connected)
   autoWatch?: boolean; // Whether to automatically watch this directory for new images (default: false)
+  reprocessPending?: boolean; // Reprocess marked this dir offline — run the canonical round when it reconnects; persisted in localStorage
   emoji?: string; // Optional emoji for the folder icon
 }
 

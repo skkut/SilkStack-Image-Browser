@@ -85,6 +85,28 @@ vi.mock('../services/imageAnnotationsStorage', () => ({
   getAllTags: vi.fn().mockResolvedValue([]),
 }));
 
+// Auto-tag is premium-gated inside the store — tests exercise the tagging
+// path, so the gate must be open.
+vi.mock('../services/aiFeatureAccess', () => ({
+  isAiFeaturesEnabled: vi.fn(() => true),
+}));
+
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+/**
+ * startAutoTagging now resolves on the worker's terminal 'complete' message
+ * (the round awaits it before semantic indexing). Fire that message after the
+ * store has created the worker + posted 'start', then await the run.
+ */
+const completeAutoTagRun = async () => {
+  const run = useImageStore.getState().startAutoTagging('', false, {});
+  await flush();
+  FakeTaggingWorker.lastInstance?.onmessage?.({
+    data: { type: 'complete', payload: { autoTags: {} } },
+  } as MessageEvent);
+  await run;
+};
+
 describe('useImageStore Stacking Preservations', () => {
   beforeEach(() => {
     // Reset global module-level vars if possible, or just reset state
@@ -210,14 +232,14 @@ describe('useImageStore auto-tagging GPU preference', () => {
 
   it("sends the device preference read at send time ('low-power')", async () => {
     useSettingsStore.setState({ aiDevicePreference: 'low-power' });
-    await useImageStore.getState().startAutoTagging('', false, {});
+    await completeAutoTagRun();
 
     const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
     expect(start?.payload.devicePreference).toBe('low-power');
   });
 
   it("defaults to 'auto' when the pref is unset", async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    await completeAutoTagRun();
 
     const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
     expect(start?.payload.devicePreference).toBe('auto');
@@ -225,26 +247,32 @@ describe('useImageStore auto-tagging GPU preference', () => {
 
   it("sends the selected tag model in the start payload when set", async () => {
     useSettingsStore.setState({ aiTagModel: 'Qwen3-4B-q4f16_1-MLC' });
-    await useImageStore.getState().startAutoTagging('', false, {});
+    await completeAutoTagRun();
 
     const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
     expect(start?.payload.tagModelId).toBe('Qwen3-4B-q4f16_1-MLC');
   });
 
   it('omits tagModelId when the setting is unset (worker falls back to its default)', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    await completeAutoTagRun();
 
     const start = FakeTaggingWorker.lastInstance?.posted.find((m) => m.type === 'start');
     expect(start?.payload.tagModelId).toBeUndefined();
   });
 
   it('stores gpu-info from the worker into detectedGpuInfo and persists it', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const worker = FakeTaggingWorker.lastInstance!;
 
     worker.onmessage?.({
       data: { type: 'gpu-info', payload: { vendor: 'NVIDIA', device: 'RTX 4090', preference: 'auto' } },
     } as MessageEvent);
+    // Finish the run so the resolve-on-complete promise settles.
+    worker.onmessage?.({
+      data: { type: 'complete', payload: { autoTags: {} } },
+    } as MessageEvent);
+    await run;
 
     expect(useImageStore.getState().detectedGpuInfo).toEqual({
       vendor: 'NVIDIA',
@@ -297,12 +325,17 @@ describe('useImageStore auto-tagging GPU preference', () => {
     useImageStore.setState({
       detectedGpuInfo: { vendor: 'AMD', device: 'Radeon(TM) Graphics', preference: 'auto' },
     });
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const worker = FakeTaggingWorker.lastInstance!;
 
     worker.onmessage?.({
       data: { type: 'gpu-info', payload: { vendor: '', device: '', preference: 'auto' } },
     } as MessageEvent);
+    worker.onmessage?.({
+      data: { type: 'complete', payload: { autoTags: {} } },
+    } as MessageEvent);
+    await run;
 
     // A blank report must not flip the readout to "not reported yet".
     expect(useImageStore.getState().detectedGpuInfo).toEqual({
@@ -434,7 +467,8 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
   };
 
   it('keeps the chips and the worker after a run completes (worker reuse)', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const worker = FakeTaggingWorker.lastInstance!;
 
     worker.onmessage?.({ data: { type: 'models-status', payload: LOADED } } as MessageEvent);
@@ -445,6 +479,7 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
     worker.onmessage?.({
       data: { type: 'complete', payload: { autoTags: { img1: [{ tag: 'dragon', sourceType: 'prompt' }] } } },
     } as MessageEvent);
+    await run;
     expect(worker.terminate).not.toHaveBeenCalled();
     expect(useImageStore.getState().autoTaggingWorker).toBe(worker);
     expect(useImageStore.getState().autoTagWorkerModelId).toBe('Hermes-3-Llama-3.2-3B-q4f16_1-MLC');
@@ -452,27 +487,37 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
   });
 
   it('reuses the resident worker when the model is unchanged', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run1 = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const first = FakeTaggingWorker.lastInstance!;
     expect(first.terminate).not.toHaveBeenCalled();
+    first.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run1;
 
     // Second run, same resolved model ('' → TAG_GENERATION_MODEL_ID) — the
     // existing worker is reused; no terminate, no new construction.
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run2 = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     expect(FakeTaggingWorker.lastInstance).toBe(first);
     expect(first.terminate).not.toHaveBeenCalled();
     expect(useImageStore.getState().autoTaggingWorker).toBe(first);
     // Both runs' starts went to the same worker.
     const starts = first.posted.filter((m) => m.type === 'start');
     expect(starts).toHaveLength(2);
+    first.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run2;
   });
 
   it('spawns a fresh worker when the tag model changes', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run1 = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const first = FakeTaggingWorker.lastInstance!;
+    first.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run1;
 
     useSettingsStore.setState({ aiTagModel: 'Qwen3-4B-q4f16_1-MLC' });
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run2 = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
 
     const second = FakeTaggingWorker.lastInstance!;
     expect(second).not.toBe(first);
@@ -480,13 +525,18 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
     expect(useImageStore.getState().autoTagWorkerModelId).toBe('Qwen3-4B-q4f16_1-MLC');
     const start = second.posted.find((m) => m.type === 'start');
     expect(start?.payload.tagModelId).toBe('Qwen3-4B-q4f16_1-MLC');
+    second.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run2;
   });
 
   it('unloadAiModels terminates the auto-tag worker and clears its chips', async () => {
-    await useImageStore.getState().startAutoTagging('', false, {});
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
     const worker = FakeTaggingWorker.lastInstance!;
     worker.onmessage?.({ data: { type: 'models-status', payload: LOADED } } as MessageEvent);
     expect(useImageStore.getState().aiModelsLoaded).toEqual(LOADED);
+    worker.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run;
 
     await useImageStore.getState().unloadAiModels();
 
