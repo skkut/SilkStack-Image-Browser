@@ -52,7 +52,7 @@ try {
 // Step 5: Instructions for manual steps
 console.log('\n🎯 MANUAL STEPS REQUIRED:');
 console.log('='.repeat(50));
-console.log(`1. 📋 Copy release notes from: release-v${VERSION}.md`);
+console.log(`1. 📋 Copy release notes from: docs/release-v${VERSION}.md`);
 console.log(`2. 🌐 Go to: https://github.com/skkut/SilkStack-Image-Browser/releases/new`);
 console.log(`3. 🏷️  Select tag: v${VERSION}`);
 console.log(`4. 📝 Paste the release notes into the description`);
@@ -62,4 +62,4 @@ console.log('='.repeat(50));
 // Browser opening removed as release is handled automatically.
 
 console.log('\n🎉 Release workflow completed!');
-console.log(`📁 Release notes saved to: release-v${VERSION}.md`);
+console.log(`📁 Release notes saved to: docs/release-v${VERSION}.md`);

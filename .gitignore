@@ -51,7 +51,6 @@ tsconfig.tsbuildinfo
 *.njsproj
 *.sln
 *.sw?
-release-v1.7.4.md
 analyze-woman.cjs
 CATS-WORKFLOW-ANALYSIS.md
 test-parser.js

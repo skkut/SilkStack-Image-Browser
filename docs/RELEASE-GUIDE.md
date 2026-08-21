@@ -66,7 +66,7 @@ npm run release-workflow 1.7.4
 4. **Create GitHub release**:
    - Go to [GitHub Releases](https://github.com/skkut/silkstack/releases/new)
    - Select tag `v1.7.4`
-   - Copy content from `release-v1.7.4.md`
+   - Copy content from `docs/release-v1.7.4.md`
    - Publish!
 
 ## Release Notes Format

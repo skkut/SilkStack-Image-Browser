@@ -5,7 +5,7 @@
  * Generates rich release notes from CHANGELOG.md for GitHub releases
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
 
 const VERSION = process.argv[2];
@@ -115,9 +115,13 @@ Found a bug or have a feature request? [Open an issue](https://github.com/skkut/
 
 *Released on ${today}*`;
 
-// Save to file
-const filename = `release-v${VERSION}.md`;
-writeFileSync(filename, releaseBody);
+// Save to file — never overwrite existing (hand-written) release notes
+const filename = `docs/release-v${VERSION}.md`;
+if (existsSync(filename)) {
+  console.log(`⚠️  ${filename} already exists — skipping to preserve hand-written notes`);
+} else {
+  writeFileSync(filename, releaseBody);
+}
 
 console.log(`Release notes generated: ${filename}`);
 console.log('\nRelease Body Preview:');
