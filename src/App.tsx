@@ -169,6 +169,15 @@ export default function App() {
   // The "Relevance" sort option is only meaningful while semantic hits are
   // on screen (hits are score-ordered by default); hide it otherwise.
   const semanticActive = semanticMode === 'semantic' && (semanticHits?.length ?? 0) > 0;
+  // Sparkle badges: ids of live semantic hits, so ImageGrid/ImageTable can
+  // mark them while semantic mode is on (undefined when no hits — no badges).
+  const semanticHitIds = useMemo(
+    () =>
+      semanticMode === 'semantic' && semanticHits && semanticHits.length > 0
+        ? new Set(semanticHits.map((h) => h.imageId))
+        : undefined,
+    [semanticMode, semanticHits],
+  );
   const updateDirectoryStatus = useImageStore((state) => state.updateDirectoryStatus);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
   const processPostIndexingPipeline = useImageStore((state) => state.processPostIndexingPipeline);
@@ -1310,12 +1319,14 @@ export default function App() {
                           images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
+                          semanticHitIds={semanticHitIds}
                         />
                       ) : (
                         <ImageTable
                           images={safeFilteredImages}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
+                          semanticHitIds={semanticHitIds}
                         />
                       )}
                     </div>

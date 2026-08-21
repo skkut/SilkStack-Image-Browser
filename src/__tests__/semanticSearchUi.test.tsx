@@ -78,6 +78,7 @@ import TopMenuBar from '../components/TopMenuBar';
 import ActiveFilters from '../components/ActiveFilters';
 import Footer from '../components/Footer';
 import SettingsModal from '../components/SettingsModal';
+import { ImageCard } from '../components/ImageGrid';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeLicenseStamp } from '../services/aiFeatureAccess';
@@ -750,5 +751,36 @@ describe('SettingsModal Reprocess Images button', () => {
     act(() => {
       useImageStore.setState({ isAutoTagging: false });
     });
+  });
+});
+
+// ── ImageCard semantic badge (Phase 6) ────────────────────────────────
+
+describe('ImageCard semantic badge', () => {
+  it('shows the sparkle badge on semantic hits and none otherwise', () => {
+    // Both thumbnail hooks (useThumbnail + the card's fallback effect)
+    // early-return when thumbnails are disabled — no timers, no getFile,
+    // so rendering ImageCard is safe in jsdom.
+    useSettingsStore.setState({ disableThumbnails: true });
+    const image = {
+      id: 'imgA',
+      name: 'red fox.png',
+      handle: {} as FileSystemFileHandle,
+      metadata: { normalizedMetadata: { prompt: 'fox', negativePrompt: '' } },
+      metadataString: '',
+      lastModified: Date.now(),
+      models: [],
+      loras: [],
+      scheduler: '',
+    } as unknown as IndexedImage;
+    const base = { image, onImageClick: vi.fn(), isSelected: false, onImageLoad: vi.fn(), baseWidth: 200 };
+
+    const { rerender } = render(<ImageCard {...base} isSemanticMatch />);
+    const badge = screen.getByTitle('Semantic match');
+    expect(badge.querySelector('svg.lucide-sparkles')).not.toBeNull();
+
+    // A non-hit card has no badge.
+    rerender(<ImageCard {...base} />);
+    expect(screen.queryByTitle('Semantic match')).toBeNull();
   });
 });

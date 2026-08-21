@@ -31,13 +31,22 @@ const coordinatorMock = vi.hoisted(() => ({
   dispose: vi.fn(),
 }));
 
+// Captures the constructor callbacks so tests can drive the engine's per-run
+// progress events (chunked-run composition test).
+const semanticConstructorCallbacks = vi.hoisted(() => ({
+  onProgress: null as null | ((p: { current: number; total: number; message: string }) => void),
+}));
+
 vi.mock('../services/aiFeatureAccess', () => featureAccessMocks);
 
 // The store lazy-loads the coordinator via dynamic import — every `new
 // SemanticSearchCoordinator(...)` returns the same mock instance, mirroring
 // the module-level singleton in useImageStore. Constructable via `function`.
 vi.mock('../services/semanticSearchEngine', () => ({
-  SemanticSearchCoordinator: vi.fn(function SemanticSearchCoordinator() {
+  SemanticSearchCoordinator: vi.fn(function SemanticSearchCoordinator(
+    onProgress?: (p: { current: number; total: number; message: string }) => void,
+  ) {
+    semanticConstructorCallbacks.onProgress = onProgress ?? null;
     return coordinatorMock;
   }),
 }));
@@ -418,6 +427,113 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
     await round;
     expect(useImageStore.getState().annotations.get('imgA')!.isSemanticIndexed).toBe(true); // re-stamped
     expect(useImageStore.getState().annotations.get('imgA')!.searchTagVersion).toBe(2);
+  });
+});
+
+describe('semantic chunked Δ-indexing — per-chunk stamps persist DURING the run', () => {
+  // Enriched + fully-analyzed but UNSTAMPED (never embedded) — the Δ-run must
+  // send them. Chunked runs are exercised via the action's internal
+  // `chunkSize` knob (production defaults to SEMANTIC_INDEX_CHUNK_SIZE = 32).
+  const unstamped = (id: string): ImageAnnotations => ({
+    ...enrichedAnnotation(id),
+    stackGroupId: `sg-${id}`,
+    isStackAnalyzed: true,
+    similarityGroupId: `sim-${id}`,
+    isSimilarityAnalyzed: true,
+    isSemanticIndexed: undefined,
+  });
+
+  const setupImages = (ids: string[]) => {
+    const images = ids.map((id) => createImage({ id, name: `${id}.png`, directoryId: 'dir1', prompt: `a ${id}` }));
+    useImageStore.setState({
+      images,
+      filteredImages: images,
+      annotations: new Map(ids.map((id) => [id, unstamped(id)])),
+    });
+  };
+
+  it('splits a large payload into chunks and stamps each chunk as its vectors persist', async () => {
+    setupImages(['a', 'b', 'c', 'd', 'e']);
+
+    await useImageStore.getState().semanticIndexImages({ chunkSize: 2 });
+
+    // Three coordinator calls, each carrying exactly its chunk (order preserved).
+    const ids = coordinatorMock.indexImages.mock.calls.map((c) =>
+      (c[0] as Array<{ id: string }>).map((p) => p.id),
+    );
+    expect(ids).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
+    // Each chunk is stamped + persisted as it resolves — one write per chunk,
+    // not one giant write at the end of the run.
+    expect(bulkSaveAnnotations).toHaveBeenCalledTimes(3);
+    const saved = vi.mocked(bulkSaveAnnotations).mock.calls.map((c) =>
+      (c[0] as ImageAnnotations[]).map((a) => a.imageId),
+    );
+    expect(saved).toEqual([['a', 'b'], ['c', 'd'], ['e']]);
+    expect((vi.mocked(bulkSaveAnnotations).mock.calls[0][0] as ImageAnnotations[]).every((a) => a.isSemanticIndexed)).toBe(true);
+    // In-memory state agrees — a later round would send nothing at all.
+    expect([...useImageStore.getState().annotations.values()].every((a) => a.isSemanticIndexed)).toBe(true);
+  });
+
+  it('a mid-run failure leaves completed chunks stamped — the next run embeds only the rest (crash resume)', async () => {
+    setupImages(['a', 'b', 'c']);
+    // Once-values are consumed in arming order by the NEXT call, so arm a
+    // resolving value for chunk 1 first, then the crash for chunk 2
+    // (app close / worker death mid-run).
+    coordinatorMock.indexImages
+      .mockResolvedValueOnce({ indexed: 1, skipped: 0 })
+      .mockRejectedValueOnce(new Error('worker died'));
+
+    await useImageStore.getState().semanticIndexImages({ chunkSize: 1 });
+    // Chunk 1 (a) completed and was stamped before the crash; b never got
+    // its vectors and must be re-sent by the next run.
+    expect(useImageStore.getState().annotations.get('a')!.isSemanticIndexed).toBe(true);
+    expect(useImageStore.getState().annotations.get('b')!.isSemanticIndexed).toBeUndefined();
+    expect(useImageStore.getState().semanticLastError).toBe('worker died');
+
+    // "Restart": the gate excludes a and sends exactly b, then c.
+    await useImageStore.getState().semanticIndexImages({ chunkSize: 1 });
+    const ids = coordinatorMock.indexImages.mock.calls.map((c) =>
+      (c[0] as Array<{ id: string }>).map((p) => p.id),
+    );
+    expect(ids).toEqual([['a'], ['b'], ['b'], ['c']]);
+    expect([...useImageStore.getState().annotations.values()].every((a) => a.isSemanticIndexed)).toBe(true);
+    expect(useImageStore.getState().semanticLastError).toBeNull();
+  });
+
+  it('composes per-chunk engine progress into global run progress', async () => {
+    setupImages(['a', 'b', 'c', 'd', 'e']);
+
+    // Hold chunk 2's embed open so the run pauses inside it — only then can
+    // we deterministically observe the composed offset (no timing race on
+    // fast-resolving mocks). Arming order: call 1 resolves normally, call 2
+    // is the held promise.
+    let resolveSecond!: (v: { indexed: number; skipped: number }) => void;
+    coordinatorMock.indexImages
+      .mockResolvedValueOnce({ indexed: 1, skipped: 0 })
+      .mockReturnValueOnce(new Promise((r) => { resolveSecond = r; }));
+
+    const run = useImageStore.getState().semanticIndexImages({ chunkSize: 2 });
+    // Wait until the run is inside chunk 2 (offset 2, chunkLength 2, total 5).
+    await vi.waitFor(() => { expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(2); });
+
+    try {
+      const engine = semanticConstructorCallbacks.onProgress!;
+      // Per-chunk {1, 2} of chunk 2 composes to global {3, 5}.
+      engine({ current: 1, total: 2, message: 'embedding' });
+      expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 3, total: 5, message: 'embedding' });
+
+      // The engine's loading phases report other totals — they pass through
+      // untouched instead of being offset into the payload.
+      engine({ current: 100, total: 100, message: 'Finish loading on WebGPU' });
+      expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 100, total: 100, message: 'Finish loading on WebGPU' });
+    } finally {
+      // Release the run even if an assertion above fails — a held Once that
+      // survives a failed test poisons the next test's first indexImages call.
+      resolveSecond({ indexed: 1, skipped: 0 });
+    }
+
+    await run;
+    expect(useImageStore.getState().semanticIndexProgress).toBeNull(); // closed in finally
   });
 });
 

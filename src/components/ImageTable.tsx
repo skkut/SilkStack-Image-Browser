@@ -5,7 +5,7 @@ import { type IndexedImage } from '../types';
 import { getAspectRatio } from '../utils/imageUtils';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
-import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play } from 'lucide-react';
+import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play, Sparkles } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useSettingsStore } from '../store/useSettingsStore';
 
@@ -13,6 +13,7 @@ interface ImageTableProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
+  semanticHitIds?: Set<string>;
 }
 
 type SortField = 'filename' | 'model' | 'steps' | 'cfg' | 'size' | 'megapixel' | 'aspect' | 'seed' | 'filesize';
@@ -37,7 +38,7 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
   return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
-const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages }) => {
+const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, semanticHitIds }) => {
   const directories = useImageStore((state) => state.directories);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -249,6 +250,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
           image={image}
           onImageClick={onImageClick}
           isSelected={selectedImages.has(image.id)}
+          isSemanticMatch={semanticHitIds?.has(image.id)}
           onContextMenu={handleContextMenu}
           gridTemplateColumns={gridTemplateColumns}
         />
@@ -519,11 +521,12 @@ interface ImageTableRowProps {
   image: IndexedImage;
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   isSelected: boolean;
+  isSemanticMatch?: boolean;
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
   gridTemplateColumns: string;
 }
 
-const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, onContextMenu, gridTemplateColumns }) => {
+const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, onContextMenu, gridTemplateColumns }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const setPreviewImage = useImageStore((state) => state.setPreviewImage);
@@ -635,6 +638,15 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
               >
                 <Info className="h-4 w-4 text-white" />
               </button>
+              {isSemanticMatch && (
+                // Semantic hit badge — corner sparkle, never blocks clicks.
+                <div
+                  className="absolute top-0.5 right-0.5 z-10 p-0.5 rounded-full bg-purple-500/10 text-purple-400 pointer-events-none"
+                  title="Semantic match"
+                >
+                  <Sparkles className="h-3 w-3" />
+                </div>
+              )}
             </>
           ) : (
             <span className="text-xs text-gray-500">ERR</span>
@@ -719,6 +731,7 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
     prevProps.image.thumbnailUrl === nextProps.image.thumbnailUrl &&
     prevProps.image.thumbnailStatus === nextProps.image.thumbnailStatus &&
     prevProps.isSelected === nextProps.isSelected &&
+    prevProps.isSemanticMatch === nextProps.isSemanticMatch &&
     prevProps.gridTemplateColumns === nextProps.gridTemplateColumns
   );
 });

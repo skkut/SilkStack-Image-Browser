@@ -71,6 +71,8 @@ interface ImageCardProps {
   registerCardRef?: (id: string, el: HTMLDivElement | null) => void;
   isBlurred?: boolean;
   getDragPayload?: (image: IndexedImage) => { sourcePath: string; name: string }[];
+  /** Image matched semantically for the active query — show the sparkle badge. */
+  isSemanticMatch?: boolean;
 }
 
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
@@ -116,7 +118,7 @@ const releaseCachedFallbackUrl = (id: string) => {
   }
 };
 
-const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload }) => {
+export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload, isSemanticMatch }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     // Determine initial state safely before thumbnail hook runs
     const state = useSettingsStore.getState();
@@ -367,7 +369,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
 
         <button
           onClick={handleFavoriteClick}
-          className={`absolute top-2 right-2 z-10 p-1.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:opacity-100 ${
+          className={`absolute top-10 right-2 z-10 p-1.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:opacity-100 ${
             image.isFavorite
               ? 'bg-yellow-500/80 text-white opacity-100 hover:bg-yellow-600'
               : 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-yellow-500'
@@ -377,6 +379,17 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, i
           <Star className={`h-4 w-4 ${image.isFavorite ? 'fill-current' : ''}`} />
         </button>
 
+        {isSemanticMatch && (
+          // Semantic hit badge — top-right corner, above the favorite star;
+          // pointer-events so it never blocks card click/drag (title is
+          // self-documentation).
+          <div
+            className="absolute top-2 right-2 z-10 p-1 rounded-full bg-purple-500/10 text-purple-400 pointer-events-none"
+            title="Semantic match"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </div>
+        )}
 
         {imageUrl === 'ERROR' ? (
           <div className="w-full h-full flex items-center justify-center bg-gray-900">
@@ -481,6 +494,7 @@ interface ImageGridRowData {
   sensitiveTagSet?: Set<string>;
   blurSensitiveImages: boolean;
   selectedImages: Set<string>;
+  semanticHitIds?: Set<string>;
   focusedItemId: string | null;
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   handleStackClick: (stack: ImageStack) => void;
@@ -491,7 +505,7 @@ interface ImageGridRowData {
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
-  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, focusedItemId, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, semanticHitIds, focusedItemId, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
   const row = rows[index];
   if (!row) return null;
   
@@ -524,6 +538,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                                   onImageLoad={handleImageLoad}
                                   onContextMenu={handleContextMenu}
                                   baseWidth={itemWidth}
+                                  isSemanticMatch={semanticHitIds?.has(item.coverImage.id)}
 
                                   registerCardRef={registerCardRef}
                                   isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
@@ -555,6 +570,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                           onImageLoad={handleImageLoad}
                           onContextMenu={handleContextMenu}
                           baseWidth={itemWidth}
+                          isSemanticMatch={semanticHitIds?.has(image.id)}
 
                           registerCardRef={registerCardRef}
                           isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
@@ -572,10 +588,11 @@ interface ImageGridProps {
   images: IndexedImage[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
+  semanticHitIds?: Set<string>;
   disableStacking?: boolean;
 }
 
-const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = React.memo(({ width, height, images, onImageClick, selectedImages, disableStacking }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = React.memo(({ width, height, images, onImageClick, selectedImages, semanticHitIds, disableStacking }) => {
   const imageSize = useSettingsStore((state) => state.viewZoomLevels.library);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
@@ -1468,6 +1485,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     sensitiveTagSet,
     blurSensitiveImages,
     selectedImages,
+    semanticHitIds,
     focusedItemId,
 
     onImageClick,
@@ -1482,6 +1500,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     sensitiveTagSet,
     blurSensitiveImages,
     selectedImages,
+    semanticHitIds,
     focusedItemId,
 
     onImageClick,

@@ -81,6 +81,20 @@ const SEMANTIC_INDEX_CANCELLED = 'Semantic indexing cancelled by user';
 // queued run must also clear the index or the rebuild silently degrades
 // to a Δ run. Survives coalescing into a pending non-force job.
 let __semanticIndexQueuedForce = false;
+// Chunked-run progress composition state: the engine reports per-call
+// progress (current/total relative to the current chunk), and the coordinator
+// callback composes it into global run progress (offset + current over the
+// full payload) so the footer bar advances monotonically across chunks.
+// Non-null only while a chunked run is active.
+let __semanticChunkRun: { offset: number; chunkLength: number; total: number } | null = null;
+
+/**
+ * Δ-index chunk size. Stamps are persisted per chunk DURING the run — the
+ * write for chunk N overlaps the engine embedding chunk N+1, and a crash or
+ * app close leaves completed chunks stamped so the next run embeds only the
+ * remainder. Tests force small chunks via options.chunkSize.
+ */
+const SEMANTIC_INDEX_CHUNK_SIZE = 32;
 // Auto-tag in-flight bookkeeping: the run's promise (resolved on 'complete'/
 // 'error'/cancel) lets callers await the run — the round awaits it before its
 // semantic phase. Module-scoped for the same reason as the guards above.
@@ -143,7 +157,20 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
     if (!__semanticCoordinator) {
         const { SemanticSearchCoordinator } = await import('../services/semanticSearchEngine');
         __semanticCoordinator = new SemanticSearchCoordinator((progress) => {
-            useImageStore.getState().setSemanticIndexProgress(progress);
+            // Chunked runs report progress relative to the current chunk;
+            // offset it into the full payload so the footer bar advances
+            // monotonically. The engine's loading phases report other totals
+            // (e.g. 100 during WebGPU model load) — those pass through.
+            const run = __semanticChunkRun;
+            if (run && progress.total === run.chunkLength && progress.current <= run.chunkLength) {
+                useImageStore.getState().setSemanticIndexProgress({
+                    ...progress,
+                    current: run.offset + progress.current,
+                    total: run.total,
+                });
+            } else {
+                useImageStore.getState().setSemanticIndexProgress(progress);
+            }
         }, (info) => {
             // The shared engine loads in the worker — its detected adapter
             // (from the requestAdapter patch) comes back via gpu-info.
@@ -168,8 +195,17 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
  * re-sent, so a fully-indexed library sends nothing at all and the coordina-
  * tor never loads its embed model. Images whose index text changed have had
  * their stamp cleared by the writer, so the next run re-embeds exactly them.
+ *
+ * The payload is embedded in chunks (SEMANTIC_INDEX_CHUNK_SIZE) and each
+ * chunk's stamps are persisted as soon as its indexImages resolves — the
+ * write for chunk N overlaps the engine embedding chunk N+1, and a crash or
+ * app close mid-run leaves completed chunks stamped so the next run embeds
+ * only the remainder. Chunk stamping is safe because indexImages resolves
+ * only after the chunk's vectors are persisted (Δ-skip ≡ embedded), so the
+ * stamp cannot outrun the vector write. options.chunkSize is an internal
+ * knob (tests force small chunks).
  */
-export async function runSemanticIndexNow(options?: { force?: boolean }): Promise<void> {
+export async function runSemanticIndexNow(options?: { force?: boolean; chunkSize?: number }): Promise<void> {
     if (!isSemanticSearchEnabled()) {
         console.log('[SemanticIndex] Semantic search disabled — skipping');
         return;
@@ -185,6 +221,8 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
     // options (queue-wrapped action) or the queued-while-running latch.
     const force = !!options?.force || __semanticIndexQueuedForce;
     if (force) __semanticIndexQueuedForce = false;
+
+    const chunkSize = Math.max(1, options?.chunkSize ?? SEMANTIC_INDEX_CHUNK_SIZE);
 
     try {
         const coordinator = await getSemanticCoordinator();
@@ -217,37 +255,45 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
         // Δ-only: the coordinator computes the delta BEFORE loading the
         // embed model, so the remaining images cost zero model load when
         // their text is unchanged (e.g. stamp-cleared by a no-op writer).
-        const result = await coordinator.indexImages(payload);
-        const status = coordinator.getStatus(); // authoritative persisted count
-        useImageStore.setState({ semanticIndexedCount: status.indexed, semanticLastError: null });
-        console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);
+        for (let offset = 0; offset < payload.length; offset += chunkSize) {
+            const chunk = payload.slice(offset, offset + chunkSize);
+            __semanticChunkRun = { offset, chunkLength: chunk.length, total: payload.length };
 
-        // Stamp + persist: every image sent this run is now embedded (or
-        // Δ-skipped as textHash-identical — equivalent for idempotency), so
-        // the NEXT run's payload filter excludes it before any round-trip.
-        // Spread-first so the rebuilt record keeps every other annotation
-        // field (see toggleFavorite). Annotation-less images are skipped —
-        // the coordinator's Δ handles them and we must not invent annotation
-        // records here.
-        const stampedAt = Date.now();
-        const stamped: ImageAnnotations[] = [];
-        const { annotations: anns } = useImageStore.getState();
-        for (const img of payload) {
-            const ann = anns.get(img.id);
-            if (!ann) continue;
-            stamped.push({ ...ann, imageId: img.id, isSemanticIndexed: true, updatedAt: stampedAt });
-        }
-        if (stamped.length > 0) {
-            try {
-                await bulkSaveAnnotations(stamped);
-            } catch (error) {
-                console.error('Failed to persist semantic index stamps:', error);
+            const result = await coordinator.indexImages(chunk);
+            const status = coordinator.getStatus(); // authoritative persisted count
+            useImageStore.setState({ semanticIndexedCount: status.indexed, semanticLastError: null });
+            console.log(
+                `[SemanticIndex] Chunk ${offset / chunkSize + 1}/${Math.ceil(payload.length / chunkSize)}: ` +
+                `indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`,
+            );
+
+            // Stamp + persist exactly this chunk: every image sent in it is
+            // now embedded (or Δ-skipped as textHash-identical — equivalent
+            // for idempotency), so the NEXT run's payload filter excludes it
+            // before any round-trip. Spread-first so the rebuilt record
+            // keeps every other annotation field (see toggleFavorite).
+            // Annotation-less images are skipped — the coordinator's Δ
+            // handles them and we must not invent annotation records here.
+            const stampedAt = Date.now();
+            const stamped: ImageAnnotations[] = [];
+            const { annotations: anns } = useImageStore.getState();
+            for (const img of chunk) {
+                const ann = anns.get(img.id);
+                if (!ann) continue;
+                stamped.push({ ...ann, imageId: img.id, isSemanticIndexed: true, updatedAt: stampedAt });
             }
-            useImageStore.setState(state => {
-                const newAnnotations = new Map(state.annotations);
-                for (const a of stamped) newAnnotations.set(a.imageId, a);
-                return { ...state, annotations: newAnnotations };
-            });
+            if (stamped.length > 0) {
+                try {
+                    await bulkSaveAnnotations(stamped);
+                } catch (error) {
+                    console.error('Failed to persist semantic index stamps:', error);
+                }
+                useImageStore.setState(state => {
+                    const newAnnotations = new Map(state.annotations);
+                    for (const a of stamped) newAnnotations.set(a.imageId, a);
+                    return { ...state, annotations: newAnnotations };
+                });
+            }
         }
     } catch (error) {
         if (error instanceof Error && error.message === SEMANTIC_INDEX_CANCELLED) {
@@ -255,7 +301,8 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
             console.log('[SemanticIndex] Indexing cancelled by user');
         } else {
             // A missing module lands here — report but don't fail the
-            // pipeline.
+            // pipeline. Completed chunks are already stamped, so the next
+            // run picks up exactly the remainder (crash resume).
             console.error('[SemanticIndex] Indexing failed:', error);
             useImageStore.setState({ semanticLastError: error instanceof Error ? error.message : String(error) });
         }
@@ -263,6 +310,7 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
         // Always close the progress bar — success, failure, or cancel.
         // Without this the bar sticks at the last progress event
         // (e.g. "100/100 — Finish loading on WebGPU") forever.
+        __semanticChunkRun = null;
         useImageStore.getState().setSemanticIndexProgress(null);
     }
 }
@@ -321,8 +369,10 @@ export async function runPipelineRound(): Promise<void> {
         // Phase 4: Semantic search indexing (§8.3) — raw call, see above.
         // The isSemanticIndexed stamp gate excludes already-embedded images
         // before any coordinator round-trip; the coordinator's textHash Δ
-        // covers stamp-cleared images whose text actually changed. Skipped
-        // silently when semantic search is disabled.
+        // covers stamp-cleared images whose text actually changed. Stamps
+        // persist per chunk inside the run (see runSemanticIndexNow), so a
+        // crash resumes at the last completed chunk. Skipped silently when
+        // semantic search is disabled.
         console.log('[Pipeline] Phase 4/4: Semantic search indexing...');
         store.setPipelinePhase('semantic');
         await runSemanticIndexNow();
@@ -343,12 +393,14 @@ export async function runPipelineRound(): Promise<void> {
  * hits are NOT keyword-filtered (that is the point of semantic search).
  *
  *   off / no hits → textResults unchanged
- *   semantic      → all hits ∩ curation-visible (score order) — the keyword
- *                   filter is replaced entirely
+ *   semantic      → union: all hits ∩ curation-visible (score order) FIRST,
+ *                   then the keyword-only textResults appended below
+ *                   (deduped by id) — a keyword match is never hidden by a
+ *                   semantic miss.
  */
 export function applySemanticMerge(
     textResults: IndexedImage[],
-    hits: ISemanticSearchHit[],
+    hits: ISemanticSearchHit[] | null,
     curationVisible: IndexedImage[],
     mode: 'semantic' | 'off',
 ): IndexedImage[] {
@@ -360,17 +412,27 @@ export function applySemanticMerge(
     // final ordering never depends on worker message order.
     const orderedHits = [...hits].sort((a, b) => b.score - a.score);
 
-    const visibleHits: IndexedImage[] = [];
+    const merged: IndexedImage[] = [];
     const seen = new Set<string>();
     for (const hit of orderedHits) {
         if (seen.has(hit.imageId)) continue; // defensive dedupe
         seen.add(hit.imageId);
         const image = imagesById.get(hit.imageId);
         if (!image) continue; // hit outside the curation-visible scope → drop
-        visibleHits.push(image);
+        merged.push(image);
     }
 
-    return visibleHits; // semantic mode — all hits ∩ curation-visible (score order)
+    // Union: keyword-only results — curation+keyword filtered and already
+    // sorted — append below the hits. textResults ⊆ curationVisible (sorted
+    // derives from the curation-filtered `results`), so every image here is
+    // in scope; only the id dedupe matters.
+    for (const image of textResults) {
+        if (seen.has(image.id)) continue;
+        seen.add(image.id);
+        merged.push(image);
+    }
+
+    return merged; // semantic mode — hits ∩ curation-visible (score order) ∪ keyword-only
 }
 
 // ── Undo stack (session-only) ───────────────────────────────────────────
@@ -765,7 +827,7 @@ interface ImageState {
   setSemanticMode: (mode: 'semantic' | 'off') => void;
   runSemanticSearch: (query: string) => Promise<void>;
   clearSemanticSearch: () => void;
-  semanticIndexImages: (options?: { force?: boolean }) => Promise<void>;
+  semanticIndexImages: (options?: { force?: boolean; chunkSize?: number }) => Promise<void>;
   cancelSemanticIndexing: () => void;
   applySemanticEmbeddingModel: (modelId: string) => Promise<void>;
   setSemanticIndexProgress: (progress: SemanticIndexProgress | null) => void;
@@ -1586,19 +1648,20 @@ export const useImageStore = create<ImageState>((set, get) => {
             return compareById(a, b);
         });
 
-        // Semantic overlay (§8.2): ranked hits replace the keyword ordering
-        // whenever hits are present and semantic mode is on. Falls through
-        // to the normal sorted results otherwise — byte-identical behavior
-        // when the feature is unused.
+        // Semantic overlay (§8.2): ranked hits lead the results whenever
+        // semantic mode is on, with keyword-only results appended below
+        // (union merge — see applySemanticMerge). No hits → the merge returns
+        // the keyword results unchanged, so an empty/missed semantic run
+        // still shows every keyword match.
         let filteredImages = sorted;
-        if (state.semanticMode === 'semantic' && state.semanticHits && state.semanticHits.length > 0) {
+        if (state.semanticMode === 'semantic') {
             // Stack drill-down is ID-scoped: curationVisible is captured above
             // (BEFORE the libraryStackContext restriction), so the overlay
             // would otherwise resurrect every hit — including images from
             // other stacks — into the drill-down. Intersect the hit set with
             // the active stack's imageIds before merging.
             let mergeHits = state.semanticHits;
-            if (libraryStackContext) {
+            if (libraryStackContext && mergeHits) {
                 const stackIds = new Set(libraryStackContext.imageIds);
                 mergeHits = mergeHits.filter(h => stackIds.has(h.imageId));
             }
@@ -4717,8 +4780,12 @@ export const useImageStore = create<ImageState>((set, get) => {
          *
          * `options.force` (Settings → Re-index): wipes the index first, so
          * the Δ run becomes a full re-embed.
+         *
+         * `options.chunkSize` is an internal knob (tests force small chunks);
+         * production runs embed in SEMANTIC_INDEX_CHUNK_SIZE batches, stamping
+         * each chunk as it resolves so a crash resumes at the last chunk.
          */
-        semanticIndexImages: (options?: { force?: boolean }) => {
+        semanticIndexImages: (options?: { force?: boolean; chunkSize?: number }) => {
             if (options?.force) {
                 // Survives coalescing into a pending non-force job: the run
                 // must also clear the index or the rebuild silently degrades

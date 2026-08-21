@@ -200,7 +200,7 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
     expect(out.map((i) => i.id)).toEqual(['a']);
   });
 
-  it('semantic mode: all hits ∩ curation-visible, pure score order (keyword filter replaced)', () => {
+  it('semantic mode: hits ∩ curation-visible in score order, keyword matches preserved', () => {
     const visible = [imgA, imgB];
     const out = applySemanticMerge(
       [imgA], // imgA is the only keyword match — irrelevant in semantic mode
@@ -242,13 +242,33 @@ describe('applySemanticMerge (pure §8.2 algorithm)', () => {
     );
     expect(out.map((i) => i.id)).toEqual(['a', 'b']);
   });
+
+  it('union: keyword-only textResults append after hits, deduped by id', () => {
+    const out = applySemanticMerge(
+      [imgA, imgC], // imgA is also a hit; imgC is keyword-only
+      [
+        { imageId: 'b', score: 0.9 },
+        { imageId: 'a', score: 0.5 },
+      ],
+      [imgA, imgB, imgC],
+      'semantic',
+    );
+    // imgA appears once (in the hit section); imgC — a keyword match the
+    // semantic engine missed — appends below the hits.
+    expect(out.map((i) => i.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('union with null hits returns textResults unchanged', () => {
+    const results = [imgA];
+    expect(applySemanticMerge(results, null, results, 'semantic')).toBe(results);
+  });
 });
 
 describe('filterAndSort semantic overlay (store integration)', () => {
   const fox = () => createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1' });
   const mountain = () => createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1' });
 
-  it('semantic mode: replaces keyword filtering entirely (score order)', () => {
+  it('semantic mode: hits first (score order), keyword matches preserved', () => {
     setupLibrary(
       [fox(), mountain()],
       {
@@ -260,8 +280,66 @@ describe('filterAndSort semantic overlay (store integration)', () => {
       },
       { searchQuery: 'fox', sortOrder: 'relevance' },
     );
-    // 'relevance' = pure score order (the semantic default).
+    // 'relevance' = pure score order (the semantic default); imgA is both a
+    // hit and a keyword match — it appears once, in the hit section.
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA']);
+  });
+
+  it('union merge: hits first (score order), keyword-only results appended (deduped)', () => {
+    const cub = createImage({ id: 'imgC', name: 'red fox cub.png', directoryId: 'dir1' });
+    setupLibrary(
+      [fox(), mountain(), cub],
+      {
+        hits: [
+          { imageId: 'imgB', score: 0.8 },
+          { imageId: 'imgA', score: 0.6 },
+        ],
+        mode: 'semantic',
+      },
+      { searchQuery: 'fox', sortOrder: 'relevance' },
+    );
+    // imgA is both a hit and a keyword match (appears once, in the hit
+    // section); imgC is a keyword match the semantic engine missed → it is
+    // appended below the hits instead of vanishing.
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgA', 'imgC']);
+  });
+
+  it('semantic mode with empty hits still shows the keyword results', () => {
+    setupLibrary(
+      [fox(), mountain()],
+      { hits: [], mode: 'semantic' },
+      { searchQuery: 'fox' },
+    );
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
+  });
+
+  it('semantic mode with null hits still shows the keyword results', () => {
+    setupLibrary(
+      [fox(), mountain()],
+      { hits: null, mode: 'semantic' },
+      { searchQuery: 'fox' },
+    );
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
+  });
+
+  it('semantic mode + explicit sort orders the whole union by that sort', () => {
+    const older = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', lastModified: 1000 });
+    const newer = createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1', lastModified: 2000 });
+    const cub = createImage({ id: 'imgC', name: 'red fox cub.png', directoryId: 'dir1', lastModified: 1500 });
+    setupLibrary(
+      [older, newer, cub],
+      {
+        hits: [
+          { imageId: 'imgB', score: 0.8 },
+          { imageId: 'imgA', score: 0.6 },
+        ],
+        mode: 'semantic',
+      },
+      { searchQuery: 'fox', sortOrder: 'date-asc' },
+    );
+    // Score order would be [imgB, imgA, imgC]; the explicitly chosen sort
+    // wins for the WHOLE union, so the sort box stays honest.
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgC', 'imgB']);
   });
 
   it('off mode: falls back to keyword results, semantic state ignored', () => {
