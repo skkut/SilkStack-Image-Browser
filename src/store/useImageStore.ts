@@ -24,10 +24,10 @@ import { processingQueue } from '../services/processingQueue';
 
 // Search-enrichment idempotency gate (mirrors SEARCH_ENRICHMENT_VERSION in
 // the ai-intelligence worker — that module is the source of truth). An image
-// needs (re)enrichment when its stored version differs from the current one:
-// never-tagged images carry no version, and images tagged before synonyms
-// existed are isAutoTagged but version-less, so they get enriched exactly
-// once on the next auto-tag run.
+// needs (re)tagging when its stored version differs from the current one:
+// never-tagged images carry no version, and images tagged before the flat
+// merged tag list (v2) existed are isAutoTagged but version-less, so they
+// get re-tagged exactly once on the next auto-tag run.
 export const needsSearchEnrichment = (annotation?: ImageAnnotations): boolean =>
     annotation?.searchTagVersion !== SEARCH_ENRICHMENT_VERSION;
 
@@ -2454,7 +2454,8 @@ export const useImageStore = create<ImageState>((set, get) => {
             // Filter to images that still need auto-tagging (or search
             // enrichment) BEFORE creating the worker. The enrichment gate
             // re-includes previously-tagged, version-less images exactly once
-            // so they pick up synonyms for the semantic index.
+            // so they pick up the flat merged tag list (tags + search
+            // synonyms in one bounded pass) for the semantic index.
             const taggingImages = sourceImages.filter(img => {
                 const annotation = annotations.get(img.id);
                 return needsSearchEnrichment(annotation);
@@ -2541,11 +2542,9 @@ export const useImageStore = create<ImageState>((set, get) => {
                             tagMap.set(id, normalizedTags);
                         });
 
-                        // Search enrichment: the worker also generated English
-                        // synonyms for the core tags — hidden from the UI, but
-                        // embedded into the semantic index text below.
-                        const synonymMap = (payload.synonymTags || {}) as Record<string, string[]>;
-
+                        // The worker returns the FLAT merged tag list (tags +
+                        // search synonyms as one bounded array) — synonyms are
+                        // no longer a separate concept, so nothing to split.
                         // Add generated tags to autoTags (not manual tags)
                         const { annotations } = get();
                         const updatedAnnotations: ImageAnnotations[] = [];
@@ -2564,10 +2563,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                                 addedAt: current?.addedAt ?? generatedAt,
                                 updatedAt: generatedAt,
                                 isAutoTagged: true,
-                                // Enrichment metadata: synonyms feed the semantic
-                                // index text; the version stamp makes enrichment
-                                // idempotent across runs (see needsSearchEnrichment).
-                                synonymTags: synonymMap[imageId] ?? current?.synonymTags ?? [],
+                                // Enrichment metadata: the version stamp makes
+                                // re-tagging idempotent across runs (see
+                                // needsSearchEnrichment). synonymTags is legacy —
+                                // search vocabulary now rides inside autoTags.
+                                synonymTags: [],
                                 searchTagVersion: SEARCH_ENRICHMENT_VERSION,
                             });
                         }

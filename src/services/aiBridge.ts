@@ -44,19 +44,15 @@ export interface ITagGenerator {
 }
 
 /** Interface for LLM-powered tag extraction (WebLLM/WebGPU). */
-export interface ILLMTagGenerator extends ITagGenerator {
+export interface ILLMTagGenerator {
   initialize(): Promise<void>;
   dispose(): void;
   readonly lastRawResponse: string | null;
-  generateTagsFromPrompt(prompt: string, systemPrompt?: string): Promise<string[]>;
   /**
-   * Generate English synonyms for the given tags (search enrichment —
-   * embedded into the semantic index, hidden from the UI).
+   * Flat merged tag list (tags + search synonyms in one bounded array) — the
+   * single per-image call the auto-tag worker makes.
    */
-  generateSynonymsForTags(
-    tags: string[],
-    systemPrompt?: string,
-  ): Promise<Record<string, string[]>>;
+  generateFlatTags(prompt: string, systemPrompt?: string): Promise<string[]>;
 }
 
 /** Interface for text embedding generation (WebLLM/WebGPU). */
@@ -189,35 +185,40 @@ export const TAG_GENERATION_MODEL_ID = 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC';
 export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';
 
 /**
- * Enrichment version for auto-tag search enrichment — must match
- * ai-intelligence's SEARCH_ENRICHMENT_VERSION
- * (ai-intelligence/src/modules/llm-tag-generator.ts, the source of truth).
- * Images whose annotation.searchTagVersion !== this value are (re-)enriched
- * by the next auto-tag run, so bumping it re-enriches the whole library once.
+ * Enrichment version for the auto-tag pass — must match ai-intelligence's
+ * SEARCH_ENRICHMENT_VERSION (ai-intelligence/src/modules/llm-tag-generator.ts,
+ * the source of truth). Images whose annotation.searchTagVersion !== this
+ * value are (re-)tagged by the next auto-tag run, so bumping it re-tags the
+ * whole library once. v2: tags + search synonyms merged into ONE bounded flat
+ * list (the old separate synonymTags field is legacy).
  */
-export const SEARCH_ENRICHMENT_VERSION = 1;
+export const SEARCH_ENRICHMENT_VERSION = 2;
 
-/** Default system prompt for LLM tag generation. */
-export const SYSTEM_PROMPT = `You are an expert image tagging and analyzing system that extracts visual concept tags from image generation prompts.
+/**
+ * Mirrored from the module (llm-tag-generator.ts — the source of truth; the
+ * module's own export wins at runtime): the merged auto-tag prompt — tags +
+ * search synonyms as ONE bounded flat list (see SEARCH_ENRICHMENT_VERSION).
+ */
+export const FLAT_TAGS_PROMPT = `You are an expert image tagging and analyzing system that extracts visual concept tags from image generation prompts, and lists search-friendly synonyms for those concepts as additional tags.
 
 Rules:
 - If the provided text is explicitly sex oriented, add 'nsfw' to the return list
 - Return ONLY a valid JSON array of strings. No markdown, no explanations, no other text.
-- Ignore quality keywords (masterpiece, 8k, award winning, etc.) and technical tokens (<lora:...>, etc.).
-- Extract subjects, clothing, objects, settings, and styles.
-- Keep tags simple and concise (no more than 2 words).
+- Tags: extract only meaningful visual concepts — subjects, clothing, objects, settings, and styles. Keep tags simple and concise (no more than 2 words). remove adjectives from subjects.
+- Ignore quality keywords (masterpiece, 8k, award winning, etc.), technical tokens (<lora:...>, etc.), and gibberish and noise: random character strings (e.g. "xjqkz"), repeated letters (e.g. "aaaa"), symbol and emoji runs, URL fragments, camera/software metadata tokens, and any other text that does not describe a visual concept.
 - For weighted tags like (cyberpunk city:1.2), extract just the descriptive text: "cyberpunk city".
-- remove adjectives from subjects
+- Also include search-friendly synonyms and alternate phrasings a searcher might type, as additional tags (e.g. for "red fox" add "vulpes", "foxy", "crimson fox"; for "1girl" add "one girl", "single female").
+- No more than 15 tags total. Lowercase; max 3 words each.
 
 Examples:
 Input: a red fox sitting in a snowy forest, digital painting
-Output: ["red fox", "snowy forest", "digital painting"]
+Output: ["red fox", "snowy forest", "digital painting", "vulpes", "foxy", "crimson fox", "winter woods", "digital art"]
 
-Input: A oil painting in style of raja ravi varma, of a young busty fair beautiful and sexy indian girl holding a bouquet of flowers elegantly. bouquet with multi colored tulips, daffodils, in a majestic palace room. she is wearing an elegant yellow saree.
-Output: ["oil painting", "raja ravi varma", "indian girl", "flowers", "tulips", "daffodils", "palace room", "yellow saree"]
+Input: 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, high resolution, xjqkz, aaaa
+Output: ["1girl", "one girl", "solo", "alone", "cyberpunk city", "neon city", "neon lights", "neon glow"]`;
 
-Input: 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, high resolution
-Output: ["1girl", "solo", "cyberpunk city", "neon lights"]`;
+/** Hard cap on the flat merged tag list (mirrors the module's MAX_TAGS_PER_IMAGE). */
+export const MAX_TAGS_PER_IMAGE = 15;
 
 // ── Dynamic module loader ───────────────────────────────────────────
 

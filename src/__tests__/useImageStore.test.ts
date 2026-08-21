@@ -73,7 +73,7 @@ vi.mock('../services/aiBridge', () => ({
   }),
   // Mirrored by the store's enrichment gate — keep in sync with the real
   // constant (src/services/aiBridge.ts).
-  SEARCH_ENRICHMENT_VERSION: 1,
+  SEARCH_ENRICHMENT_VERSION: 2,
   // Mirrored default tag model — the store resolves '' (fresh install) to
   // this id for worker-reuse comparison.
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
@@ -565,7 +565,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     addedAt: 1000,
     updatedAt: 1000,
     synonymTags: ['wyvern', 'serpent'],
-    searchTagVersion: 1,
+    searchTagVersion: 2,
     stackGroupId: 'stack-1',
     isStackAnalyzed: true,
   };
@@ -588,7 +588,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     await useImageStore.getState().toggleFavorite('img1');
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
-    expect(a.searchTagVersion).toBe(1);
+    expect(a.searchTagVersion).toBe(2);
     expect(a.stackGroupId).toBe('stack-1');
     expect(a.isStackAnalyzed).toBe(true);
     expect(a.isFavorite).toBe(true);
@@ -598,7 +598,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     await useImageStore.getState().addTagToImage('img1', 'newtag');
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
-    expect(a.searchTagVersion).toBe(1);
+    expect(a.searchTagVersion).toBe(2);
     expect(a.tags).toContain('newtag');
   });
 
@@ -606,7 +606,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     await useImageStore.getState().bulkToggleFavorite(['img1'], true);
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
-    expect(a.searchTagVersion).toBe(1);
+    expect(a.searchTagVersion).toBe(2);
     expect(a.stackGroupId).toBe('stack-1');
     expect(a.isFavorite).toBe(true);
   });
@@ -615,7 +615,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     await useImageStore.getState().bulkAddTag(['img1'], 'newtag');
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
-    expect(a.searchTagVersion).toBe(1);
+    expect(a.searchTagVersion).toBe(2);
     expect(a.tags).toContain('newtag');
   });
 });

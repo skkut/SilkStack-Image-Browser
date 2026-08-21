@@ -49,7 +49,7 @@ vi.mock('../services/semanticSearchEngine', () => ({
 vi.mock('../services/aiBridge', () => ({
   createStackingEngine: createStackingEngineMock,
   // Mirrored constants — keep in sync with the real module.
-  SEARCH_ENRICHMENT_VERSION: 1,
+  SEARCH_ENRICHMENT_VERSION: 2,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
 }));
 

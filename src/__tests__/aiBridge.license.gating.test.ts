@@ -58,9 +58,6 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
       mocks.LLMTagGenerator(...args);
     }
     async initialize(): Promise<void> {}
-    async generateTagsFromPrompt(prompt: string): Promise<string[]> {
-      return [prompt, 'llm-tag'];
-    }
     dispose(): void {}
     get lastRawResponse(): string | null {
       return null;

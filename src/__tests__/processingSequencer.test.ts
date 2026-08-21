@@ -53,7 +53,7 @@ vi.mock('../services/aiBridge', () => ({
   // Mirrored by the store's enrichment gate — keep in sync with the real
   // constant (src/services/aiBridge.ts). Pre-enriched test annotations carry
   // this version so a second auto-tag pass no-ops.
-  SEARCH_ENRICHMENT_VERSION: 1,
+  SEARCH_ENRICHMENT_VERSION: 2,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
 }));
 
@@ -133,7 +133,7 @@ const enrichedAnnotation = (imageId: string): ImageAnnotations => ({
   metadataTags: [],
   isAutoTagged: true,
   synonymTags: [],
-  searchTagVersion: 1,
+  searchTagVersion: 2,
   addedAt: 1000,
   updatedAt: 1000,
 });

@@ -22,7 +22,7 @@ declare module '@ai-images-browser/ai-intelligence' {
   export class LLMTagGenerator {
     constructor(modelId: string, onProgress?: (report: LoadProgressReport) => void);
     initialize(): Promise<void>;
-    generateTagsFromPrompt(prompt: string, systemPrompt?: string): Promise<string[]>;
+    generateFlatTags(prompt: string, systemPrompt?: string): Promise<string[]>;
     dispose(): void;
     readonly lastRawResponse: string | null;
   }
@@ -46,7 +46,8 @@ declare module '@ai-images-browser/ai-intelligence' {
 
   export const TAG_GENERATION_MODEL_ID: string;
   export const EMBEDDING_MODEL_ID: string;
-  export const SYSTEM_PROMPT: string;
+  export const FLAT_TAGS_PROMPT: string;
+  export const MAX_TAGS_PER_IMAGE: number;
 
   // ── Shared engine (one engine, two records) ──────────────────────────
 
