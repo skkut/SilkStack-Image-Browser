@@ -119,6 +119,11 @@ const setupLibrary = (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A stale mockReturnValueOnce (e.g. a test that failed before consuming
+  // its held promise) would otherwise poison the next test's indexImages —
+  // the once-queue survives clearAllMocks. The fresh implementation is
+  // re-set right below.
+  coordinatorMock.indexImages.mockReset();
   featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
   coordinatorMock.ensureInitialized.mockResolvedValue(undefined);
   // Mirrors the module coordinator's Δ-first flow: indexImages initializes
@@ -144,6 +149,7 @@ beforeEach(() => {
     selectedFolders: new Set(),
     excludedFolders: new Set(),
     searchQuery: '',
+    libraryStackContext: null,
     semanticMode: 'off',
     semanticHits: null,
     semanticSearchStatus: 'idle',
@@ -271,6 +277,34 @@ describe('filterAndSort semantic overlay (store integration)', () => {
       { searchQuery: 'fox' },
     );
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
+  });
+
+  it('stack drill-down: the semantic overlay shows only images from the active stack', () => {
+    const other = createImage({ id: 'imgC', name: 'outside stack.png', directoryId: 'dir1' });
+    useImageStore.setState({
+      images: [fox(), mountain(), other],
+      directories: [
+        { id: 'dir1', name: 'lib', path: 'C:/lib', handle: {} as FileSystemDirectoryHandle, visible: true },
+      ],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      semanticHits: [
+        { imageId: 'imgA', score: 0.9 },
+        { imageId: 'imgB', score: 0.8 },
+        { imageId: 'imgC', score: 0.7 },
+      ],
+      semanticMode: 'semantic',
+      libraryStackContext: {
+        stackId: 'stack-1',
+        imageIds: ['imgA', 'imgB'],
+        basePrompt: 'fox',
+      },
+      sortOrder: 'relevance',
+    });
+    useImageStore.getState().filterAndSortImages();
+    // imgC is a valid hit but belongs to another stack — it must not leak
+    // into the drill-down alongside the stack's own images.
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
   });
 
   it('favorites filter drops semantic hits for non-favorites', () => {
@@ -644,6 +678,31 @@ describe('runSemanticSearch', () => {
 
 describe('semanticIndexImages + pipeline Phase 3', () => {
   it('runs the post-indexing pipeline phases in order, ending with semantic indexing', async () => {
+    // One enriched + fully-analyzed but UNSTAMPED image: phases 1-3 no-op
+    // for it (no stacking/similarity/AI work), yet phase 4's Δ-run genuinely
+    // reaches the coordinator. An empty library short-circuits phase 4
+    // before any coordinator call (isSemanticIndexed gate).
+    const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      annotations: new Map([['imgA', {
+        imageId: 'imgA',
+        isFavorite: false,
+        tags: ['manual'],
+        autoTags: ['concept'],
+        metadataTags: ['meta'],
+        isAutoTagged: true,
+        searchTagVersion: 2,
+        stackGroupId: 'sg-imgA',
+        isStackAnalyzed: true,
+        similarityGroupId: 'sim-imgA',
+        isSimilarityAnalyzed: true,
+        addedAt: 1,
+        updatedAt: 1,
+      }]]),
+    });
+
     const phases: Array<string | null> = [];
     const unsub = useImageStore.subscribe((s) => phases.push(s.pipelinePhase));
     await useImageStore.getState().processPostIndexingPipeline();
@@ -694,6 +753,11 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
   });
 
   it('queues a second indexImages run while one is in progress', async () => {
+    // One unstamped image so the run reaches the coordinator — an empty
+    // payload short-circuits before indexImages, and the mockReturnValueOnce
+    // held promise would leak into the next test (it never resolves).
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+
     let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
 
@@ -717,6 +781,9 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
 
 describe('settings subscription — kick-in when the feature becomes usable', () => {
   it('starts Δ-indexing when the toggle is enabled mid-session', async () => {
+    // One unstamped image so the kick-in Δ-run reaches the coordinator —
+    // with an empty library the isSemanticIndexed gate short-circuits first.
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
     useSettingsStore.getState().setSemanticSearchEnabled(true);
     await flush();
     expect(coordinatorMock.ensureInitialized).toHaveBeenCalled();
@@ -726,6 +793,7 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
   });
 
   it('starts Δ-indexing when premium arrives while the toggle is already on', async () => {
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
     useSettingsStore.getState().setSemanticSearchEnabled(true);
     await flush();
     vi.clearAllMocks(); // forget the toggle-on run (implementations persist)
@@ -904,6 +972,9 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
 
   it('records the persisted count into semanticIndexedCount', async () => {
     coordinatorMock.getStatus.mockReturnValue({ ready: true, indexed: 7, modelId: 'm', dimension: 768, error: null });
+    // One unstamped image so the Δ-run reaches the coordinator (an empty
+    // library short-circuits before getStatus is ever read).
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
 
     await useImageStore.getState().semanticIndexImages();
     await flush();
@@ -914,6 +985,8 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
 
   it('records the error message on indexing failure', async () => {
     coordinatorMock.indexImages.mockRejectedValueOnce(new Error('embedding failed'));
+    // Unstamped image so the run reaches indexImages and the rejection lands.
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
 
     await useImageStore.getState().semanticIndexImages();
     await flush();
@@ -935,6 +1008,11 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
   });
 
   it('replays a queued force request (clear still happens before the second run)', async () => {
+    // Unstamped image so the first run genuinely reaches indexImages and
+    // hangs on the held promise (an empty payload would short-circuit and
+    // leak the never-resolved once-promise into the next test).
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+
     let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }));
 
@@ -997,6 +1075,10 @@ describe('semanticIndexImages force + status (Phase 6)', () => {
   });
 
   it('cancelSemanticIndexing clears the bar, drops a queued replay, and aborts the coordinator', async () => {
+    // Unstamped image so the run reaches indexImages and hangs on the held
+    // promise (an empty payload would short-circuit and leak it forward).
+    useImageStore.setState({ images: [createImage({ id: 'a', prompt: 'red fox' })] });
+
     let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
 

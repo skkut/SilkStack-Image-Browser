@@ -992,6 +992,7 @@ export interface ImageAnnotations {
   isAutoTagged?: boolean; // Whether the image has been processed by the auto-tagging engine
   synonymTags?: string[]; // LEGACY: English search synonyms (v1 enrichment — folded into the flat auto-tag list since v2; kept for persisted records)
   searchTagVersion?: number; // SEARCH_ENRICHMENT_VERSION this image was enriched with; drives auto-tag idempotency
+  isSemanticIndexed?: boolean; // Whether this image's current index text has been embedded into the semantic vector store; drives semantic-index idempotency (see needsSemanticIndexing)
   metadataTags: string[]; // Tags imported from image file metadata
   stackGroupId?: string; // Prompt hash — groups images with identical prompts into stacks
   isStackAnalyzed?: boolean; // Whether the image has been checked for stack membership

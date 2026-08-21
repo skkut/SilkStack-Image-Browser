@@ -31,6 +31,15 @@ import { processingQueue } from '../services/processingQueue';
 export const needsSearchEnrichment = (annotation?: ImageAnnotations): boolean =>
     annotation?.searchTagVersion !== SEARCH_ENRICHMENT_VERSION;
 
+// Semantic-index idempotency gate. An image needs embedding when it has never
+// been indexed with its current index text. Writers that CHANGE the index
+// text (manual/metadata tag edits, auto-tag completion, clear auto-tags,
+// Reprocess) clear `isSemanticIndexed` so the next Δ-run re-embeds exactly
+// those images; the coordinator's textHash Δ remains as a second layer for
+// anything the stamp misses.
+export const needsSemanticIndexing = (annotation?: ImageAnnotations): boolean =>
+    !annotation?.isSemanticIndexed;
+
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
 // The last WebGPU adapter detected by an AI worker — persisted so Settings
@@ -153,7 +162,12 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
  * `semanticIndexImages` action. Call this directly from inside queued jobs
  * (the pipeline round): awaiting the wrapped action there would deadlock
  * (FIFO — the semantic job can't start until the outer job finishes).
- * Only images whose textHash changed get embedded.
+ *
+ * Idempotency: the isSemanticIndexed stamp gate filters the payload BEFORE
+ * any coordinator round-trip — images embedded by an earlier run are never
+ * re-sent, so a fully-indexed library sends nothing at all and the coordina-
+ * tor never loads its embed model. Images whose index text changed have had
+ * their stamp cleared by the writer, so the next run re-embeds exactly them.
  */
 export async function runSemanticIndexNow(options?: { force?: boolean }): Promise<void> {
     if (!isSemanticSearchEnabled()) {
@@ -166,35 +180,75 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
         return;
     }
 
+    // force = wipe the persisted vectors first, then re-embed EVERYTHING
+    // (Settings → embedding model switch, Reprocess). The flag arrives via
+    // options (queue-wrapped action) or the queued-while-running latch.
+    const force = !!options?.force || __semanticIndexQueuedForce;
+    if (force) __semanticIndexQueuedForce = false;
+
     try {
         const coordinator = await getSemanticCoordinator();
-        if (options?.force || __semanticIndexQueuedForce) {
-            __semanticIndexQueuedForce = false;
+        if (force) {
             await coordinator.clearIndex();
         }
-        // Δ-only: the coordinator computes the delta BEFORE loading the
-        // embed model, so a fully-indexed library costs zero model load —
-        // startup runs finish instantly instead of loading WebGPU models for
-        // no work.
         // Split each image's index text into its weighted segments — the
-        // module now weights auto-tags (0.9) separately from manual +
-        // metadata tags (0.8), so the merged IndexedImage.tags can't be
-        // passed whole. Images never annotated fall back to their stored tags.
+        // module weights auto-tags (0.9) separately from manual + metadata
+        // tags (0.8), so the merged IndexedImage.tags can't be passed whole.
+        // Images never annotated fall back to their stored tags.
         const { images, annotations } = useImageStore.getState();
-        const payload = images.map(img => {
-            const ann = annotations.get(img.id);
-            return {
-                id: img.id,
-                prompt: img.prompt,
-                tags: ann ? [...(ann.tags ?? []), ...(ann.metadataTags ?? [])] : (img.tags ?? []),
-                autoTags: ann?.autoTags ?? img.autoTags ?? [],
-                synonyms: img.synonymTags ?? [],
-            };
-        });
+        const payload = images
+            .filter(img => force || needsSemanticIndexing(annotations.get(img.id)))
+            .map(img => {
+                const ann = annotations.get(img.id);
+                return {
+                    id: img.id,
+                    prompt: img.prompt,
+                    tags: ann ? [...(ann.tags ?? []), ...(ann.metadataTags ?? [])] : (img.tags ?? []),
+                    autoTags: ann?.autoTags ?? img.autoTags ?? [],
+                    synonyms: img.synonymTags ?? [],
+                };
+            });
+        if (payload.length === 0) {
+            // Every image is already stamped — skip the coordinator entirely
+            // (Δ-only would also skip them, but only after a module round-trip).
+            console.log('[SemanticIndex] All images already indexed — nothing to embed');
+            return;
+        }
+        // Δ-only: the coordinator computes the delta BEFORE loading the
+        // embed model, so the remaining images cost zero model load when
+        // their text is unchanged (e.g. stamp-cleared by a no-op writer).
         const result = await coordinator.indexImages(payload);
         const status = coordinator.getStatus(); // authoritative persisted count
         useImageStore.setState({ semanticIndexedCount: status.indexed, semanticLastError: null });
         console.log(`[SemanticIndex] Indexed ${result.indexed}, skipped ${result.skipped} (total ${status.indexed})`);
+
+        // Stamp + persist: every image sent this run is now embedded (or
+        // Δ-skipped as textHash-identical — equivalent for idempotency), so
+        // the NEXT run's payload filter excludes it before any round-trip.
+        // Spread-first so the rebuilt record keeps every other annotation
+        // field (see toggleFavorite). Annotation-less images are skipped —
+        // the coordinator's Δ handles them and we must not invent annotation
+        // records here.
+        const stampedAt = Date.now();
+        const stamped: ImageAnnotations[] = [];
+        const { annotations: anns } = useImageStore.getState();
+        for (const img of payload) {
+            const ann = anns.get(img.id);
+            if (!ann) continue;
+            stamped.push({ ...ann, imageId: img.id, isSemanticIndexed: true, updatedAt: stampedAt });
+        }
+        if (stamped.length > 0) {
+            try {
+                await bulkSaveAnnotations(stamped);
+            } catch (error) {
+                console.error('Failed to persist semantic index stamps:', error);
+            }
+            useImageStore.setState(state => {
+                const newAnnotations = new Map(state.annotations);
+                for (const a of stamped) newAnnotations.set(a.imageId, a);
+                return { ...state, annotations: newAnnotations };
+            });
+        }
     } catch (error) {
         if (error instanceof Error && error.message === SEMANTIC_INDEX_CANCELLED) {
             // User cancel — a normal outcome, not an error.
@@ -220,13 +274,14 @@ export async function runSemanticIndexNow(options?: { force?: boolean }): Promis
  *   Phase 1/4 — stacking (exact prompt hashing → stackGroupId)
  *   Phase 2/4 — similarity grouping (semantic clustering)
  *   Phase 3/4 — auto-tagging (AI enrichment, LIBRARY scope)
- *   Phase 4/4 — semantic search indexing (textHash Δ → semanticVectors)
+ *   Phase 4/4 — semantic search indexing (isSemanticIndexed gate + textHash Δ
+ *               → semanticVectors)
  *
  * Auto-tag sits between similarity and semantic so enrichment results feed
  * both downstream phases — and so it always completes before the semantic
  * index consumes tag changes. Only images that actually need each phase
- * (e.g. un-stacked images, changed textHashes) do work — an idle round is
- * cheap.
+ * (e.g. un-stacked images, changed text, un-stamped semantic payloads) do
+ * work — an idle round is cheap.
  *
  * Called from INSIDE queued jobs (reprocess, watcher events, reconnect):
  * awaiting the queue-wrapped `processPostIndexingPipeline` action here
@@ -264,9 +319,10 @@ export async function runPipelineRound(): Promise<void> {
         await store.startAutoTagging('', false, { scope: 'library' });
 
         // Phase 4: Semantic search indexing (§8.3) — raw call, see above.
-        // Δ by textHash — only images missing a vector record (or whose
-        // searchable text changed) get embedded. Skipped silently when
-        // semantic search is disabled.
+        // The isSemanticIndexed stamp gate excludes already-embedded images
+        // before any coordinator round-trip; the coordinator's textHash Δ
+        // covers stamp-cleared images whose text actually changed. Skipped
+        // silently when semantic search is disabled.
         console.log('[Pipeline] Phase 4/4: Semantic search indexing...');
         store.setPipelinePhase('semantic');
         await runSemanticIndexNow();
@@ -1536,7 +1592,17 @@ export const useImageStore = create<ImageState>((set, get) => {
         // when the feature is unused.
         let filteredImages = sorted;
         if (state.semanticMode === 'semantic' && state.semanticHits && state.semanticHits.length > 0) {
-            filteredImages = applySemanticMerge(sorted, state.semanticHits, curationVisible, state.semanticMode);
+            // Stack drill-down is ID-scoped: curationVisible is captured above
+            // (BEFORE the libraryStackContext restriction), so the overlay
+            // would otherwise resurrect every hit — including images from
+            // other stacks — into the drill-down. Intersect the hit set with
+            // the active stack's imageIds before merging.
+            let mergeHits = state.semanticHits;
+            if (libraryStackContext) {
+                const stackIds = new Set(libraryStackContext.imageIds);
+                mergeHits = mergeHits.filter(h => stackIds.has(h.imageId));
+            }
+            filteredImages = applySemanticMerge(sorted, mergeHits, curationVisible, state.semanticMode);
             // The sort box is honest in semantic mode: 'relevance' (the
             // auto-selected default while hits are on screen) keeps the
             // merge's score order; any other chosen sort re-orders the hit
@@ -2569,6 +2635,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                                 // search vocabulary now rides inside autoTags.
                                 synonymTags: [],
                                 searchTagVersion: SEARCH_ENRICHMENT_VERSION,
+                                // Fresh auto-tags feed the index text —
+                                // clearing the stamp re-queues the image for
+                                // the round's semantic phase (phase 4).
+                                isSemanticIndexed: false,
                             });
                         }
 
@@ -2940,6 +3010,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                 autoTags: currentAnnotation?.autoTags ?? [],
                 isAutoTagged: currentAnnotation?.isAutoTagged ?? false,
                 metadataTags: currentAnnotation?.metadataTags ?? [],
+                isSemanticIndexed: false, // index text changed — Δ-run re-embeds
                 addedAt: currentAnnotation?.addedAt ?? Date.now(),
                 updatedAt: Date.now(),
             };
@@ -3000,6 +3071,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                 tags: inManual ? currentAnnotation.tags.filter(t => t !== tag) : currentAnnotation.tags,
                 autoTags: inAuto ? (currentAnnotation.autoTags || []).filter(t => t !== tag) : (currentAnnotation.autoTags || []),
                 metadataTags: inMetadata ? (currentAnnotation.metadataTags || []).filter(t => t !== tag) : (currentAnnotation.metadataTags || []),
+                isSemanticIndexed: false, // index text changed — Δ-run re-embeds
                 updatedAt: Date.now(),
             };
 
@@ -3064,6 +3136,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     autoTags: current?.autoTags ?? [],
                     isAutoTagged: current?.isAutoTagged ?? false,
                     metadataTags: current?.metadataTags ?? [],
+                    isSemanticIndexed: false, // index text changed — Δ-run re-embeds
                     addedAt: current?.addedAt ?? Date.now(),
                     updatedAt: Date.now(),
                 });
@@ -3131,6 +3204,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     tags: inManual ? current.tags.filter(t => t !== tag) : current.tags,
                     autoTags: inAuto ? (current.autoTags || []).filter(t => t !== tag) : (current.autoTags || []),
                     metadataTags: inMetadata ? (current.metadataTags || []).filter(t => t !== tag) : (current.metadataTags || []),
+                    isSemanticIndexed: false, // index text changed — Δ-run re-embeds
                     updatedAt: Date.now(),
                 });
             }
@@ -3220,12 +3294,17 @@ export const useImageStore = create<ImageState>((set, get) => {
                 if (newTags.length === 0) continue;
 
                 const updatedAnnotation: ImageAnnotations = {
+                    // Spread first — preserves synonymTags/searchTagVersion
+                    // (see toggleFavorite): a hardcoded rebuild drops them,
+                    // re-queueing enriched images on every auto-tag run.
+                    ...currentAnnotation,
                     imageId: image.id,
                     isFavorite: currentAnnotation?.isFavorite ?? false,
                     tags: currentAnnotation?.tags ?? [],
                     autoTags: currentAnnotation?.autoTags ?? [],
                     isAutoTagged: currentAnnotation?.isAutoTagged ?? false,
                     metadataTags: [...existingMetadataTags, ...newTags],
+                    isSemanticIndexed: false, // index text changed — Δ-run re-embeds
                     addedAt: currentAnnotation?.addedAt ?? Date.now(),
                     updatedAt: Date.now(),
                 };
@@ -3291,8 +3370,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                         updatedAt: Date.now(),
                         // Synonyms die with the auto-tags; dropping the
                         // searchTagVersion re-opens the enrichment gate so a
-                        // future run re-enriches from scratch.
+                        // future run re-enriches from scratch. Clearing the
+                        // semantic stamp re-embeds the cleared text.
                         synonymTags: [],
+                        isSemanticIndexed: false,
                     });
                 }
             }
@@ -3417,7 +3498,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
 
             // ── 3. Surgical annotation rewrite — keep user data (favorites,
-            //    manual tags, addedAt), zero the 9 derived fields. Zeroing
+            //    manual tags, addedAt), zero the 10 derived fields. Zeroing
             //    searchTagVersion re-opens the auto-tag enrichment gate and
             //    the stack/similarity flags re-open those pipeline gates, so
             //    the post-rescan pipeline genuinely reprocesses every image.
@@ -3429,6 +3510,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     || !!annotation.isAutoTagged
                     || (annotation.synonymTags?.length ?? 0) > 0
                     || annotation.searchTagVersion !== undefined
+                    || !!annotation.isSemanticIndexed
                     || (annotation.metadataTags?.length ?? 0) > 0
                     || annotation.stackGroupId !== undefined
                     || !!annotation.isStackAnalyzed
@@ -3444,6 +3526,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     isAutoTagged: false,                // CLEAR
                     synonymTags: [],                    // CLEAR
                     searchTagVersion: undefined,        // CLEAR — enrichment gate
+                    isSemanticIndexed: false,           // CLEAR — semantic gate re-opens
                     metadataTags: [],                   // CLEAR — re-extracted on rescan
                     stackGroupId: undefined,            // CLEAR — re-stack
                     isStackAnalyzed: false,             // CLEAR
@@ -3720,6 +3803,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                         : undefined;
 
                     const updated: ImageAnnotations = {
+                        // Spread first — preserves synonymTags/searchTagVersion
+                        // and the similarity fields (see toggleFavorite). A
+                        // hardcoded rebuild drops them, which re-queues
+                        // enriched images on every auto-tag run.
+                        ...existing,
                         imageId: image.id,
                         isFavorite: existing?.isFavorite ?? false,
                         tags: existing?.tags ?? [],
@@ -3888,6 +3976,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                 if (existing?.similarityGroupId === targetGroupId) continue;
 
                 const updated: ImageAnnotations = {
+                    // Spread first — preserves synonymTags/searchTagVersion
+                    // (see toggleFavorite): a hardcoded rebuild drops them,
+                    // re-queueing enriched images on every auto-tag run.
+                    ...existing,
                     imageId,
                     isFavorite: existing?.isFavorite ?? false,
                     tags: existing?.tags ?? [],
@@ -4219,6 +4311,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                             : undefined;
 
                         const updated: ImageAnnotations = {
+                            // Spread first — preserves synonymTags/searchTagVersion
+                            // (see toggleFavorite): a hardcoded rebuild drops
+                            // them, re-queueing enriched images on every run.
+                            ...ann,
                             imageId: img.id,
                             isFavorite: ann?.isFavorite ?? false,
                             tags: ann?.tags ?? [],
@@ -4354,7 +4450,12 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                     // Yield to the event loop every 50 pairs — synchronous
                     // similarity math over a large library visibly froze the UI.
+                    // Progress is reported on the same cadence: after a
+                    // reprocess this loop can cover thousands of groups, and
+                    // without a message the footer pins on the stale
+                    // "Assigning prompt IDs..." from Step 0.
                     let pairsSinceYield = 0;
+                    let processedEntries = 0;
                     for (const entry of newEntries) {
                         let bestMatch: string | null = null;
                         let bestScore = 0;
@@ -4368,6 +4469,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                                     bestMatch = simId;
                                 }
                                 if (++pairsSinceYield % 50 === 0) {
+                                    reportProgress(0, 1, `Comparing prompt similarity… (${processedEntries + 1}/${newEntries.length} groups)`);
                                     await new Promise(r => setTimeout(r, 0));
                                 }
                             }
@@ -4383,11 +4485,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                                 bestMatch = simId;
                             }
                             if (++pairsSinceYield % 50 === 0) {
+                                reportProgress(0, 1, `Comparing prompt similarity… (${processedEntries + 1}/${newEntries.length} groups)`);
                                 await new Promise(r => setTimeout(r, 0));
                             }
                         }
 
                         groupIdToSimId.set(entry.groupId, bestMatch || entry.groupId);
+                        processedEntries++;
                     }
                 }
 

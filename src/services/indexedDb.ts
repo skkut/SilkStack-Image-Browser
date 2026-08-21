@@ -3,6 +3,12 @@
 const DB_NAME = 'image-metahub-preferences';
 const DB_VERSION = 8;
 
+// A blocked open request never settles on its own — no onblocked handler
+// means the promise hangs forever and takes every caller (pipeline bulk
+// saves, annotation loads) down with it. Time out and surface the block as
+// a normal open failure instead of wedging the pipeline.
+const OPEN_TIMEOUT_MS = 15_000;
+
 let isPersistenceDisabled = false;
 let hasResetAttempted = false;
 
@@ -64,6 +70,27 @@ export async function openDatabase(
     return await new Promise<IDBDatabase>((resolve, reject) => {
       const request = idb.open(DB_NAME, DB_VERSION);
 
+      // Guard against a request that never settles (blocked by a pending
+      // versionchange / deleteDatabase from another connection). Rejecting
+      // sends the caller down the existing error path — visible degradation
+      // — instead of an invisible permanent hang.
+      let settled = false;
+      const openTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        console.warn('Failed to open database: request timed out (blocked by another connection)');
+        reject(new Error('IndexedDB open timed out — another connection is holding the database.'));
+      }, OPEN_TIMEOUT_MS);
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(openTimer);
+      };
+      request.onblocked = () => {
+        // Log only — the timeout above turns the block into a failure.
+        console.warn('IndexedDB open is blocked by an open connection (versionchange pending).');
+      };
+
       request.onupgradeneeded = (event) => {
         const db = request.result;
         const oldVersion = event.oldVersion;
@@ -111,6 +138,7 @@ export async function openDatabase(
       };
 
       request.onsuccess = () => {
+        finish();
         const db = request.result;
         db.onversionchange = () => {
           try { db.close(); } catch (e) { /* ignore */ }
@@ -120,6 +148,7 @@ export async function openDatabase(
       };
 
       request.onerror = () => {
+        finish();
         console.warn('Failed to open database', request.error);
         reject(request.error);
       };

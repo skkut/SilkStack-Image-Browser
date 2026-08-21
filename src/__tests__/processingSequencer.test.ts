@@ -87,6 +87,7 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
 import { useImageStore } from '../store/useImageStore';
 import { processingQueue } from '../services/processingQueue';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { bulkSaveAnnotations } from '../services/imageAnnotationsStorage';
 import { type IndexedImage, type ImageAnnotations } from '../types';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
@@ -169,6 +170,16 @@ describe('runPipelineRound — canonical sequential round', () => {
   it('runs one round in order: stacking → similarity → autoTag → semantic → idle', async () => {
     const phases: Array<string | null> = [];
     const unsub = useImageStore.subscribe((s) => phases.push(s.pipelinePhase));
+    // One never-indexed (but enriched) image so phase 4 actually reaches the
+    // coordinator — an all-stamped library sends an empty payload and skips
+    // it entirely.
+    const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['imgA', enrichedAnnotation('imgA')]]),
+    });
     await useImageStore.getState().processPostIndexingPipeline();
     unsub();
 
@@ -223,6 +234,190 @@ describe('runPipelineRound — canonical sequential round', () => {
     await run;
 
     expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+  });
+});
+
+describe('auto-tag idempotency — the enrichment gate holds across a round', () => {
+  // A fully pipeline-processed image: stack + similarity analyzed, enriched
+  // at the CURRENT version. Phases 1-2 skip it, phase 3 must skip it too.
+  const fullyAnalyzed = (id: string): ImageAnnotations => ({
+    ...enrichedAnnotation(id),
+    stackGroupId: `sg-${id}`,
+    isStackAnalyzed: true,
+    similarityGroupId: `sim-${id}`,
+    isSimilarityAnalyzed: true,
+  });
+
+  it('a round sends ONLY never-enriched images to the auto-tag worker', async () => {
+    const tagged = createImage({ id: 'tagged', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    const fresh = createImage({ id: 'fresh', name: 'whale.png', directoryId: 'dir1', prompt: 'a blue whale' });
+    useImageStore.setState({
+      images: [tagged, fresh],
+      filteredImages: [tagged, fresh],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([
+        ['tagged', fullyAnalyzed('tagged')],
+        // 'fresh' deliberately has NO annotation → needs tagging
+      ]),
+    });
+
+    const round = useImageStore.getState().processPostIndexingPipeline();
+    await vi.waitFor(() => { expect(FakeTaggingWorker.lastInstance).toBeTruthy(); });
+    const start = FakeTaggingWorker.lastInstance!.posted.find((m) => m.type === 'start');
+    const ids = (start!.payload.images as Array<{ id: string }>).map((i) => i.id).sort();
+    expect(ids).toEqual(['fresh']); // 'tagged' is already enriched → skipped
+    completeRun(FakeTaggingWorker.lastInstance!, { fresh: [{ tag: 'whale', sourceType: 'prompt' }] });
+    await round;
+  });
+
+  it('does NOT re-tag an already-enriched image that is missing stack analysis (regression)', async () => {
+    // A tagged image whose isStackAnalyzed was never set — e.g. it was tagged
+    // by a manual run before stacking ran for it. Phase 1 stack-analyzes it,
+    // phase 2 similarity-groups it, and BOTH must preserve the v2 stamp so
+    // phase 3 sees an enriched image and skips it. Before the fix, phases 1-2
+    // rebuilt the annotation without searchTagVersion, so phase 3 re-tagged
+    // the image on EVERY run.
+    const tagged = createImage({ id: 'tagged', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [tagged],
+      filteredImages: [tagged],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['tagged', enrichedAnnotation('tagged')]]), // v2, no stack/sim flags
+    });
+
+    const round = useImageStore.getState().processPostIndexingPipeline();
+
+    // The round must settle on its own: with the fix, phase 3 no-ops and the
+    // round completes without ever creating a worker. With the bug, phase 3
+    // spawns a worker for the already-tagged image and blocks on it — detect
+    // either outcome, release the buggy worker so the queue drains, then
+    // assert which one happened.
+    await vi.waitFor(() => {
+      const done = useImageStore.getState().pipelinePhase === null;
+      const spawned = FakeTaggingWorker.lastInstance !== null;
+      expect(done || spawned).toBe(true);
+    });
+    if (FakeTaggingWorker.lastInstance) {
+      completeRun(FakeTaggingWorker.lastInstance!);
+    }
+    await round;
+
+    expect(FakeTaggingWorker.lastInstance).toBeNull(); // phase 3 never spawned a worker
+    const ann = useImageStore.getState().annotations.get('tagged')!;
+    expect(ann.searchTagVersion).toBe(2);   // stamp survived phases 1-2
+    expect(ann.isStackAnalyzed).toBe(true); // their own work still completed
+    expect(ann.isSimilarityAnalyzed).toBe(true);
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); // phase 4 ran as usual
+  });
+});
+
+describe('semantic-index idempotency — the isSemanticIndexed gate holds across a round', () => {
+  // A fully pipeline-processed AND already-embedded image: stack + similarity
+  // analyzed, enriched at the current version, isSemanticIndexed true — phase
+  // 4 must exclude it from the payload before any coordinator round-trip.
+  const indexedAnnotation = (id: string): ImageAnnotations => ({
+    ...enrichedAnnotation(id),
+    stackGroupId: `sg-${id}`,
+    isStackAnalyzed: true,
+    similarityGroupId: `sim-${id}`,
+    isSimilarityAnalyzed: true,
+    isSemanticIndexed: true,
+  });
+
+  const setupRoundImages = () => {
+    const indexed = createImage({ id: 'indexed', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    const fresh = createImage({ id: 'fresh', name: 'whale.png', directoryId: 'dir1', prompt: 'a blue whale' });
+    useImageStore.setState({
+      images: [indexed, fresh],
+      filteredImages: [indexed, fresh],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([
+        ['indexed', indexedAnnotation('indexed')], // stamped → phase 4 must skip
+        // 'fresh' is enriched but NEVER indexed (no stamp) → phase 4 must embed
+        ['fresh', { ...indexedAnnotation('fresh'), isSemanticIndexed: undefined }],
+      ]),
+    });
+  };
+
+  it('a round sends ONLY never-indexed images to the semantic coordinator', async () => {
+    setupRoundImages();
+    // Both images are enriched at the current version — phase 3 no-ops, so
+    // the round completes on its own (no worker, no manual release).
+    await useImageStore.getState().processPostIndexingPipeline();
+
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    const payload = coordinatorMock.indexImages.mock.calls[0][0] as Array<{ id: string }>;
+    expect(payload.map((p) => p.id)).toEqual(['fresh']);
+  });
+
+  it('stamps embedded images and the NEXT round sends nothing at all', async () => {
+    setupRoundImages();
+
+    await useImageStore.getState().processPostIndexingPipeline();
+    const ann = useImageStore.getState().annotations.get('fresh')!;
+    expect(ann.isSemanticIndexed).toBe(true); // stamped in memory
+    expect(bulkSaveAnnotations).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ imageId: 'fresh', isSemanticIndexed: true }),
+    ])); // and persisted — survives an app restart
+
+    // Round 2 over the same library: every image is stamped → the payload is
+    // empty → the coordinator is never even consulted (zero model load).
+    await useImageStore.getState().processPostIndexingPipeline();
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); // unchanged
+  });
+
+  it('force re-embeds EVERYTHING even when every image is stamped (model switch / Reprocess)', async () => {
+    // Both images fully stamped — only force bypasses the gate.
+    const indexed = createImage({ id: 'indexed', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    const fresh = createImage({ id: 'fresh', name: 'whale.png', directoryId: 'dir1', prompt: 'a blue whale' });
+    useImageStore.setState({
+      images: [indexed, fresh],
+      filteredImages: [indexed, fresh],
+      annotations: new Map([
+        ['indexed', indexedAnnotation('indexed')],
+        ['fresh', indexedAnnotation('fresh')],
+      ]),
+    });
+
+    await useImageStore.getState().semanticIndexImages({ force: true });
+
+    expect(coordinatorMock.clearIndex).toHaveBeenCalled(); // vectors wiped first
+    const payload = coordinatorMock.indexImages.mock.calls[0][0] as Array<{ id: string }>;
+    expect(payload.map((p) => p.id).sort()).toEqual(['fresh', 'indexed']);
+    // And re-stamped, so the next normal run is empty again.
+    expect(useImageStore.getState().annotations.get('indexed')!.isSemanticIndexed).toBe(true);
+    expect(useImageStore.getState().annotations.get('fresh')!.isSemanticIndexed).toBe(true);
+  });
+
+  it('auto-tag completion clears isSemanticIndexed so phase 4 re-embeds the fresh tags', async () => {
+    // Legacy v1 record: needs the one-time re-enrichment (v1→v2 migration)
+    // AND was already indexed — but the new auto-tags change the index text,
+    // so the completion must clear the stamp and phase 4 must re-embed.
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['imgA', { ...indexedAnnotation('imgA'), searchTagVersion: 1 }]]),
+    });
+
+    // Hold phase 4 open so we can observe the cleared stamp mid-round.
+    let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
+    coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
+
+    const round = useImageStore.getState().processPostIndexingPipeline();
+    await vi.waitFor(() => { expect(FakeTaggingWorker.lastInstance).toBeTruthy(); });
+    completeRun(FakeTaggingWorker.lastInstance!, { imgA: [{ tag: 'fox', sourceType: 'prompt' }] });
+
+    await vi.waitFor(() => { expect(coordinatorMock.indexImages).toHaveBeenCalled(); });
+    const payload = coordinatorMock.indexImages.mock.calls[0][0] as Array<{ id: string }>;
+    expect(payload.map((p) => p.id)).toEqual(['imgA']); // the completion re-opened the gate
+    expect(useImageStore.getState().annotations.get('imgA')!.isSemanticIndexed).toBe(false);
+
+    resolveIndex({ indexed: 1, skipped: 0 });
+    await round;
+    expect(useImageStore.getState().annotations.get('imgA')!.isSemanticIndexed).toBe(true); // re-stamped
+    expect(useImageStore.getState().annotations.get('imgA')!.searchTagVersion).toBe(2);
   });
 });
 
@@ -325,6 +520,10 @@ describe('semanticIndexImages — queue semantics', () => {
   it('appends a second run behind a RUNNING one (never coalesced away)', async () => {
     let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveFirst = r; }));
+    // One unstamped image so the run reaches the coordinator — an empty
+    // payload short-circuits before indexImages.
+    const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({ images: [img], filteredImages: [img] });
 
     const p1 = useImageStore.getState().semanticIndexImages();
     await vi.waitFor(() => { expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); });
@@ -341,6 +540,8 @@ describe('semanticIndexImages — queue semantics', () => {
   it('cancelSemanticIndexing drops the queued job; the running one finishes normally', async () => {
     let resolveFirst!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveFirst = r; }));
+    const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({ images: [img], filteredImages: [img] });
 
     const p1 = useImageStore.getState().semanticIndexImages();
     await vi.waitFor(() => { expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); });
@@ -367,6 +568,22 @@ describe('processPostIndexingPipeline — enqueueOnce coalescing', () => {
 
     // A call while a round is RUNNING is appended (running-not-swallowed)…
     phases.length = 0; // fresh counter for this scenario
+    // One fully-analyzed, enriched-but-never-indexed image so phase 4
+    // genuinely blocks on the coordinator (an empty library short-circuits
+    // the semantic phase before indexImages). Phases 1-3 no-op for it, so
+    // the phase label is pushed exactly once per phase per round.
+    const img = createImage({ id: 'imgB', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      annotations: new Map([['imgB', {
+        ...enrichedAnnotation('imgB'),
+        stackGroupId: 'sg-imgB',
+        isStackAnalyzed: true,
+        similarityGroupId: 'sim-imgB',
+        isSimilarityAnalyzed: true,
+      }]]),
+    });
     let resolveIndex!: (v: { indexed: number; skipped: number }) => void;
     coordinatorMock.indexImages.mockReturnValueOnce(new Promise((r) => { resolveIndex = r; }));
     const first = useImageStore.getState().processPostIndexingPipeline();

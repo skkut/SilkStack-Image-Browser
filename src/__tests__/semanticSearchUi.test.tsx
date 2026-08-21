@@ -81,6 +81,7 @@ import SettingsModal from '../components/SettingsModal';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeLicenseStamp } from '../services/aiFeatureAccess';
+import type { IndexedImage } from '../types';
 
 /** Drain the microtask queue so fire-and-forget chains (the settings
  *  subscription → semanticIndexImages → coordinator) complete. */
@@ -338,6 +339,12 @@ describe('SettingsModal semantic section (Phase 6)', () => {
       modelId: 'm',
       dimension: 768,
       error: null,
+    });
+
+    // One unstamped image so the kick-in Δ-run reaches the coordinator —
+    // an empty library short-circuits before indexImages (isSemanticIndexed gate).
+    useImageStore.setState({
+      images: [{ id: 'a', name: 'a.png', prompt: 'red fox' } as unknown as IndexedImage],
     });
 
     render(<SettingsModal isOpen onClose={vi.fn()} />);

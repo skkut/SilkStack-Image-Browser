@@ -11,7 +11,7 @@ vi.hoisted(() => {
   } as any;
 });
 
-import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices } from '../store/useImageStore';
+import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices, needsSearchEnrichment, needsSemanticIndexing } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
 
@@ -201,6 +201,145 @@ describe('useImageStore Stacking Preservations', () => {
     const ann = annotations.get('img1');
     expect(ann?.similarityGroupId).toBe('sim-manual'); // Should be preserved
     expect(ann?.stackGroupId).toBe('hash-test');
+  });
+
+  // ── Enrichment-stamp preservation (auto-tag idempotency regression) ──
+  // syncNewImagesToStacks and computeSimilarityGroups used to REBUILD the
+  // annotation from a hardcoded field list, silently dropping
+  // searchTagVersion/synonymTags. The rebuilt record is then bulk-saved over
+  // the enriched one, so the next pipeline round's auto-tag phase sees a
+  // version-less annotation and re-tags an already-tagged image. Same bug
+  // class as the toggleFavorite/addTagToImage rebuilds fixed earlier — these
+  // two pipeline writers were missed.
+
+  it('syncNewImagesToStacks preserves searchTagVersion/synonymTags on enriched images', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    const enriched: ImageAnnotations = {
+      imageId: 'img1',
+      isFavorite: false,
+      tags: ['manual'],
+      autoTags: ['dragon'],
+      metadataTags: [],
+      isAutoTagged: true,
+      stackGroupId: undefined,
+      similarityGroupId: undefined,
+      isStackAnalyzed: false, // not yet stack-analyzed → the writer fires
+      synonymTags: ['wyvern', 'serpent'],
+      searchTagVersion: 2, // v2 stamp — auto-tag must skip this image
+      isSemanticIndexed: true, // indexed stamp — semantic must skip it too
+      addedAt: 1000,
+      updatedAt: 1000,
+    };
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enriched]])
+    });
+
+    await useImageStore.getState().syncNewImagesToStacks();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.searchTagVersion).toBe(2);          // stamp survives the rewrite
+    expect(ann.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(ann.isAutoTagged).toBe(true);
+    expect(ann.isSemanticIndexed).toBe(true);      // semantic stamp survives too
+    expect(ann.isStackAnalyzed).toBe(true);        // the writer's own job still done
+    expect(ann.stackGroupId).toBe('hash-test');
+  });
+
+  it('computeSimilarityGroups preserves searchTagVersion/synonymTags on enriched images (missing-stack path)', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    const enriched: ImageAnnotations = {
+      imageId: 'img1',
+      isFavorite: false,
+      tags: ['manual'],
+      autoTags: ['dragon'],
+      metadataTags: [],
+      isAutoTagged: true,
+      stackGroupId: undefined, // missing → the rebuild path fires
+      similarityGroupId: undefined,
+      isStackAnalyzed: false,
+      synonymTags: ['wyvern', 'serpent'],
+      searchTagVersion: 2,
+      isSemanticIndexed: true, // indexed stamp — semantic must skip it too
+      addedAt: 1000,
+      updatedAt: 1000,
+    };
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enriched]])
+    });
+
+    await useImageStore.getState().computeSimilarityGroups();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.searchTagVersion).toBe(2);          // stamp survives the rewrite
+    expect(ann.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(ann.isAutoTagged).toBe(true);
+    expect(ann.isSemanticIndexed).toBe(true);      // semantic stamp survives too
+    expect(ann.isSimilarityAnalyzed).toBe(true);
+    expect(ann.stackGroupId).toBe('hash-test');
+  });
+});
+
+// ── Enrichment gate semantics (pure function) ─────────────────────────
+
+describe('needsSearchEnrichment', () => {
+  const base: ImageAnnotations = {
+    imageId: 'img1',
+    isFavorite: false,
+    tags: [],
+    autoTags: [],
+    metadataTags: [],
+    addedAt: 0,
+    updatedAt: 0,
+  };
+
+  it('returns true when there is no annotation at all (never tagged)', () => {
+    expect(needsSearchEnrichment(undefined)).toBe(true);
+  });
+
+  it('returns true when the version is missing (legacy isAutoTagged-only records re-tag once)', () => {
+    expect(needsSearchEnrichment({ ...base, isAutoTagged: true })).toBe(true);
+  });
+
+  it('returns true when the stored version is stale (a future version bump re-tags the library once)', () => {
+    expect(needsSearchEnrichment({ ...base, searchTagVersion: 1 })).toBe(true);
+  });
+
+  it('returns false when the stored version matches SEARCH_ENRICHMENT_VERSION (skip — already tagged)', () => {
+    expect(needsSearchEnrichment({ ...base, searchTagVersion: 2 })).toBe(false);
+  });
+});
+
+// ── Semantic-index gate semantics (pure function) ─────────────────────
+
+describe('needsSemanticIndexing', () => {
+  const base: ImageAnnotations = {
+    imageId: 'img1',
+    isFavorite: false,
+    tags: [],
+    autoTags: [],
+    metadataTags: [],
+    addedAt: 0,
+    updatedAt: 0,
+  };
+
+  it('returns true when there is no annotation at all (never indexed)', () => {
+    expect(needsSemanticIndexing(undefined)).toBe(true);
+  });
+
+  it('returns true when the stamp is missing (records written before the stamp existed re-index once)', () => {
+    expect(needsSemanticIndexing(base)).toBe(true);
+  });
+
+  it('returns true when the stamp is explicitly false (index text changed — writer cleared it)', () => {
+    expect(needsSemanticIndexing({ ...base, isSemanticIndexed: false })).toBe(true);
+  });
+
+  it('returns false when the stamp is true (skip — already embedded)', () => {
+    expect(needsSemanticIndexing({ ...base, isSemanticIndexed: true })).toBe(false);
   });
 });
 
@@ -553,6 +692,12 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
 // synonymTags/searchTagVersion (re-queueing enriched images on EVERY
 // auto-tag run) and the stack/similarity fields. They must spread the
 // current annotation instead — regression-tested here.
+//
+// isSemanticIndexed behaves differently by design: writers that CHANGE the
+// index text (tag add/remove/import, auto-tag completion, clear auto-tags)
+// deliberately clear it so the next semantic Δ-run re-embeds exactly those
+// images; writers that leave the index text alone (favorites, stacking,
+// merging) must preserve it.
 
 describe('useImageStore annotation enrichment preservation', () => {
   const ENRICHED: ImageAnnotations = {
@@ -566,6 +711,7 @@ describe('useImageStore annotation enrichment preservation', () => {
     updatedAt: 1000,
     synonymTags: ['wyvern', 'serpent'],
     searchTagVersion: 2,
+    isSemanticIndexed: true,
     stackGroupId: 'stack-1',
     isStackAnalyzed: true,
   };
@@ -589,17 +735,28 @@ describe('useImageStore annotation enrichment preservation', () => {
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
     expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(true); // index text unchanged → preserved
     expect(a.stackGroupId).toBe('stack-1');
     expect(a.isStackAnalyzed).toBe(true);
     expect(a.isFavorite).toBe(true);
   });
 
-  it('addTagToImage preserves synonymTags/searchTagVersion', async () => {
+  it('addTagToImage preserves enrichment stamps but clears isSemanticIndexed', async () => {
     await useImageStore.getState().addTagToImage('img1', 'newtag');
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
     expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(false); // new tag feeds the index → Δ-run re-embeds
     expect(a.tags).toContain('newtag');
+  });
+
+  it('removeTagFromImage preserves enrichment stamps but clears isSemanticIndexed', async () => {
+    await useImageStore.getState().removeTagFromImage('img1', 'manual');
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(false); // tag text changed → Δ-run re-embeds
+    expect(a.tags).not.toContain('manual');
   });
 
   it('bulkToggleFavorite preserves synonymTags/searchTagVersion and stack fields', async () => {
@@ -607,16 +764,91 @@ describe('useImageStore annotation enrichment preservation', () => {
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
     expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(true); // index text unchanged → preserved
     expect(a.stackGroupId).toBe('stack-1');
     expect(a.isFavorite).toBe(true);
   });
 
-  it('bulkAddTag preserves synonymTags/searchTagVersion', async () => {
+  it('bulkAddTag preserves enrichment stamps but clears isSemanticIndexed', async () => {
     await useImageStore.getState().bulkAddTag(['img1'], 'newtag');
     const a = useImageStore.getState().annotations.get('img1')!;
     expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
     expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(false); // new tag feeds the index → Δ-run re-embeds
     expect(a.tags).toContain('newtag');
+  });
+
+  it('bulkRemoveTag preserves enrichment stamps but clears isSemanticIndexed', async () => {
+    await useImageStore.getState().bulkRemoveTag(['img1'], 'manual');
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(false); // tag text changed → Δ-run re-embeds
+    expect(a.tags).not.toContain('manual');
+  });
+
+  it('importMetadataTags preserves enrichment stamps but clears isSemanticIndexed', async () => {
+    const img = createImage({
+      id: 'img1',
+      prompt: 'a dragon',
+      metadata: { normalizedMetadata: { tags: ['from-file'] } } as any,
+    });
+    useImageStore.setState({ images: [img], filteredImages: [img] });
+
+    await useImageStore.getState().importMetadataTags([img]);
+
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(false); // metadata tags feed the index → Δ-run re-embeds
+    expect(a.metadataTags).toContain('from-file');
+  });
+
+  it('mergeSelectedToStack preserves synonymTags/searchTagVersion', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'a dragon', stackGroupId: 'sg-1' });
+    const img2 = createImage({ id: 'img2', prompt: 'another dragon', stackGroupId: 'sg-1' });
+    useImageStore.setState({
+      images: [img1, img2],
+      filteredImages: [img1, img2],
+      selectedImages: new Set(['img1', 'img2']),
+      annotations: new Map([
+        ['img1', { ...ENRICHED }],
+        ['img2', { ...ENRICHED, imageId: 'img2' }],
+      ]),
+    });
+
+    await useImageStore.getState().mergeSelectedToStack();
+
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(a.searchTagVersion).toBe(2);
+    expect(a.isSemanticIndexed).toBe(true); // index text unchanged → preserved
+    expect(a.similarityGroupId).toBe('sg-1'); // the merge's own job still done
+  });
+
+  it('clearAutoTags re-opens BOTH gates (searchTagVersion AND isSemanticIndexed)', async () => {
+    await useImageStore.getState().clearAutoTags();
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.autoTags).toEqual([]);
+    expect(a.isAutoTagged).toBe(false);
+    expect(a.searchTagVersion).toBeUndefined(); // re-open the enrichment gate
+    expect(a.isSemanticIndexed).toBe(false);    // re-open the semantic gate (cleared text must drop out of the index)
+  });
+
+  it('clearDerivedImageData (Reprocess) re-opens the semantic gate even when ONLY the stamp is set', async () => {
+    // An image whose ONLY derived state is the semantic stamp — the
+    // hasDerived check must still include it, or the wipe would skip it and
+    // leave the stamp in place while the vectors are cleared.
+    useImageStore.setState({
+      annotations: new Map([['img1', { ...ENRICHED, isFavorite: true, autoTags: [], isAutoTagged: false, synonymTags: [], searchTagVersion: undefined, metadataTags: [], stackGroupId: undefined, isStackAnalyzed: false, similarityGroupId: undefined, isSimilarityAnalyzed: false, isSemanticIndexed: true }]]),
+    });
+
+    await useImageStore.getState().clearDerivedImageData();
+
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.isSemanticIndexed).toBe(false); // gate re-opened for the post-rescan round
+    expect(a.isFavorite).toBe(true);         // user data still kept
+    expect(a.tags).toEqual(['manual']);
   });
 });
 
