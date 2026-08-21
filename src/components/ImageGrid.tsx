@@ -369,7 +369,7 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
 
         <button
           onClick={handleFavoriteClick}
-          className={`absolute top-10 right-2 z-10 p-1.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:opacity-100 ${
+          className={`absolute top-2 right-2 z-10 p-1.5 rounded-full transition-all focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:opacity-100 ${
             image.isFavorite
               ? 'bg-yellow-500/80 text-white opacity-100 hover:bg-yellow-600'
               : 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-yellow-500'
@@ -380,11 +380,11 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
         </button>
 
         {isSemanticMatch && (
-          // Semantic hit badge — top-right corner, above the favorite star;
+          // Semantic hit badge — top-right corner, left of the favorite star;
           // pointer-events so it never blocks card click/drag (title is
           // self-documentation).
           <div
-            className="absolute top-2 right-2 z-10 p-1 rounded-full bg-purple-500/10 text-purple-400 pointer-events-none"
+            className="absolute top-2 right-10 z-10 p-1 rounded-full bg-purple-500/10 text-purple-400 pointer-events-none"
             title="Semantic match"
           >
             <Sparkles className="h-3.5 w-3.5" />
