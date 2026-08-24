@@ -81,9 +81,19 @@ export function startWatching(directoryId, dirPath, mainWindow) {
       }
       const pendingMap = pendingFiles.get(directoryId);
       const existing = pendingMap.get(imagePath);
-      pendingMap.set(imagePath, { 
-        type,
-        forceReindex: Boolean(existing?.forceReindex || forceReindex) 
+      // A path that saw BOTH unlink and add inside the batch window is a
+      // REPLACE (rename-save, re-download). Collapsing it to 'add' would
+      // leave the stale store entry satisfying the renderer's dedupe and the
+      // new content would never be indexed. 'replace' sends the path in BOTH
+      // events (images-deleted + new-images-detected) so the renderer drops
+      // the old image + its annotation stamps before re-adding.
+      let nextType = type;
+      if (existing && existing.type !== type && (existing.type === 'unlink' || type === 'unlink')) {
+        nextType = 'replace';
+      }
+      pendingMap.set(imagePath, {
+        type: nextType,
+        forceReindex: Boolean(existing?.forceReindex || forceReindex || nextType === 'replace')
       });
 
       if (processingTimeouts.has(directoryId)) {
@@ -107,7 +117,8 @@ export function startWatching(directoryId, dirPath, mainWindow) {
         if (matches.length === 0) {
           return;
         }
-        matches.forEach((match) => enqueueImage(match, true));
+        // A sidecar JSON means metadata may have changed — re-index the image.
+        matches.forEach((match) => enqueueImage(match, 'add', true));
         return;
       }
 
@@ -116,6 +127,19 @@ export function startWatching(directoryId, dirPath, mainWindow) {
       }
 
       enqueueImage(filePath, 'add', false);
+    });
+
+    // In-place overwrites (same inode — editors and download managers that
+    // write over the existing file instead of rename-replacing) never emit
+    // unlink/add. forceReindex tells the renderer the file at an existing id
+    // changed, so it drops the stale store entry before re-adding.
+    watcher.on('change', (filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.mkv', '.mov', '.avi'];
+      if (!imageExts.includes(ext)) {
+        return;
+      }
+      enqueueImage(filePath, 'add', true);
     });
 
     watcher.on('unlink', (filePath) => {
@@ -213,6 +237,13 @@ function processBatch(directoryId, dirPath, mainWindow) {
       continue;
     }
 
+    // 'replace' = unlink + add inside the same batch window: the renderer
+    // must drop the old entry first (images-deleted) so the re-add below
+    // passes its dedupe and re-runs the pipeline for the new content.
+    if (info.type === 'replace') {
+      deletedFiles.push(filePath);
+    }
+
     // Process additions
     try {
       if (fs.existsSync(filePath)) {
@@ -231,19 +262,22 @@ function processBatch(directoryId, dirPath, mainWindow) {
     }
   }
 
-  if (addedFiles.length > 0) {
-    sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${addedFiles.length} new files to renderer for directory ${directoryId}`);
-    mainWindow.webContents.send('new-images-detected', {
-      directoryId,
-      files: addedFiles
-    });
-  }
-
+  // Deleted/removed FIRST: a replace must drop the stale store entry + its
+  // annotation before the add arrives, or the add dedupes against it and the
+  // new content is silently skipped.
   if (deletedFiles.length > 0) {
     sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${deletedFiles.length} deleted files to renderer for directory ${directoryId}`);
     mainWindow.webContents.send('images-deleted', {
       directoryId,
       paths: deletedFiles
+    });
+  }
+
+  if (addedFiles.length > 0) {
+    sendWatcherDebug(mainWindow, `[FileWatcher] Sending ${addedFiles.length} new files to renderer for directory ${directoryId}`);
+    mainWindow.webContents.send('new-images-detected', {
+      directoryId,
+      files: addedFiles
     });
   }
 

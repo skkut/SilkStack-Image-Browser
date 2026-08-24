@@ -7,6 +7,7 @@ import {
   saveAnnotation,
   bulkSaveAnnotations,
   getAllTags,
+  deleteAnnotation,
 } from '../services/imageAnnotationsStorage';
 
 import { normalizePath } from '../utils/pathUtils';
@@ -986,6 +987,27 @@ export const useImageStore = create<ImageState>((set, get) => {
         if (addedImages.length > 0) {
             get().importMetadataTags(addedImages);
         }
+    };
+
+    // Removing an image because its FILE is gone or changed (delete, move,
+    // replace) must drop its annotation too. The derived stamps
+    // (searchTagVersion, isSemanticIndexed, isStackAnalyzed, stackGroupId,
+    // similarityGroupId) are keyed by the path-derived id — if they survive,
+    // a LATER file that reuses the path (re-download, rename-save, watch
+    // replace) inherits "already processed" and every pipeline phase skips it:
+    // auto-tag reports "No images need enrichment", semantic reports
+    // "All images already indexed". Clearing here re-opens all four gates.
+    const clearAnnotationsForRemovedImages = (state: ImageState, ids: Set<string>) => {
+        if (ids.size === 0) return state;
+        const newAnnotations = new Map(state.annotations);
+        let changed = false;
+        for (const id of ids) {
+            if (newAnnotations.delete(id)) changed = true;
+        }
+        for (const id of ids) {
+            void deleteAnnotation(id);
+        }
+        return changed ? { ...state, annotations: newAnnotations } : state;
     };
 
     const scheduleFlush = () => {
@@ -2220,8 +2242,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             const idsToRemove = new Set(imageIds);
             flushPendingImages();
             set(state => {
-                const remainingImages = state.images.filter(img => !idsToRemove.has(img.id));
-                return _updateState(state, remainingImages);
+                // The file behind each id is gone or changed — its
+                // annotation (and pipeline stamps) dies with it.
+                const withClearedAnnotations = clearAnnotationsForRemovedImages(state, idsToRemove);
+                const remainingImages = withClearedAnnotations.images.filter(img => !idsToRemove.has(img.id));
+                return _updateState(withClearedAnnotations, remainingImages);
             });
         },
 
@@ -2235,27 +2260,34 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const dirMap = new Map<string, string>();
                 directories.forEach(dir => dirMap.set(dir.id, normalizePath(dir.path)));
 
+                const removedIds = new Set<string>();
                 const remainingImages = state.images.filter(img => {
                     const dirPath = dirMap.get(img.directoryId || '');
                     if (!dirPath) return true; // Keep if we can't determine path
-                    
+
                     const relativePath = getRelativeImagePath(img);
                     const fullPath = joinPath(dirPath, relativePath);
                     const normalizedFullPath = normalizePath(fullPath).toLowerCase();
-                    
-                    return !pathsToRemove.has(normalizedFullPath);
+
+                    if (pathsToRemove.has(normalizedFullPath)) {
+                        removedIds.add(img.id);
+                        return false;
+                    }
+                    return true;
                 });
-                
-                if (remainingImages.length === state.images.length) return state;
-                return _updateState(state, remainingImages);
+
+                const withClearedAnnotations = clearAnnotationsForRemovedImages(state, removedIds);
+                if (remainingImages.length === state.images.length && withClearedAnnotations === state) return state;
+                return _updateState(withClearedAnnotations, remainingImages);
             });
         },
 
         removeImage: (imageId) => {
             flushPendingImages();
             set(state => {
-                const remainingImages = state.images.filter(img => img.id !== imageId);
-                return _updateState(state, remainingImages);
+                const withClearedAnnotations = clearAnnotationsForRemovedImages(state, new Set([imageId]));
+                const remainingImages = withClearedAnnotations.images.filter(img => img.id !== imageId);
+                return _updateState(withClearedAnnotations, remainingImages);
             });
         },
 

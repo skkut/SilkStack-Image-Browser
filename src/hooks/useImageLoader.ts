@@ -1580,6 +1580,9 @@ export function useImageLoader() {
         lastModified: number;
         size: number;
         type: string;
+        /** Watcher-set when the file changed at an existing id ('change'
+         *  event, replace-in-window, or sidecar JSON) — see fileWatcher.mjs. */
+        forceReindex?: boolean;
       }>,
     ) => {
       try {
@@ -1594,8 +1597,26 @@ export function useImageLoader() {
         });
         // Filtrar arquivos que já existem (Case-insensitive check)
         const images = useImageStore.getState().images;
-        const existingIdsLower = new Set(images.map((img) => img.id.toLowerCase()));
-        
+        let existingIdsLower = new Set(images.map((img) => img.id.toLowerCase()));
+
+        // forceReindex (watcher 'change' event / replace-in-window / sidecar
+        // JSON): the file at an EXISTING id changed on disk. Drop the stale
+        // store entry — and, via removeImages, its annotation stamps — so the
+        // re-add below passes the dedupe and the full pipeline re-runs for
+        // the NEW content. Without this the stale entry satisfies the dedupe
+        // and the replacement is silently never indexed.
+        const forceReindexFiles = normalizedFiles.filter((file) => file.forceReindex === true);
+        if (forceReindexFiles.length > 0) {
+          const staleIds = forceReindexFiles
+            .map((file) => `${directory.id}::${file.relativePath || file.normalizedName}`)
+            .filter((id) => existingIdsLower.has(id.toLowerCase()));
+          if (staleIds.length > 0) {
+            log('[auto-watch] Force re-index — dropping stale entries:', staleIds.length);
+            useImageStore.getState().removeImages(staleIds);
+            existingIdsLower = new Set(useImageStore.getState().images.map((img) => img.id.toLowerCase()));
+          }
+        }
+
         const newFiles = normalizedFiles.filter((file) => {
           const imageId = `${directory.id}::${file.relativePath || file.normalizedName}`;
           return !existingIdsLower.has(imageId.toLowerCase());
