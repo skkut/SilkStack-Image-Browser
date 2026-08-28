@@ -22,8 +22,13 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v6
 
-      - name: Clone ai-intelligence (private repo)
-        run: git clone https://oauth2:${{ secrets.GH_PAT }}@github.com/skkut/ai-intelligence.git ai-intelligence
+      - name: Clone ai-intelligence (private repo) at pinned revision
+        # Build provenance (MPL §3.2): the binary must trace to the exact
+        # private source. Bump AI_INTELLIGENCE_REVISION at every release and
+        # record it in the release body (see mpl-covered-sources/SOURCES.md).
+        env:
+          AI_INTELLIGENCE_REVISION: 8f38ffedd4137fceeb01e1481770f659815177c2
+        run: git clone https://oauth2:${{ secrets.GH_PAT }}@github.com/skkut/ai-intelligence.git ai-intelligence && git -C ai-intelligence checkout $AI_INTELLIGENCE_REVISION
 
       - name: Install Node.js
         uses: actions/setup-node@v6
