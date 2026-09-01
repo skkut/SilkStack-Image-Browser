@@ -1,7 +1,7 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
-import { Eye, EyeOff, Settings } from 'lucide-react';
+import { FolderSync, FolderX, Settings } from 'lucide-react';
 import { useAiFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -176,7 +176,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                         aria-pressed={globalAutoWatch}
                         data-testid="auto-watch-toggle-button"
                     >
-                        {globalAutoWatch ? <Eye size={20} /> : <EyeOff size={20} />}
+                        {globalAutoWatch ? <FolderSync size={20} /> : <FolderX size={20} />}
                     </button>
                     <button
                         onClick={() => onOpenSettings()}
