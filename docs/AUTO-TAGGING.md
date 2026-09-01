@@ -17,7 +17,7 @@ By default, the auto-tagging system utilizes a small, efficient local Large Lang
 To save time and compute resources, the auto-tagging process is highly optimized:
 1. **New Images Only:** When you initiate an auto-tagging run, the system checks the database and only processes *new images* that haven't been processed before.
 2. **"Processed" Flag:** Once an image passes through the engine, it receives a hidden `isAutoTagged` flag. This applies **even if the model yields 0 tags** for a specific prompt. Because of this, the engine won't needlessly retry parsing an empty or un-taggable prompt on every run.
-3. **Persisted Data:** All auto-generated tags and their processing status are saved to a local database (IndexedDB). Your tags and processing statuses persist perfectly across app restarts.
+3. **Per-Image Incremental Persistence:** Each image's tags and `isAutoTagged` flag are committed to the local database (IndexedDB) **the moment that image finishes** — the engine doesn't wait for the whole run. The UI updates live, and an interrupted run (cancel, crash, app close) resumes from the first un-tagged image on the next run instead of restarting from the beginning. Persisted data survives app restarts perfectly.
 
 ## Managing Auto-Tags
 

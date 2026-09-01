@@ -2685,6 +2685,75 @@ export const useImageStore = create<ImageState>((set, get) => {
                 __autoTagResolve = resolve;
             });
 
+            // ── Per-image incremental persistence ──────────────────────────
+            // Each finished image is merged into its annotation, written to
+            // IndexedDB immediately, and patched into the in-memory lists —
+            // so an interrupted run (cancel / crash / worker error) resumes
+            // from the first un-stamped image instead of restarting (the
+            // needsSearchEnrichment gate above skips stamped ones on the next
+            // start). `persistedIds` dedupes the trailing 'complete' map.
+            const persistedIds = new Set<string>();
+
+            const persistImageTags = (imageId: string, newTags: string[], generatedAt: number): void => {
+                const { annotations } = get();
+                const current = annotations.get(imageId);
+                const existingAutoTags = current?.autoTags ?? [];
+                const mergedAutoTags = [...new Set([...existingAutoTags, ...newTags])];
+
+                // Add generated tags to autoTags (not manual tags). The
+                // worker returns the FLAT merged tag list (tags + search
+                // synonyms as one bounded array) — synonyms are no longer a
+                // separate concept, so nothing to split.
+                const annotation: ImageAnnotations = {
+                    imageId,
+                    isFavorite: current?.isFavorite ?? false,
+                    tags: current?.tags ?? [],
+                    autoTags: mergedAutoTags,
+                    metadataTags: current?.metadataTags ?? [],
+                    addedAt: current?.addedAt ?? generatedAt,
+                    updatedAt: generatedAt,
+                    isAutoTagged: true,
+                    // Enrichment metadata: the version stamp makes
+                    // re-tagging idempotent across runs (see
+                    // needsSearchEnrichment). synonymTags is legacy —
+                    // search vocabulary now rides inside autoTags.
+                    synonymTags: [],
+                    searchTagVersion: SEARCH_ENRICHMENT_VERSION,
+                    // Fresh auto-tags feed the index text — clearing the
+                    // stamp re-queues the image for the round's semantic
+                    // phase (phase 4).
+                    isSemanticIndexed: false,
+                };
+
+                // Persist this one image immediately (fire-and-forget — the
+                // next LLM call takes seconds, so the ~1ms put never blocks
+                // anything; the main thread writes concurrently with the
+                // worker's generation by design).
+                import('../services/imageAnnotationsStorage')
+                    .then(({ saveAnnotation }) => saveAnnotation(annotation))
+                    .catch(error => console.warn('Failed to persist auto-tags as annotations:', error));
+
+                set(state => {
+                    const newAnnotations = new Map(state.annotations);
+                    newAnnotations.set(annotation.imageId, annotation);
+
+                    // Surgical patch: only the tagged image's object is
+                    // recreated (the old full-list map spread every image on
+                    // every message — O(n) per image, O(n²) over a run).
+                    const patchList = (list: IndexedImage[]) => list.map(img =>
+                        img.id === annotation.imageId
+                            ? { ...img, tags: mergeAnnotationTags(annotation), autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged, synonymTags: annotation.synonymTags ?? [], searchTagVersion: annotation.searchTagVersion }
+                            : img);
+
+                    return {
+                        ...state,
+                        annotations: newAnnotations,
+                        images: patchList(state.images),
+                        filteredImages: patchList(state.filteredImages),
+                    };
+                });
+            };
+
             worker.onmessage = (e: MessageEvent) => {
                 const { type, payload } = e.data;
 
@@ -2695,6 +2764,20 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // footer bar always explains what it is doing.
                         set({ autoTaggingProgress: { ...payload, message: payload.message || 'Generating tags…' } });
                         break;
+                    case 'image-tagged': {
+                        // One image finished in the worker — persist it NOW
+                        // (tags + isAutoTagged + the enrichment stamp), while
+                        // the worker moves on to the next image. This is what
+                        // makes interrupted runs resume instead of restarting.
+                        const streamedTags = (payload.tags || []) as AutoTag[];
+                        persistedIds.add(payload.id);
+                        persistImageTags(
+                            payload.id,
+                            [...new Set(streamedTags.map((tag) => tag.tag).filter(Boolean))],
+                            Date.now(),
+                        );
+                        break;
+                    }
                     case 'complete': {
                         const generatedAt = Date.now();
                         const tagMap = new Map<string, string[]>();
@@ -2703,71 +2786,18 @@ export const useImageStore = create<ImageState>((set, get) => {
                             tagMap.set(id, normalizedTags);
                         });
 
-                        // The worker returns the FLAT merged tag list (tags +
-                        // search synonyms as one bounded array) — synonyms are
-                        // no longer a separate concept, so nothing to split.
-                        // Add generated tags to autoTags (not manual tags)
-                        const { annotations } = get();
-                        const updatedAnnotations: ImageAnnotations[] = [];
-
+                        // The worker streams every image via 'image-tagged'
+                        // (persisted incrementally as it lands) and 'complete'
+                        // carries the full map for backward compatibility —
+                        // only ids that did NOT stream in (legacy/other
+                        // hosts) are persisted here; everything else was
+                        // already committed per-image.
                         for (const [imageId, newTags] of tagMap) {
-                            const current = annotations.get(imageId);
-                            const existingAutoTags = current?.autoTags ?? [];
-                            const mergedAutoTags = [...new Set([...existingAutoTags, ...newTags])];
-
-                            updatedAnnotations.push({
-                                imageId,
-                                isFavorite: current?.isFavorite ?? false,
-                                tags: current?.tags ?? [],
-                                autoTags: mergedAutoTags,
-                                metadataTags: current?.metadataTags ?? [],
-                                addedAt: current?.addedAt ?? generatedAt,
-                                updatedAt: generatedAt,
-                                isAutoTagged: true,
-                                // Enrichment metadata: the version stamp makes
-                                // re-tagging idempotent across runs (see
-                                // needsSearchEnrichment). synonymTags is legacy —
-                                // search vocabulary now rides inside autoTags.
-                                synonymTags: [],
-                                searchTagVersion: SEARCH_ENRICHMENT_VERSION,
-                                // Fresh auto-tags feed the index text —
-                                // clearing the stamp re-queues the image for
-                                // the round's semantic phase (phase 4).
-                                isSemanticIndexed: false,
-                            });
+                            if (persistedIds.has(imageId)) continue;
+                            persistImageTags(imageId, newTags, generatedAt);
                         }
 
-                        // Persist annotations
-                        if (updatedAnnotations.length > 0) {
-                            import('../services/imageAnnotationsStorage')
-                                .then(({ bulkSaveAnnotations }) => bulkSaveAnnotations(updatedAnnotations))
-                                .catch(error => console.warn('Failed to persist auto-tags as annotations:', error));
-                        }
-
-                        set(state => {
-                            const newAnnotations = new Map(state.annotations);
-                            for (const annotation of updatedAnnotations) {
-                                newAnnotations.set(annotation.imageId, annotation);
-                            }
-
-                            const updateList = (list: IndexedImage[]) => list.map(img => {
-                                const annotation = newAnnotations.get(img.id);
-                                if (annotation) {
-                                    const mergedTags = mergeAnnotationTags(annotation);
-                                    return { ...img, tags: mergedTags, autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged, synonymTags: annotation.synonymTags ?? [], searchTagVersion: annotation.searchTagVersion };
-                                }
-                                return img;
-                            });
-
-                            return {
-                                ...state,
-                                annotations: newAnnotations,
-                                images: updateList(state.images),
-                                filteredImages: updateList(state.filteredImages),
-                                autoTaggingProgress: null,
-                                isAutoTagging: false,
-                            };
-                        });
+                        set({ autoTaggingProgress: null, isAutoTagging: false });
 
                         // Worker reuse: KEEP the worker alive — the engine is
                         // designed to stay resident for the worker's lifetime,

@@ -14,6 +14,7 @@ vi.hoisted(() => {
 import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices, needsSearchEnrichment, needsSemanticIndexing } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
+import { saveAnnotation } from '../services/imageAnnotationsStorage';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   id: overrides.id || 'id',
@@ -683,6 +684,116 @@ describe('useImageStore AI model chips (models-status + eject)', () => {
     expect(useImageStore.getState().autoTaggingWorker).toBeNull();
     expect(useImageStore.getState().autoTagWorkerModelId).toBeNull();
     expect(useImageStore.getState().aiModelsLoaded).toEqual(EMPTY);
+  });
+});
+
+// ── Incremental per-image persistence (image-tagged) ───────────────────
+// The worker streams each finished image as { type: 'image-tagged' }; the
+// store must commit that image (tags + isAutoTagged + the enrichment stamp)
+// to the DB and to the in-memory lists IMMEDIATELY — before the run ends —
+// so an interrupted run resumes instead of restarting. The trailing
+// 'complete' map must not double-write ids already persisted.
+describe('useImageStore auto-tagging incremental persistence (image-tagged)', () => {
+  beforeEach(() => {
+    FakeTaggingWorker.lastInstance = null;
+    useSettingsStore.setState({ aiDevicePreference: 'auto', aiTagModel: '' });
+    const img1 = createImage({ id: 'img1', prompt: 'a dragon' });
+    const img2 = createImage({ id: 'img2', prompt: 'a castle' });
+    useImageStore.setState({
+      images: [img1, img2],
+      filteredImages: [img1, img2],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+      autoTaggingWorker: null,
+      autoTagWorkerModelId: null,
+      isAutoTagging: false,
+      autoTaggingProgress: null,
+    });
+    vi.stubGlobal('Worker', FakeTaggingWorker);
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('commits each image the moment its image-tagged message arrives, and complete does not double-write', async () => {
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    // img1 finishes in the worker FIRST — it must be committed (tags +
+    // isAutoTagged + enrichment stamp) while the run is still in flight.
+    worker.onmessage?.({
+      data: {
+        type: 'image-tagged',
+        payload: {
+          id: 'img1',
+          tags: [{ tag: 'dragon', sourceType: 'prompt' }, { tag: 'fire', sourceType: 'prompt' }],
+        },
+      },
+    } as MessageEvent);
+
+    const midRun = useImageStore.getState();
+    expect(midRun.isAutoTagging).toBe(true); // run still active
+    // In-memory image patched immediately...
+    expect(midRun.images.find(i => i.id === 'img1')?.autoTags).toEqual(['dragon', 'fire']);
+    expect(midRun.images.find(i => i.id === 'img1')?.isAutoTagged).toBe(true);
+    // ...annotation carries the enrichment stamp...
+    const ann = midRun.annotations.get('img1');
+    expect(ann?.autoTags).toEqual(['dragon', 'fire']);
+    expect(ann?.isAutoTagged).toBe(true);
+    expect(ann?.searchTagVersion).toBe(2);
+    expect(ann?.isSemanticIndexed).toBe(false);
+    // ...and img2 is untouched — it hasn't finished yet.
+    expect(midRun.images.find(i => i.id === 'img2')?.autoTags).toBeUndefined();
+    expect(midRun.images.find(i => i.id === 'img2')?.isAutoTagged).toBeUndefined();
+
+    // Persisted to IndexedDB via the single-annotation save — the store's
+    // dynamic import resolves to the mocked module.
+    await flush();
+    expect(saveAnnotation).toHaveBeenCalledWith(expect.objectContaining({
+      imageId: 'img1',
+      autoTags: ['dragon', 'fire'],
+      isAutoTagged: true,
+      searchTagVersion: 2,
+    }));
+
+    // img2 finishes, then the run completes with BOTH ids in the map —
+    // img1 must NOT be re-persisted (deduped), img2 goes through the
+    // backward-compat leftover path.
+    const saveAnnotationMock = vi.mocked(saveAnnotation);
+    const savesBefore = saveAnnotationMock.mock.calls.length;
+    worker.onmessage?.({
+      data: { type: 'image-tagged', payload: { id: 'img2', tags: [{ tag: 'castle', sourceType: 'prompt' }] } },
+    } as MessageEvent);
+    worker.onmessage?.({
+      data: {
+        type: 'complete',
+        payload: {
+          autoTags: {
+            img1: [{ tag: 'dragon', sourceType: 'prompt' }],
+            img2: [{ tag: 'castle', sourceType: 'prompt' }],
+          },
+        },
+      },
+    } as MessageEvent);
+    await run;
+    await flush();
+
+    expect(saveAnnotationMock.mock.calls).toHaveLength(savesBefore + 1); // only img2 was written
+    expect(saveAnnotationMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      imageId: 'img2',
+      autoTags: ['castle'],
+      isAutoTagged: true,
+    }));
+
+    // Final state: both images tagged, the run settled.
+    expect(useImageStore.getState().isAutoTagging).toBe(false);
+    expect(useImageStore.getState().autoTaggingProgress).toBeNull();
+    expect(useImageStore.getState().images.find(i => i.id === 'img1')?.autoTags).toEqual(['dragon', 'fire']);
+    expect(useImageStore.getState().images.find(i => i.id === 'img2')?.autoTags).toEqual(['castle']);
+    expect(useImageStore.getState().images.find(i => i.id === 'img2')?.isAutoTagged).toBe(true);
   });
 });
 

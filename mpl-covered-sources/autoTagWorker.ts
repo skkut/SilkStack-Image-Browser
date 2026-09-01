@@ -20,7 +20,8 @@
  *   Main → Worker:  { type: 'start',  payload: { images, topN?, disableFallback?, isPremium?, devicePreference?, tagModelId? } }
  *                   { type: 'cancel' }
  *   Worker → Main:  { type: 'progress', payload: { current, total, message } }
- *                   { type: 'complete', payload: { autoTags } }   — flat merged tag list (tags + search synonyms in one bounded array)
+ *                   { type: 'image-tagged', payload: { id, tags } }  — one per image, emitted as soon as that image's tags are generated so the host persists each image incrementally (resume-safe)
+ *                   { type: 'complete', payload: { autoTags } }   — flat merged tag list (tags + search synonyms in one bounded array); the full accumulated map for backward compatibility
  *                   { type: 'error',    payload: { error } }
  */
 
@@ -82,6 +83,8 @@ export interface AutoTagWorkerContext {
   getTagModelId(): string;
   /** Auto-tag shape: { current, total, message }. */
   postProgress(current: number, total: number, message: string): void;
+  /** One image's tags, emitted as soon as they are generated. */
+  postImageTagged(id: string, tags: AutoTag[]): void;
   postComplete(autoTags: Record<string, AutoTag[]>): void;
   postError(error: string): void;
 }
@@ -164,6 +167,11 @@ export class AutoTagWorker {
           tag: t,
           sourceType: 'prompt' as const,
         }));
+
+        // Emit this image's tags immediately — the host persists each image
+        // as it finishes, so an interrupted run never re-processes it (the
+        // next 'start' filters stamped images on its side).
+        this.ctx.postImageTagged(image.id, autoTags[image.id]);
 
         const label = this.mode === 'llm' ? 'Generating AI tags' : 'Extracting tags';
         this.ctx.postProgress(i + 1, total, `${label}... (${i + 1}/${total})`);

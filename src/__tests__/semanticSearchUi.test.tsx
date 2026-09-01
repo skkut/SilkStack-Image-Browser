@@ -216,6 +216,36 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
     await flush();
   });
 
+  it('eye toggle flips the persisted globalAutoWatch setting', async () => {
+    setElectronAPI();
+    useSettingsStore.setState({ globalAutoWatch: true });
+
+    render(
+      <TopMenuBar
+        onOpenSettings={vi.fn()}
+        onAddFolder={vi.fn()}
+        onToggleView={vi.fn()}
+        searchQuery=""
+        setSearchQuery={vi.fn()}
+        activeView="library"
+        onLibraryViewChange={vi.fn()}
+      />,
+    );
+
+    const toggle = screen.getByTestId('auto-watch-toggle-button');
+    // On state: eye icon + blue glow
+    expect(useSettingsStore.getState().globalAutoWatch).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(useSettingsStore.getState().globalAutoWatch).toBe(false);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(useSettingsStore.getState().globalAutoWatch).toBe(true);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('toggling the sparkle off drops the hits so the Semantic chip disappears', async () => {
     setElectronAPI();
     stampPremium();

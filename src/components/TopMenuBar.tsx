@@ -1,9 +1,10 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
-import { Settings } from 'lucide-react';
+import { Eye, EyeOff, Settings } from 'lucide-react';
 import { useAiFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'about') => void;
@@ -42,6 +43,11 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     const semanticMode = useImageStore((state) => state.semanticMode);
     const semanticSearchStatus = useImageStore((state) => state.semanticSearchStatus);
     const setSemanticMode = useImageStore((state) => state.setSemanticMode);
+
+    // Real-time folder monitoring: global on/off, persisted in settings.
+    // App.tsx watches this value and starts/stops the OS watchers on change.
+    const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
+    const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
 
     const handleToggleSemantic = () => {
         setSemanticMode(semanticMode === 'semantic' ? 'off' : 'semantic');
@@ -149,13 +155,29 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     </div>
                 )}
                 
-                {/* Settings Button */}
+                {/* Settings + Real-time Monitoring Toggle */}
                 <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
                     {isDev && (
                         <span className="text-[9px] font-bold px-1.5 py-0.5 bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded uppercase tracking-tighter shadow-[0_0_10px_rgba(245,158,11,0.1)]">
                             Dev
                         </span>
                     )}
+                    <button
+                        onClick={toggleGlobalAutoWatch}
+                        className={`p-1.5 rounded-full transition-all duration-200 ${
+                            globalAutoWatch
+                                ? 'text-blue-400 bg-blue-500/10 shadow-[0_0_10px_rgba(59,130,246,0.4)]'
+                                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/80'
+                        }`}
+                        title={globalAutoWatch
+                            ? 'Monitoring folders in real-time — click to pause'
+                            : 'Real-time monitoring paused — click to resume'}
+                        aria-label="Toggle real-time folder monitoring"
+                        aria-pressed={globalAutoWatch}
+                        data-testid="auto-watch-toggle-button"
+                    >
+                        {globalAutoWatch ? <Eye size={20} /> : <EyeOff size={20} />}
+                    </button>
                     <button
                         onClick={() => onOpenSettings()}
                         className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"

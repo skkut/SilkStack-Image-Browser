@@ -8,6 +8,7 @@ When working on this codebase:
 
 - Always make sure the build works (npm run build)
 - Always read existing code before modifying
+- Always ensure MPL compliance, warn for MPL violations
 - Maintain backward compatibility with cached data
 - Consider performance impact on large collections
 - Keep privacy-first approach (no external connections)
