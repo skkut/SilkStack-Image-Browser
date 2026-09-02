@@ -95,14 +95,32 @@ export function isAiFeaturesEnabled(): boolean {
 export { isAiFeaturesEnabled as isPremiumUnlocked };
 
 /**
+ * Imperative: the raw master AI-features pref — no license/module involved.
+ * This is the safety switch: when it's off, no WebLLM model may load.
+ * Stacking (rule-based, no model load) is deliberately NOT gated by it.
+ */
+export function isAiMasterEnabled(): boolean {
+  return useSettingsStore.getState().aiFeaturesEnabled !== false;
+}
+
+/**
+ * Imperative: true when the model-loading AI features are usable — the
+ * master toggle AND the premium gate (module ∧ license ∧ valid stamp).
+ * Gate every auto-tag/semantic entry point and every aiBridge model
+ * factory with this; stacking surfaces keep using isAiFeaturesEnabled().
+ */
+export function isAiModelFeaturesEnabled(): boolean {
+  return isAiMasterEnabled() && isAiFeaturesEnabled();
+}
+
+/**
  * Imperative: true when the user has enabled semantic search AND the
- * premium gate passes. Non-hook twin of useSemanticSearchEnabled — store
- * actions / pipeline code run outside React render, where hooks throw
- * "Invalid hook call" (React error #321).
+ * master toggle is on AND the premium gate passes. Non-hook twin of
+ * useSemanticSearchEnabled — store actions / pipeline code run outside
+ * React render, where hooks throw "Invalid hook call" (React error #321).
  */
 export function isSemanticSearchEnabled(): boolean {
-  if (!isAiFeaturesEnabled()) return false;
-  return useSettingsStore.getState().isSemanticSearchEnabled;
+  return isAiModelFeaturesEnabled() && useSettingsStore.getState().isSemanticSearchEnabled;
 }
 
 // ── Reactive hooks ────────────────────────────────────────────────────
@@ -116,6 +134,27 @@ export function useAiFeaturesEnabled(): boolean {
 
   if (!AI_MODULE_AVAILABLE) return false;
   return checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated);
+}
+
+/**
+ * Reactive hook: the raw master AI-features pref (no license/module
+ * involved). Used by the top-menu-bar toggle, the Settings toggle, and the
+ * master-aware model-feature gates below.
+ */
+export function useAiMasterEnabled(): boolean {
+  return useSettingsStore((s) => s.aiFeaturesEnabled);
+}
+
+/**
+ * Reactive hook: model-loading AI features (auto-tag, semantic) fully
+ * usable — master toggle AND premium gate. Non-hook twin is
+ * isAiModelFeaturesEnabled(); hook form for React UI gating (footer
+ * auto-tag buttons, etc.).
+ */
+export function useAiModelFeaturesEnabled(): boolean {
+  const masterEnabled = useAiMasterEnabled();
+  const licenseEnabled = useAiFeaturesEnabled();
+  return masterEnabled && licenseEnabled;
 }
 
 /**
@@ -136,15 +175,17 @@ export function useStackingEnabled(): boolean {
 
 /**
  * Reactive hook: the effective semantic-search toggle — user preference AND
- * premium gate AND stamp valid. Mirrors useStackingEnabled.
+ * master AI-features toggle AND premium gate AND stamp valid.
  */
 export function useSemanticSearchEnabled(): boolean {
   const userPref = useSettingsStore((s) => s.isSemanticSearchEnabled);
+  const masterEnabled = useSettingsStore((s) => s.aiFeaturesEnabled);
   const licenseStatus = useSettingsStore((s) => s.licenseStatus);
   const licenseStamp = useSettingsStore((s) => s.licenseStamp);
   const licenseKey = useSettingsStore((s) => s.licenseKey);
   const licenseLastValidated = useSettingsStore((s) => s.licenseLastValidated);
 
+  if (!masterEnabled) return false;
   if (!AI_MODULE_AVAILABLE) return false;
   if (!checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated)) return false;
   return userPref;

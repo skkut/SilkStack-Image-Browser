@@ -13,6 +13,8 @@ vi.hoisted(() => {
 
 const featureAccessMocks = vi.hoisted(() => ({
   isAiFeaturesEnabled: vi.fn(() => true),
+  isAiMasterEnabled: vi.fn(() => true),
+  isAiModelFeaturesEnabled: vi.fn(() => true),
   isSemanticSearchEnabled: vi.fn(() => true),
   useSemanticSearchEnabled: vi.fn(() => true),
 }));
@@ -23,6 +25,7 @@ const coordinatorMock = vi.hoisted(() => ({
   search: vi.fn(),
   clearIndex: vi.fn(),
   cancelIndexing: vi.fn(),
+  unloadModels: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
 }));
@@ -887,6 +890,34 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
 
     useSettingsStore.getState().setSemanticSearchEnabled(false);
+  });
+});
+
+// ── Master AI-features toggle — runtime flip (Phase 8) ────────────────
+// The store's settings subscribe fires on the pref flip: OFF cancels
+// in-flight runs, unloads resident models, and drops semantic hits; ON
+// resumes Δ-indexing (idempotent). The latch is pre-initialized to the
+// current pref, so only REAL flips fire — this test must be the last to
+// touch the pref in the file (a restore would fire the ON branch).
+describe('master AI-features toggle — runtime flip', () => {
+  it('flip OFF cancels + unloads + clears; flip ON resumes Δ-indexing', async () => {
+    // One unstamped image so the resumed run reaches the coordinator.
+    useImageStore.setState({
+      images: [{ id: 'a', name: 'a.png', prompt: 'red fox' } as unknown as IndexedImage],
+    });
+
+    // ON → OFF: hits drop and resident models unload (the coordinator
+    // singleton exists from earlier describes — the mock records it).
+    useImageStore.setState({ semanticHits: [{ imageId: 'a', score: 0.9 }] });
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(coordinatorMock.unloadModels).toHaveBeenCalledTimes(1);
+
+    // OFF → ON: the Δ-index resumes — the semantic gate mock is open, so
+    // the run reaches the coordinator and re-embeds the unstamped image.
+    useSettingsStore.setState({ aiFeaturesEnabled: true });
+    await flush();
+    expect(coordinatorMock.ensureInitialized).toHaveBeenCalled();
   });
 });
 

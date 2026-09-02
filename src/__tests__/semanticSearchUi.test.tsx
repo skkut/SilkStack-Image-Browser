@@ -139,6 +139,7 @@ beforeEach(() => {
     licenseLastValidated: 0,
     licenseStamp: '',
     isSemanticSearchEnabled: false,
+    aiFeaturesEnabled: true,
     aiEmbeddingModel: '',
     aiTagModel: '',
   });
@@ -812,5 +813,87 @@ describe('ImageCard semantic badge', () => {
     // A non-hit card has no badge.
     rerender(<ImageCard {...base} />);
     expect(screen.queryByTitle('Semantic match')).toBeNull();
+  });
+});
+
+// ── Master AI-features toggle (Phase 8) ───────────────────────────────
+
+describe('master AI-features toggle', () => {
+  it('top bar button flips the persisted pref and hides the semantic sparkle', () => {
+    setElectronAPI();
+    stampPremium();
+    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+
+    render(
+      <TopMenuBar
+        onOpenSettings={vi.fn()}
+        onAddFolder={vi.fn()}
+        onToggleView={vi.fn()}
+        searchQuery=""
+        setSearchQuery={vi.fn()}
+        activeView="library"
+        onLibraryViewChange={vi.fn()}
+      />,
+    );
+
+    const toggle = screen.getByTestId('ai-features-toggle-button');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('semantic-toggle-button')).toBeDefined();
+
+    fireEvent.click(toggle);
+
+    // Master off: the persisted pref flips and the sparkle disappears —
+    // useSemanticSearchEnabled() is master-aware (the whole gate collapses).
+    expect(useSettingsStore.getState().aiFeaturesEnabled).toBe(false);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.queryByTestId('semantic-toggle-button')).toBeNull();
+
+    // Flip back so later tests run master-on.
+    act(() => {
+      useSettingsStore.setState({ aiFeaturesEnabled: true });
+    });
+  });
+
+  it('footer Auto-Tag disappears with the master toggle off even when the license is valid', () => {
+    stampPremium();
+
+    const { rerender } = render(
+      <Footer viewMode="grid" onViewModeChange={vi.fn()} showAutoTag hasDirectories />,
+    );
+    expect(screen.getByTitle('Generate Auto-Tags')).toBeDefined();
+
+    act(() => {
+      useSettingsStore.setState({ aiFeaturesEnabled: false });
+    });
+    rerender(<Footer viewMode="grid" onViewModeChange={vi.fn()} showAutoTag hasDirectories />);
+    expect(screen.queryByTitle('Generate Auto-Tags')).toBeNull();
+
+    act(() => {
+      useSettingsStore.setState({ aiFeaturesEnabled: true });
+    });
+  });
+
+  it('SettingsModal AI section shows the master toggle and stays reachable while off', () => {
+    setElectronAPI();
+    stampPremium();
+
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+
+    const masterToggle = screen.getByTestId('ai-master-toggle-checkbox') as HTMLInputElement;
+    expect(masterToggle.checked).toBe(true);
+
+    fireEvent.click(masterToggle);
+    expect(useSettingsStore.getState().aiFeaturesEnabled).toBe(false);
+    expect((screen.getByTestId('ai-master-toggle-checkbox') as HTMLInputElement).checked).toBe(false);
+
+    // The section is license-gated (not master-gated) — the safety switch
+    // must stay reachable while the models are off.
+    expect(screen.getAllByText('AI Intelligence').length).toBe(2);
+    expect(screen.getByText('Enable AI features')).toBeDefined();
+
+    act(() => {
+      useSettingsStore.setState({ aiFeaturesEnabled: true });
+    });
   });
 });

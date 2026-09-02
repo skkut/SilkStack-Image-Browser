@@ -8,7 +8,7 @@ import { Directory } from '../types';
 import { EMOJI_CATEGORIES } from '../utils/emojiData';
 import { normalizePath } from '../utils/pathUtils';
 import { safeLazy } from '../utils/safeLazy';
-import { useAiFeaturesEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
+import { useAiFeaturesEnabled, useAiMasterEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
 import { classifyGpuDevice, gpuClassLabel, gpuDeviceKey, type AiDevicePreference, type GpuDeviceReport } from '../services/gpuPreference';
 import { fetchMainProcessGpuInfo } from '../services/mainProcessGpu';
 import {
@@ -200,6 +200,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // Runtime gate: the whole AI section is premium-only
   const aiFeaturesEnabled = useAiFeaturesEnabled();
+
+  // Master AI-features toggle: independent persisted pref (raw, no license)
+  // — off means no model may load into GPU memory. The section renders
+  // license-gated above, so this card stays reachable while master is off.
+  const aiMasterEnabled = useAiMasterEnabled();
+  const setAiFeaturesEnabled = useSettingsStore((state) => state.setAiFeaturesEnabled);
 
   // Re-query the main process whenever Settings opens — catches GPU
   // hotplug / driver changes that happened mid-session. The store setter
@@ -631,6 +637,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   <section>
                     <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">AI Intelligence</h3>
                     <div className="space-y-4">
+
+                      {/* Master switch for ALL model-loading AI features.
+                          Off = no WebLLM model loads into GPU memory (auto-tag
+                          and semantic search disabled). Independent persisted
+                          pref so no other toggle can trigger a model load.
+                          Stacking is rule-based and unaffected. */}
+                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="pr-6">
+                          <p className="text-sm font-medium text-gray-200">Enable AI features</p>
+                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                            Master switch for auto-tagging and semantic search. When off, no model is loaded into GPU memory. AI stacking (Stacks view) is rule-based and keeps working.
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                          <input
+                            type="checkbox"
+                            checked={aiMasterEnabled}
+                            onChange={(event) => setAiFeaturesEnabled(event.target.checked)}
+                            className="sr-only peer"
+                            data-testid="ai-master-toggle-checkbox"
+                          />
+                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
 
                       <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
                         <div className="pr-6">

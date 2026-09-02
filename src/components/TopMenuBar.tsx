@@ -1,8 +1,8 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
-import { FolderSync, FolderX, Settings } from 'lucide-react';
-import { useAiFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
+import { FolderSync, FolderX, Settings, Sparkles, Ban } from 'lucide-react';
+import { useAiFeaturesEnabled, useAiMasterEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 
@@ -48,6 +48,12 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     // App.tsx watches this value and starts/stops the OS watchers on change.
     const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
     const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
+
+    // Master AI-features toggle: when off, no model may load into VRAM.
+    // Raw pref (no license) so the button always reflects the switch state —
+    // the Stacks tab above stays license-only and is unaffected by this.
+    const aiMasterEnabled = useAiMasterEnabled();
+    const setAiFeaturesEnabled = useSettingsStore((state) => state.setAiFeaturesEnabled);
 
     const handleToggleSemantic = () => {
         setSemanticMode(semanticMode === 'semantic' ? 'off' : 'semantic');
@@ -162,6 +168,25 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                             Dev
                         </span>
                     )}
+                    {/* Master AI-features toggle: off = no model loads (auto-tag,
+                        semantic search). Independent persisted pref — stacking is
+                        rule-based and unaffected. */}
+                    <button
+                        onClick={() => setAiFeaturesEnabled(!aiMasterEnabled)}
+                        className={`p-1.5 rounded-full transition-all duration-200 ${
+                            aiMasterEnabled
+                                ? 'text-purple-400 bg-purple-500/10 shadow-[0_0_10px_rgba(168,85,247,0.4)]'
+                                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/80'
+                        }`}
+                        title={aiMasterEnabled
+                            ? 'AI features on — click to disable all model loading'
+                            : 'AI features off — click to enable auto-tag & semantic search'}
+                        aria-label="Toggle all AI features"
+                        aria-pressed={aiMasterEnabled}
+                        data-testid="ai-features-toggle-button"
+                    >
+                        {aiMasterEnabled ? <Sparkles size={20} /> : <Ban size={20} />}
+                    </button>
                     <button
                         onClick={toggleGlobalAutoWatch}
                         className={`p-1.5 rounded-full transition-all duration-200 ${

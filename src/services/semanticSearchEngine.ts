@@ -21,7 +21,7 @@
  */
 
 import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo, AiModelsStatus } from './aiBridge';
-import { isAiFeaturesEnabled } from './aiFeatureAccess';
+import { isAiModelFeaturesEnabled } from './aiFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 export interface SemanticIndexProgress {
@@ -214,7 +214,9 @@ export class SemanticSearchCoordinator {
           onModelsStatus: this.onModelsStatus,
           isPremium: () => {
             try {
-              return isAiFeaturesEnabled();
+              // Model-loading gate: the master AI toggle AND the license —
+              // the module's coordinator refuses to init when this is false.
+              return isAiModelFeaturesEnabled();
             } catch {
               return false;
             }

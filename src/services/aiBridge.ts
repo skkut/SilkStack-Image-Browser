@@ -247,6 +247,22 @@ async function checkPremiumLicense(): Promise<boolean> {
     return false;
   }
 }
+/**
+ * Master AI-features switch: when the user turned the toggle off, NO model
+ * may load — checked UNCONDITIONALLY (unlike the license gate, which
+ * trusted callers may skip via `skipPremiumCheck`), because this is the
+ * "models must never take VRAM" safety switch.
+ */
+async function checkMasterEnabled(): Promise<boolean> {
+  try {
+    const { isAiMasterEnabled } = await import('../services/aiFeatureAccess');
+    return isAiMasterEnabled();
+  } catch {
+    // Dynamic import failed (e.g. worker context without a settings store) —
+    // fail closed: no AI features rather than accidentally loading models.
+    return false;
+  }
+}
 function loadAiModule(): Promise<Record<string, unknown> | null> {
   if (!aiModuleLoadPromise) {
     aiModuleLoadPromise = (async () => {
@@ -286,6 +302,10 @@ export async function createLLMTagGenerator(
   onProgress?: (report: LoadProgressReport) => void,
   opts?: { skipPremiumCheck?: boolean; sharedEngine?: ISharedMLEngine; devicePreference?: AiDevicePreference },
 ): Promise<ILLMTagGenerator | null> {
+  // Master switch: unconditional — the user turned model-loading AI off, so
+  // nothing may load, even for callers that skip the license check below.
+  if (!(await checkMasterEnabled())) return null;
+
   // Premium gate: LLM-based tag generation requires a valid license.
   // Trusted callers (e.g. the auto-tagging worker) may skip this check when
   // the main thread has already verified premium status — the worker's own
@@ -330,6 +350,10 @@ export async function createLLMTagGenerator(
 export async function createTagGenerator(
   opts?: { skipPremiumCheck?: boolean },
 ): Promise<ITagGenerator | null> {
+  // Master switch: unconditional — no auto-tagging capability when the user
+  // turned model-loading AI off.
+  if (!(await checkMasterEnabled())) return null;
+
   if (opts?.skipPremiumCheck || await checkPremiumLicense()) {
     const mod = await loadAiModule();
 
@@ -360,6 +384,10 @@ export async function createEmbeddingProvider(
   onProgress?: (report: LoadProgressReport) => void,
   opts?: { sharedEngine?: ISharedMLEngine; skipPremiumCheck?: boolean; devicePreference?: AiDevicePreference },
 ): Promise<IEmbeddingProvider | null> {
+  // Master switch: unconditional — no embedding model may load when the
+  // user turned model-loading AI off.
+  if (!(await checkMasterEnabled())) return null;
+
   // Premium gate: embedding generation requires a valid license.
   // Trusted callers (e.g. the AI worker) may skip this check when the
   // main thread has already verified premium status.
@@ -409,6 +437,11 @@ export async function createSharedEngine(opts?: {
   /** Receives the detected adapter (vendor/device) when the engine requests one. */
   onAdapterInfo?: (info: DetectedGpuInfo) => void;
 }): Promise<ISharedMLEngine | null> {
+  // Master switch: unconditional — the shared engine loads BOTH model
+  // records (chat + embed), so it must never be created when the user
+  // turned model-loading AI off.
+  if (!(await checkMasterEnabled())) return null;
+
   // Premium gate: the shared engine serves premium features (semantic
   // search + LLM auto-tagging). Trusted callers may skip this check when
   // the main thread has already verified premium status.
@@ -449,6 +482,10 @@ export async function createSemanticSearchEngine(opts?: {
   skipPremiumCheck?: boolean;
   devicePreference?: AiDevicePreference;
 }): Promise<ISemanticSearchEngine | null> {
+  // Master switch: unconditional — no embedding model may load when the
+  // user turned model-loading AI off.
+  if (!(await checkMasterEnabled())) return null;
+
   // Premium gate: semantic search requires a valid license.
   if (!opts?.skipPremiumCheck && !(await checkPremiumLicense())) return null;
 
@@ -511,6 +548,10 @@ export interface ISearchableTextInput {
 export async function createSemanticTextBuilder(opts?: {
   skipPremiumCheck?: boolean;
 }): Promise<ISemanticTextBuilder | null> {
+  // Master switch: unconditional — the text builder only serves semantic
+  // search, a model-loading feature.
+  if (!(await checkMasterEnabled())) return null;
+
   // Premium gate: the module's text builder is closed-source code and only
   // serves semantic search, a premium feature. Trusted callers (worker)
   // may skip the check when the main thread already verified premium.

@@ -13,7 +13,7 @@ import {
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
-import { isAiFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
+import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
 import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
@@ -2589,10 +2589,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return __autoTagInFlight;
             }
 
-            // Premium-only — there is no fallback without the ai-intelligence
-            // module, so skip before doing any work (no-op for non-premium).
-            if (!isAiFeaturesEnabled()) {
-                console.log('[AutoTag] Premium not enabled — skipping');
+            // Premium-only AND master-toggle-gated — there is no fallback
+            // without the ai-intelligence module, so skip before doing any
+            // work (no-op for non-premium or when the user turned model-
+            // loading AI features off).
+            if (!isAiModelFeaturesEnabled()) {
+                console.log('[AutoTag] AI features not enabled — skipping');
                 return;
             }
 
@@ -4912,6 +4914,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                 __autoTagModelsStatus = null;
                 recomputeAiModelsLoaded();
             }
+            // Resolve any in-flight run's promise (same as cancelAutoTagging):
+            // a terminated worker never fires 'complete'/'error', so a
+            // mid-run eject (footer button, master toggle off) would otherwise
+            // hang the queue job awaiting startAutoTagging.
+            __autoTagResolve?.();
+            __autoTagResolve = null;
+            __autoTagInFlight = null;
             // The long-lived semantic worker: the coordinator terminates it
             // (releasing the WebGPU device) and resets ready state — the next
             // semantic use reloads lazily and re-restores the persisted index.
@@ -5017,6 +5026,33 @@ useSettingsStore.subscribe((state) => {
             }
         } else {
             // Premium lost (revoked license, missing module) — drop hits.
+            useImageStore.getState().clearSemanticSearch();
+        }
+    }
+});
+
+// Master AI-features toggle — one switch can kill ALL model loading.
+// Flip OFF: cancel in-flight runs (auto-tag, semantic index), terminate
+// workers and unload resident models (freeing VRAM), and drop any
+// on-screen semantic hits. Flip ON: resume Δ semantic indexing when the
+// semantic-search pref is on (idempotent — textHash Δ; otherwise the
+// master-aware gate in runSemanticIndexNow makes it a safe no-op).
+// The latch is pre-initialized to the current pref so the FIRST settings
+// write is a no-op: with the pref already on at startup, firing
+// semanticIndexImages would create the coordinator (and load the embed
+// model via ensureInitialized) even when the semantic-search pref is off —
+// runSemanticIndexNow's empty-payload early-return sits AFTER the
+// coordinator is created. Only real flips may act.
+let prevAiFeaturesMaster: boolean | undefined = useSettingsStore.getState().aiFeaturesEnabled;
+useSettingsStore.subscribe((state) => {
+    if (typeof state.aiFeaturesEnabled === 'boolean' && state.aiFeaturesEnabled !== prevAiFeaturesMaster) {
+        prevAiFeaturesMaster = state.aiFeaturesEnabled;
+        if (state.aiFeaturesEnabled) {
+            useImageStore.getState().semanticIndexImages();
+        } else {
+            useImageStore.getState().cancelAutoTagging();
+            useImageStore.getState().cancelSemanticIndexing();
+            useImageStore.getState().unloadAiModels();
             useImageStore.getState().clearSemanticSearch();
         }
     }

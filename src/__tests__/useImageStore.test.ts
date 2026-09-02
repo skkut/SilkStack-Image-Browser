@@ -87,9 +87,15 @@ vi.mock('../services/imageAnnotationsStorage', () => ({
 }));
 
 // Auto-tag is premium-gated inside the store — tests exercise the tagging
-// path, so the gate must be open.
+// path, so the gates must be open. isSemanticSearchEnabled defaults false:
+// the semantic engine module is NOT mocked in this file, so any Δ-index
+// attempt must short-circuit at runSemanticIndexNow's gate (line ~210)
+// before reaching the coordinator.
 vi.mock('../services/aiFeatureAccess', () => ({
   isAiFeaturesEnabled: vi.fn(() => true),
+  isAiMasterEnabled: vi.fn(() => true),
+  isAiModelFeaturesEnabled: vi.fn(() => true),
+  isSemanticSearchEnabled: vi.fn(() => false),
 }));
 
 const flush = () => new Promise((r) => setTimeout(r, 0));

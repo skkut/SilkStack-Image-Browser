@@ -100,6 +100,11 @@ interface SettingsState {
   stackGroupByDimensions: StackGroupByDimension[];
   isSemanticSearchEnabled: boolean;
   semanticRerankEnabled: boolean;
+  /** Master switch for ALL model-loading AI features (auto-tagging, semantic
+   *  search embeddings). Independent of isSemanticSearchEnabled / license —
+   *  when off, no WebLLM model may load into GPU memory. Stacking (rule-based,
+   *  no model load) is NOT gated by this flag. */
+  aiFeaturesEnabled: boolean;
 
   // License / Premium feature state
   licenseKey: string;
@@ -141,6 +146,7 @@ interface SettingsState {
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
   setSemanticSearchEnabled: (enabled: boolean) => void;
   setSemanticRerankEnabled: (enabled: boolean) => void;
+  setAiFeaturesEnabled: (enabled: boolean) => void;
   setLicenseState: (state: Partial<LicenseState>) => void;
   clearLicense: () => void;
   resetState: () => void;
@@ -200,6 +206,8 @@ export const useSettingsStore = create<SettingsState>()(
       // in Settings (requires a valid license + the ai-intelligence module).
       isSemanticSearchEnabled: false,
       semanticRerankEnabled: false,
+      // Master AI-features switch — ON by default (preserves current behavior).
+      aiFeaturesEnabled: true,
 
       // License state — starts as "unchecked" until user enters a key
       ...getDefaultLicenseState(),
@@ -247,6 +255,7 @@ export const useSettingsStore = create<SettingsState>()(
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
       setSemanticSearchEnabled: (enabled) => set({ isSemanticSearchEnabled: enabled }),
       setSemanticRerankEnabled: (enabled) => set({ semanticRerankEnabled: enabled }),
+      setAiFeaturesEnabled: (enabled) => set({ aiFeaturesEnabled: enabled }),
       setLicenseState: (partial) => set(partial),
       clearLicense: () => set(getDefaultLicenseState()),
       updateKeybinding: (scope, action, keybinding) =>
@@ -304,6 +313,7 @@ export const useSettingsStore = create<SettingsState>()(
         isStackingEnabled: false,
         isSemanticSearchEnabled: false,
         semanticRerankEnabled: false,
+        aiFeaturesEnabled: true,
         ...getDefaultLicenseState(),
       }),
     }),
@@ -369,6 +379,12 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.semanticRerankEnabled !== 'boolean') {
           state.semanticRerankEnabled = false;
+        }
+
+        if (state && typeof state.aiFeaturesEnabled !== 'boolean') {
+          // New setting (ships after users exist) — AI features stay ON by
+          // default so nothing silently changes for existing users.
+          state.aiFeaturesEnabled = true;
         }
 
         // License state migration — ensure all fields exist

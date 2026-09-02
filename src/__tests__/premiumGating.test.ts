@@ -14,6 +14,8 @@ vi.hoisted(() => {
 
 const featureAccessMocks = vi.hoisted(() => ({
   isAiFeaturesEnabled: vi.fn(() => true),
+  isAiMasterEnabled: vi.fn(() => true),
+  isAiModelFeaturesEnabled: vi.fn(() => true),
   isSemanticSearchEnabled: vi.fn(() => true),
   useSemanticSearchEnabled: vi.fn(() => true),
 }));
@@ -24,6 +26,7 @@ const coordinatorMock = vi.hoisted(() => ({
   search: vi.fn(),
   clearIndex: vi.fn().mockResolvedValue(undefined),
   cancelIndexing: vi.fn(),
+  unloadModels: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
 }));
@@ -124,6 +127,7 @@ beforeEach(() => {
   // …but mockReturnValue overrides DO persist across tests — restore the
   // default open-gate so each test starts premium-on unless it opts out.
   featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(true);
+  featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(true);
   featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
   FakeTaggingWorker.lastInstance = null;
   useSettingsStore.setState({ aiTagModel: '' });
@@ -161,6 +165,7 @@ const twoImages = () => {
 // premium false AND the derived semantic gate false.
 const premiumOff = () => {
   featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(false);
+  featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(false);
   featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(false);
 };
 
@@ -250,5 +255,64 @@ describe('premium gating — license on', () => {
     await useImageStore.getState().semanticIndexImages();
 
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── Master AI-features toggle — model features off, stacking survives ──
+// The store's gates call the (mocked) featureAccess functions, so master-off
+// is emulated through the mocks; the REAL settings pref is flipped too,
+// exercising the store's subscribe path (cancel → unload → clear) without
+// coordinator contact while the semantic gate mock stays false.
+describe('master AI toggle — model features off, stacking survives', () => {
+  // Restore the pref + open the gates so later describes run master-on.
+  // The flip-back fires the subscribe's ON branch (Δ-index attempt) — it
+  // must run while the semantic gate mock is still false so it short-circuits
+  // at runSemanticIndexNow's gate (line ~210) BEFORE any coordinator contact.
+  const masterOn = async () => {
+    useSettingsStore.setState({ aiFeaturesEnabled: true });
+    await new Promise((r) => setTimeout(r, 0));
+    featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(true);
+    featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
+  };
+
+  it('auto-tagging never creates a worker when the master toggle is off', async () => {
+    twoImages();
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(false);
+
+    const result = await useImageStore.getState().startAutoTagging('', false, {});
+
+    expect(result).toBeUndefined();
+    expect(FakeTaggingWorker.lastInstance).toBeNull();
+    expect(useImageStore.getState().isAutoTagging).toBe(false);
+    await masterOn();
+  });
+
+  it('semantic indexing is a silent no-op when the master toggle is off', async () => {
+    twoImages();
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(false);
+    featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(false);
+
+    await useImageStore.getState().semanticIndexImages();
+
+    expect(coordinatorMock.ensureInitialized).not.toHaveBeenCalled();
+    expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+    await masterOn();
+  });
+
+  it('stacking STILL runs when the master toggle is off (rule-based, no model load)', async () => {
+    twoImages();
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    featureAccessMocks.isAiModelFeaturesEnabled.mockReturnValue(false);
+
+    await useImageStore.getState().syncNewImagesToStacks();
+
+    expect(createStackingEngineMock).toHaveBeenCalledTimes(1);
+    expect(bulkSaveAnnotationsMock).toHaveBeenCalledTimes(1);
+    const written = bulkSaveAnnotationsMock.mock.calls[0][0] as ImageAnnotations[];
+    expect(written).toHaveLength(2);
+    expect(written.every((a) => Boolean(a.stackGroupId))).toBe(true);
+    await masterOn();
   });
 });

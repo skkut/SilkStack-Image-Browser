@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 // ── License gating tests ─────────────────────────────────────────────
@@ -503,5 +503,75 @@ describe('aiBridge — license revocation mid-session', () => {
     const llm2 = await createLLMTagGenerator();
     expect(llm2).toBeNull();
     expect(mocks.LLMTagGenerator).toHaveBeenCalledTimes(1); // no new construction
+  });
+});
+
+describe('aiBridge — master AI-features toggle', () => {
+  beforeEach(() => {
+    setLicenseStatus('valid'); // license alone is NOT enough — master must be on too
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    for (const spy of Object.values(mocks)) spy.mockClear();
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState({ aiFeaturesEnabled: true }); // restore the default
+  });
+
+  it('master off → every ML factory returns null without touching the module', async () => {
+    const {
+      createLLMTagGenerator,
+      createTagGenerator,
+      createEmbeddingProvider,
+      createSharedEngine,
+      createSemanticSearchEngine,
+      createSemanticTextBuilder,
+    } = await import('../services/aiBridge');
+
+    expect(await createLLMTagGenerator()).toBeNull();
+    expect(await createTagGenerator()).toBeNull();
+    expect(await createEmbeddingProvider()).toBeNull();
+    expect(await createSharedEngine()).toBeNull();
+    expect(await createSemanticSearchEngine()).toBeNull();
+    expect(await createSemanticTextBuilder()).toBeNull();
+
+    for (const spy of [
+      mocks.LLMTagGenerator,
+      mocks.TagGenerator,
+      mocks.WebLLMEmbeddingProvider,
+      mocks.SharedMLEngine,
+      mocks.SemanticSearchEngine,
+    ]) {
+      expect(spy).not.toHaveBeenCalled();
+    }
+  });
+
+  it('stacking STILL constructs when the master toggle is off', async () => {
+    const { createStackingEngine } = await import('../services/aiBridge');
+    const engine = await createStackingEngine();
+
+    expect(engine).not.toBeNull();
+    expect(mocks.StackingEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('skipPremiumCheck cannot bypass the master gate', async () => {
+    const { createLLMTagGenerator } = await import('../services/aiBridge');
+    const llm = await createLLMTagGenerator('model-x', undefined, { skipPremiumCheck: true });
+
+    expect(llm).toBeNull();
+    expect(mocks.LLMTagGenerator).not.toHaveBeenCalled();
+  });
+
+  it('master off → isSemanticSearchEnabled() false even with the pref on', async () => {
+    const { isSemanticSearchEnabled, isAiMasterEnabled, isAiModelFeaturesEnabled, isAiFeaturesEnabled } =
+      await import('../services/aiFeatureAccess');
+    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+
+    expect(isAiMasterEnabled()).toBe(false);
+    expect(isAiFeaturesEnabled()).toBe(true); // license valid — the license-only gate is unaffected
+    expect(isAiModelFeaturesEnabled()).toBe(false);
+    expect(isSemanticSearchEnabled()).toBe(false);
+
+    useSettingsStore.setState({ aiFeaturesEnabled: true });
+    expect(isSemanticSearchEnabled()).toBe(true);
   });
 });

@@ -17,6 +17,8 @@ vi.hoisted(() => {
 
 const featureAccessMocks = vi.hoisted(() => ({
   isAiFeaturesEnabled: vi.fn(() => true),
+  isAiMasterEnabled: vi.fn(() => true),
+  isAiModelFeaturesEnabled: vi.fn(() => true),
   isSemanticSearchEnabled: vi.fn(() => true),
   useSemanticSearchEnabled: vi.fn(() => true),
 }));
@@ -27,6 +29,7 @@ const coordinatorMock = vi.hoisted(() => ({
   search: vi.fn(),
   clearIndex: vi.fn().mockResolvedValue(undefined),
   cancelIndexing: vi.fn(),
+  unloadModels: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
 }));
