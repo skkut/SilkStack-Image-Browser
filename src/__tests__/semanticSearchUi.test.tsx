@@ -897,3 +897,24 @@ describe('master AI-features toggle', () => {
     });
   });
 });
+
+// ── SettingsModal AI Intelligence section (cached model files) ────────────
+describe('SettingsModal cached-model section wiring', () => {
+  it('mounts the section and degrades to the unavailable notice without the Cache API (jsdom)', async () => {
+    setElectronAPI();
+    stampPremium();
+
+    render(<SettingsModal isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
+
+    // The real modelCache service runs here (not mocked) — jsdom has no
+    // `caches`, so the section settles into the unsupported notice instead
+    // of crashing the settings panel.
+    expect(screen.getByTestId('ai-model-cache-section')).toBeDefined();
+    await act(async () => {
+      await flush();
+    });
+    expect(screen.getByTestId('ai-model-cache-unavailable')).toBeDefined();
+    expect(screen.queryByTestId('ai-model-cache-loading')).toBeNull();
+  });
+});

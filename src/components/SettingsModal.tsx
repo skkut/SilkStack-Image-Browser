@@ -3,6 +3,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
+import { AiModelCacheSection } from './AiModelCacheSection';
 import { useImageStore } from '../store/useImageStore';
 import { Directory } from '../types';
 import { EMOJI_CATEGORIES } from '../utils/emojiData';
@@ -634,6 +635,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       gated as a whole: without the module or a license there
                       is nothing to configure. */}
                   {aiFeaturesEnabled && (
+                  <>
                   <section>
                     <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">AI Intelligence</h3>
                     <div className="space-y-4">
@@ -845,6 +847,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     </div>
                   </section>
+
+                  <AiModelCacheSection />
+                  </>
                   )}
                 </div>
               )}
