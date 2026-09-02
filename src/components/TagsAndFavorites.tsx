@@ -19,11 +19,13 @@ const TagsAndFavorites: React.FC = () => {
 
   const favoriteCount = filteredImages.filter(img => img.isFavorite).length;
 
-  const filteredTags = tagSearchQuery
+  // Copy before sort (sort is in-place) — never mutate store state
+  const filteredTags = (tagSearchQuery
     ? availableTags.filter(tag =>
         tag.name.toLowerCase().includes(tagSearchQuery.toLowerCase())
       )
-    : availableTags;
+    : [...availableTags]
+  ).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
   const handleTagToggle = (tagName: string, checked: boolean) => {
     if (checked) {

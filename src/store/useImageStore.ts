@@ -1337,7 +1337,10 @@ export const useImageStore = create<ImageState>((set, get) => {
         const tagCounts = new Map<string, number>();
         for (const img of images) {
             if (img.tags && img.tags.length > 0) {
-                for (const tag of img.tags) {
+                // Count each image ONCE per tag — a tag that appears twice in
+                // one image's array must not inflate the badge (the click
+                // filter would still return that image only once).
+                for (const tag of new Set(img.tags)) {
                     tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
                 }
             }
@@ -1354,6 +1357,149 @@ export const useImageStore = create<ImageState>((set, get) => {
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
         const { images, searchQuery, libraryStackContext, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
+
+        // ── Filtering helpers ──────────────────────────────────────────────
+        // The non-tag filters below (stack/search, models, LoRAs, schedulers,
+        // advanced) are AND-intersections, so they commute with the tag
+        // filter. They are factored out so the tag-badge counts can run them
+        // over a population that does NOT yet exclude the clicked tag —
+        // making badge N mean "clicking this tag returns N images", which is
+        // only true if counts see the same narrower population the click
+        // result does.
+        const applyNonTagFilters = (list: IndexedImage[]): IndexedImage[] => {
+            let out = list;
+
+            // ID-based stack filtering (preserves search bar state)
+            if (libraryStackContext) {
+                const contextImageIds = new Set(libraryStackContext.imageIds);
+                out = out.filter(image => contextImageIds.has(image.id));
+            } else if (searchQuery) {
+                const searchTerms = searchQuery
+                    .toLowerCase()
+                    .split(/\s+/)
+                    .filter(Boolean);
+
+                if (searchTerms.length > 0) {
+                    out = out.filter(image => {
+                        const catalogText = buildCatalogSearchText(image);
+                        const catalogMatch = searchTerms.every(term => catalogText.includes(term));
+                        if (catalogMatch) {
+                            return true;
+                        }
+
+                        const enrichedText = buildEnrichedSearchText(image);
+                        if (!enrichedText) {
+                            return false;
+                        }
+
+                        return searchTerms.every(term => enrichedText.includes(term));
+                    });
+                }
+            }
+
+            if (selectedModels.length > 0) {
+                out = out.filter(image => {
+                    // '' is the 'no model' sentinel: match images without any model metadata
+                    if (selectedModels.includes('') && (!image.models || image.models.filter(Boolean).length === 0)) {
+                        return true;
+                    }
+                    return image.models?.length > 0 && selectedModels.some(sm => sm && image.models.includes(sm));
+                });
+            }
+
+            if (selectedLoras.length > 0) {
+                out = out.filter(image => {
+                    if (!image.loras || image.loras.length === 0) return false;
+
+                    // Extract LoRA names from both strings and LoRAInfo objects
+                    const loraNames = image.loras.map(lora =>
+                        typeof lora === 'string' ? lora : (lora?.name || '')
+                    ).filter(Boolean);
+
+                    return selectedLoras.some(sl => loraNames.includes(sl));
+                });
+            }
+
+            if (selectedSchedulers.length > 0) {
+                out = out.filter(image =>
+                    selectedSchedulers.includes(image.scheduler)
+                );
+            }
+
+            if (advancedFilters) {
+                if (advancedFilters.dimension) {
+                    out = out.filter(image => {
+                        if (!image.dimensions) return false;
+                        // Normalize dimensions format (handle both "512x512" and "512 x 512")
+                        const imageDim = image.dimensions.replace(/\s+/g, '');
+                        const filterDim = advancedFilters.dimension.replace(/\s+/g, '');
+                        return imageDim === filterDim;
+                    });
+                }
+                if (advancedFilters.aspectRatio) {
+                    out = out.filter(image => {
+                        if (!image.dimensions) return false;
+                        const [w, h] = image.dimensions.split('x').map(Number);
+                        if (!w || !h) return false;
+                        // Handle orientation-based filters
+                        if (advancedFilters.aspectRatio === 'portrait') return h > w;
+                        if (advancedFilters.aspectRatio === 'landscape') return w > h;
+                        if (advancedFilters.aspectRatio === 'square') return w === h;
+                        return getImageAspectRatio(w, h) === advancedFilters.aspectRatio;
+                    });
+                }
+                if (advancedFilters.steps) {
+                     out = out.filter(image => {
+                        const steps = image.steps;
+                        if (steps !== null && steps !== undefined) {
+                            return steps >= advancedFilters.steps.min && steps <= advancedFilters.steps.max;
+                        }
+                        return false;
+                    });
+                }
+                if (advancedFilters.cfg) {
+                     out = out.filter(image => {
+                        const cfg = image.cfgScale;
+                        if (cfg !== null && cfg !== undefined) {
+                            return cfg >= advancedFilters.cfg.min && cfg <= advancedFilters.cfg.max;
+                        }
+                        return false;
+                    });
+                }
+                if (advancedFilters.date && (advancedFilters.date.from || advancedFilters.date.to)) {
+                    out = out.filter(image => {
+                        const imageTime = image.lastModified;
+
+                        // Check "from" date if provided
+                        if (advancedFilters.date!.from) {
+                            const fromTime = new Date(advancedFilters.date!.from).getTime();
+                            if (imageTime < fromTime) return false;
+                        }
+
+                        // Check "to" date if provided
+                        if (advancedFilters.date!.to) {
+                            const toDate = new Date(advancedFilters.date!.to);
+                            toDate.setDate(toDate.getDate() + 1); // Include full end date
+                            const toTime = toDate.getTime();
+                            if (imageTime >= toTime) return false;
+                        }
+
+                        return true;
+                    });
+                }
+            }
+
+            return out;
+        };
+
+        const applyTagFilter = (list: IndexedImage[]): IndexedImage[] => {
+            if (!state.selectedTags || state.selectedTags.length === 0) return list;
+            return list.filter(img => {
+                if (!img.tags || img.tags.length === 0) return false;
+                // Match ANY selected tag (OR logic)
+                return state.selectedTags.some(tag => img.tags!.includes(tag));
+            });
+        };
 
         const visibleDirectoryIds = new Set(
             directories.filter(dir => (dir.visible ?? true) && (dir.isConnected !== false)).map(dir => dir.id)
@@ -1417,7 +1563,6 @@ export const useImageStore = create<ImageState>((set, get) => {
         });
 
         const selectionFavoriteCount = selectionFiltered.filter(img => img.isFavorite).length;
-        const availableTags = calculateTagInfo(selectionFiltered);
 
         let results = selectionFiltered;
 
@@ -1440,142 +1585,26 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
         }
 
-        // Step 4: Tags filter
-        if (state.selectedTags && state.selectedTags.length > 0) {
-            results = results.filter(img => {
-                if (!img.tags || img.tags.length === 0) return false;
-                // Match ANY selected tag (OR logic)
-                return state.selectedTags.some(tag => img.tags!.includes(tag));
-            });
-        }
+        // Tag-click population & tag filter. The badge on a tag must equal
+        // what clicking it returns, so the counts are taken over the FULL
+        // filter stack (favorites/safe-mode above + every non-tag filter in
+        // applyNonTagFilters) with ONLY the tag filter itself left out —
+        // every one of those filters also runs after a tag click. Tag
+        // filtering is an AND-intersection like the others, so applying it
+        // last changes nothing about the final results. (Semantic scope is
+        // still captured WITHOUT the keyword/metadata filters, so vector
+        // hits are never clipped by a search text they cannot match.)
+        const tagBase = results; // favorites + safe-mode already applied
+        const nonTagFiltered = applyNonTagFilters(tagBase);
+        const availableTags = calculateTagInfo(nonTagFiltered);
+
+        // Step 4: Tags filter — the OR-union of any selected tags.
+        results = applyTagFilter(nonTagFiltered);
 
         // Semantic search scope (Phase 5): the curation-visible set that
         // semantic hits must respect (directory visibility, folder selection
-        // + exclusions, favorites, safe mode, tags). Captured here — after
-        // the curation filters, before the keyword/metadata filters — because
-        // semantic results are ranked by vector similarity, not keywords.
-        const curationVisible = results;
-
-        // ID-based stack filtering (preserves search bar state)
-        if (libraryStackContext) {
-            const contextImageIds = new Set(libraryStackContext.imageIds);
-            results = results.filter(image => contextImageIds.has(image.id));
-        } else if (searchQuery) {
-            const searchTerms = searchQuery
-                .toLowerCase()
-                .split(/\s+/)
-                .filter(Boolean);
-
-            if (searchTerms.length > 0) {
-                results = results.filter(image => {
-                    const catalogText = buildCatalogSearchText(image);
-                    const catalogMatch = searchTerms.every(term => catalogText.includes(term));
-                    if (catalogMatch) {
-                        return true;
-                    }
-
-                    const enrichedText = buildEnrichedSearchText(image);
-                    if (!enrichedText) {
-                        return false;
-                    }
-
-                    return searchTerms.every(term => enrichedText.includes(term));
-                });
-            }
-        }
-
-        if (selectedModels.length > 0) {
-            results = results.filter(image => {
-                // '' is the 'no model' sentinel: match images without any model metadata
-                if (selectedModels.includes('') && (!image.models || image.models.filter(Boolean).length === 0)) {
-                    return true;
-                }
-                return image.models?.length > 0 && selectedModels.some(sm => sm && image.models.includes(sm));
-            });
-        }
-
-        if (selectedLoras.length > 0) {
-            results = results.filter(image => {
-                if (!image.loras || image.loras.length === 0) return false;
-
-                // Extract LoRA names from both strings and LoRAInfo objects
-                const loraNames = image.loras.map(lora =>
-                    typeof lora === 'string' ? lora : (lora?.name || '')
-                ).filter(Boolean);
-
-                return selectedLoras.some(sl => loraNames.includes(sl));
-            });
-        }
-
-        if (selectedSchedulers.length > 0) {
-            results = results.filter(image =>
-                selectedSchedulers.includes(image.scheduler)
-            );
-        }
-
-        if (advancedFilters) {
-            if (advancedFilters.dimension) {
-                results = results.filter(image => {
-                    if (!image.dimensions) return false;
-                    // Normalize dimensions format (handle both "512x512" and "512 x 512")
-                    const imageDim = image.dimensions.replace(/\s+/g, '');
-                    const filterDim = advancedFilters.dimension.replace(/\s+/g, '');
-                    return imageDim === filterDim;
-                });
-            }
-            if (advancedFilters.aspectRatio) {
-                results = results.filter(image => {
-                    if (!image.dimensions) return false;
-                    const [w, h] = image.dimensions.split('x').map(Number);
-                    if (!w || !h) return false;
-                    // Handle orientation-based filters
-                    if (advancedFilters.aspectRatio === 'portrait') return h > w;
-                    if (advancedFilters.aspectRatio === 'landscape') return w > h;
-                    if (advancedFilters.aspectRatio === 'square') return w === h;
-                    return getImageAspectRatio(w, h) === advancedFilters.aspectRatio;
-                });
-            }
-            if (advancedFilters.steps) {
-                 results = results.filter(image => {
-                    const steps = image.steps;
-                    if (steps !== null && steps !== undefined) {
-                        return steps >= advancedFilters.steps.min && steps <= advancedFilters.steps.max;
-                    }
-                    return false;
-                });
-            }
-            if (advancedFilters.cfg) {
-                 results = results.filter(image => {
-                    const cfg = image.cfgScale;
-                    if (cfg !== null && cfg !== undefined) {
-                        return cfg >= advancedFilters.cfg.min && cfg <= advancedFilters.cfg.max;
-                    }
-                    return false;
-                });
-            }
-            if (advancedFilters.date && (advancedFilters.date.from || advancedFilters.date.to)) {
-                results = results.filter(image => {
-                    const imageTime = image.lastModified;
-                    
-                    // Check "from" date if provided
-                    if (advancedFilters.date!.from) {
-                        const fromTime = new Date(advancedFilters.date!.from).getTime();
-                        if (imageTime < fromTime) return false;
-                    }
-                    
-                    // Check "to" date if provided
-                    if (advancedFilters.date!.to) {
-                        const toDate = new Date(advancedFilters.date!.to);
-                        toDate.setDate(toDate.getDate() + 1); // Include full end date
-                        const toTime = toDate.getTime();
-                        if (imageTime >= toTime) return false;
-                    }
-                    
-                    return true;
-                });
-            }
-
-        }
+        // + exclusions, favorites, safe mode, tags).
+        const curationVisible = applyTagFilter(tagBase);
 
         const totalInScope = images.length; // Total absoluto de imagens indexadas
         const selectionDirectoryCount = state.directories.length;
