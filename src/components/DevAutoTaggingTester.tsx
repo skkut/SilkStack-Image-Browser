@@ -8,9 +8,19 @@ import {
   getAiLoadError,
   type ILLMTagGenerator,
 } from '../services/aiBridge';
+import { getTagModelOptions } from '../services/semanticSearchEngine';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 /** idle = mounted but the model has NOT been loaded (explicit button). */
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
+
+type TagModelOption = Awaited<ReturnType<typeof getTagModelOptions>>[number];
+
+const TAG_TIER_LABELS = {
+  low: 'Low VRAM',
+  mid: 'Mid VRAM',
+  high: 'High VRAM',
+} as const;
 
 const PRESETS = [
   { label: 'SD prompt', value: 'masterpiece, best quality, 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, high resolution' },
@@ -37,6 +47,15 @@ export default function DevAutoTaggingTester() {
   const systemPromptModified = systemPrompt !== FLAT_TAGS_PROMPT;
 
   const llmRef = useRef<ILLMTagGenerator | null>(null);
+
+  const [modelOptions, setModelOptions] = useState<TagModelOption[]>([]);
+  // Session-scoped model picker: defaults to the Settings choice (the same
+  // resolution production auto-tag uses: aiTagModel || stock default) but is
+  // NEVER written back — the tester stays a pure harness. A stale persisted
+  // id (not in the loaded catalog) falls back to the first option below.
+  const [selectedModelId, setSelectedModelId] = useState<string>(
+    () => useSettingsStore.getState().aiTagModel || TAG_GENERATION_MODEL_ID,
+  );
 
   // Apply theme on mount (same pattern as ImageModalWindow)
   useEffect(() => {
@@ -99,6 +118,53 @@ export default function DevAutoTaggingTester() {
     };
   }, []);
 
+  // Catalog fetch for the model picker — options only; the chat model itself
+  // is still loaded exclusively via the "Load models" button. An empty result
+  // (module absent) leaves the picker disabled and the fallback id in place.
+  useEffect(() => {
+    let cancelled = false;
+    getTagModelOptions().then((options) => {
+      if (cancelled || options.length === 0) return;
+      setModelOptions(options);
+      setSelectedModelId((prev) =>
+        options.some((o) => o.modelId === prev) ? prev : options[0].modelId,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The catalog-validated model that will load (and the id the badge shows).
+  // Before options arrive the constant fallback keeps today's behavior.
+  const effectiveModelId =
+    modelOptions.some((o) => o.modelId === selectedModelId)
+      ? selectedModelId
+      : (modelOptions[0]?.modelId ?? TAG_GENERATION_MODEL_ID);
+
+  /**
+   * Model picker change. While a model is loaded ('ready'), switching models
+   * means the loaded engine belongs to the old model: dispose it, clear its
+   * outputs, and drop back to 'idle' so loading the new model is an explicit
+   * button click (downloads must stay user-initiated). In any other state the
+   * change just updates the pending choice.
+   */
+  const handleModelChange = useCallback(
+    (modelId: string) => {
+      if (modelId === effectiveModelId) return;
+      setSelectedModelId(modelId);
+      llmRef.current?.dispose();
+      llmRef.current = null;
+      setTags([]);
+      setRawResponse('');
+      setLastTime(null);
+      setLoadState('idle');
+      setLoadProgress(0);
+      setError(null);
+    },
+    [effectiveModelId],
+  );
+
   /**
    * Explicit model load — the LLM generator is created and initialized
    * (WebGPU engine + chat model download) only when this button is clicked,
@@ -113,7 +179,7 @@ export default function DevAutoTaggingTester() {
     setLoadText('Initializing...');
     setError(null);
     try {
-      const llm = await createLLMTagGenerator(TAG_GENERATION_MODEL_ID, (report) => {
+      const llm = await createLLMTagGenerator(effectiveModelId, (report) => {
         setLoadProgress(Math.round(report.progress * 100));
         setLoadText(report.text);
       });
@@ -132,7 +198,7 @@ export default function DevAutoTaggingTester() {
       setError(`Model initialization failed: ${err.message || err}`);
       setLoadText('Model failed to load');
     }
-  }, [loadState]);
+  }, [loadState, effectiveModelId]);
 
   const handleGenerate = useCallback(async () => {
     const llm = llmRef.current;
@@ -208,7 +274,7 @@ export default function DevAutoTaggingTester() {
           <h1 className="text-lg font-semibold text-gray-100 flex items-center gap-2">
             Auto-Tagging Test
             <span className="px-2 py-0.5 text-xs font-mono bg-gray-800 text-gray-400 rounded-md border border-gray-700 font-normal">
-              {TAG_GENERATION_MODEL_ID}
+              {effectiveModelId}
             </span>
           </h1>
           <p className="text-sm text-gray-500">Local inference via WebLLM</p>
@@ -256,6 +322,45 @@ export default function DevAutoTaggingTester() {
               {error}
             </div>
           )}
+
+          {/* Tagging model card — session-scoped picker (never writes the
+              aiTagModel pref); mirrors the Settings tier grouping. */}
+          <div className={`${cardClass} shrink-0`}>
+            <label className={labelClass} htmlFor="tester-tag-model">
+              Tagging model
+            </label>
+            <select
+              id="tester-tag-model"
+              aria-label="Auto-tag model"
+              value={effectiveModelId}
+              onChange={(e) => handleModelChange(e.target.value)}
+              disabled={modelOptions.length === 0 || loadState === 'loading'}
+              className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {modelOptions.length === 0 ? (
+                <option value={effectiveModelId}>{effectiveModelId}</option>
+              ) : (
+                (['low', 'mid', 'high'] as const).map((tier) => {
+                  const tierOptions = modelOptions.filter((o) => o.tier === tier);
+                  if (tierOptions.length === 0) return null;
+                  return (
+                    <optgroup key={tier} label={TAG_TIER_LABELS[tier]}>
+                      {tierOptions.map((option) => (
+                        <option key={option.modelId} value={option.modelId}>
+                          {option.label} · {option.vram}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })
+              )}
+            </select>
+            <p className={`${helperClass} mt-2`}>
+              {loadState === 'ready'
+                ? 'Switching models unloads the current one — click "Load models" to use the new model.'
+                : 'Applied on the next "Load models". Per tester session only — Settings is never changed.'}
+            </p>
+          </div>
 
           {/* System prompt card */}
           <div className={`${cardClass} flex-1 flex flex-col min-h-[250px]`}>
