@@ -2,8 +2,10 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   createLLMTagGenerator,
   TAG_GENERATION_MODEL_ID,
-  FLAT_TAGS_PROMPT,
+  TAGS_PROMPT,
   MAX_TAGS_PER_IMAGE,
+  MAX_SYNONYMS_PER_IMAGE,
+  MAX_CATEGORIES_PER_IMAGE,
   isAiAvailable,
   getAiLoadError,
   type ILLMTagGenerator,
@@ -37,14 +39,14 @@ export default function DevAutoTaggingTester() {
   const [error, setError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState(PRESETS[0].value);
   const [tags, setTags] = useState<string[]>([]);
+  const [synonyms, setSynonyms] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
   const [lastTime, setLastTime] = useState<number | null>(null);
-  const [topN, setTopN] = useState(5);
   const [rawResponse, setRawResponse] = useState('');
-  // Default prompt: the merged flat-list prompt the auto-tag worker uses —
-  // tags + search synonyms as ONE bounded array.
-  const [systemPrompt, setSystemPrompt] = useState(FLAT_TAGS_PROMPT);
-  const systemPromptModified = systemPrompt !== FLAT_TAGS_PROMPT;
+  // Default prompt: the structured auto-tag system prompt the worker uses —
+  // ONE completion returning {"concepts":[…≤15], "synonyms":[…≤6]}.
+  const [systemPrompt, setSystemPrompt] = useState(TAGS_PROMPT);
+  const systemPromptModified = systemPrompt !== TAGS_PROMPT;
 
   const llmRef = useRef<ILLMTagGenerator | null>(null);
 
@@ -156,6 +158,7 @@ export default function DevAutoTaggingTester() {
       llmRef.current?.dispose();
       llmRef.current = null;
       setTags([]);
+      setSynonyms([]);
       setRawResponse('');
       setLastTime(null);
       setLoadState('idle');
@@ -209,21 +212,29 @@ export default function DevAutoTaggingTester() {
 
     const start = performance.now();
     try {
-      // The worker's per-image call: tags + search synonyms in ONE bounded
-      // flat list (see FLAT_TAGS_PROMPT / MAX_TAGS_PER_IMAGE).
+      // The worker's per-image call: ONE structured completion returning the
+      // concept chips (see TAGS_PROMPT / MAX_TAGS_PER_IMAGE) and caching the
+      // hidden search vocabulary — synonyms followed by the main-subject
+      // categories (zebra → "animal") — on lastSynonyms (see
+      // MAX_SYNONYMS_PER_IMAGE / MAX_CATEGORIES_PER_IMAGE). The harness
+      // renders the FULL concept list exactly as the app would persist it —
+      // no display-side cap (2026-09-03: the old "Max tags" slice hid tags
+      // the app shows; a tester that truncates cannot judge a model).
       const result = await llm.generateFlatTags(prompt, systemPrompt);
-      setTags(result.slice(0, topN));
+      setTags(result);
+      setSynonyms(llm.lastSynonyms ?? []);
       setRawResponse(llm.lastRawResponse || '(empty response)');
       setLastTime(Math.round(performance.now() - start));
     } catch (err: any) {
       setError(`Tag generation failed: ${err.message || err}`);
       setTags([]);
+      setSynonyms([]);
       setRawResponse('');
       setLastTime(null);
     } finally {
       setGenerating(false);
     }
-  }, [loadState, prompt, topN, systemPrompt]);
+  }, [loadState, prompt, systemPrompt]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.ctrlKey && e.key === 'Enter') {
@@ -380,7 +391,7 @@ export default function DevAutoTaggingTester() {
             />
             <div className="flex items-center gap-3 shrink-0">
               <button
-                onClick={() => setSystemPrompt(FLAT_TAGS_PROMPT)}
+                onClick={() => setSystemPrompt(TAGS_PROMPT)}
                 disabled={!systemPromptModified}
                 className={btnChipClass}
               >
@@ -428,18 +439,6 @@ export default function DevAutoTaggingTester() {
               >
                 {generating ? 'Generating...' : 'Generate Tags'}
               </button>
-              <label className="flex items-center gap-2 text-sm text-gray-400">
-                Max tags:
-                <select
-                  value={topN}
-                  onChange={(e) => setTopN(Number(e.target.value))}
-                  className="bg-gray-950 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500"
-                >
-                  {[5, 8, 10, 15].map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </label>
               <span className="text-xs text-gray-400 ml-auto">Ctrl+Enter to generate</span>
             </div>
           </div>
@@ -450,14 +449,14 @@ export default function DevAutoTaggingTester() {
           {/* Results card */}
           <div className={`${cardClass} shrink-0`}>
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-gray-200">Generated Tags</h3>
+              <h3 className="text-sm font-medium text-gray-200">Generated Concepts</h3>
               {lastTime !== null && (
-                <span className="text-xs text-gray-400">{tags.length} tag(s) in {lastTime}ms</span>
+                <span className="text-xs text-gray-400">{tags.length} concept(s) in {lastTime}ms</span>
               )}
             </div>
             <p className="text-[11px] text-gray-500 mb-3">
-              Flat merged list — tags + search synonyms in one bounded pass (max {MAX_TAGS_PER_IMAGE}
-              ), the same call the auto-tag worker makes per image.
+              The concept chips (max {MAX_TAGS_PER_IMAGE}) the app persists as autoTags — the same
+              structured call the auto-tag worker makes per image.
             </p>
             <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
               {tags.length === 0 ? (
@@ -474,6 +473,35 @@ export default function DevAutoTaggingTester() {
                   </span>
                 ))
               )}
+            </div>
+            <div className="mt-4 border-t border-gray-800 pt-3">
+              <h4 className="text-xs font-medium text-gray-400 mb-1">
+                Search synonyms + categories <span className="text-gray-600 font-normal">— hidden, feeds search only</span>
+              </h4>
+              <div className="flex flex-wrap gap-2 min-h-[24px] items-center">
+                {synonyms.length === 0 ? (
+                  <span className="text-[11px] text-gray-600">
+                    {generating
+                      ? 'Generating...'
+                      : tags.length === 0
+                        ? 'Run generation to see the hidden search vocabulary.'
+                        : 'None returned (or response was not the structured JSON form).'}
+                  </span>
+                ) : (
+                  synonyms.map((syn) => (
+                    <span
+                      key={syn}
+                      className="px-2.5 py-1 bg-gray-900 border border-dashed border-gray-700 rounded-full text-xs text-gray-400 font-mono"
+                    >
+                      {syn}
+                    </span>
+                  ))
+                )}
+              </div>
+              <p className="text-[10px] text-gray-600 mt-1">
+                Max {MAX_SYNONYMS_PER_IMAGE} synonyms + {MAX_CATEGORIES_PER_IMAGE} categories — merged, persisted to
+                the annotation's hidden synonymTags (searchable-text vocabulary), never shown as chips in the app.
+              </p>
             </div>
           </div>
 

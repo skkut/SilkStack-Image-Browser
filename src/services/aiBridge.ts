@@ -49,8 +49,19 @@ export interface ILLMTagGenerator {
   dispose(): void;
   readonly lastRawResponse: string | null;
   /**
-   * Flat merged tag list (tags + search synonyms in one bounded array) — the
-   * single per-image call the auto-tag worker makes.
+   * The merged hidden search-vocabulary list of the most recent call —
+   * synonyms followed by the main-subject categories (zebra → "animal"),
+   * search-only, hidden from the chip UI. `null` until the first call runs;
+   * `[]` after a call that produced none.
+   */
+  readonly lastSynonyms: string[] | null;
+  /**
+   * ONE structured completion per image: returns the CONCEPT list (the UI
+   * chips, ≤ MAX_TAGS_PER_IMAGE) and caches the SYNONYM + CATEGORY list
+   * (≤ MAX_SYNONYMS_PER_IMAGE + ≤ MAX_CATEGORIES_PER_IMAGE) on
+   * `lastSynonyms` for the caller to persist as hidden search vocabulary —
+   * the single per-image call the auto-tag worker makes. On inference
+   * failure returns [].
    */
   generateFlatTags(prompt: string, systemPrompt?: string): Promise<string[]>;
 }
@@ -189,36 +200,68 @@ export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';
  * SEARCH_ENRICHMENT_VERSION (ai-intelligence/src/modules/llm-tag-generator.ts,
  * the source of truth). Images whose annotation.searchTagVersion !== this
  * value are (re-)tagged by the next auto-tag run, so bumping it re-tags the
- * whole library once. v2: tags + search synonyms merged into ONE bounded flat
- * list (the old separate synonymTags field is legacy).
+ * whole library once.
+ *
+ * v2: tags + search synonyms merged into ONE bounded flat list.
+ * v3: structured split — one completion returns
+ *     {"concepts":[…≤15], "synonyms":[…≤6]}. The flat merge silently starved
+ *     synonyms: the shared 15-item budget plus the validator's source-overlap
+ *     rule dropped most multi-word synonyms (the prompt's own example "one
+ *     girl" fails the rule because "1girl" is a single token). v3 reinstates
+ *     the hidden search-vocabulary list, persisted into the legacy
+ *     annotation.synonymTags field (concept overlap rule only — no
+ *     source-overlap rule).
+ * v4: the hidden vocabulary gains CATEGORY hypernyms of the main subjects
+ *     (zebra → animal, tulip → flower) — a third "categories" array in the
+ *     same completion (≤ MAX_CATEGORIES_PER_IMAGE), merged after synonyms
+ *     into the persisted synonymTags field.
  */
-export const SEARCH_ENRICHMENT_VERSION = 2;
+export const SEARCH_ENRICHMENT_VERSION = 4;
 
 /**
- * Mirrored from the module (llm-tag-generator.ts — the source of truth; the
- * module's own export wins at runtime): the merged auto-tag prompt — tags +
- * search synonyms as ONE bounded flat list (see SEARCH_ENRICHMENT_VERSION).
+ * Mirrored from the module (llm-tag-generator.ts — the source of truth): the
+ * structured auto-tag system prompt. The module's own export wins at runtime
+ * for the worker, but the tester passes THIS copy as its explicit override —
+ * so it must stay byte-identical to the module's TAGS_PROMPT, or the tester
+ * would judge a different prompt than the worker runs.
  */
-export const FLAT_TAGS_PROMPT = `You are an expert image tagging and analyzing system that extracts visual concept tags from image generation prompts, and lists search-friendly synonyms for those concepts as additional tags.
+export const TAGS_PROMPT = `You are an expert image tagging and analyzing system. From an image generation prompt you extract visual concept tags, and you list search-friendly synonyms and categories for those concepts.
 
-Rules:
-- If the provided text is explicitly sex oriented, add 'nsfw' to the return list
-- Return ONLY a valid JSON array of strings. No markdown, no explanations, no other text.
-- Tags: extract only meaningful visual concepts — subjects, clothing, objects, settings, and styles. Keep tags simple and concise (no more than 2 words). remove adjectives from subjects.
-- Ignore quality keywords (masterpiece, 8k, award winning, etc.), technical tokens (<lora:...>, etc.), and gibberish and noise: random character strings (e.g. "xjqkz"), repeated letters (e.g. "aaaa"), symbol and emoji runs, URL fragments, camera/software metadata tokens, and any other text that does not describe a visual concept.
+Return ONLY a valid JSON object with three arrays of lowercase strings, e.g. {"concepts": [...], "synonyms": [...], "categories": [...]}. No markdown, no explanations, no other text.
+
+Concepts rules:
+- Extract only meaningful visual concepts — subjects, clothing, objects, settings, and styles. Keep tags simple and concise (no more than 2 words); remove adjectives from subjects.
 - For weighted tags like (cyberpunk city:1.2), extract just the descriptive text: "cyberpunk city".
-- Also include search-friendly synonyms and alternate phrasings a searcher might type, as additional tags (e.g. for "red fox" add "vulpes", "foxy", "crimson fox"; for "1girl" add "one girl", "single female").
-- No more than 15 tags total. Lowercase; max 3 words each.
+- If the provided text is explicitly adult oriented and may not be safe for viewing at work, add "nsfw" to concepts.
+- Ignore quality keywords (masterpiece, 8k, award winning, etc.), technical tokens (<lora:...>, etc.), and gibberish and noise: random character strings (e.g. "xjqkz"), repeated letters (e.g. "aaaa"), symbol and emoji runs, URL fragments, camera/software metadata tokens, and any other text that does not describe a visual concept.
+- No more than 15 concepts. Prefer quality over quantity: 5-10 strong concepts beat 15 weak ones.
+
+Synonyms rules:
+- For 3-6 of the concepts, list alternate search phrasings a searcher might type: formal or scientific names, foreign words, colloquial terms, or plain-English rephrasings.
+- Synonym words must NOT simply repeat words from the input prompt — they are alternate vocabulary (e.g. for "red fox": "vulpes", "foxy", "crimson fox"; for "1girl": "one girl", "single female").
+- No synonym may duplicate a concept already listed. 1-3 words each.
+
+Categories rules:
+- For the main subjects — the primary content of the image: people, animals, plants, objects, and settings — list the category class(es) a searcher would type, most specific useful class first: a dragonfly is an "insect" and an "animal", a zebra is a "mammal" and an "animal", a tulip is a "flower" and a "plant". Never settle for a class too broad to pick the image out of a search — a macro photo of a dragonfly tagged only "animal" would be lost among all animal images.
+- Add the broader class only when a search for it would plausibly want this image; skip background props and minor elements (a fox in a forest gets no category for the trees).
+- For people the useful class is "person" — re-describing the subject (e.g. "female" for "1girl") is a synonym, not a category.
+- Plain common words, 1-2 words each. No more than 4 categories. No category may duplicate a concept or a synonym.
 
 Examples:
 Input: a red fox sitting in a snowy forest, digital painting
-Output: ["red fox", "snowy forest", "digital painting", "vulpes", "foxy", "crimson fox", "winter woods", "digital art"]
+Output: {"concepts":["red fox","snowy forest","digital painting"],"synonyms":["vulpes","foxy","winter woods"],"categories":["mammal","animal","wildlife"]}
 
-Input: 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, high resolution, xjqkz, aaaa
-Output: ["1girl", "one girl", "solo", "alone", "cyberpunk city", "neon city", "neon lights", "neon glow"]`;
+Input: 1girl, solo, (cyberpunk city:1.2), neon lights, <lora:detailer:0.8>, 8k, xjqkz, aaaa
+Output: {"concepts":["1girl","solo","cyberpunk city","neon lights"],"synonyms":["one girl","single female","futuristic city","neon glow"],"categories":["person","city"]}`;
 
-/** Hard cap on the flat merged tag list (mirrors the module's MAX_TAGS_PER_IMAGE). */
+/** Hard cap on the auto-tag CONCEPT list — the chips shown in the UI (mirrors the module's MAX_TAGS_PER_IMAGE). */
 export const MAX_TAGS_PER_IMAGE = 15;
+
+/** Hard cap on the auto-tag SYNONYM list — hidden search-only vocabulary, NOT bounded by the concept cap (mirrors the module's MAX_SYNONYMS_PER_IMAGE). */
+export const MAX_SYNONYMS_PER_IMAGE = 6;
+
+/** Hard cap on the auto-tag CATEGORY list — main-subject class terms, specific-first per the prompt (zebra → "mammal" and "animal"), search-only, merged after synonyms into the hidden vocabulary (mirrors the module's MAX_CATEGORIES_PER_IMAGE). */
+export const MAX_CATEGORIES_PER_IMAGE = 4;
 
 // ── Dynamic module loader ───────────────────────────────────────────
 

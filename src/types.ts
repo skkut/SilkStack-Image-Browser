@@ -969,7 +969,7 @@ export interface IndexedImage {
   tags?: string[]; // All tags merged (manual + auto + metadata) for unified display
   autoTags?: string[]; // Auto-generated tags from LLM analysis
   isAutoTagged?: boolean; // Whether the image has been processed by the auto-tagging engine
-  synonymTags?: string[]; // LEGACY: English search synonyms (v1 enrichment — folded into the flat auto-tag list since v2; kept for persisted records)
+  synonymTags?: string[]; // Hidden search-only vocabulary — synonyms + main-subject categories (written fresh by the auto-tag pass; synonyms since v3, categories appended since v4 — the v2 flat merge wrote them empty; kept for persisted records; dual-read with `synonyms` by the indexer)
   searchTagVersion?: number; // SEARCH_ENRICHMENT_VERSION this image was enriched with; drives auto-tag idempotency
   metadataTags?: string[]; // Tags imported from image file metadata
   stackGroupId?: string; // Prompt hash — groups images with identical prompts into stacks
@@ -990,7 +990,7 @@ export interface ImageAnnotations {
   tags: string[]; // Manually-added tags (lowercase normalized)
   autoTags: string[]; // Auto-generated tags from LLM analysis
   isAutoTagged?: boolean; // Whether the image has been processed by the auto-tagging engine
-  synonymTags?: string[]; // LEGACY: English search synonyms (v1 enrichment — folded into the flat auto-tag list since v2; kept for persisted records)
+  synonymTags?: string[]; // Hidden search-only vocabulary — synonyms + main-subject categories (written fresh by the auto-tag pass; synonyms since v3, categories appended since v4 — the v2 flat merge wrote them empty; kept for persisted records; dual-read with `synonyms` by the indexer)
   searchTagVersion?: number; // SEARCH_ENRICHMENT_VERSION this image was enriched with; drives auto-tag idempotency
   isSemanticIndexed?: boolean; // Whether this image's current index text has been embedded into the semantic vector store; drives semantic-index idempotency (see needsSemanticIndexing)
   metadataTags: string[]; // Tags imported from image file metadata

@@ -42,14 +42,17 @@ const state = vi.hoisted(() => {
       dispose: vi.fn(),
       generateFlatTags: vi.fn(),
       lastRawResponse: '',
+      lastSynonyms: null,
     },
   };
 });
 
 vi.mock('../services/aiBridge', () => ({
   TAG_GENERATION_MODEL_ID: state.HERMES_ID,
-  FLAT_TAGS_PROMPT: 'FAKE SYSTEM PROMPT',
+  TAGS_PROMPT: 'FAKE SYSTEM PROMPT',
   MAX_TAGS_PER_IMAGE: 15,
+  MAX_SYNONYMS_PER_IMAGE: 6,
+  MAX_CATEGORIES_PER_IMAGE: 4,
   isAiAvailable: state.isAiAvailable,
   getAiLoadError: state.getAiLoadError,
   createLLMTagGenerator: state.createLLMTagGenerator,

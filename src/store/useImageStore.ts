@@ -2646,8 +2646,8 @@ export const useImageStore = create<ImageState>((set, get) => {
             // Filter to images that still need auto-tagging (or search
             // enrichment) BEFORE creating the worker. The enrichment gate
             // re-includes previously-tagged, version-less images exactly once
-            // so they pick up the flat merged tag list (tags + search
-            // synonyms in one bounded pass) for the semantic index.
+            // so they pick up the structured pass — concept chips plus the
+            // hidden synonym vocabulary for the semantic index.
             const taggingImages = sourceImages.filter(img => {
                 const annotation = annotations.get(img.id);
                 return needsSearchEnrichment(annotation);
@@ -2725,16 +2725,29 @@ export const useImageStore = create<ImageState>((set, get) => {
             // start). `persistedIds` dedupes the trailing 'complete' map.
             const persistedIds = new Set<string>();
 
-            const persistImageTags = (imageId: string, newTags: string[], generatedAt: number): void => {
+            const persistImageTags = (
+                imageId: string,
+                newTags: string[],
+                generatedAt: number,
+                synonyms?: string[],
+            ): void => {
                 const { annotations } = get();
                 const current = annotations.get(imageId);
                 const existingAutoTags = current?.autoTags ?? [];
                 const mergedAutoTags = [...new Set([...existingAutoTags, ...newTags])];
 
                 // Add generated tags to autoTags (not manual tags). The
-                // worker returns the FLAT merged tag list (tags + search
-                // synonyms as one bounded array) — synonyms are no longer a
-                // separate concept, so nothing to split.
+                // worker streams concepts (the chips) and, on the LLM path,
+                // the hidden search-vocabulary list: the v4 structured
+                // response {"concepts":[…≤15], "synonyms":[…≤6],
+                // "categories":[…≤4]} — synonyms plus the main-subject
+                // categories (zebra → "animal"). The v2 flat merge starved
+                // synonyms, which is why synonymTags (search-only, feeds the
+                // index text) is reinstated here.
+                // When `synonyms` is ABSENT (rule-based fallback ran — no
+                // engine) existing synonyms are kept: clearing them would be
+                // permanent — the stamp below makes the image ineligible for
+                // another run, and its synonyms still describe its prompt.
                 const annotation: ImageAnnotations = {
                     imageId,
                     isFavorite: current?.isFavorite ?? false,
@@ -2746,9 +2759,11 @@ export const useImageStore = create<ImageState>((set, get) => {
                     isAutoTagged: true,
                     // Enrichment metadata: the version stamp makes
                     // re-tagging idempotent across runs (see
-                    // needsSearchEnrichment). synonymTags is legacy —
-                    // search vocabulary now rides inside autoTags.
-                    synonymTags: [],
+                    // needsSearchEnrichment). A fresh model list REPLACES
+                    // prior-pass vocabulary — the field is a per-run product
+                    // of the model (never user-edited), so unioning would
+                    // only stale the search text after a prompt edit.
+                    synonymTags: synonyms ?? current?.synonymTags ?? [],
                     searchTagVersion: SEARCH_ENRICHMENT_VERSION,
                     // Fresh auto-tags feed the index text — clearing the
                     // stamp re-queues the image for the round's semantic
@@ -2797,15 +2812,19 @@ export const useImageStore = create<ImageState>((set, get) => {
                         break;
                     case 'image-tagged': {
                         // One image finished in the worker — persist it NOW
-                        // (tags + isAutoTagged + the enrichment stamp), while
-                        // the worker moves on to the next image. This is what
-                        // makes interrupted runs resume instead of restarting.
+                        // (tags + synonyms + isAutoTagged + the enrichment
+                        // stamp), while the worker moves on to the next
+                        // image. This is what makes interrupted runs resume
+                        // instead of restarting.
                         const streamedTags = (payload.tags || []) as AutoTag[];
                         persistedIds.add(payload.id);
                         persistImageTags(
                             payload.id,
                             [...new Set(streamedTags.map((tag) => tag.tag).filter(Boolean))],
                             Date.now(),
+                            // Hidden search vocabulary (LLM path only — the
+                            // rule-based fallback has no engine and omits it).
+                            Array.isArray(payload.synonyms) ? payload.synonyms : undefined,
                         );
                         break;
                     }
@@ -2890,7 +2909,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                 type: 'start',
                 payload: {
                     images: taggingImages,
-                    topN: options?.topN ?? 10,
+                    // Keep the ENTIRE concept list the module returns — the
+                    // module already bounds concepts at MAX_TAGS_PER_IMAGE
+                    // (15) and synonyms at their own cap (6), so a lower
+                    // default here silently drops chips the model emitted
+                    // (10→15 on 2026-09-03, matching the dev tester's
+                    // no-truncation display of the same shared call).
+                    topN: options?.topN ?? 15,
                     minScore: options?.minScore,
                     disableFallback: disableAiFallback,
                     devicePreference: aiDevicePreference,

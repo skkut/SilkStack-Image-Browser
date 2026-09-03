@@ -628,12 +628,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
               {activeTab === 'ai' && (
                 <div className="space-y-8 animate-in fade-in duration-300 pb-8">
-                  {/* AI Intelligence — one place for every AI setting: the GPU
-                      preference (one knob for ALL AI features — auto-tagging,
-                      embeddings, and semantic search share one WebLLM engine),
-                      the LLM fallback policy, and semantic search. Premium-
-                      gated as a whole: without the module or a license there
-                      is nothing to configure. */}
+                  {/* AI Intelligence — one place for every AI setting. Ordered
+                      for the common workflow: master switch, GPU steering (one
+                      knob for ALL AI features — auto-tagging, embeddings, and
+                      semantic search share one WebLLM engine), then the two
+                      auto-tag cards (LLM fallback policy, tag model), then the
+                      two semantic-search cards (toggle, embedding model), and
+                      finally the shared model cache. Premium-gated as a whole:
+                      without the module or a license there is nothing to
+                      configure. */}
                   {aiFeaturesEnabled && (
                   <>
                   <section>
@@ -662,58 +665,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                           />
                           <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
                         </label>
-                      </div>
-
-                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="pr-6">
-                          <p className="text-sm font-medium text-gray-200">Disable AI fallback for auto-tagging</p>
-                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                            If enabled, auto-tagging will only use AI models (Llama 3.2 3B via WebLLM). Rule-based extraction will not be used as a fallback. Useful for testing or when you want consistent AI-quality tags.
-                          </p>
-                        </div>
-                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                          <input
-                            type="checkbox"
-                            checked={disableAiFallback}
-                            onChange={(event) => setDisableAiFallback(event.target.checked)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                        </label>
-                      </div>
-
-                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="flex items-start justify-between">
-                          <div className="pr-6">
-                            <p className="text-sm font-medium text-gray-200">Semantic search</p>
-                            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                              Natural-language search over the library using AI embeddings. When enabled, the search bar gains a sparkles toggle to switch between keyword and semantic modes.
-                            </p>
-                            {semanticLastError ? (
-                              <p className="text-xs text-red-400 mt-2">Last error: {semanticLastError}</p>
-                            ) : semanticIndexedCount > 0 ? (
-                              <p className="text-xs text-gray-500 mt-2">{semanticIndexedCount} images indexed</p>
-                            ) : null}
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                            <input
-                              type="checkbox"
-                              checked={isSemanticSearchEnabled}
-                              onChange={(event) => setSemanticSearchEnabled(event.target.checked)}
-                              className="sr-only peer"
-                              data-testid="semantic-toggle-checkbox"
-                            />
-                            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                          </label>
-                        </div>
-                        <button
-                          onClick={handleReindexSemantic}
-                          disabled={semanticIndexProgress !== null}
-                          className="mt-4 inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white border border-purple-500/20 hover:border-purple-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-500/10 disabled:hover:text-purple-400"
-                        >
-                          <RefreshCw size={16} className={semanticIndexProgress !== null ? 'animate-spin' : ''} />
-                          Re-index library
-                        </button>
                       </div>
 
                       <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
@@ -771,37 +722,22 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         </p>
                       </div>
 
-                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <label htmlFor="ai-embedding-model" className="text-sm font-medium text-gray-200 block mb-1">
-                          Semantic embedding model
+                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="pr-6">
+                          <p className="text-sm font-medium text-gray-200">Disable AI fallback for auto-tagging</p>
+                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                            If enabled, auto-tagging will only use AI models (Llama 3.2 3B via WebLLM). Rule-based extraction will not be used as a fallback. Useful for testing or when you want consistent AI-quality tags.
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                          <input
+                            type="checkbox"
+                            checked={disableAiFallback}
+                            onChange={(event) => setDisableAiFallback(event.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
                         </label>
-                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-                          Powers natural-language search over the library. Switching models immediately rebuilds the index — a full re-embed with progress and cancel (images stay keyword-searchable while it runs).
-                        </p>
-                        {embeddingModelOptions === null ? (
-                          <select disabled data-testid="ai-embedding-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">
-                            <option>Loading models…</option>
-                          </select>
-                        ) : embeddingModelOptions.length === 0 ? (
-                          <p className="text-sm text-gray-500">No models available — the AI module is not installed.</p>
-                        ) : (
-                          <select
-                            id="ai-embedding-model"
-                            data-testid="ai-embedding-model-select"
-                            value={effectiveEmbeddingModel}
-                            onChange={(event) => void applySemanticEmbeddingModel(event.target.value)}
-                            className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
-                          >
-                            {embeddingModelOptions.map((option) => (
-                              <option key={option.modelId} value={option.modelId}>
-                                {option.label} · {option.vram}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <p className="text-xs text-gray-600 mt-1">
-                          Heavier variants embed more accurately but need more VRAM. {effectiveEmbeddingModel ? 'The index rebuild happens automatically — watch the footer progress.' : ''}
-                        </p>
                       </div>
 
                       <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
@@ -842,6 +778,73 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         )}
                         <p className="text-xs text-gray-600 mt-1">
                           Larger chat models give richer tags but load alongside the embedding model — leave VRAM headroom for both.
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="flex items-start justify-between">
+                          <div className="pr-6">
+                            <p className="text-sm font-medium text-gray-200">Semantic search</p>
+                            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                              Natural-language search over the library using AI embeddings. When enabled, the search bar gains a sparkles toggle to switch between keyword and semantic modes.
+                            </p>
+                            {semanticLastError ? (
+                              <p className="text-xs text-red-400 mt-2">Last error: {semanticLastError}</p>
+                            ) : semanticIndexedCount > 0 ? (
+                              <p className="text-xs text-gray-500 mt-2">{semanticIndexedCount} images indexed</p>
+                            ) : null}
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                            <input
+                              type="checkbox"
+                              checked={isSemanticSearchEnabled}
+                              onChange={(event) => setSemanticSearchEnabled(event.target.checked)}
+                              className="sr-only peer"
+                              data-testid="semantic-toggle-checkbox"
+                            />
+                            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                          </label>
+                        </div>
+                        <button
+                          onClick={handleReindexSemantic}
+                          disabled={semanticIndexProgress !== null}
+                          className="mt-4 inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white border border-purple-500/20 hover:border-purple-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-500/10 disabled:hover:text-purple-400"
+                        >
+                          <RefreshCw size={16} className={semanticIndexProgress !== null ? 'animate-spin' : ''} />
+                          Re-index library
+                        </button>
+                      </div>
+
+                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <label htmlFor="ai-embedding-model" className="text-sm font-medium text-gray-200 block mb-1">
+                          Semantic embedding model
+                        </label>
+                        <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                          Powers natural-language search over the library. Switching models immediately rebuilds the index — a full re-embed with progress and cancel (images stay keyword-searchable while it runs).
+                        </p>
+                        {embeddingModelOptions === null ? (
+                          <select disabled data-testid="ai-embedding-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">
+                            <option>Loading models…</option>
+                          </select>
+                        ) : embeddingModelOptions.length === 0 ? (
+                          <p className="text-sm text-gray-500">No models available — the AI module is not installed.</p>
+                        ) : (
+                          <select
+                            id="ai-embedding-model"
+                            data-testid="ai-embedding-model-select"
+                            value={effectiveEmbeddingModel}
+                            onChange={(event) => void applySemanticEmbeddingModel(event.target.value)}
+                            className="bg-gray-700 text-gray-200 border border-gray-600 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-gray-600 transition-colors cursor-pointer"
+                          >
+                            {embeddingModelOptions.map((option) => (
+                              <option key={option.modelId} value={option.modelId}>
+                                {option.label} · {option.vram}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
+                          Heavier variants embed more accurately but need more VRAM. {effectiveEmbeddingModel ? 'The index rebuild happens automatically — watch the footer progress.' : ''}
                         </p>
                       </div>
 

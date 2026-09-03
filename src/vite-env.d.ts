@@ -25,6 +25,7 @@ declare module '@ai-images-browser/ai-intelligence' {
     generateFlatTags(prompt: string, systemPrompt?: string): Promise<string[]>;
     dispose(): void;
     readonly lastRawResponse: string | null;
+    readonly lastSynonyms: string[] | null;
   }
 
   export class TagGenerator {
@@ -46,8 +47,10 @@ declare module '@ai-images-browser/ai-intelligence' {
 
   export const TAG_GENERATION_MODEL_ID: string;
   export const EMBEDDING_MODEL_ID: string;
-  export const FLAT_TAGS_PROMPT: string;
+  export const TAGS_PROMPT: string;
   export const MAX_TAGS_PER_IMAGE: number;
+  export const MAX_SYNONYMS_PER_IMAGE: number;
+  export const MAX_CATEGORIES_PER_IMAGE: number;
 
   // ── Shared engine (one engine, two records) ──────────────────────────
 

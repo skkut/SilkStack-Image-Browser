@@ -20,9 +20,20 @@
  *   Main → Worker:  { type: 'start',  payload: { images, topN?, disableFallback?, isPremium?, devicePreference?, tagModelId? } }
  *                   { type: 'cancel' }
  *   Worker → Main:  { type: 'progress', payload: { current, total, message } }
- *                   { type: 'image-tagged', payload: { id, tags } }  — one per image, emitted as soon as that image's tags are generated so the host persists each image incrementally (resume-safe)
- *                   { type: 'complete', payload: { autoTags } }   — flat merged tag list (tags + search synonyms in one bounded array); the full accumulated map for backward compatibility
+ *                   { type: 'image-tagged', payload: { id, tags, synonyms? } }  — one per image, emitted as soon as that image's tags are generated so the host persists each image incrementally (resume-safe); `synonyms` is the MERGED hidden search vocabulary — synonyms followed by the main-subject categories (zebra → "animal") — absent when the rule-based fallback ran (it has no engine)
+ *                   { type: 'complete', payload: { autoTags } }   — the accumulated CONCEPTS-only map for backward compatibility; per-image persistence (incl. the merged search vocabulary) happens on 'image-tagged'
  *                   { type: 'error',    payload: { error } }
+ *
+ *   Structured split (search enrichment v4): tags, search synonyms, and the
+ *   main-subject CATEGORIES (zebra → "animal") come from ONE structured
+ *   completion per image — {"concepts":[…≤15], "synonyms":[…≤6],
+ *   "categories":[…≤4]} (generateFlatTags — see TAGS_PROMPT). Concepts are
+ *   the UI chips; synonyms + categories are hidden search vocabulary merged
+ *   on lastSynonyms (categories last), persisted per image from the
+ *   'image-tagged' payload. The v2 flat single-list merge starved synonyms
+ *   (shared 15-item budget + the concept overlap rule); the v2 bare-array
+ *   response shape still parses as concepts-only. The rule-based fallback
+ *   path emits no search vocabulary (it has no engine).
  */
 
 import type { AutoTag, TaggingImage } from './types';
@@ -83,8 +94,14 @@ export interface AutoTagWorkerContext {
   getTagModelId(): string;
   /** Auto-tag shape: { current, total, message }. */
   postProgress(current: number, total: number, message: string): void;
-  /** One image's tags, emitted as soon as they are generated. */
-  postImageTagged(id: string, tags: AutoTag[]): void;
+  /**
+   * One image's tags + (LLM path) its MERGED hidden search vocabulary —
+   * synonyms followed by the main-subject categories (zebra → "animal",
+   * merged on lastSynonyms). `synonyms` is absent when the rule-based
+   * fallback ran — the host then leaves any existing vocabulary untouched
+   * instead of clearing it.
+   */
+  postImageTagged(id: string, tags: AutoTag[], synonyms?: string[]): void;
   postComplete(autoTags: Record<string, AutoTag[]>): void;
   postError(error: string): void;
 }
@@ -143,14 +160,22 @@ export class AutoTagWorker {
         const prompt = image.prompt || '';
 
         let generatedTags: string[] = [];
+        // Hidden merged search vocabulary from the LLM path — undefined until
+        // a call runs, so absent also for the fallback/empty-prompt paths.
+        let generatedSynonyms: string[] | undefined;
         if (prompt.trim()) {
           if (llmReady && this.llmGenerator) {
-            // ONE bounded completion returns the flat merged tag list (tags +
-            // search synonyms as one array — see FLAT_TAGS_PROMPT). The old
-            // tags+synonyms map emitted each concept twice (key + value); the
-            // flat list bounds the output and shrinks the decode. Failures
-            // degrade to no tags for this image, never a run failure.
+            // ONE bounded completion returns the structured {concepts,
+            // synonyms, categories} response (see TAGS_PROMPT /
+            // SEARCH_ENRICHMENT_VERSION v4). Concepts come back as the list —
+            // the UI chips; synonyms + main-subject categories ride out
+            // merged on lastSynonyms (categories last) and are emitted per
+            // image as hidden search vocabulary. The v2 flat single-list
+            // merge starved synonyms; the v2 bare-array shape still parses as
+            // concepts-only. Failures degrade to no tags for this image,
+            // never a run failure.
             generatedTags = await this.llmGenerator.generateFlatTags(prompt);
+            generatedSynonyms = this.llmGenerator.lastSynonyms ?? [];
           } else {
             const fb = await this.getFallbackGenerator(options.isPremium);
             if (fb) {
@@ -159,6 +184,9 @@ export class AutoTagWorker {
           }
         }
 
+        // topN caps the CONCEPT chips only — the hidden search vocabulary
+        // (synonyms + categories) has its own independent caps
+        // (MAX_SYNONYMS_PER_IMAGE + MAX_CATEGORIES_PER_IMAGE, in the module).
         if (options.topN && generatedTags.length > options.topN) {
           generatedTags = generatedTags.slice(0, options.topN);
         }
@@ -168,10 +196,11 @@ export class AutoTagWorker {
           sourceType: 'prompt' as const,
         }));
 
-        // Emit this image's tags immediately — the host persists each image
-        // as it finishes, so an interrupted run never re-processes it (the
-        // next 'start' filters stamped images on its side).
-        this.ctx.postImageTagged(image.id, autoTags[image.id]);
+        // Emit this image's tags (and synonyms, on the LLM path) immediately —
+        // the host persists each image as it finishes, so an interrupted run
+        // never re-processes it (the next 'start' filters stamped images on
+        // its side).
+        this.ctx.postImageTagged(image.id, autoTags[image.id], generatedSynonyms);
 
         const label = this.mode === 'llm' ? 'Generating AI tags' : 'Extracting tags';
         this.ctx.postProgress(i + 1, total, `${label}... (${i + 1}/${total})`);
