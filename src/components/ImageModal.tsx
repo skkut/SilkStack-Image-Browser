@@ -9,6 +9,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
   Folder,
   Star,
   X,
@@ -18,6 +19,7 @@ import {
   Volume2,
   VolumeX,
   Repeat,
+  Search,
   PanelRightClose,
   PanelRightOpen,
   ZoomIn,
@@ -66,6 +68,11 @@ const formatLoRA = (lora: string | LoRAInfo): string => {
 
   return name;
 };
+
+// Escapes regex-special characters so a user query is always matched as a
+// literal phrase (e.g. "cat.on" must not behave as a wildcard).
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // Format file size: "123.4 KB", "5.2 MB", "1.8 GB"
 const formatFileSize = (bytes?: number): string | undefined => {
@@ -203,7 +210,8 @@ const MetadataItem: FC<{
   value?: string | number | any[];
   isPrompt?: boolean;
   onCopy?: (value: string) => void;
-}> = ({ label, value, isPrompt = false, onCopy }) => {
+  highlight?: string; // literal phrase to highlight (Prompt only, for now)
+}> = ({ label, value, isPrompt = false, onCopy, highlight }) => {
   if (
     value === null ||
     value === undefined ||
@@ -214,6 +222,17 @@ const MetadataItem: FC<{
   }
 
   const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
+
+  // Split on the literal (case-insensitive) phrase, keeping the matched
+  // substrings via the capture group — odd indexes are matches, so text is
+  // reproduced verbatim with no whitespace/case loss. A zero-match or empty
+  // query leaves the plain-text path intact (an empty "" capture regex would
+  // split every single character).
+  const matchParts =
+    isPrompt && highlight && displayValue
+      ? displayValue.split(new RegExp(`(${escapeRegExp(highlight)})`, "gi"))
+      : null;
+  const hasMatches = matchParts !== null && matchParts.length > 1;
 
   return (
     <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50 relative group">
@@ -233,7 +252,20 @@ const MetadataItem: FC<{
       </div>
       {isPrompt ? (
         <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">
-          {displayValue}
+          {hasMatches
+            ? matchParts!.map((part, i) =>
+                i % 2 === 1 ? (
+                  <mark
+                    key={`m${i}`}
+                    className="search-hit bg-yellow-300 text-gray-900 rounded-[2px] px-px"
+                  >
+                    {part}
+                  </mark>
+                ) : (
+                  part
+                ),
+              )
+            : displayValue}
         </pre>
       ) : (
         <p className="text-gray-200 break-words font-mono text-sm mt-1">
@@ -667,6 +699,70 @@ const ImageModal: React.FC<ImageModalProps> = ({
       String(isSidebarCollapsed),
     );
   }, [isSidebarCollapsed]);
+
+  // ---- Find-in-prompt (Ctrl+F) state ----
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(0); // 0-based into <mark> nodes
+  const [matchCount, setMatchCount] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const promptSectionRef = useRef<HTMLDivElement>(null); // wraps the Prompt item
+  const sidebarAutoExpandedRef = useRef(false); // Ctrl+F expanded the sidebar
+  const sidebarUserToggledRef = useRef(false); // user toggled sidebar mid-search
+
+  // Manual sidebar toggle (buttons) — remembers user intent so closeSearch
+  // doesn't undo a manual collapse/expand made while the search was open.
+  const toggleSidebar = useCallback(() => {
+    sidebarUserToggledRef.current = true;
+    setIsSidebarCollapsed((c) => !c);
+  }, []);
+
+  const openSearch = useCallback(() => {
+    // Expand only when we're the one doing it; recorded for restore-on-close.
+    setIsSidebarCollapsed((collapsed) => {
+      sidebarAutoExpandedRef.current = collapsed;
+      return false;
+    });
+    sidebarUserToggledRef.current = false;
+    setIsSearchOpen(true);
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    setIsSearchOpen(false);
+    setSearchQuery("");
+    setActiveMatch(0);
+    setMatchCount(0);
+    // Restore the pre-search collapsed state unless the user toggled manually.
+    if (sidebarAutoExpandedRef.current && !sidebarUserToggledRef.current) {
+      setIsSidebarCollapsed(true);
+    }
+    sidebarAutoExpandedRef.current = false;
+    sidebarUserToggledRef.current = false;
+  }, []);
+
+  // Cycle with wrap-around; no-op when there is nothing to cycle.
+  const goToMatch = (delta: number) => {
+    if (matchCount <= 0) return;
+    setActiveMatch((a) => (a + delta + matchCount) % matchCount);
+  };
+
+  const handleSearchQueryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+    setActiveMatch(0);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      // Never reaches the window handler → closes only the search.
+      e.preventDefault();
+      e.stopPropagation();
+      closeSearch();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      goToMatch(e.shiftKey ? -1 : 1);
+    }
+  };
 
   const canDragExternally =
     typeof window !== "undefined" && !!window.electronAPI?.startFileDrag;
@@ -1120,6 +1216,35 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       if (isRenaming) return;
 
+      // Ctrl+F / Cmd+F = open find-in-prompt. Sits above the search-bar guard
+      // so re-pressing while the input is focused re-selects the query.
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === "f"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (isSearchOpen) {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        } else {
+          openSearch();
+        }
+        return;
+      }
+
+      // Keys typed inside the search bar belong to the input: Escape/Enter are
+      // stopped by its React onKeyDown, and this guard keeps arrows/Delete from
+      // navigating or deleting while it has focus.
+      const evTarget = event.target as HTMLElement | null;
+      const inSearchBar =
+        isSearchOpen && typeof evTarget?.closest === "function"
+          ? !!evTarget.closest?.("[data-search-bar]")
+          : false;
+      if (inSearchBar) return;
+
       // Alt+Enter = Toggle fullscreen (works in both grid and modal)
       if (event.key === "Enter" && event.altKey) {
         event.preventDefault();
@@ -1128,10 +1253,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
         return;
       }
 
-      // Escape = Exit fullscreen first, then close modal
+      // Escape = close the search first, then exit fullscreen, then close modal
       if (event.key === "Escape") {
         event.stopPropagation(); // Prevent global hotkeys (closing sidebar)
-        if (isFullscreen) {
+        if (isSearchOpen) {
+          closeSearch(); // an open search is never closed by a fullscreen/modal exit
+        } else if (isFullscreen) {
           // Call toggleFullscreen to actually exit Electron fullscreen
           toggleFullscreen();
         } else {
@@ -1160,11 +1287,64 @@ const ImageModal: React.FC<ImageModalProps> = ({
     hideContextMenu,
     isFullscreen,
     isRenaming,
+    isSearchOpen, // handler must rebind when the search bar opens/closes
+    openSearch, // stable (useCallback, functional updates only)
+    closeSearch, // stable (useCallback, functional updates only)
     onClose,
     onNavigateNext,
     onNavigatePrevious,
     toggleFullscreen,
   ]);
+
+  // Focus + select after the conditional search bar mounts (an autoFocus prop
+  // would not re-run when reopening the bar with an existing query).
+  useEffect(() => {
+    if (isSearchOpen) {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+  }, [isSearchOpen]);
+
+  // Count highlight marks, ring the active one, and scroll it into view. Runs
+  // after commit so the re-split <pre> is on screen. Outline is set inline —
+  // classList.toggle does not split multi-token strings. scrollIntoView is
+  // typeof-guarded because jsdom (tests) does not implement it.
+  useEffect(() => {
+    if (!isSearchOpen) return;
+    if (!searchQuery.trim() || !effectiveMetadata?.prompt) return; // JSX shows hints
+    const marks = Array.from(
+      promptSectionRef.current?.querySelectorAll("mark.search-hit") ?? [],
+    );
+    if (marks.length !== matchCount) setMatchCount(marks.length); // guarded → no loop
+    if (marks.length === 0) return;
+    const idx = Math.min(activeMatch, marks.length - 1);
+    marks.forEach((m, i) => {
+      const el = m as HTMLElement;
+      if (i === idx) {
+        el.style.outline = "2px solid #f59e0b";
+        el.style.outlineOffset = "1px";
+      } else {
+        el.style.outline = "";
+        el.style.outlineOffset = "";
+      }
+    });
+    const el = marks[idx] as HTMLElement;
+    if (typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [
+    isSearchOpen,
+    searchQuery,
+    activeMatch,
+    matchCount,
+    effectiveMetadata?.prompt,
+    image.id,
+  ]);
+
+  // Navigating to another image while searching resets to the first match.
+  useEffect(() => {
+    if (isSearchOpen) setActiveMatch(0);
+  }, [image.id, isSearchOpen]);
 
   // Separate effect for wheel event listener to avoid image reloading on zoom changes
   useEffect(() => {
@@ -1351,7 +1531,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
               <Trash2 size={14} />
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); setIsSidebarCollapsed(!isSidebarCollapsed); }}
+              onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
               className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
               title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
             >
@@ -1532,7 +1712,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   <Trash2 size={16} />
                 </button>
                 <button
-                  onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                  onClick={() => toggleSidebar()}
                   className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
                   aria-label={
                     isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
@@ -1563,9 +1743,66 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
         {/* Metadata Panel */}
         <div
-          className={`w-full ${isSidebarCollapsed ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} p-6 overflow-y-auto space-y-4 ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
+          className={`w-full ${isSidebarCollapsed ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
         >
-          <div>
+          {isSearchOpen && (
+            <div
+              data-search-bar
+              className="shrink-0 px-3 pt-3 pb-2 border-b border-gray-800/80 bg-gray-900/70 flex items-center gap-2 z-10"
+            >
+              <Search className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchQueryChange}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Find in prompt"
+                aria-label="Find in prompt"
+                className="flex-1 min-w-0 bg-gray-800/70 text-gray-100 text-xs border border-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400/70 placeholder-gray-500"
+              />
+              {searchQuery.trim() !== "" && (
+                <span
+                  data-testid="search-counter"
+                  className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap shrink-0"
+                >
+                  {matchCount > 0 ? activeMatch + 1 : 0} / {matchCount}
+                </span>
+              )}
+              {searchQuery.trim() !== "" && !effectiveMetadata?.prompt && (
+                <span className="text-[11px] italic text-yellow-500/90 whitespace-nowrap shrink-0">
+                  no prompt
+                </span>
+              )}
+              <button
+                onClick={() => goToMatch(-1)}
+                disabled={matchCount === 0}
+                title="Previous match (Shift+Enter)"
+                aria-label="Previous match"
+                className="p-1 rounded text-gray-400 hover:text-gray-50 hover:bg-gray-700/60 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => goToMatch(1)}
+                disabled={matchCount === 0}
+                title="Next match (Enter)"
+                aria-label="Next match"
+                className="p-1 rounded text-gray-400 hover:text-gray-50 hover:bg-gray-700/60 disabled:opacity-30 disabled:pointer-events-none"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              <button
+                onClick={closeSearch}
+                title="Close search (Esc)"
+                aria-label="Close find in prompt"
+                className="p-1 rounded text-gray-400 hover:text-gray-50 hover:bg-gray-700/60"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-6">
             {isRenaming ? (
               <div className="flex gap-2">
                 <input
@@ -1609,7 +1846,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
             <p className="text-xs text-blue-400 font-mono break-all">
               {new Date(image.lastModified).toLocaleString()}
             </p>
-          </div>
 
           {/* Annotations Section */}
           <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 space-y-2">
@@ -1756,11 +1992,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
           {nMeta ? (
             <div className="space-y-4">
               {/* Prompt Section - Always Visible */}
-              <div className="space-y-3">
+              <div className="space-y-3" ref={promptSectionRef}>
                 <MetadataItem
                   label="Prompt"
                   value={effectiveMetadata?.prompt}
                   isPrompt
+                  highlight={
+                    isSearchOpen && searchQuery !== ""
+                      ? searchQuery
+                      : undefined
+                  }
                   onCopy={() =>
                     copyToClipboard(effectiveMetadata?.prompt || "", "Prompt")
                   }
@@ -2110,6 +2351,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 )}
               </>
             )}
+          </div>
           </div>
         </div>
 
