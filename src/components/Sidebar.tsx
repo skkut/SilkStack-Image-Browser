@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import SearchBar from './SearchBar';
 import AdvancedFilters from './AdvancedFilters';
 import TagsAndFavorites from './TagsAndFavorites';
-import { ChevronLeft, X, ChevronDown, Plus, RefreshCw } from 'lucide-react';
+import { ChevronLeft, X, ChevronDown, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
@@ -29,11 +29,6 @@ interface SidebarProps {
   scanSubfolders: boolean;
   excludedFolders: Set<string>;
   onManageFolders: () => void;
-  sortOrder: string;
-  onSortOrderChange: (value: string) => void;
-  onReshuffle?: () => void;
-  /** True while a semantic search's results are on screen — shows the "Relevance" sort option. */
-  semanticActive?: boolean;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -58,11 +53,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   isIndexing = false,
   scanSubfolders,
   excludedFolders,
-  onManageFolders,
-  sortOrder,
-  onSortOrderChange,
-  onReshuffle,
-  semanticActive = false
+  onManageFolders
 }) => {
 
   const [expandedSections, setExpandedSections] = useState({
@@ -239,36 +230,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Scrollable Content - includes DirectoryList AND Filters */}
       <div className="flex-1 overflow-y-auto scrollbar-sidebar">
-        {/* Sort Order - Moved from footer for semantic consistency with filters */}
-        <div className="px-4 py-3 border-b border-gray-700">
-          <label htmlFor="sidebar-sort" className="block text-gray-400 text-xs font-medium mb-2">Sort Order</label>
-          <div className="flex items-center">
-          <select
-            id="sidebar-sort"
-            value={sortOrder}
-            onChange={(e) => onSortOrderChange(e.target.value)}
-            className="w-full bg-gray-700 text-gray-200 border border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {semanticActive && <option value="relevance">Relevance</option>}
-            <option value="date-desc">Newest First</option>
-            <option value="date-asc">Oldest First</option>
-            <option value="asc">A-Z</option>
-            <option value="desc">Z-A</option>
-            <option value="random">Random</option>
-          </select>
-          {sortOrder === 'random' && onReshuffle && (
-            <button
-                onClick={onReshuffle}
-                className="ml-2 p-2 text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 rounded-md border border-gray-600 transition-colors"
-                title="Reshuffle Random Order"
-            >
-                <RefreshCw className="h-5 w-5" />
-            </button>
-          )}
-          </div>
-        </div>
-
-
         {/* Render children, which will be the DirectoryList */}
         {children && React.isValidElement(children) ? (
           React.cloneElement(children as React.ReactElement<any>, {

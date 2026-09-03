@@ -1217,10 +1217,6 @@ export default function App() {
             scanSubfolders={scanSubfolders}
             excludedFolders={excludedFolders}
             onManageFolders={handleManageFolders}
-            sortOrder={sortOrder}
-            onSortOrderChange={imageStoreSetSortOrder}
-            onReshuffle={reshuffle}
-            semanticActive={semanticActive}
           >
             <DirectoryList
               directories={safeDirectories}
@@ -1456,6 +1452,10 @@ export default function App() {
         onLibraryViewChange={setActiveView}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        sortOrder={sortOrder}
+        onSortOrderChange={imageStoreSetSortOrder}
+        onReshuffle={reshuffle}
+        semanticActive={semanticActive}
       />
 
       {/* Right-click context menu (same as the library grid/table/stacks view) */}

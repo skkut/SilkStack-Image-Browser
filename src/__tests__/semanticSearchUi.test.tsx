@@ -938,3 +938,85 @@ describe('SettingsModal cached-model section wiring', () => {
     expect(screen.queryByTestId('ai-model-cache-loading')).toBeNull();
   });
 });
+
+// ── TopMenuBar sort-order control (moved here from the sidebar) ─────────
+
+describe('TopMenuBar sort-order control', () => {
+  const baseProps = {
+    onOpenSettings: vi.fn(),
+    onAddFolder: vi.fn(),
+    onToggleView: vi.fn(),
+    searchQuery: '',
+    setSearchQuery: vi.fn(),
+    activeView: 'library' as const,
+    onLibraryViewChange: vi.fn(),
+  };
+
+  it('sits right after the search bar with the full option set when wired', () => {
+    setElectronAPI();
+    render(
+      <TopMenuBar {...baseProps} sortOrder="date-desc" onSortOrderChange={vi.fn()} />,
+    );
+
+    const select = screen.getByLabelText('Sort:') as HTMLSelectElement;
+    // DOM order: search box first, sort control immediately after.
+    const search = screen.getByTestId('search-input');
+    expect(search.compareDocumentPosition(select) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const labels = Array.from(select.options).map((o) => o.label);
+    expect(labels).toEqual(['Newest First', 'Oldest First', 'A-Z', 'Z-A', 'Random']);
+    expect(select.value).toBe('date-desc');
+  });
+
+  it('stays hidden until App wires the change handler (test isolation)', () => {
+    setElectronAPI();
+    render(<TopMenuBar {...baseProps} />);
+    expect(screen.queryByLabelText('Sort:')).toBeNull();
+  });
+
+  it('changing the value calls onSortOrderChange with the new value', () => {
+    setElectronAPI();
+    const onChange = vi.fn();
+    render(<TopMenuBar {...baseProps} sortOrder="date-desc" onSortOrderChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('Sort:'), { target: { value: 'asc' } });
+    expect(onChange).toHaveBeenCalledWith('asc');
+  });
+
+  it('shows the Relevance option only while semantic hits are on screen', () => {
+    setElectronAPI();
+    const { rerender } = render(
+      <TopMenuBar {...baseProps} sortOrder="relevance" semanticActive onSortOrderChange={vi.fn()} />,
+    );
+    const optionLabels = () =>
+      Array.from((screen.getByLabelText('Sort:') as HTMLSelectElement).options).map((o) => o.label);
+    expect(optionLabels()[0]).toBe('Relevance');
+
+    // Hits cleared → the option disappears (store then restores the durable sort).
+    rerender(
+      <TopMenuBar
+        {...baseProps}
+        sortOrder="date-desc"
+        semanticActive={false}
+        onSortOrderChange={vi.fn()}
+      />,
+    );
+    expect(optionLabels()).toEqual(['Newest First', 'Oldest First', 'A-Z', 'Z-A', 'Random']);
+  });
+
+  it('random order exposes the reshuffle button and fires onReshuffle', () => {
+    setElectronAPI();
+    const onReshuffle = vi.fn();
+    render(
+      <TopMenuBar
+        {...baseProps}
+        sortOrder="random"
+        onSortOrderChange={vi.fn()}
+        onReshuffle={onReshuffle}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle('Reshuffle Random Order'));
+    expect(onReshuffle).toHaveBeenCalled();
+  });
+});

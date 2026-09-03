@@ -1,7 +1,7 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
-import { FolderSync, FolderX, Settings, Sparkles, Ban } from 'lucide-react';
+import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw } from 'lucide-react';
 import { useAiFeaturesEnabled, useAiMasterEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -18,6 +18,13 @@ interface TopMenuBarProps {
     setSearchQuery: (query: string) => void;
     isSidebarCollapsed?: boolean;
     hasDirectories?: boolean;
+    // Sort Order control — moved here from the sidebar; App.tsx wires the
+    // same store values/actions the sidebar used, so behavior is unchanged.
+    sortOrder?: string;
+    onSortOrderChange?: (value: string) => void;
+    onReshuffle?: () => void;
+    /** True while semantic hits are on screen — shows the "Relevance" option. */
+    semanticActive?: boolean;
 }
 
 const TopMenuBar: React.FC<TopMenuBarProps> = ({
@@ -31,7 +38,11 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     searchQuery,
     setSearchQuery,
     isSidebarCollapsed = false,
-    hasDirectories = false
+    hasDirectories = false,
+    sortOrder = 'date-desc',
+    onSortOrderChange,
+    onReshuffle,
+    semanticActive = false
 }) => {
     // Runtime gate: the Stacks view tab requires premium license
     const aiFeaturesEnabled = useAiFeaturesEnabled();
@@ -162,6 +173,41 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     </div>
                 )}
                 
+                {/* Sort Order — was in the sidebar; lives here so it stays
+                    visible even when the sidebar is collapsed. Rendered only
+                    when App wires the handlers (kept optional for tests). */}
+                {activeView && onSortOrderChange && (
+                    <div className="flex items-center gap-1.5 h-full shrink-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
+                        <label htmlFor="topbar-sort" className="text-xs text-gray-400 whitespace-nowrap">Sort:</label>
+                        <div className="relative">
+                            <select
+                                id="topbar-sort"
+                                value={sortOrder}
+                                onChange={(e) => onSortOrderChange(e.target.value)}
+                                className="h-8 appearance-none bg-gray-800/50 text-gray-200 text-sm border border-gray-700/50 rounded-full pl-3 pr-8 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 cursor-pointer hover:bg-gray-800/70 transition-all duration-300"
+                            >
+                                {semanticActive && <option value="relevance">Relevance</option>}
+                                <option value="date-desc">Newest First</option>
+                                <option value="date-asc">Oldest First</option>
+                                <option value="asc">A-Z</option>
+                                <option value="desc">Z-A</option>
+                                <option value="random">Random</option>
+                            </select>
+                            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                        </div>
+                        {sortOrder === 'random' && onReshuffle && (
+                            <button
+                                onClick={onReshuffle}
+                                className="p-1.5 rounded-full text-gray-400 hover:text-gray-200 hover:bg-gray-700/80 transition-all duration-200"
+                                title="Reshuffle Random Order"
+                                aria-label="Reshuffle random order"
+                            >
+                                <RefreshCw className="h-4 w-4" />
+                            </button>
+                        )}
+                    </div>
+                )}
+
                 {/* Settings + Real-time Monitoring Toggle */}
                 <div className="flex items-center gap-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
                     {isDev && (
