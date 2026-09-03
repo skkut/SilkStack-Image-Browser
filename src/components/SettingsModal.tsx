@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, ExternalLink, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { AiModelCacheSection } from './AiModelCacheSection';
@@ -18,6 +18,12 @@ import {
   type EmbeddingModelOption,
   type TagModelOption,
 } from '../services/semanticSearchEngine';
+
+// MPL-2.0 §3.2(b) executable-form notice: points at the covered-source drop
+// published in the open repository. Shown on the About screen (below) so it is
+// visible in every build, independent of the license/AI-features surface.
+const MPL_SOURCE_URL =
+  'https://github.com/skkut/SilkStack-Image-Browser/tree/main/mpl-covered-sources';
 
 // ── License Tab — lazy-loaded from the closed-source module ───────────
 // When ai-intelligence is absent at build time, dead-code elimination
@@ -1162,7 +1168,29 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         <span>View on GitHub</span>
                       </button>
                     </div>
-                    
+
+                    {/* MPL-2.0 §3.2(b) executable-form notice — keep visible in every distributed build */}
+                    <div className="pt-4 border-t border-gray-800/80">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 mb-1.5">
+                        Open Source
+                      </p>
+                      <p className="text-xs text-gray-500 leading-relaxed">
+                        This software contains code licensed under the Mozilla Public License
+                        2.0; the corresponding source is available at{' '}
+                        <button
+                          onClick={() =>
+                            window.electronAPI?.openExternal(MPL_SOURCE_URL) ??
+                            window.open(MPL_SOURCE_URL, '_blank')
+                          }
+                          className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 font-medium align-baseline"
+                        >
+                          mpl-covered-sources
+                          <ExternalLink size={12} />
+                        </button>
+                        .
+                      </p>
+                    </div>
+
                     <div className="pt-6 font-medium text-xs text-gray-600 uppercase tracking-widest">
                       © 2025 skkut
                     </div>
