@@ -104,7 +104,6 @@ function shortModelName(modelId: string): string {
   const qwen = /^Qwen3-Embedding-(\d+B)/.exec(modelId);
   if (qwen) return `Qwen3-${qwen[1]}`;
   if (modelId.startsWith('Hermes-3-Llama-3.2-3B')) return 'Hermes-3 3B';
-  if (modelId.startsWith('welcoma/gemma-4-E2B')) return 'Gemma 4 E2B';
   if (modelId.startsWith('snowflake-arctic-embed')) return 'Arctic Embed';
   const first = modelId.split('-')[0];
   return first || modelId;

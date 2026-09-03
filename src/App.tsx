@@ -368,9 +368,13 @@ export default function App() {
   }, []);
 
   // Dev tools: Ctrl+Y opens the dev-tools window (all testers switchable
-  // via tabs; semantic search is the default tool)
+  // via tabs; semantic search is the default tool). PREMIUM-GATED: the dev
+  // tester is a premium feature — without a valid license the shortcut does
+  // nothing (the effect re-subscribes on license changes, so a revocation
+  // mid-session disables it immediately).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (!aiFeaturesEnabled) return;
       if (e.ctrlKey && !e.shiftKey && e.key === 'y') {
         e.preventDefault();
         if (window.electronAPI) {
@@ -382,7 +386,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [aiFeaturesEnabled]);
 
   // If premium is deactivated while inside a stack view (e.g. license
   // revoked or expired mid-session), exit the stack context and leave the
