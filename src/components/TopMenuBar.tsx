@@ -50,8 +50,9 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
 
     // Master AI-features toggle: when off, no model may load into VRAM.
-    // Raw pref (no license) so the button always reflects the switch state —
-    // the Stacks tab above stays license-only and is unaffected by this.
+    // The button is premium-only chrome (license-gated below); the raw pref
+    // stays independent and persisted so it keeps the user's last choice
+    // across license lapses. The Stacks tab above is unaffected by this pref.
     const aiMasterEnabled = useAiMasterEnabled();
     const setAiFeaturesEnabled = useSettingsStore((state) => state.setAiFeaturesEnabled);
 
@@ -170,7 +171,11 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     )}
                     {/* Master AI-features toggle: off = no model loads (auto-tag,
                         semantic search). Independent persisted pref — stacking is
-                        rule-based and unaffected. */}
+                        rule-based and unaffected. Premium-only chrome, like the
+                        Stacks tab above: renders only under an active license.
+                        License-gated, NOT master-gated — while off, the button
+                        must stay visible so the user can re-enable. */}
+                    {aiFeaturesEnabled && (
                     <button
                         onClick={() => setAiFeaturesEnabled(!aiMasterEnabled)}
                         className={`p-1.5 rounded-full transition-all duration-200 ${
@@ -187,6 +192,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     >
                         {aiMasterEnabled ? <Sparkles size={20} /> : <Ban size={20} />}
                     </button>
+                    )}
                     <button
                         onClick={toggleGlobalAutoWatch}
                         className={`p-1.5 rounded-full transition-all duration-200 ${

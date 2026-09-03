@@ -819,6 +819,26 @@ describe('ImageCard semantic badge', () => {
 // ── Master AI-features toggle (Phase 8) ───────────────────────────────
 
 describe('master AI-features toggle', () => {
+  it('is premium chrome — hidden entirely when no license is active', () => {
+    setElectronAPI();
+    // beforeEach leaves the license unchecked: even though the master pref
+    // exists (default ON), unlicensed users must not see the AI toggle.
+    render(
+      <TopMenuBar
+        onOpenSettings={vi.fn()}
+        onAddFolder={vi.fn()}
+        onToggleView={vi.fn()}
+        searchQuery=""
+        setSearchQuery={vi.fn()}
+        activeView="library"
+        onLibraryViewChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId('ai-features-toggle-button')).toBeNull();
+    expect(screen.queryByTestId('auto-watch-toggle-button')).toBeDefined();
+  });
+
   it('top bar button flips the persisted pref and hides the semantic sparkle', () => {
     setElectronAPI();
     stampPremium();
