@@ -884,6 +884,29 @@ export default function App() {
     }
   }, [selectedImage, safeDirectories, setSelectedImage]);
 
+  // Reinstate a directory's file monitor from scratch. Monitoring is a
+  // per-directory flag (dir.autoWatch) that mirrors the global "Monitor
+  // folders" toggle once the sync effect has run. A watcher that was
+  // started while its folder was offline can be SILENTLY dead — chokidar
+  // never fires an error for the vanished/unreachable path, so the main
+  // process still counts it as active. stopWatching is idempotent (no-op
+  // when nothing is registered), so always stop before start: a plain
+  // start would early-return {success:true} on the stale instance and
+  // monitoring would stay dead.
+  const restartDirectoryWatcher = useCallback(async (dir: Directory) => {
+    if (!window.electronAPI || !dir.autoWatch) return;
+    try {
+      await window.electronAPI.stopWatchingDirectory({ directoryId: dir.id });
+    } catch {
+      // best effort — stop may race a watcher teardown on the main side
+    }
+    try {
+      await window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path });
+    } catch (err) {
+      console.error(`Failed to reinstate watcher for ${dir.path}:`, err);
+    }
+  }, []);
+
   // Reconnect flow: a previously-offline directory (reprocess-pending, or its
   // watcher errored) is back. ONE queued job re-catalogs it from scratch
   // (its caches are stale — the drive's contents may have changed while it
@@ -916,17 +939,13 @@ export default function App() {
       });
       await runPipelineRound();
 
-      // Success — clear the deferred state and restart the watcher the
+      // Success — clear the deferred state and reinstate the watcher the
       // vanished drive took down with it.
       useImageStore.getState().markReprocessPending(dir.id, false);
       watcherErrorPendingRef.current.delete(dir.id);
-      if (dir.autoWatch && window.electronAPI) {
-        window.electronAPI.startWatchingDirectory({ directoryId: dir.id, dirPath: dir.path }).catch((err) => {
-          console.error(`Failed to restart watcher for ${dir.path}:`, err);
-        });
-      }
+      await restartDirectoryWatcher(dir);
     }, { label: `reconnected directory ${dir.name}` });
-  }, [loadDirectory]);
+  }, [loadDirectory, restartDirectoryWatcher]);
 
   // Poll for directory connection status (for removable storage)
   useEffect(() => {
@@ -942,6 +961,15 @@ export default function App() {
                 // Only update if status changed (handled by store action to avoid redundant re-renders)
                 if (dir.isConnected !== result.isConnected) {
                     updateDirectoryStatus(dir.id, result.isConnected);
+
+                    // false → true: the folder is online and its images are
+                    // visible again. Whenever folder monitoring is ON for it,
+                    // reinstate the file monitor — a watcher started while the
+                    // folder was offline (launch restore) may be silently dead
+                    // but still registered, so reinstatement must stop-then-start.
+                    if (result.isConnected && dir.autoWatch) {
+                        void restartDirectoryWatcher(dir);
+                    }
 
                     // false → true AND something was deferred while offline:
                     // run the reconnect flow (queued, sequential).
@@ -962,7 +990,7 @@ export default function App() {
     checkConnections();
 
     return () => clearInterval(intervalId);
-  }, [directories.length, handleDirectoryReconnected]); // Re-setup when directory count changes (added/removed)
+  }, [directories.length, handleDirectoryReconnected, restartDirectoryWatcher]); // Re-setup when directory count changes (added/removed)
 
   // Pending-reprocess restore on startup: folders that were offline during a
   // reprocess persist their pending ids; re-mark them and immediately process
