@@ -5,7 +5,7 @@ import { type IndexedImage } from '../types';
 import { getAspectRatio } from '../utils/imageUtils';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
-import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Info, Package, Play, Sparkles } from 'lucide-react';
+import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useSettingsStore } from '../store/useSettingsStore';
 
@@ -529,7 +529,6 @@ interface ImageTableRowProps {
 const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, onContextMenu, gridTemplateColumns }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
   const isVideo = isVideoFileName(image.name, image.fileType);
 
@@ -598,11 +597,6 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
     };
   }, [image.thumbnailHandle, image.handle, image.thumbnailStatus, image.thumbnailUrl, thumbnailsDisabled, isVideo]);
 
-  const handlePreviewClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPreviewImage(image);
-  };
-
   return (
     <div
       className={`border-b border-gray-700 hover:bg-gray-800/50 cursor-pointer transition-colors group grid items-center ${
@@ -631,13 +625,6 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
                   </div>
                 </div>
               )}
-              <button
-                onClick={handlePreviewClick}
-                className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-500/70"
-                title="Show details"
-              >
-                <Info className="h-4 w-4 text-white" />
-              </button>
               {isSemanticMatch && (
                 // Semantic hit badge — corner sparkle, never blocks clicks.
                 <div

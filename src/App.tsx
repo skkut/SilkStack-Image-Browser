@@ -20,7 +20,6 @@ import SettingsModal from './components/SettingsModal';
 import Footer from './components/Footer';
 import cacheManager from './services/cacheManager';
 import DirectoryList from './components/DirectoryList';
-import ImagePreviewSidebar from './components/ImagePreviewSidebar';
 import CommandPalette from './components/CommandPalette';
 import HotkeyHelp from './components/HotkeyHelp';
 import Stacks from './components/SmartLibrary';
@@ -60,7 +59,6 @@ export default function App() {
   const directories = useImageStore((state) => state.directories);
   const selectedImages = useImageStore((state) => state.selectedImages);
   const selectedImage = useImageStore((state) => state.selectedImage);
-  const previewImage = useImageStore((state) => state.previewImage);
   const clustersCount = useImageStore((state) => state.clusters.length);
 
   // Right-click context menu — same hook + menu as the grid/table/stacks view.
@@ -87,7 +85,6 @@ export default function App() {
   // Loading & progress selectors
   const indexingState = useImageStore((state) => state.indexingState);
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
-  const focusedImageIndex = useImageStore((state) => state.focusedImageIndex);
 
   // Status selectors
   const error = useImageStore((state) => state.error);
@@ -127,7 +124,6 @@ export default function App() {
   const setSelectedFilters = useImageStore((state) => state.setSelectedFilters);
   const setAdvancedFilters = useImageStore((state) => state.setAdvancedFilters);
   const setSelectedImage = useImageStore((state) => state.setSelectedImage);
-  const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const removeImage = useImageStore((state) => state.removeImage);
   const updateImage = useImageStore((state) => state.updateImage);
   const toggleAutoWatch = useImageStore((state) => state.toggleAutoWatch);
@@ -1263,9 +1259,7 @@ export default function App() {
           </Sidebar>
         )}
         
-        <ImagePreviewSidebar />
-
-        <div className={`flex-1 flex flex-col transition-[margin,width] duration-300 ease-in-out overflow-hidden ${previewImage ? 'mr-96' : 'mr-0'}`}
+        <div className="flex-1 flex flex-col overflow-hidden"
              style={{ marginLeft: layoutOffset }}>
           <main className="flex-1 overflow-hidden relative flex flex-col">
             {/* Back from Stack Button — now handled inside SimilarityStackExpandedView */}
@@ -1382,29 +1376,6 @@ export default function App() {
               onAutoTag={handleAutoTag}
               isAutoTagging={isAutoTagging}
               hasDirectories={hasDirectories}
-              isPreviewOpen={!!previewImage}
-              onTogglePreview={() => {
-                if (previewImage) {
-                  setPreviewImage(null);
-                } else if (safeFilteredImages.length > 0) {
-                  let target = null;
-                  
-                  // IF an image or multiple images are selected, the first image in the selection should be previewed
-                  if (safeSelectedImages.size > 0) {
-                    target = safeFilteredImages.find(img => safeSelectedImages.has(img.id));
-                  }
-                  
-                  // IF no image is selected, the preview should open the first image in the grid (or focused one)
-                  if (!target) {
-                    const index = focusedImageIndex && focusedImageIndex >= 0 ? focusedImageIndex : 0;
-                    target = safeFilteredImages[index] || safeFilteredImages[0];
-                  }
-
-                  if (target) {
-                    setPreviewImage(target);
-                  }
-                }
-              }}
             >
               {hasDirectories && (
                 <GridToolbar

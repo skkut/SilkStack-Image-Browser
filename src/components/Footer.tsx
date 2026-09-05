@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, PanelRight, X, Unplug } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, X, Unplug } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useAiFeaturesEnabled, useAiModelFeaturesEnabled } from '../services/aiFeatureAccess';
@@ -26,8 +26,6 @@ interface FooterProps {
   onCancelClustering?: () => void;
   onCancelSemanticIndex?: () => void;
   hasDirectories?: boolean;
-  isPreviewOpen?: boolean;
-  onTogglePreview?: () => void;
   children?: React.ReactNode;
 }
 
@@ -130,8 +128,6 @@ const Footer: React.FC<FooterProps> = ({
   onCancelClustering,
   onCancelSemanticIndex,
   hasDirectories = false,
-  isPreviewOpen = false,
-  onTogglePreview,
   children,
 }) => {
   // Runtime gate: stacking & auto-tag UI requires premium license
@@ -457,21 +453,6 @@ const Footer: React.FC<FooterProps> = ({
         <button onClick={() => onViewModeChange(viewMode === 'grid' ? 'list' : 'grid')} className="p-2 hover:bg-gray-800 text-gray-400 hover:text-white rounded-lg transition-all hover:shadow-md" title={`Switch to ${viewMode === 'grid' ? 'list' : 'grid'} view`}>
           {viewMode === 'grid' ? <List size={18} /> : <Grid3X3 size={18} />}
         </button>
-
-        {/* Preview Sidebar Toggle - Right-most Corner */}
-        {onTogglePreview && (
-          <button
-            onClick={onTogglePreview}
-            className={`p-2 rounded-lg transition-all duration-200 ${
-              isPreviewOpen
-                ? 'text-blue-400 bg-blue-500/10 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-            }`}
-            title={isPreviewOpen ? "Close Preview Pane" : "Open Preview Pane"}
-          >
-            <PanelRight size={18} className={isPreviewOpen ? 'animate-pulse-slow' : ''} />
-          </button>
-        )}
       </div>
     </footer>
   );

@@ -25,7 +25,6 @@ import {
   Play,
   Trash2,
   ExternalLink,
-  Maximize2,
   Layers,
   Layers2
 } from 'lucide-react';
@@ -128,7 +127,6 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
     return getCachedFallbackUrl(image.id);
   });
 
-  const setPreviewImage = useImageStore((state) => state.setPreviewImage);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
 
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
@@ -222,13 +220,6 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
       releaseCachedFallbackUrl(image.id);
     };
   }, [image.id, image.handle, image.thumbnailHandle, image.thumbnailStatus, image.thumbnailUrl, thumbnailsDisabled, isVideo]);
-
-  const handlePreviewClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPreviewImage(image);
-  };
-
-
 
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
 
@@ -601,9 +592,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   const filterAndSortImages = useImageStore((state) => state.filterAndSortImages);
   const focusedImageIndex = useImageStore((state) => state.focusedImageIndex);
   const setFocusedImageIndex = useImageStore((state) => state.setFocusedImageIndex);
-  const setPreviewImage = useImageStore((state) => state.setPreviewImage);
-  const previewImage = useImageStore((state) => state.previewImage);
-
   // Scroll position state
   const selectedFolders = useImageStore((state) => state.selectedFolders);
   const setFolderScrollPosition = useImageStore((state) => state.setFolderScrollPosition);
@@ -1022,33 +1010,13 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   // const itemsToRender moved to top
 
   // ALL HOOKS MUST BE BEFORE ANY EARLY RETURNS
-  // Sync focusedImageIndex when previewImage changes
-  useEffect(() => {
-    if (previewImage) {
-      const index = itemsToRender.findIndex((item: IndexedImage | ImageStack) => {
-        if (isImageStack(item)) return item.coverImage.id === previewImage.id;
-        return (item as IndexedImage).id === previewImage.id;
-      });
-      if (index !== -1 && index !== focusedImageIndex) {
-        setFocusedImageIndex(index);
-      }
-    }
-  }, [previewImage?.id, itemsToRender]); // ✅ Removed focusedImageIndex to break circular dependency
 
   useEffect(() => {
     if (focusedImageIndex === -1 && itemsToRender.length > 0) {
       // Quando volta de página, vai para última imagem
       setFocusedImageIndex(itemsToRender.length - 1);
-      
-      const lastItem = itemsToRender[itemsToRender.length - 1];
-      const imageToPreview = isImageStack(lastItem) ? lastItem.coverImage : lastItem;
-      
-      // Only update if there's already a preview open (don't auto-open)
-      if (useImageStore.getState().previewImage) {
-        setPreviewImage(imageToPreview);
-      }
     }
-  }, [itemsToRender.length, setFocusedImageIndex, setPreviewImage, itemsToRender]); // ✅ Added missing dependencies
+  }, [itemsToRender.length, setFocusedImageIndex, itemsToRender]); // ✅ Added missing dependencies
 
   // Keyboard navigation
   useEffect(() => {
@@ -1182,10 +1150,6 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
       if (nextIndex !== -1 && nextIndex !== currentIndex) {
           setFocusedImageIndex(nextIndex);
           const nextItem = itemsToRender[nextIndex];
-          const imageToPreview = isImageStack(nextItem) ? nextItem.coverImage : nextItem;
-          if (useImageStore.getState().previewImage) {
-            setPreviewImage(imageToPreview);
-          }
           if (!e.ctrlKey && !e.shiftKey) {
              const imageId = isImageStack(nextItem) ? nextItem.coverImage.id : (nextItem as IndexedImage).id;
              useImageStore.setState({ selectedImages: new Set([imageId]) });
@@ -1222,7 +1186,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, setPreviewImage, onImageClick, rows]);
+  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, onImageClick, rows]);
 
   // Add global mouseup listener to handle selection end even outside the grid
   useEffect(() => {

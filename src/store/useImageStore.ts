@@ -666,7 +666,6 @@ interface ImageState {
   success: string | null;
   selectedImage: IndexedImage | null;
   selectedImages: Set<string>;
-  previewImage: IndexedImage | null;
   focusedImageIndex: number | null;
   isStackingEnabled: boolean;
   undoAvailable: boolean;
@@ -800,7 +799,6 @@ interface ImageState {
   filterAndSortImages: () => void;
 
   // Selection Actions
-  setPreviewImage: (image: IndexedImage | null) => void;
   setSelectedImage: (image: IndexedImage | null) => void;
   toggleImageSelection: (imageId: string) => void;
   selectAllImages: () => void;
@@ -1786,7 +1784,6 @@ export const useImageStore = create<ImageState>((set, get) => {
         error: null,
         success: null,
         selectedImage: null,
-        previewImage: null,
         selectedImages: new Set(),
         focusedImageIndex: null,
         isStackingEnabled: true,
@@ -2350,15 +2347,6 @@ export const useImageStore = create<ImageState>((set, get) => {
                     return img;
                 });
                 
-                let nextPreviewImage = state.previewImage;
-                if (nextPreviewImage && (nextPreviewImage.thumbnailStatus === 'ready' || nextPreviewImage.thumbnailUrl)) {
-                    nextPreviewImage = {
-                        ...nextPreviewImage,
-                        thumbnailStatus: undefined as any,
-                        thumbnailUrl: undefined
-                    };
-                }
-
                 let nextSelectedImage = state.selectedImage;
                 if (nextSelectedImage && (nextSelectedImage.thumbnailStatus === 'ready' || nextSelectedImage.thumbnailUrl)) {
                     nextSelectedImage = {
@@ -2370,7 +2358,6 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                 return {
                     ..._updateState(state, nextImages),
-                    previewImage: nextPreviewImage,
                     selectedImage: nextSelectedImage
                 };
             });
@@ -2577,7 +2564,6 @@ export const useImageStore = create<ImageState>((set, get) => {
             };
         }),
 
-        setPreviewImage: (image) => set({ previewImage: image }),
         setSelectedImage: (image) => {
             set({ selectedImage: image });
         },
@@ -3859,7 +3845,6 @@ export const useImageStore = create<ImageState>((set, get) => {
             selectedSchedulers: [],
             advancedFilters: {},
             indexingState: 'idle',
-            previewImage: null,
             focusedImageIndex: null,
             scanSubfolders: true,
             libraryStackContext: null,

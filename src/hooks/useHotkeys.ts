@@ -27,18 +27,14 @@ export const useHotkeys = ({
     setSelectedImage,
     selectedImages,
     clearImageSelection,
-    setPreviewImage,
-    previewImage,
     directories,
-    handleNavigateNext,
-    handleNavigatePrevious,
     selectAllImages,
   } = useImageStore();
 
   const { handleDeleteSelectedImages } = useImageSelection();
   const { handleSelectFolder, handleLoadFromStorage } = useImageLoader();
   const { toggleViewMode, keymap } = useSettingsStore();
-  const focusArea = (area: 'sidebar' | 'grid' | 'preview') => {
+  const focusArea = (area: 'sidebar' | 'grid') => {
     const element = document.querySelector<HTMLElement>(`[data-area='${area}']`);
     if (element) {
       element.focus();
@@ -52,7 +48,6 @@ export const useHotkeys = ({
     hotkeyManager.registerAction('openKeyboardShortcuts', () => setIsHotkeyHelpOpen(true));
     hotkeyManager.registerAction('focusSidebar', () => focusArea('sidebar'));
     hotkeyManager.registerAction('focusImageGrid', () => focusArea('grid'));
-    hotkeyManager.registerAction('focusPreviewPane', () => focusArea('preview'));
     hotkeyManager.registerAction('focusSearch', () => {
       const searchInput = document.querySelector<HTMLInputElement>('[data-testid="search-input"]');
       if (searchInput) {
@@ -90,45 +85,22 @@ export const useHotkeys = ({
         console.error('Error deleting selected images:', error);
       });
     });
-    hotkeyManager.registerAction('toggleQuickPreview', () => {
-      if (selectedImage) {
-        setPreviewImage(previewImage?.id === selectedImage.id ? null : selectedImage);
-      }
-    });
     hotkeyManager.registerAction('openFullscreen', () => {
       if (selectedImage) {
         setSelectedImage(selectedImage);
       }
     });
     hotkeyManager.registerAction('toggleListGridView', toggleViewMode);
-    hotkeyManager.registerAction('navigatePrevious', handleNavigatePrevious);
-    hotkeyManager.registerAction('navigateNext', handleNavigateNext);
     hotkeyManager.registerAction('closeModalsOrClearSelection', () => {
       if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
       else if (isHotkeyHelpOpen) setIsHotkeyHelpOpen(false);
       else if (isSettingsModalOpen) setIsSettingsModalOpen(false);
       else if (selectedImage) setSelectedImage(null);
-      else if (previewImage) setPreviewImage(null);
       else if (selectedImages.size > 0) clearImageSelection();
     });
 
     // Bind all registered actions initially
     hotkeyManager.bindAllActions();
-
-    // Set scope based on focused element
-    const handleFocusChange = () => {
-      const activeElement = document.activeElement;
-      if (activeElement) {
-        const previewPane = document.querySelector('[data-area="preview"]');
-        if (previewPane && previewPane.contains(activeElement)) {
-          hotkeyManager.setScope('preview');
-        } else {
-          hotkeyManager.setScope('global');
-        }
-      }
-    };
-
-    document.addEventListener('focusin', handleFocusChange);
 
     // Subscribe to keymap changes and re-bind hotkeys
     const unsubscribe = useSettingsStore.subscribe((state) => {
@@ -139,7 +111,6 @@ export const useHotkeys = ({
 
     return () => {
       hotkeyManager.clearActions();
-      document.removeEventListener('focusin', handleFocusChange);
       unsubscribe();
     };
   }, [
@@ -148,11 +119,7 @@ export const useHotkeys = ({
     selectAllImages,
     handleDeleteSelectedImages,
     selectedImage,
-    previewImage,
-    setPreviewImage,
     setSelectedImage,
-    handleNavigatePrevious,
-    handleNavigateNext,
     isCommandPaletteOpen,
     isHotkeyHelpOpen,
     isSettingsModalOpen,
