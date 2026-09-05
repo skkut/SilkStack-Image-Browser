@@ -26,7 +26,7 @@ interface GridToolbarProps {
 
 const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
   const notification = document.createElement('div');
-  notification.className = `fixed top-4 right-4 ${type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-4 py-2 rounded-lg shadow-lg z-50`;
+  notification.className = `fixed top-[calc(var(--header-height,44px)+12px)] right-4 ${type === 'success' ? 'bg-green-600' : 'bg-red-600'} text-white px-4 py-2 rounded-lg shadow-lg z-50`;
   notification.textContent = message;
   document.body.appendChild(notification);
   setTimeout(() => {

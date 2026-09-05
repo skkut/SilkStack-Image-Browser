@@ -13,7 +13,7 @@ interface ContextMenuState {
 
 const showNotification = (message: string) => {
   const notification = document.createElement('div');
-  notification.className = 'fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
+  notification.className = 'fixed top-[calc(var(--header-height,44px)+12px)] right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50';
   notification.textContent = message;
   document.body.appendChild(notification);
   setTimeout(() => {

@@ -19,7 +19,7 @@ const Toast: React.FC<ToastProps> = ({ message, onDismiss, duration = 3000 }) =>
   }, [duration, onDismiss]);
 
   return (
-    <div className="fixed top-4 right-4 z-50 animate-slide-in-right">
+    <div className="fixed top-[calc(var(--header-height,44px)+12px)] right-4 z-50 animate-slide-in-right">
       <div className="bg-green-900/90 backdrop-blur-sm text-green-100 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px] border border-green-700/50">
         <CheckCircle2 className="h-5 w-5 text-green-400 flex-shrink-0" />
         <span className="flex-1 text-sm">{message}</span>

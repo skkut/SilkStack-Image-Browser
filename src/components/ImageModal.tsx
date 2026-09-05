@@ -935,7 +935,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       .then(() => {
         const notification = document.createElement("div");
         notification.className =
-          "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
+          "fixed top-[calc(var(--header-height,44px)+12px)] right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
         notification.textContent = `${type} copied to clipboard!`;
         document.body.appendChild(notification);
         setTimeout(() => document.body.removeChild(notification), 2000);
@@ -958,7 +958,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       const notification = document.createElement("div");
       notification.className =
-        "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
+        "fixed top-[calc(var(--header-height,44px)+12px)] right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50";
       notification.textContent = `${type} copied to clipboard!`;
       document.body.appendChild(notification);
       setTimeout(() => document.body.removeChild(notification), 2000);
@@ -1005,7 +1005,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     if (result.success) {
       const notification = document.createElement("div");
       notification.className =
-        "fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50";
+        "fixed top-[calc(var(--header-height,44px)+12px)] right-4 bg-green-600 text-white px-4 py-2 rounded shadow-lg z-50";
       notification.textContent = "Image copied to clipboard!";
       document.body.appendChild(notification);
       setTimeout(() => document.body.removeChild(notification), 2000);
