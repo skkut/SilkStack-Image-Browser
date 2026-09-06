@@ -343,11 +343,22 @@ function loadAiModule(): Promise<Record<string, unknown> | null> {
 export async function createLLMTagGenerator(
   modelId: string = TAG_GENERATION_MODEL_ID,
   onProgress?: (report: LoadProgressReport) => void,
-  opts?: { skipPremiumCheck?: boolean; sharedEngine?: ISharedMLEngine; devicePreference?: AiDevicePreference },
+  opts?: {
+    skipPremiumCheck?: boolean;
+    /** DevAutoTaggingTester only — bypasses the master toggle; the premium
+     *  check below still applies. The dev-tools window is itself premium-
+     *  gated at entry (Ctrl+Y), and the master toggle governs the MAIN APP,
+     *  not the testers, whose loads are explicit button clicks. No app flow
+     *  may pass this. */
+    skipMasterCheck?: boolean;
+    sharedEngine?: ISharedMLEngine;
+    devicePreference?: AiDevicePreference;
+  },
 ): Promise<ILLMTagGenerator | null> {
-  // Master switch: unconditional — the user turned model-loading AI off, so
-  // nothing may load, even for callers that skip the license check below.
-  if (!(await checkMasterEnabled())) return null;
+  // Master switch: unconditional (except the dev-tester exception above) —
+  // the user turned model-loading AI off, so nothing may load, even for
+  // callers that skip the license check below.
+  if (!opts?.skipMasterCheck && !(await checkMasterEnabled())) return null;
 
   // Premium gate: LLM-based tag generation requires a valid license.
   // Trusted callers (e.g. the auto-tagging worker) may skip this check when

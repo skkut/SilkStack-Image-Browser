@@ -130,6 +130,9 @@ describe('DevAutoTaggingTester model picker', () => {
       expect(state.createLLMTagGenerator).toHaveBeenCalledWith(
         state.HERMES_ID,
         expect.any(Function),
+        // Dev-tester harness: license-gated at entry (Ctrl+Y), so the
+        // master toggle (which governs the MAIN APP) must not block it.
+        { skipMasterCheck: true },
       ),
     );
     // Ready: the Load button is replaced by the status dot.
@@ -149,6 +152,7 @@ describe('DevAutoTaggingTester model picker', () => {
       expect(state.createLLMTagGenerator).toHaveBeenLastCalledWith(
         state.gemma.modelId,
         expect.any(Function),
+        { skipMasterCheck: true },
       ),
     );
   });

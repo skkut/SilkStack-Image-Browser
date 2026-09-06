@@ -11,17 +11,22 @@
  * module's coordinator via a guarded dynamic import.
  *
  * The module coordinator receives injected callbacks for the things its
- * worker cannot see: the premium license status (`isAiFeaturesEnabled`),
- * the GPU preference, and the user-selected embedding model (Settings →
- * AI Intelligence). It rejects init when the license check fails —
- * semantic search is a premium feature.
+ * worker cannot see: the premium status, the GPU preference, and the
+ * user-selected embedding model (Settings → AI Intelligence). It rejects
+ * init when that check fails — semantic search is a premium feature.
+ *
+ * Which premium check feeds the module differs by caller: app coordinators
+ * gate on the master toggle AND the license (`isAiModelFeaturesEnabled`);
+ * dev-tester coordinators pass `skipMasterCheck` so the toggle — which
+ * governs the main app — gates license-only instead (`isAiFeaturesEnabled`).
+ * The module only ever sees one boolean.
  *
  * When the module is absent (open-source build), every method rejects with
  * a clear error and `getStatus()` returns the empty shape.
  */
 
 import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo, AiModelsStatus } from './aiBridge';
-import { isAiModelFeaturesEnabled } from './aiFeatureAccess';
+import { isAiFeaturesEnabled, isAiModelFeaturesEnabled } from './aiFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 export interface SemanticIndexProgress {
@@ -270,6 +275,15 @@ export class SemanticSearchCoordinator {
     private readonly onGpuInfo?: (info: DetectedGpuInfo) => void,
     private readonly storageDbName?: string,
     private readonly onModelsStatus?: (status: AiModelsStatus) => void,
+    /**
+     * Dev-tester only: when true, the module's premium gate checks the
+     * LICENSE alone (`isAiFeaturesEnabled`) instead of master ∧ license
+     * (`isAiModelFeaturesEnabled`). The DevSemanticSearchTester harness
+     * passes this — its window is already premium-gated at entry (Ctrl+Y)
+     * and the master toggle governs the MAIN APP, not the testers, whose
+     * loads are explicit button clicks. Production callers must not set it.
+     */
+    private readonly skipMasterCheck = false,
   ) {}
 
   private getModule(): Promise<ModuleCoordinator | null> {
@@ -283,9 +297,11 @@ export class SemanticSearchCoordinator {
           onModelsStatus: this.onModelsStatus,
           isPremium: () => {
             try {
-              // Model-loading gate: the master AI toggle AND the license —
-              // the module's coordinator refuses to init when this is false.
-              return isAiModelFeaturesEnabled();
+              // Model-loading gate — the module's coordinator refuses to
+              // init when this is false. Default: the master AI toggle AND
+              // the license. Dev-tester coordinators (skipMasterCheck) gate
+              // on the license alone; the license check still applies.
+              return this.skipMasterCheck ? isAiFeaturesEnabled() : isAiModelFeaturesEnabled();
             } catch {
               return false;
             }

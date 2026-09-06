@@ -185,6 +185,11 @@ export default function DevAutoTaggingTester() {
       const llm = await createLLMTagGenerator(effectiveModelId, (report) => {
         setLoadProgress(Math.round(report.progress * 100));
         setLoadText(report.text);
+      }, {
+        // skipMasterCheck: this harness is premium-gated at its entry
+        // (Ctrl+Y is license-only) and loads only on explicit click — the
+        // master AI toggle governs the MAIN APP, not the dev tester.
+        skipMasterCheck: true,
       });
       if (!llm) {
         setLoadState('error');

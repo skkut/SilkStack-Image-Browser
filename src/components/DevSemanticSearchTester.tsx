@@ -554,6 +554,11 @@ export default function DevSemanticSearchTester() {
         },
         undefined,
         moduleRef.current?.SEMANTIC_TEST_STORE_DB,
+        undefined, // onModelsStatus — the tester renders status from getStatus()
+        // skipMasterCheck: this harness is premium-gated at its entry
+        // (Ctrl+Y is license-only) and loads only on explicit click — the
+        // master AI toggle governs the MAIN APP, not the dev tester.
+        true,
       );
       coordinatorRef.current = coordinator;
     }

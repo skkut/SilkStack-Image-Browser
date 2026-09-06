@@ -561,6 +561,25 @@ describe('aiBridge — master AI-features toggle', () => {
     expect(mocks.LLMTagGenerator).not.toHaveBeenCalled();
   });
 
+  it('dev-tester skipMasterCheck still constructs when master is off (license valid)', async () => {
+    // DevAutoTaggingTester harness: premium-gated at its entry (Ctrl+Y), so
+    // the master toggle — which governs the MAIN APP — must not lock it.
+    const { createLLMTagGenerator } = await import('../services/aiBridge');
+    const llm = await createLLMTagGenerator('model-x', undefined, { skipMasterCheck: true });
+
+    expect(llm).not.toBeNull();
+    expect(mocks.LLMTagGenerator).toHaveBeenCalledTimes(1);
+  });
+
+  it('skipMasterCheck does NOT bypass the premium license', async () => {
+    const { createLLMTagGenerator } = await import('../services/aiBridge');
+    setLicenseStatus('revoked');
+    const llm = await createLLMTagGenerator('model-x', undefined, { skipMasterCheck: true });
+
+    expect(llm).toBeNull();
+    expect(mocks.LLMTagGenerator).not.toHaveBeenCalled();
+  });
+
   it('master off → isSemanticSearchEnabled() false even with the pref on', async () => {
     const { isSemanticSearchEnabled, isAiMasterEnabled, isAiModelFeaturesEnabled, isAiFeaturesEnabled } =
       await import('../services/aiFeatureAccess');
