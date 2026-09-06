@@ -16,6 +16,7 @@ This directory contains PNG fixtures for testing the ComfyUI metadata parser.
 10. **model-hash.json** - Workflow with model hash instead of name
 11. **edit-history.json** - Workflow with LoadImage/SaveImage history
 12. **version-metadata.json** - Workflow with ComfyUI version info
+13. **orex-style-selector.json** - Krea2 API-format workflow routing prompts through the Style Selector (OreX) node (`OrexStyleSelector`) into a TextGenerate/switch chain (see `orex-style-selector.test.ts`)
 
 ## Usage
 

@@ -247,6 +247,62 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
     },
     widget_order: ['text']
   },
+  /**
+   * "🪄 Style Selector (OreX)" (class_type `OrexStyleSelector`) — styles the
+   * user's positive/negative prompt STRINGs. The raw texts arrive in the
+   * `positive`/`negative` inputs (usually linked from primitive text nodes);
+   * the node re-emits them wrapped with the selected style(s) on its STRING
+   * outputs (slot 0 = styled positive, slot 1 = styled negative). Those
+   * outputs feed CLIPTextEncode `text` links or concat/switch chains, so
+   * prompt traversal must resolve THROUGH this node back to the underlying
+   * texts — without an entry the trace dies here and the global fallback
+   * picks the longest loose string in the graph (e.g. a TextGenerate system
+   * template) as the image prompt.
+   *
+   * SOURCE-only on purpose: `prompt` maps strictly to the `positive` input
+   * and `negativePrompt` to `negative`. No generic input walk — that could
+   * leak the negative text into a positive lookup when one side is unlinked.
+   */
+  OrexStyleSelector: {
+    category: 'CONDITIONING',
+    roles: ['SOURCE'],
+    inputs: {
+      positive: { type: 'STRING' },
+      negative: { type: 'STRING' },
+    },
+    outputs: {
+      positive: { type: 'STRING' },
+      negative: { type: 'STRING' },
+    },
+    param_mapping: {
+      prompt: {
+        source: 'custom_extractor',
+        extractor: (node, state, graph, traverse) => {
+          // Styled positive text → the `positive` input, which is usually a
+          // link to a PrimitiveStringMultiline/other text node.
+          const positive = node.inputs?.positive;
+          if (Array.isArray(positive)) {
+            const result = traverse(positive, { ...state, targetParam: 'prompt' }, graph, []);
+            if (result) return result;
+          }
+          // Scalar fallback: execution payloads keep unlinked text inline.
+          return typeof positive === 'string' ? positive : null;
+        }
+      },
+      negativePrompt: {
+        source: 'custom_extractor',
+        extractor: (node, state, graph, traverse) => {
+          // Styled negative text → the `negative` input.
+          const negative = node.inputs?.negative;
+          if (Array.isArray(negative)) {
+            const result = traverse(negative, { ...state, targetParam: 'negativePrompt' }, graph, []);
+            if (result) return result;
+          }
+          return typeof negative === 'string' ? negative : null;
+        }
+      }
+    },
+  },
   'ControlNetApply': {
     category: 'TRANSFORM', roles: ['TRANSFORM'],
     inputs: { conditioning: { type: 'CONDITIONING' }, control_net: { type: 'CONTROL_NET' }, image: { type: 'IMAGE' }, },

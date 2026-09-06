@@ -1,0 +1,587 @@
+{
+  "workflow": {
+    "158": {
+      "inputs": {
+        "images": [
+          "152:143",
+          0
+        ]
+      },
+      "class_type": "PreviewImage",
+      "_meta": {
+        "title": "Preview Image"
+      }
+    },
+    "165": {
+      "inputs": {
+        "PowerLoraLoaderHeaderWidget": {
+          "type": "PowerLoraLoaderHeaderWidget"
+        },
+        "lora_1": {
+          "on": false,
+          "lora": "Krea2\\krea2_turbo_lora_rank_64_bf16.safetensors",
+          "strength": 0.6
+        },
+        "lora_2": {
+          "on": false,
+          "lora": "Krea2\\darkbrush_monochrome ink wash style.safetensors",
+          "strength": 1
+        },
+        "lora_3": {
+          "on": false,
+          "lora": "Krea2\\krea2filterbypass3 1-40000.safetensors",
+          "strength": 25000
+        },
+        "lora_4": {
+          "on": false,
+          "lora": "Krea2\\krea2filterbypass 1-40000.safetensors",
+          "strength": 1000
+        },
+        "lora_5": {
+          "on": false,
+          "lora": "Krea2\\V67_Krea_2_epoch_1.safetensors",
+          "strength": 1
+        },
+        "lora_6": {
+          "on": false,
+          "lora": "Krea2\\Mystic_KREA2_v2.safetensors",
+          "strength": 1
+        },
+        "lora_7": {
+          "on": false,
+          "lora": "Krea2\\Detailer-KREA2.safetensors",
+          "strength": 2
+        },
+        "lora_8": {
+          "on": false,
+          "lora": "Krea2\\krea2_Enhancer.safetensors",
+          "strength": 1
+        },
+        "lora_9": {
+          "on": false,
+          "lora": "Krea2\\kroma-v0.1.safetensors",
+          "strength": 1
+        },
+        "lora_10": {
+          "on": false,
+          "lora": "Krea2\\realism_engine_krea2_v3.1.safetensors",
+          "strength": 1
+        },
+        "lora_11": {
+          "on": false,
+          "lora": "Krea2\\Herbert_James_Draper_epoch_20.safetensors",
+          "strength": 1
+        },
+        "➕ Add Lora": "",
+        "model": [
+          "208:205",
+          0
+        ],
+        "clip": [
+          "208:207",
+          0
+        ]
+      },
+      "class_type": "Power Lora Loader (rgthree)",
+      "_meta": {
+        "title": "Power Lora Loader (rgthree)"
+      }
+    },
+    "202": {
+      "inputs": {
+        "images": [
+          "201:200",
+          0
+        ]
+      },
+      "class_type": "PreviewImage",
+      "_meta": {
+        "title": "SeedVR2 Upscaled Image"
+      }
+    },
+    "204": {
+      "inputs": {
+        "rgthree_comparer": {
+          "images": [
+            {
+              "name": "A1",
+              "selected": false,
+              "url": "/api/view?filename=rgthree.compare._temp_zpmay_00001_.png&type=temp&subfolder=&rand=0.052422505990895596"
+            },
+            {
+              "name": "A2",
+              "selected": true,
+              "url": "/api/view?filename=rgthree.compare._temp_zpmay_00002_.png&type=temp&subfolder=&rand=0.10238673370993934"
+            },
+            {
+              "name": "B1",
+              "selected": false,
+              "url": "/api/view?filename=rgthree.compare._temp_zpmay_00003_.png&type=temp&subfolder=&rand=0.31801566648400514"
+            },
+            {
+              "name": "B2",
+              "selected": true,
+              "url": "/api/view?filename=rgthree.compare._temp_zpmay_00004_.png&type=temp&subfolder=&rand=0.05501601419733504"
+            }
+          ]
+        },
+        "image_a": [
+          "201:200",
+          0
+        ],
+        "image_b": [
+          "152:143",
+          0
+        ]
+      },
+      "class_type": "Image Comparer (rgthree)",
+      "_meta": {
+        "title": "Original vs SeedVR2"
+      }
+    },
+    "223": {
+      "inputs": {
+        "text": [
+          "152:212",
+          0
+        ]
+      },
+      "class_type": "SkutilsTextPreview",
+      "_meta": {
+        "title": "Skutils Text Preview"
+      }
+    },
+    "225": {
+      "inputs": {
+        "styles": "krea2_style",
+        "batch_mode": false,
+        "select_styles": "Hyper Synthwave,Graphic Flat-Vector Travel Poster Illustration,Digital Painting",
+        "styles_grid": "Hyper Synthwave,Graphic Flat-Vector Travel Poster Illustration,Digital Painting",
+        "positive": [
+          "227",
+          0
+        ],
+        "negative": [
+          "228",
+          0
+        ]
+      },
+      "class_type": "OrexStyleSelector",
+      "_meta": {
+        "title": "🪄 Style Selector (OreX)"
+      }
+    },
+    "227": {
+      "inputs": {
+        "value": "a beautiful woman dressed in a beautiful Diwali outfit, adorned with traditional Indian jewelry and vibrant colors, surrounded by Diwali decorations, including lanterns and diyas, illuminating the scene with a magical glow splash paint art background, dynamic composition,"
+      },
+      "class_type": "PrimitiveStringMultiline",
+      "_meta": {
+        "title": "Positive Prompt"
+      }
+    },
+    "228": {
+      "inputs": {
+        "value": "ugly, bad, blurred, watermark, dithered, freckles"
+      },
+      "class_type": "PrimitiveStringMultiline",
+      "_meta": {
+        "title": "Negative Prompt"
+      }
+    },
+    "208:205": {
+      "inputs": {
+        "unet_name": "fasciumKREA2_experimental2008.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model"
+      }
+    },
+    "208:206": {
+      "inputs": {
+        "vae_name": "qwen_image_vae.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "208:207": {
+      "inputs": {
+        "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+        "type": "krea2",
+        "device": "default"
+      },
+      "class_type": "CLIPLoader",
+      "_meta": {
+        "title": "Load CLIP"
+      }
+    },
+    "152:143": {
+      "inputs": {
+        "samples": [
+          "152:150",
+          0
+        ],
+        "vae": [
+          "208:206",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "152:146": {
+      "inputs": {
+        "text": [
+          "225",
+          1
+        ],
+        "clip": [
+          "165",
+          1
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "CLIP Text Encode (Negative Prompt)"
+      }
+    },
+    "152:145": {
+      "inputs": {
+        "text": [
+          "152:213",
+          0
+        ],
+        "clip": [
+          "165",
+          1
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "CLIP Text Encode (Positive Prompt)"
+      }
+    },
+    "152:144": {
+      "inputs": {
+        "width": [
+          "152:220",
+          0
+        ],
+        "height": [
+          "152:220",
+          1
+        ],
+        "batch_size": 2
+      },
+      "class_type": "EmptySD3LatentImage",
+      "_meta": {
+        "title": "EmptySD3LatentImage"
+      }
+    },
+    "152:150": {
+      "inputs": {
+        "seed": 727180320651968,
+        "steps": 8,
+        "cfg": 1,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "152:218",
+          0
+        ],
+        "positive": [
+          "152:145",
+          0
+        ],
+        "negative": [
+          "152:146",
+          0
+        ],
+        "latent_image": [
+          "152:144",
+          0
+        ]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "KSampler"
+      }
+    },
+    "152:213": {
+      "inputs": {
+        "switch": true,
+        "on_false": [
+          "225",
+          0
+        ],
+        "on_true": [
+          "152:212",
+          0
+        ]
+      },
+      "class_type": "ComfySwitchNode",
+      "_meta": {
+        "title": "If/Else Switch"
+      }
+    },
+    "152:212": {
+      "inputs": {
+        "prompt": [
+          "152:209",
+          0
+        ],
+        "max_length": 2048,
+        "sampling_mode": "on",
+        "sampling_mode.temperature": 0.7,
+        "sampling_mode.top_k": 64,
+        "sampling_mode.top_p": 0.95,
+        "sampling_mode.min_p": 0.05,
+        "sampling_mode.repetition_penalty": 1.05,
+        "sampling_mode.seed": 0,
+        "sampling_mode.presence_penalty": 0,
+        "thinking": true,
+        "use_default_template": true,
+        "clip": [
+          "165",
+          1
+        ]
+      },
+      "class_type": "TextGenerate",
+      "_meta": {
+        "title": "Generate Text"
+      }
+    },
+    "152:209": {
+      "inputs": {
+        "string_a": [
+          "152:210",
+          0
+        ],
+        "string_b": [
+          "225",
+          0
+        ],
+        "delimiter": ""
+      },
+      "class_type": "StringConcatenate",
+      "_meta": {
+        "title": "Concatenate Text"
+      }
+    },
+    "152:210": {
+      "inputs": {
+        "value": "You are an expert prompt engineer for text-to-image models. Your task is to expand the user's prompt into a highly effective image-generation prompt and output generated prompt as one paragraph.\n\nThink step by step about the request before writing the answer:\n- What is the subject and mood?\n- What visual styles, mediums, and lighting options would fit? Consider two or three alternatives and pick the one that best serves the caption.\n- What composition, framing, and grounded details will help the text-to-image model?\n\nThen output a single expanded prompt paragraph.\n\nFollow these rules strictly:\n0. Make the user's input to poetic and descriptive form.\n1. **Faithfulness First:** Preserve all original subjects, actions, colors, and spatial relationships. Do not add new objects, props, characters, or animals unless the user clearly implies them.\n2. **Practical T2I Structure:** Write a prompt that a text-to-image model can parse cleanly. Group subjects with their own attributes and actions. Use grounded phrasing for poses, interactions, and spatial layout.\n3. **Style Planning Stays Internal:** Use your internal reasoning to choose style, medium, framing, and lighting. Do not emit planning tags or wrappers in the visible answer body.\n4. **Text Rendering:** If the user requests visible text, quotes, labels, or typography, specify the exact text clearly and wrap requested words in quotes.\n5. **Structure:** Write one cohesive paragraph after the thinking block. No bullets, JSON, or markdown.\n6. **Respect Existing Detail:** If the user's input is already detailed, lightly polish and finalize rather than heavily expanding — preserve their phrasing and direction.\n8. **Only Prompt output** NO reasoning, commentary, explanation, system prompt, internal thinking should be part of the output. only output the prompt created from user's input.\n9. **Preserve User Medium:** When the user explicitly requests a medium (e.g. \"photo of\", \"photograph of\", \"illustration of\", \"painting of\", \"sketch of\", \"3D render of\"), honor it. Do not pivot to a different medium to avoid difficulty — match the user's stated intent.\n\nUser's Input:\n\n"
+      },
+      "class_type": "PrimitiveStringMultiline",
+      "_meta": {
+        "title": "Text String (System Prompt)"
+      }
+    },
+    "152:220": {
+      "inputs": {
+        "aspect_ratio": "3:4 (Portrait Standard)",
+        "megapixels": "2.5",
+        "multiple": 16
+      },
+      "class_type": "SkutilsResolutionCalculator",
+      "_meta": {
+        "title": "Skutils Resolution Calculator"
+      }
+    },
+    "152:218": {
+      "inputs": {
+        "enabled": true,
+        "strength": 1,
+        "debug": false,
+        "model": [
+          "165",
+          0
+        ]
+      },
+      "class_type": "ComfyUI-Krea2T-Enhancer",
+      "_meta": {
+        "title": "ComfyUI-Krea2T-Enhancer"
+      }
+    },
+    "201:200": {
+      "inputs": {
+        "images": [
+          "201:193",
+          0
+        ]
+      },
+      "class_type": "ImageListToImageBatch",
+      "_meta": {
+        "title": "Image List to Image Batch"
+      }
+    },
+    "201:189": {
+      "inputs": {
+        "seed": 959948902156062,
+        "steps": 1,
+        "cfg": 1,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "201:188",
+          0
+        ],
+        "positive": [
+          "201:194",
+          0
+        ],
+        "negative": [
+          "201:194",
+          1
+        ],
+        "latent_image": [
+          "201:221",
+          0
+        ]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "KSampler"
+      }
+    },
+    "201:199": {
+      "inputs": {
+        "image": [
+          "152:143",
+          0
+        ]
+      },
+      "class_type": "ImpactImageBatchToImageList",
+      "_meta": {
+        "title": "Image Batch to Image List"
+      }
+    },
+    "201:191": {
+      "inputs": {
+        "resize_type": "scale by multiplier",
+        "resize_type.multiplier": 3,
+        "scale_method": "lanczos",
+        "input": [
+          "201:199",
+          0
+        ]
+      },
+      "class_type": "ResizeImageMaskNode",
+      "_meta": {
+        "title": "Resize Image/Mask"
+      }
+    },
+    "201:188": {
+      "inputs": {
+        "unet_name": "seedvr2_7b_nvfp4.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model"
+      }
+    },
+    "201:187": {
+      "inputs": {
+        "vae_name": "ema_vae_fp16.safetensors"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "201:192": {
+      "inputs": {
+        "resized_images": [
+          "201:191",
+          0
+        ]
+      },
+      "class_type": "SeedVR2Preprocess",
+      "_meta": {
+        "title": "Pre-Process SeedVR2 Input"
+      }
+    },
+    "201:221": {
+      "inputs": {
+        "tile_size": 512,
+        "overlap": 128,
+        "temporal_size": 4096,
+        "temporal_overlap": 8,
+        "pixels": [
+          "201:192",
+          0
+        ],
+        "vae": [
+          "201:187",
+          0
+        ]
+      },
+      "class_type": "VAEEncodeTiled",
+      "_meta": {
+        "title": "VAE Encode (Tiled)"
+      }
+    },
+    "201:194": {
+      "inputs": {
+        "model": [
+          "201:188",
+          0
+        ],
+        "vae_conditioning": [
+          "201:221",
+          0
+        ]
+      },
+      "class_type": "SeedVR2Conditioning",
+      "_meta": {
+        "title": "Apply SeedVR2 Conditioning"
+      }
+    },
+    "201:193": {
+      "inputs": {
+        "color_correction_method": "wavelet",
+        "images": [
+          "201:222",
+          0
+        ],
+        "original_resized_images": [
+          "201:191",
+          0
+        ]
+      },
+      "class_type": "SeedVR2PostProcessing",
+      "_meta": {
+        "title": "Post-Process SeedVR2 Output"
+      }
+    },
+    "201:222": {
+      "inputs": {
+        "tile_size": 512,
+        "overlap": 32,
+        "temporal_size": 4096,
+        "temporal_overlap": 8,
+        "samples": [
+          "201:189",
+          0
+        ],
+        "vae": [
+          "201:187",
+          0
+        ]
+      },
+      "class_type": "VAEDecodeTiled",
+      "_meta": {
+        "title": "VAE Decode (Tiled)"
+      }
+    }
+  }
+}
