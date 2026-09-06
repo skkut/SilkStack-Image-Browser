@@ -102,6 +102,65 @@ export interface SemanticIndexPayload {
   synonymTags?: string[];
 }
 
+// ── Vector similarity (prompt clustering) boundary types ──────────────
+// Structural mirrors of the module's prompt-vector surface (the module
+// barrel exports the record types, but this file must stay free of static
+// module imports — the coordinator arrives via a guarded dynamic import).
+
+/** One prompt vector to demand-embed (the one-time backfill path). */
+export interface PromptVectorEmbedEntry {
+  id: string;
+  prompt: string;
+}
+
+export interface PromptEmbedResult {
+  embedded: number;
+  skipped: number;
+}
+
+/** Persisted prompt-vector record (mirror of PromptVectorRecord). */
+export interface PromptVectorRecord {
+  imageId: string;
+  vector: Float32Array;
+  promptHash: string;
+  modelId: string;
+  dimension: number;
+  updatedAt: number;
+}
+
+/** Persisted similarity-group representative (mirror of PromptSimilarityGroupRecord). */
+export interface PromptSimilarityGroupRecord {
+  groupId: string;
+  representativeVector: Float32Array;
+  modelId: string;
+  dimension: number;
+  memberCount: number;
+  updatedAt: number;
+}
+
+/**
+ * One vector-clustering round: new exact-prompt groups (groupId = the
+ * stackGroupId hash) against existing similarity groups. Mirrors the
+ * module's PromptGroupClusteringRequest.
+ */
+export interface PromptGroupClusteringRequest {
+  newGroups: Array<{ groupId: string; prompt: string; representativeImageId: string }>;
+  existingGroups: Array<{ groupId: string; memberImageIds: string[]; nonLatin?: boolean }>;
+  threshold?: number;
+  onProgress?: (p: { current: number; total: number; message?: string }) => void;
+}
+
+export interface PromptGroupClusteringResult {
+  /** New groupId → similarityGroupId (absent = no usable vector — the
+   *  caller self-assigns). */
+  groupIdToSimId: Map<string, string>;
+  updatedRepresentatives: Array<{
+    groupId: string;
+    representativeVector: Float32Array;
+    memberCount: number;
+  }>;
+}
+
 /** Structural view of the module's coordinator (no static module imports). */
 interface ModuleCoordinator {
   ensureInitialized(): Promise<void>;
@@ -127,6 +186,16 @@ interface ModuleCoordinator {
   unloadModels(): Promise<void>;
   /** Which model records are resident in the worker's engine (footer chips). */
   getModelsStatus(): AiModelsStatus;
+  /** Demand-embed prompt vectors with the same Δ as indexImages' prompt half. */
+  embedPromptVectors(entries: PromptVectorEmbedEntry[]): Promise<PromptEmbedResult>;
+  /** Prompt vectors for the given imageIds (order-preserving, missing skipped). */
+  getPromptVectors(imageIds: string[]): Promise<PromptVectorRecord[]>;
+  /** All persisted similarity-group representatives. */
+  getPromptSimilarityGroups(): Promise<PromptSimilarityGroupRecord[]>;
+  /** Vector clustering over prompt groups (chunked, rep-persisting). */
+  clusterPromptGroups(input: PromptGroupClusteringRequest): Promise<PromptGroupClusteringResult>;
+  /** Delete images from the vector stores + worker index (deletion hook). */
+  removeImages(imageIds: string[]): Promise<void>;
   dispose(): void;
 }
 
@@ -294,6 +363,51 @@ export class SemanticSearchCoordinator {
     },
   ): Promise<ISemanticSearchHit[]> {
     return this.withModule((coordinator) => coordinator.search(query, options));
+  }
+
+  // ── Prompt vectors & similarity clustering ─────────────────────────
+  // Vector similarity over prompt groups: the same embedding model embeds
+  // each image's normalized prompt (Δ-skipped in steady state), and the
+  // module clusters new exact-prompt groups into similarity groups. The app
+  // store orchestrates (useImageStore.ts → computeVectorSimilarityGroups);
+  // these methods are the thin pass-through.
+
+  /**
+   * Demand-embed prompt vectors — the one-time backfill when the library is
+   * already stamped but carries no prompt vectors (upgrade). Δ-skips entries
+   * whose stored {promptHash, modelId, dimension} match, so steady state
+   * costs nothing.
+   */
+  embedPromptVectors(entries: PromptVectorEmbedEntry[]): Promise<PromptEmbedResult> {
+    return this.withModule((coordinator) => coordinator.embedPromptVectors(entries));
+  }
+
+  /** Prompt vectors for the given imageIds (order-preserving, missing skipped). */
+  getPromptVectors(imageIds: string[]): Promise<PromptVectorRecord[]> {
+    return this.withModule((coordinator) => coordinator.getPromptVectors(imageIds));
+  }
+
+  /** All persisted similarity-group representatives (running centroids). */
+  getPromptSimilarityGroups(): Promise<PromptSimilarityGroupRecord[]> {
+    return this.withModule((coordinator) => coordinator.getPromptSimilarityGroups());
+  }
+
+  /**
+   * Vector clustering over prompt groups — chunked inside the module,
+   * representative centroids persisted (union-only: groups merge, never
+   * split, so manual merges are preserved).
+   */
+  clusterPromptGroups(input: PromptGroupClusteringRequest): Promise<PromptGroupClusteringResult> {
+    return this.withModule((coordinator) => coordinator.clusterPromptGroups(input));
+  }
+
+  /**
+   * Delete images from the persisted vector stores and the worker index
+   * (annotation deletion hook). Group representatives are kept —
+   * identity-preserving.
+   */
+  removeImages(imageIds: string[]): Promise<void> {
+    return this.withModule((coordinator) => coordinator.removeImages(imageIds));
   }
 
   // ── Clear & dispose ────────────────────────────────────────────────

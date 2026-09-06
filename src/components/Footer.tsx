@@ -3,7 +3,7 @@ import ImageSizeSlider from './ImageSizeSlider';
 import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, X, Unplug } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
-import { useAiFeaturesEnabled, useAiModelFeaturesEnabled } from '../services/aiFeatureAccess';
+import { useAiFeaturesEnabled, useAiModelFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 
 interface FooterProps {
   viewMode: 'grid' | 'list';
@@ -107,6 +107,25 @@ function shortModelName(modelId: string): string {
   return first || modelId;
 }
 
+// Per-branch phase labels — the numbering must stay monotonic while the
+// phase ORDER differs between branches: the vector branch runs autoTag +
+// semantic BEFORE similarity (prompt vectors only exist after the semantic
+// pass), the lexical branch keeps the old stacking → similarity → autoTag →
+// semantic order. A phase not in the map (shouldn't happen) falls back to
+// its raw name.
+const VECTOR_PHASE_LABELS: Record<string, string> = {
+  stacking: 'Phase 1/4: Stacking…',
+  autoTag: 'Phase 2/4: Auto-tagging…',
+  semantic: 'Phase 3/4: Semantic indexing…',
+  similarity: 'Phase 4/4: Similarity…',
+};
+const LEXICAL_PHASE_LABELS: Record<string, string> = {
+  stacking: 'Phase 1/4: Stacking…',
+  similarity: 'Phase 2/4: Similarity…',
+  autoTag: 'Phase 3/4: Auto-tagging…',
+  semantic: 'Phase 4/4: Semantic indexing…',
+};
+
 const Footer: React.FC<FooterProps> = ({
   viewMode,
   onViewModeChange,
@@ -142,6 +161,9 @@ const Footer: React.FC<FooterProps> = ({
   const indexingProgress = useImageStore((state) => state.progress);
   const pipelinePhase = useImageStore((state) => state.pipelinePhase);
   const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
+  // Branch selector for the phase labels — the round's phase order differs
+  // between the vector and lexical pipeline branches.
+  const semanticSearchEnabled = useSemanticSearchEnabled();
   // Which AI models are resident in GPU memory (union of the semantic
   // coordinator worker and the per-run auto-tag worker).
   const aiModelsLoaded = useImageStore((state) => state.aiModelsLoaded);
@@ -232,10 +254,7 @@ const Footer: React.FC<FooterProps> = ({
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                 </span>
                 <span className="font-medium">
-                  {pipelinePhase === 'stacking' ? 'Phase 1/4: Stacking…'
-                    : pipelinePhase === 'similarity' ? 'Phase 2/4: Similarity…'
-                    : pipelinePhase === 'autoTag' ? 'Phase 3/4: Auto-tagging…'
-                    : 'Phase 4/4: Semantic indexing…'}
+                  {(semanticSearchEnabled ? VECTOR_PHASE_LABELS : LEXICAL_PHASE_LABELS)[pipelinePhase] ?? pipelinePhase}
                 </span>
               </div>
             )}

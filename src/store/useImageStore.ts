@@ -53,8 +53,31 @@ const DETECTED_GPUS_STORAGE_KEY = 'image-metahub-detected-gpus';
 
 // Bump this version whenever the similarity algorithm or threshold changes
 // to force re-computation of similarityGroupId for all images.
-const SIMILARITY_GROUP_VERSION = 2;
+// v3 (2026-09): similarity upgraded from lexical (jaccard+Levenshtein) to
+// VECTOR embeddings (prompt cosine clustering). The reset makes every group
+// "new" on the first post-upgrade round — the trigger for the one-time
+// prompt-vector backfill + re-cluster. Trade-off: pre-upgrade manual merges
+// reset (consistent with prior bumps).
+const SIMILARITY_GROUP_VERSION = 3;
 const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
+
+// Mirror of NON_LATIN_SCRIPT_RE (ai-intelligence semantic-search.ts — a
+// CLOSED module file): non-Latin-script prompts get a relaxed clustering
+// threshold (cross-lingual delta). The module computes the flag for NEW
+// groups from its own copy; the app supplies it for EXISTING groups (it
+// holds the prompt texts in memory).
+// The full script-block ranges deliberately include combining marks (Hebrew
+// niqqud, Devanagari matras) — no-misleading-character-class false-positives
+// on them.
+// eslint-disable-next-line no-misleading-character-class
+const NON_LATIN_SCRIPT_RE = /[Ͱ-ϿЀ-ӿ֐-׿؀-ۿऀ-ॿ฀-๿぀-ヿ㐀-鿿가-힯豈-﫿]/;
+
+/** Prompt resolution chain (same as useImageStacking.ts:122). */
+const resolveImagePrompt = (image: IndexedImage): string =>
+    image.prompt
+    || image.metadata?.normalizedMetadata?.prompt
+    || image.metadata?.positive_prompt
+    || '';
 
 // Module-level concurrency guards. Must be module-scoped (not on state) because
 // Zustand's get() returns a new snapshot after every set(), making state-attached
@@ -62,6 +85,9 @@ const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
 let __syncInProgress = false;
 let __similaritySyncInProgress = false;
 let __similaritySyncQueued = false;
+// Vector-similarity reentrancy guard (same pattern as the lexical action's).
+let __vectorSimilarityInProgress = false;
+let __vectorSimilarityQueued = false;
 // Pipeline + semantic serialization now live in processingQueue (the global
 // sequencer) — the queue guarantees one phase-set at a time app-wide, so the
 // old in-progress/queued setTimeout-replay flags are gone. syncNewImagesToStacks
@@ -320,17 +346,27 @@ export async function runSemanticIndexNow(options?: { force?: boolean; chunkSize
  * RAW pipeline round — the implementation behind the queue-wrapped
  * `processPostIndexingPipeline` action. One strictly sequential round:
  *
- *   Phase 1/4 — stacking (exact prompt hashing → stackGroupId)
- *   Phase 2/4 — similarity grouping (semantic clustering)
- *   Phase 3/4 — auto-tagging (AI enrichment, LIBRARY scope)
- *   Phase 4/4 — semantic search indexing (isSemanticIndexed gate + textHash Δ
- *               → semanticVectors)
+ *   Phase 1/4 — stacking (exact prompt hashing → stackGroupId), then
+ *               reconcilePromptHashes (BOTH branches — prompt edits on
+ *               re-scan re-open stacking/similarity/indexing)
  *
- * Auto-tag sits between similarity and semantic so enrichment results feed
- * both downstream phases — and so it always completes before the semantic
- * index consumes tag changes. Only images that actually need each phase
- * (e.g. un-stacked images, changed text, un-stamped semantic payloads) do
- * work — an idle round is cheap.
+ *   VECTOR branch (isSemanticSearchEnabled()):
+ *     Phase 2/4 — auto-tagging (AI enrichment, LIBRARY scope)
+ *     Phase 3/4 — semantic search indexing (isSemanticIndexed gate +
+ *                 textHash/promptHash Δ → semanticVectors + promptVectors)
+ *     Phase 4/4 — similarity grouping (VECTOR clustering of prompt
+ *                 embeddings — must run AFTER semantic: new images' prompt
+ *                 vectors only exist once the pass embeds them)
+ *
+ *   LEXICAL branch (semantic disabled — byte-for-byte the old order):
+ *     Phase 2/4 — similarity grouping (lexical clustering)
+ *     Phase 3/4 — auto-tagging
+ *     Phase 4/4 — semantic search indexing
+ *
+ * Auto-tag sits before semantic so enrichment results feed the index — and
+ * so it always completes before the semantic index consumes tag changes.
+ * Only images that actually need each phase (e.g. un-stacked images, changed
+ * text, un-stamped semantic payloads) do work — an idle round is cheap.
  *
  * Called from INSIDE queued jobs (reprocess, watcher events, reconnect):
  * awaiting the queue-wrapped `processPostIndexingPipeline` action here
@@ -353,30 +389,40 @@ export async function runPipelineRound(): Promise<void> {
         store.setPipelinePhase('stacking');
         await store.syncNewImagesToStacks();
 
-        // Phase 2: Semantic similarity grouping
-        // Only processes images where isSimilarityAnalyzed is false
-        // (or where similarityGroupId was never assigned by the engine).
-        console.log('[Pipeline] Phase 2/4: Similarity grouping (semantic clustering)...');
-        store.setPipelinePhase('similarity');
-        await store.computeSimilarityGroups();
+        // Both branches: reconcile prompt hashes — a prompt edit on re-scan
+        // re-opens stacking/similarity/indexing for exactly those images.
+        await store.reconcilePromptHashes();
 
-        // Phase 3: Auto-tagging — library scope so it covers images outside
-        // the current view (the view-scoped default only ever saw what the
-        // user was looking at, which is why reprocess never tagged anything).
-        console.log('[Pipeline] Phase 3/4: Auto-tagging (library scope)...');
-        store.setPipelinePhase('autoTag');
-        await store.startAutoTagging('', false, { scope: 'library' });
+        if (isSemanticSearchEnabled()) {
+            // VECTOR branch — similarity runs LAST: prompt vectors for new
+            // images only exist after the semantic pass, so the order must
+            // be autoTag → semantic → similarity.
+            console.log('[Pipeline] Phase 2/4: Auto-tagging (library scope)...');
+            store.setPipelinePhase('autoTag');
+            await store.startAutoTagging('', false, { scope: 'library' });
 
-        // Phase 4: Semantic search indexing (§8.3) — raw call, see above.
-        // The isSemanticIndexed stamp gate excludes already-embedded images
-        // before any coordinator round-trip; the coordinator's textHash Δ
-        // covers stamp-cleared images whose text actually changed. Stamps
-        // persist per chunk inside the run (see runSemanticIndexNow), so a
-        // crash resumes at the last completed chunk. Skipped silently when
-        // semantic search is disabled.
-        console.log('[Pipeline] Phase 4/4: Semantic search indexing...');
-        store.setPipelinePhase('semantic');
-        await runSemanticIndexNow();
+            console.log('[Pipeline] Phase 3/4: Semantic search indexing...');
+            store.setPipelinePhase('semantic');
+            await runSemanticIndexNow();
+
+            console.log('[Pipeline] Phase 4/4: Similarity grouping (vector clustering)...');
+            store.setPipelinePhase('similarity');
+            await store.computeVectorSimilarityGroups();
+        } else {
+            // LEXICAL branch — unchanged phase order (stacking → similarity
+            // → autoTag → semantic).
+            console.log('[Pipeline] Phase 2/4: Similarity grouping (lexical clustering)...');
+            store.setPipelinePhase('similarity');
+            await store.computeSimilarityGroups();
+
+            console.log('[Pipeline] Phase 3/4: Auto-tagging (library scope)...');
+            store.setPipelinePhase('autoTag');
+            await store.startAutoTagging('', false, { scope: 'library' });
+
+            console.log('[Pipeline] Phase 4/4: Semantic search indexing...');
+            store.setPipelinePhase('semantic');
+            await runSemanticIndexNow();
+        }
 
         console.log('[Pipeline] All phases complete.');
     } catch (error) {
@@ -808,11 +854,24 @@ interface ImageState {
   setFocusedImageIndex: (index: number | null) => void;
   setLibraryStackContext: (context: LibraryStackContext | null) => void;
   syncNewImagesToStacks: () => Promise<void>;
+  /**
+   * Re-derive stackGroupId from each image's current prompt (both pipeline
+   * branches, right after stacking). Fixes the pre-existing gap where prompt
+   * edits on re-scan never re-opened stacking/similarity/indexing.
+   */
+  reconcilePromptHashes: () => Promise<void>;
   handleStackImageDeletion: (deletedImageIds: string[]) => void;
   mergeSelectedToStack: () => Promise<void>;
   unmergeSelectedFromStack: () => Promise<void>;
   tryUndo: () => Promise<boolean>;
   computeSimilarityGroups: () => Promise<void>;
+  /**
+   * Vector similarity (prompt-embedding clustering) — the semantic-enabled
+   * branch of computeSimilarityGroups. Backfills prompt vectors once, then
+   * clusters new exact-prompt groups via the coordinator. Falls back to the
+   * lexical action on failure so stacks still form without AI.
+   */
+  computeVectorSimilarityGroups: () => Promise<void>;
   processPostIndexingPipeline: () => Promise<void>;
   setFullscreenMode: (isFullscreen: boolean) => void;
 
@@ -1005,6 +1064,16 @@ export const useImageStore = create<ImageState>((set, get) => {
         for (const id of ids) {
             void deleteAnnotation(id);
         }
+        // Best-effort vector cleanup: annotation deletion is the app-side
+        // signal that an image is gone, so its semantic + prompt vectors go
+        // with it (closes the pre-existing stale-semantic-vector gap).
+        // Group representatives are kept — identity-preserving. The module's
+        // removeImages touches only storage + an optional worker message (no
+        // ensureInitialized), so this never starts a model load; failures are
+        // logged, never thrown into the removal path.
+        void getSemanticCoordinator()
+            .then((coordinator) => coordinator.removeImages(Array.from(ids)))
+            .catch((error) => console.warn('[Stacks] Failed to remove vectors for deleted images:', error));
         return changed ? { ...state, annotations: newAnnotations } : state;
     };
 
@@ -4024,6 +4093,122 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
         },
 
+        /**
+         * Re-derive stackGroupId from each image's CURRENT prompt (both
+         * pipeline branches, right after stacking). Fixes the pre-existing
+         * gap where a prompt edited on re-scan never re-opened stacking:
+         * syncNewImagesToStacks only processes isStackAnalyzed=false images,
+         * so an edited prompt kept its stale hash forever.
+         *
+         * A mismatched hash patches {stackGroupId, similarityGroupId:
+         * undefined, isSimilarityAnalyzed: false, isSemanticIndexed: false}
+         * — the prompt is part of the index text, so the semantic stamp must
+         * clear (stamp contract: only index-text writers clear it, and this
+         * is one). The intentional-unstack guard is respected: manually
+         * unstacked images (isStackAnalyzed && !stackGroupId) are skipped.
+         * Processed in chunks with event-loop yields (100k images on the
+         * main thread must not freeze the UI).
+         */
+        reconcilePromptHashes: async () => {
+            const state = get();
+            if (!state.isAnnotationsLoaded) {
+                console.log('[Pipeline] Annotations not yet loaded — deferring prompt reconciliation');
+                return;
+            }
+
+            // Premium gate: prompt-hash reconciliation is part of stacking —
+            // without a valid license nothing here may run (same
+            // defense-in-depth as syncNewImagesToStacks; the aiBridge factory
+            // also returns null).
+            if (!isAiFeaturesEnabled()) {
+                console.log('[Stacks] Premium not enabled — skipping prompt reconciliation');
+                return;
+            }
+
+            try {
+                const { createStackingEngine } = await import('../services/aiBridge');
+                const engine = await createStackingEngine();
+                if (!engine) {
+                    console.log('[Stacks] AI intelligence not available — skipping prompt reconciliation');
+                    return;
+                }
+
+                const { bulkSaveAnnotations } = await import('../services/imageAnnotationsStorage');
+
+                const updatedAnnotations: ImageAnnotations[] = [];
+                const newAnnotations = new Map(state.annotations);
+
+                for (const image of state.images) {
+                    const ann = newAnnotations.get(image.id);
+
+                    // Intentional unmerge guard (same as
+                    // computeSimilarityGroups Step 0): do NOT re-assign a
+                    // hash the user deliberately removed.
+                    if (ann?.isStackAnalyzed && !ann?.stackGroupId) continue;
+
+                    const prompt = resolveImagePrompt(image);
+                    const expected = prompt.trim()
+                        ? engine.generatePromptHash(prompt)
+                        : undefined;
+                    if (ann?.stackGroupId === expected) continue;
+
+                    const updated: ImageAnnotations = {
+                        // Spread first — preserves synonymTags/searchTagVersion
+                        // (see toggleFavorite).
+                        ...ann,
+                        imageId: image.id,
+                        isFavorite: ann?.isFavorite ?? false,
+                        tags: ann?.tags ?? [],
+                        autoTags: ann?.autoTags ?? [],
+                        metadataTags: ann?.metadataTags ?? [],
+                        isAutoTagged: ann?.isAutoTagged,
+                        stackGroupId: expected,
+                        isStackAnalyzed: true,
+                        // The old similarity assignment is void — the image
+                        // re-enters clustering as part of its (new) group.
+                        similarityGroupId: undefined,
+                        isSimilarityAnalyzed: false,
+                        // Prompt is part of the index text → the semantic
+                        // stamp must clear (stamp contract).
+                        isSemanticIndexed: false,
+                        addedAt: ann?.addedAt ?? Date.now(),
+                        updatedAt: Date.now(),
+                    };
+                    updatedAnnotations.push(updated);
+                    newAnnotations.set(image.id, updated);
+                }
+
+                if (updatedAnnotations.length === 0) return;
+
+                // Chunked persistence with event-loop yields (same yield
+                // pattern as the lexical similarity loop).
+                const CHUNK = 200;
+                for (let i = 0; i < updatedAnnotations.length; i += CHUNK) {
+                    await bulkSaveAnnotations(updatedAnnotations.slice(i, i + CHUNK));
+                    await new Promise(r => setTimeout(r, 0));
+                }
+
+                // Update in-memory state — use get().images so we don't
+                // overwrite thumbnail URLs loaded concurrently.
+                const currentImages = get().images;
+                const currentState = get();
+                const imagesWithAnnotations = applyAnnotationsToImages(currentImages, newAnnotations);
+                const filteredResult = filterAndSort({ ...currentState, images: imagesWithAnnotations, annotations: newAnnotations });
+                const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
+
+                set({
+                    ...filteredResult,
+                    ...availableFilters,
+                    images: imagesWithAnnotations,
+                    annotations: newAnnotations,
+                });
+
+                console.log(`[Pipeline] Prompt hashes reconciled: ${updatedAnnotations.length} annotations re-opened for stacking/similarity/indexing`);
+            } catch (error) {
+                console.error('[Pipeline] Failed to reconcile prompt hashes:', error);
+            }
+        },
+
         handleStackImageDeletion: (deletedImageIds: string[]) => {
             const { annotations } = get();
             const deletedSet = new Set(deletedImageIds);
@@ -4731,6 +4916,209 @@ export const useImageStore = create<ImageState>((set, get) => {
                     __similaritySyncQueued = false;
                     console.log('[SimilarityGroups] Running queued similarity computation');
                     setTimeout(() => get().computeSimilarityGroups(), 100);
+                }
+                // Clear progress after a short delay so the user sees completion
+                setTimeout(() => get().setSimilarityGroupProgress(null), 1500);
+            }
+        },
+
+        /**
+         * Vector similarity (pipeline VECTOR branch) — the embedding-based
+         * clustering that replaces lexical matching when semantic search is
+         * enabled. Runs LAST in the vector branch because prompt vectors only
+         * exist after the semantic pass (which embeds them alongside the
+         * searchable text).
+         *
+         * Flow:
+         *   1. Collect new groups (deduped by stackGroupId — one vector per
+         *      exact prompt) and existing similarity groups (with members).
+         *   2. embedPromptVectors backfills rep vectors — Δ-skipped in steady
+         *      state, so a normal round embeds 0 texts.
+         *   3. clusterPromptGroups merges new groups into existing ones by
+         *      cosine similarity (union-only: manual merges never split).
+         *   4. Apply similarityGroupId per image in a new group.
+         *      isSemanticIndexed is deliberately NOT touched — writing a
+         *      similarity id is not an index-text write (stamp contract), and
+         *      the semantic phase already ran this round.
+         *
+         * On coordinator/cluster failure the lexical computeSimilarityGroups()
+         * runs instead, so stacks still form without AI embeddings.
+         */
+        computeVectorSimilarityGroups: async () => {
+            // Branch gate: vector clustering only runs when semantic search is
+            // fully enabled (master ∧ license ∧ settings pref).
+            if (!isSemanticSearchEnabled()) {
+                console.log('[VectorSimilarity] Semantic search disabled — skipping vector clustering');
+                return;
+            }
+
+            // Reentrancy guard (same pattern as the lexical action's).
+            if (__vectorSimilarityInProgress) {
+                __vectorSimilarityQueued = true;
+                return;
+            }
+
+            if (!get().isAnnotationsLoaded) {
+                console.log('[VectorSimilarity] Annotations not yet loaded — deferring');
+                return;
+            }
+
+            __vectorSimilarityInProgress = true;
+
+            const reportProgress = (current: number, total: number, message: string) => {
+                get().setSimilarityGroupProgress({ current, total, message });
+            };
+
+            try {
+                reportProgress(0, 1, 'Loading semantic coordinator...');
+
+                const coordinator = await getSemanticCoordinator();
+                const { bulkSaveAnnotations } = await import('../services/imageAnnotationsStorage');
+
+                const currentAnnotations = new Map(get().annotations);
+                const images = get().images;
+                const imagesById = new Map(images.map((img) => [img.id, img]));
+
+                // ── Step 1: collect groups ────────────────────────────────
+                // New groups: images with a stackGroupId never similarity-merged
+                // (dedupe by stackGroupId — the representative image stands for
+                // the group's prompt; the intentional-unstack guard is the
+                // existing "no stackGroupId → skip" rule). Existing groups:
+                // distinct similarityGroupIds among analyzed images.
+                reportProgress(0, images.length, 'Collecting prompt groups...');
+                const newGroups: Array<{ groupId: string; prompt: string; representativeImageId: string }> = [];
+                const seenStackIds = new Set<string>();
+                const existingMemberImages = new Map<string, string[]>();
+
+                for (const image of images) {
+                    const ann = currentAnnotations.get(image.id);
+                    if (!ann?.stackGroupId) continue;
+
+                    if (!ann.isSimilarityAnalyzed) {
+                        if (seenStackIds.has(ann.stackGroupId)) continue;
+                        seenStackIds.add(ann.stackGroupId);
+                        const prompt = resolveImagePrompt(image).trim();
+                        if (!prompt) continue;
+                        newGroups.push({ groupId: ann.stackGroupId, prompt, representativeImageId: image.id });
+                    } else if (ann.similarityGroupId) {
+                        const members = existingMemberImages.get(ann.similarityGroupId);
+                        if (members) members.push(image.id);
+                        else existingMemberImages.set(ann.similarityGroupId, [image.id]);
+                    }
+                }
+
+                if (newGroups.length === 0) {
+                    console.log('[VectorSimilarity] No new prompt groups — nothing to cluster');
+                    return;
+                }
+
+                // Cross-lingual relaxation: any member with a non-Latin prompt
+                // lowers the merge threshold for its group (mirrors the
+                // module's PROMPT_GROUPING_CROSSLINGUAL_DELTA handling).
+                const existingGroups = Array.from(existingMemberImages.entries()).map(
+                    ([groupId, memberImageIds]) => ({
+                        groupId,
+                        memberImageIds,
+                        nonLatin: memberImageIds.some((id) => {
+                            const img = imagesById.get(id);
+                            return !!img && NON_LATIN_SCRIPT_RE.test(resolveImagePrompt(img));
+                        }),
+                    }),
+                );
+
+                // ── Step 2: demand-embed any missing rep vectors ──────────
+                // The semantic pass already embedded these prompts (same
+                // batches), so this is Δ-skipped in steady state. It exists
+                // for the upgrade backfill: the library was stamped before
+                // prompt vectors existed (similarity version 2→3 reset).
+                reportProgress(0, newGroups.length, 'Embedding prompt vectors...');
+                const embedResult = await coordinator.embedPromptVectors(
+                    newGroups.map((g) => ({ id: g.representativeImageId, prompt: g.prompt })),
+                );
+                console.log(
+                    `[VectorSimilarity] Prompt vectors: ${embedResult.embedded} embedded, ${embedResult.skipped} current`,
+                );
+
+                // ── Step 3: cluster (chunked in-module, centroids persisted) ─
+                reportProgress(0, newGroups.length, 'Clustering prompt groups...');
+                const result = await coordinator.clusterPromptGroups({
+                    newGroups,
+                    existingGroups,
+                    onProgress: (p) => reportProgress(p.current, p.total, p.message ?? 'Clustering prompt groups...'),
+                });
+
+                // ── Step 4: apply similarityGroupId per image ─────────────
+                // Images whose group the module dropped (no usable vector)
+                // self-assign their stackGroupId — the caller-side default
+                // documented on the coordinator boundary.
+                const now = Date.now();
+                const updatedAnnotations: ImageAnnotations[] = [];
+
+                for (const [imageId, annotation] of currentAnnotations) {
+                    const sgId = annotation.stackGroupId;
+                    if (!sgId || annotation.isSimilarityAnalyzed) continue;
+
+                    const simId = result.groupIdToSimId.get(sgId);
+                    const targetId = simId || sgId;
+                    if (annotation.similarityGroupId !== targetId) {
+                        updatedAnnotations.push({
+                            ...annotation,
+                            similarityGroupId: targetId,
+                            isSimilarityAnalyzed: true,
+                            updatedAt: now,
+                        });
+                    }
+                }
+
+                if (updatedAnnotations.length > 0) {
+                    // Chunked persistence with event-loop yields (same yield
+                    // pattern as the lexical similarity loop).
+                    const CHUNK = 200;
+                    for (let i = 0; i < updatedAnnotations.length; i += CHUNK) {
+                        await bulkSaveAnnotations(updatedAnnotations.slice(i, i + CHUNK));
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+
+                    // Fetch the freshest state to prevent overwriting concurrent user actions
+                    const currentState = get();
+                    const freshAnnotations = new Map(currentState.annotations);
+
+                    // Apply ONLY our specific updates to the fresh state
+                    for (const updated of updatedAnnotations) {
+                        const current = freshAnnotations.get(updated.imageId) || updated;
+                        freshAnnotations.set(updated.imageId, {
+                            ...current,
+                            similarityGroupId: updated.similarityGroupId,
+                            isSimilarityAnalyzed: updated.isSimilarityAnalyzed,
+                            updatedAt: now,
+                        });
+                    }
+
+                    const imagesWithAnnotations = applyAnnotationsToImages(currentState.images, freshAnnotations);
+                    const filteredResult = filterAndSort({ ...currentState, images: imagesWithAnnotations, annotations: freshAnnotations });
+                    const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
+
+                    set({
+                        ...filteredResult,
+                        ...availableFilters,
+                        images: imagesWithAnnotations,
+                        annotations: freshAnnotations,
+                    });
+
+                    console.log(`[VectorSimilarity] Similarity groups updated: ${newGroups.length} new prompt groups → ${updatedAnnotations.length} annotations changed`);
+                }
+            } catch (error) {
+                console.error('Failed to compute vector similarity groups:', error);
+                reportProgress(0, 0, 'Vector clustering failed');
+                // Lexical fallback — stacks still form without AI embeddings.
+                console.log('[VectorSimilarity] Falling back to lexical similarity computation');
+                await get().computeSimilarityGroups();
+            } finally {
+                __vectorSimilarityInProgress = false;
+                if (__vectorSimilarityQueued) {
+                    __vectorSimilarityQueued = false;
+                    console.log('[VectorSimilarity] Running queued vector similarity computation');
+                    setTimeout(() => get().computeVectorSimilarityGroups(), 100);
                 }
                 // Clear progress after a short delay so the user sees completion
                 setTimeout(() => get().setSimilarityGroupProgress(null), 1500);

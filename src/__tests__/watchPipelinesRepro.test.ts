@@ -282,10 +282,13 @@ describe('REAL watch flow: processFiles → addImages → flush → pipeline rou
     expect(semanticIndexedIds()).toContain(IMAGE_ID);
   });
 
-  it('NEGATIVE CONTROL: a stale annotation left in place closes every pipeline gate', async () => {
-    // Pre-fix behavior — the actual bug: nothing calls deleteAnnotation, so
-    // the re-added file inherits the stamps and both AI phases report "no
-    // images need enrichment" / "all images already indexed".
+  it('NEGATIVE CONTROL: a stale annotation left in place is detected by prompt-hash reconciliation', async () => {
+    // The original bug: nothing called deleteAnnotation, so the re-added file
+    // inherited the stamps and both AI phases reported "no images need
+    // enrichment" / "all images already indexed". The reconcile pass (added
+    // with vector similarity) now detects the mismatch between the stale
+    // stack hash and the re-added file's (prompt-less) content and re-opens
+    // every prompt-derived gate.
     const staleAnnotation = {
       imageId: IMAGE_ID,
       isFavorite: false,
@@ -305,7 +308,11 @@ describe('REAL watch flow: processFiles → addImages → flush → pipeline rou
 
     await runWatchRound('new-image.png');
 
+    // The prompt changed → the index text changed → the semantic gate
+    // re-opens and the file re-enters the indexing pass (self-healed).
+    expect(semanticIndexedIds()).toContain(IMAGE_ID);
+    // Auto-tag stamps are not prompt-derived — reconciliation leaves them
+    // alone, and the phase still reports nothing to do.
     expect(taggingImageIds()).not.toContain(IMAGE_ID);
-    expect(semanticIndexedIds()).not.toContain(IMAGE_ID);
   });
 });

@@ -14,7 +14,7 @@ vi.hoisted(() => {
 import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices, needsSearchEnrichment, needsSemanticIndexing } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
-import { saveAnnotation } from '../services/imageAnnotationsStorage';
+import { saveAnnotation, bulkSaveAnnotations } from '../services/imageAnnotationsStorage';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   id: overrides.id || 'id',
@@ -287,6 +287,231 @@ describe('useImageStore Stacking Preservations', () => {
     expect(ann.isSemanticIndexed).toBe(true);      // semantic stamp survives too
     expect(ann.isSimilarityAnalyzed).toBe(true);
     expect(ann.stackGroupId).toBe('hash-test');
+  });
+});
+
+// ── Prompt-hash reconciliation (runs in BOTH pipeline branches) ────────
+// reconcilePromptHashes re-derives stackGroupId from each image's CURRENT
+// prompt — the fix for prompt edits on re-scan never re-opening stacking.
+// The patch must behave like every other stack-field writer: preserve
+// enrichment stamps, respect intentional unmerges, and clear ONLY the gates
+// it invalidates (similarity — the old grouping is void; semantic — the
+// prompt is part of the index text).
+
+describe('useImageStore reconcilePromptHashes', () => {
+  const enrichedWith = (overrides: Partial<ImageAnnotations>): ImageAnnotations => ({
+    imageId: 'img1',
+    isFavorite: false,
+    tags: ['manual'],
+    autoTags: ['dragon'],
+    metadataTags: [],
+    isAutoTagged: true,
+    synonymTags: ['wyvern', 'serpent'],
+    searchTagVersion: 2,
+    addedAt: 1000,
+    updatedAt: 1000,
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    useImageStore.setState({
+      images: [],
+      filteredImages: [],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+    });
+    vi.mocked(bulkSaveAnnotations).mockClear();
+  });
+
+  it('patches a stale hash: re-opens similarity/indexing, preserves enrichment stamps', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enrichedWith({
+        stackGroupId: 'group1',      // ≠ hash-test → the prompt changed on re-scan
+        isStackAnalyzed: true,
+        similarityGroupId: 'sim-old',
+        isSimilarityAnalyzed: true,
+        isSemanticIndexed: true,     // prompt is index text → stamp must clear
+      })]]),
+    });
+
+    await useImageStore.getState().reconcilePromptHashes();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.stackGroupId).toBe('hash-test');
+    expect(ann.isStackAnalyzed).toBe(true);
+    expect(ann.similarityGroupId).toBeUndefined(); // old grouping void — re-clusters
+    expect(ann.isSimilarityAnalyzed).toBe(false);
+    expect(ann.isSemanticIndexed).toBe(false);     // stamp contract (index-text writer)
+    expect(ann.searchTagVersion).toBe(2);          // enrichment stamps preserved
+    expect(ann.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(bulkSaveAnnotations).toHaveBeenCalledWith([
+      expect.objectContaining({ imageId: 'img1', stackGroupId: 'hash-test' }),
+    ]);
+  });
+
+  it('assigns a hash to an image with no annotation at all', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({ images: [img1], filteredImages: [img1] });
+
+    await useImageStore.getState().reconcilePromptHashes();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.stackGroupId).toBe('hash-test');
+    expect(ann.isStackAnalyzed).toBe(true);
+    expect(ann.isSimilarityAnalyzed).toBe(false);
+  });
+
+  it('respects the intentional-unstack guard (isStackAnalyzed && !stackGroupId)', async () => {
+    // Manually unstacked: the user removed the group — reconciliation must
+    // NOT re-assign the prompt hash behind their back.
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enrichedWith({
+        stackGroupId: undefined,
+        isStackAnalyzed: true,
+        similarityGroupId: 'sim-manual',
+        isSimilarityAnalyzed: true,
+        isSemanticIndexed: true,
+      })]]),
+    });
+
+    await useImageStore.getState().reconcilePromptHashes();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.stackGroupId).toBeUndefined();
+    expect(ann.similarityGroupId).toBe('sim-manual'); // untouched
+    expect(ann.isSemanticIndexed).toBe(true);
+    expect(bulkSaveAnnotations).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the stored hash already matches the current prompt', async () => {
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enrichedWith({
+        stackGroupId: 'hash-test',   // matches engine.generatePromptHash('test')
+        isStackAnalyzed: true,
+        similarityGroupId: 'sim1',
+        isSimilarityAnalyzed: true,
+        isSemanticIndexed: true,
+      })]]),
+    });
+
+    await useImageStore.getState().reconcilePromptHashes();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.stackGroupId).toBe('hash-test');
+    expect(ann.similarityGroupId).toBe('sim1');
+    expect(ann.isSemanticIndexed).toBe(true);
+    expect(bulkSaveAnnotations).not.toHaveBeenCalled();
+  });
+
+  it('no-ops when the stacking engine is unavailable (no license)', async () => {
+    const { createStackingEngine } = await import('../services/aiBridge');
+    vi.mocked(createStackingEngine).mockResolvedValueOnce(null);
+
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', enrichedWith({
+        stackGroupId: 'group1',
+        isStackAnalyzed: true,
+      })]]),
+    });
+
+    await useImageStore.getState().reconcilePromptHashes();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.stackGroupId).toBe('group1'); // untouched — premium work skipped
+    expect(bulkSaveAnnotations).not.toHaveBeenCalled();
+  });
+});
+
+// ── Vector similarity action (pipeline VECTOR branch) ──────────────────
+// This file does NOT mock semanticSearchEngine: the real boundary class
+// loads, finds no ai-intelligence module behind it (VITE_AI_FEATURES_AVAILABLE
+// unset), and every call rejects. That is exactly the failure mode the
+// action's lexical fallback exists for.
+
+describe('useImageStore computeVectorSimilarityGroups', () => {
+  beforeEach(() => {
+    useImageStore.setState({
+      images: [],
+      filteredImages: [],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+    });
+  });
+
+  it('no-ops when semantic search is disabled (lexical branch owns similarity)', async () => {
+    // This file's default mock: isSemanticSearchEnabled → false. The action's
+    // branch gate must return before any coordinator work.
+    const img1 = createImage({ id: 'img1', prompt: 'test' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map([['img1', {
+        imageId: 'img1',
+        isFavorite: false,
+        tags: [],
+        autoTags: [],
+        metadataTags: [],
+        stackGroupId: 'hash-test',
+        isStackAnalyzed: true,
+        similarityGroupId: undefined,
+        isSimilarityAnalyzed: false,
+        addedAt: 1000,
+        updatedAt: 1000,
+      }]]),
+    });
+
+    await useImageStore.getState().computeVectorSimilarityGroups();
+
+    const ann = useImageStore.getState().annotations.get('img1')!;
+    expect(ann.isSimilarityAnalyzed).toBe(false); // untouched
+    expect(ann.similarityGroupId).toBeUndefined();
+  });
+
+  it('falls back to lexical clustering when the semantic module is unavailable', async () => {
+    const { isSemanticSearchEnabled } = await import('../services/aiFeatureAccess');
+    vi.mocked(isSemanticSearchEnabled).mockReturnValue(true);
+    try {
+      const img1 = createImage({ id: 'img1', prompt: 'test' });
+      useImageStore.setState({
+        images: [img1],
+        filteredImages: [img1],
+        annotations: new Map([['img1', {
+          imageId: 'img1',
+          isFavorite: false,
+          tags: [],
+          autoTags: [],
+          metadataTags: [],
+          stackGroupId: 'hash-test',
+          isStackAnalyzed: true,
+          similarityGroupId: undefined,
+          isSimilarityAnalyzed: false,
+          addedAt: 1000,
+          updatedAt: 1000,
+        }]]),
+      });
+
+      await useImageStore.getState().computeVectorSimilarityGroups();
+
+      // The vector path rejected (module absent) → the lexical matcher ran:
+      // a single new group self-assigns its stackGroupId.
+      const ann = useImageStore.getState().annotations.get('img1')!;
+      expect(ann.isSimilarityAnalyzed).toBe(true);
+      expect(ann.similarityGroupId).toBe('hash-test');
+    } finally {
+      vi.mocked(isSemanticSearchEnabled).mockReturnValue(false);
+    }
   });
 });
 

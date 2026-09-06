@@ -32,6 +32,15 @@ const coordinatorMock = vi.hoisted(() => ({
   unloadModels: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
+  // Vector similarity (prompt clustering) boundary methods — the vector
+  // pipeline branch calls embed + cluster on the same coordinator. Defaults
+  // persist across clearAllMocks (implementations, not call history).
+  embedPromptVectors: vi.fn().mockResolvedValue({ embedded: 0, skipped: 0 }),
+  getPromptVectors: vi.fn().mockResolvedValue([]),
+  getPromptSimilarityGroups: vi.fn().mockResolvedValue([]),
+  clusterPromptGroups: vi.fn().mockResolvedValue({ groupIdToSimId: new Map(), updatedRepresentatives: [] }),
+  removeImages: vi.fn().mockResolvedValue(undefined),
+  switchStorageDb: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Captures the constructor callbacks so tests can drive the engine's per-run
@@ -179,10 +188,14 @@ beforeEach(() => {
 });
 
 describe('runPipelineRound — canonical sequential round', () => {
-  it('runs one round in order: stacking → similarity → autoTag → semantic → idle', async () => {
+  it('runs one vector-branch round in order: stacking → autoTag → semantic → similarity → idle', async () => {
+    // The semantic gate is open (this file's default) → VECTOR branch:
+    // similarity must run LAST because prompt vectors only exist after the
+    // semantic pass. The lexical-branch order (similarity before autoTag)
+    // is covered by the parametrized test in semanticSearchStore.test.ts.
     const phases: Array<string | null> = [];
     const unsub = useImageStore.subscribe((s) => phases.push(s.pipelinePhase));
-    // One never-indexed (but enriched) image so phase 4 actually reaches the
+    // One never-indexed (but enriched) image so phase 3 actually reaches the
     // coordinator — an all-stamped library sends an empty payload and skips
     // it entirely.
     const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
@@ -200,9 +213,9 @@ describe('runPipelineRound — canonical sequential round', () => {
     const iAutoTag = phases.indexOf('autoTag');
     const iSemantic = phases.indexOf('semantic');
     expect(iStacking).toBeGreaterThan(-1);
-    expect(iSimilarity).toBeGreaterThan(iStacking);
-    expect(iAutoTag).toBeGreaterThan(iSimilarity);
+    expect(iAutoTag).toBeGreaterThan(iStacking);
     expect(iSemantic).toBeGreaterThan(iAutoTag);
+    expect(iSimilarity).toBeGreaterThan(iSemantic);
     expect(phases[phases.length - 1]).toBeNull(); // the round resets the phase
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
@@ -252,9 +265,13 @@ describe('runPipelineRound — canonical sequential round', () => {
 describe('auto-tag idempotency — the enrichment gate holds across a round', () => {
   // A fully pipeline-processed image: stack + similarity analyzed, enriched
   // at the CURRENT version. Phases 1-2 skip it, phase 3 must skip it too.
-  const fullyAnalyzed = (id: string): ImageAnnotations => ({
+  // stackGroupId must MATCH the engine hash of the image's prompt — that is
+  // the invariant reconcilePromptHashes enforces, and a fake id would make
+  // reconciliation rewrite the annotation mid-round (re-opening similarity
+  // and clearing the semantic stamp).
+  const fullyAnalyzed = (id: string, prompt: string): ImageAnnotations => ({
     ...enrichedAnnotation(id),
-    stackGroupId: `sg-${id}`,
+    stackGroupId: `hash-${prompt}`,
     isStackAnalyzed: true,
     similarityGroupId: `sim-${id}`,
     isSimilarityAnalyzed: true,
@@ -268,7 +285,7 @@ describe('auto-tag idempotency — the enrichment gate holds across a round', ()
       filteredImages: [tagged, fresh],
       directories: [dir('dir1', 'C:/lib', true)],
       annotations: new Map([
-        ['tagged', fullyAnalyzed('tagged')],
+        ['tagged', fullyAnalyzed('tagged', 'a red fox')],
         // 'fresh' deliberately has NO annotation → needs tagging
       ]),
     });
@@ -327,9 +344,11 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
   // A fully pipeline-processed AND already-embedded image: stack + similarity
   // analyzed, enriched at the current version, isSemanticIndexed true — phase
   // 4 must exclude it from the payload before any coordinator round-trip.
-  const indexedAnnotation = (id: string): ImageAnnotations => ({
+  // stackGroupId matches the engine hash (reconcilePromptHashes invariant —
+  // a fake id would be rewritten mid-round and clear the stamp).
+  const indexedAnnotation = (id: string, prompt: string): ImageAnnotations => ({
     ...enrichedAnnotation(id),
-    stackGroupId: `sg-${id}`,
+    stackGroupId: `hash-${prompt}`,
     isStackAnalyzed: true,
     similarityGroupId: `sim-${id}`,
     isSimilarityAnalyzed: true,
@@ -344,9 +363,9 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
       filteredImages: [indexed, fresh],
       directories: [dir('dir1', 'C:/lib', true)],
       annotations: new Map([
-        ['indexed', indexedAnnotation('indexed')], // stamped → phase 4 must skip
+        ['indexed', indexedAnnotation('indexed', 'a red fox')], // stamped → phase 4 must skip
         // 'fresh' is enriched but NEVER indexed (no stamp) → phase 4 must embed
-        ['fresh', { ...indexedAnnotation('fresh'), isSemanticIndexed: undefined }],
+        ['fresh', { ...indexedAnnotation('fresh', 'a blue whale'), isSemanticIndexed: undefined }],
       ]),
     });
   };
@@ -386,8 +405,8 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
       images: [indexed, fresh],
       filteredImages: [indexed, fresh],
       annotations: new Map([
-        ['indexed', indexedAnnotation('indexed')],
-        ['fresh', indexedAnnotation('fresh')],
+        ['indexed', indexedAnnotation('indexed', 'a red fox')],
+        ['fresh', indexedAnnotation('fresh', 'a blue whale')],
       ]),
     });
 
@@ -410,7 +429,7 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
       images: [img],
       filteredImages: [img],
       directories: [dir('dir1', 'C:/lib', true)],
-      annotations: new Map([['imgA', { ...indexedAnnotation('imgA'), searchTagVersion: 1 }]]),
+      annotations: new Map([['imgA', { ...indexedAnnotation('imgA', 'a red fox'), searchTagVersion: 1 }]]),
     });
 
     // Hold phase 4 open so we can observe the cleared stamp mid-round.
@@ -430,6 +449,36 @@ describe('semantic-index idempotency — the isSemanticIndexed gate holds across
     await round;
     expect(useImageStore.getState().annotations.get('imgA')!.isSemanticIndexed).toBe(true); // re-stamped
     expect(useImageStore.getState().annotations.get('imgA')!.searchTagVersion).toBe(2);
+  });
+
+  it('vector clustering preserves the semantic stamp and triggers no extra semantic round', async () => {
+    // Vector branch: semantic runs BEFORE similarity. The clustering pass
+    // writes similarityGroupId/isSimilarityAnalyzed and must NOT clear
+    // isSemanticIndexed (stamp contract — only index-text writers clear it,
+    // and clustering is not one). A cleared stamp would re-open the gate and
+    // force a second semantic round on the next pipeline trigger.
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['imgA', {
+        ...indexedAnnotation('imgA', 'a red fox'),
+        isSemanticIndexed: undefined,  // unstamped → phase 3 embeds it
+        similarityGroupId: undefined,  // never similarity-merged → new group
+        isSimilarityAnalyzed: false,
+      }]]),
+    });
+
+    await useImageStore.getState().processPostIndexingPipeline();
+
+    const ann = useImageStore.getState().annotations.get('imgA')!;
+    expect(ann.isSemanticIndexed).toBe(true); // stamp survived clustering
+    expect(ann.isSimilarityAnalyzed).toBe(true); // clustering did its own work
+    expect(ann.similarityGroupId).toBe(ann.stackGroupId); // self-assign: no existing groups
+    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); // no extra semantic round
+    expect(coordinatorMock.embedPromptVectors).toHaveBeenCalledTimes(1); // vector path ran
+    expect(coordinatorMock.clusterPromptGroups).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -697,7 +746,9 @@ describe('processPostIndexingPipeline — enqueueOnce coalescing', () => {
       filteredImages: [img],
       annotations: new Map([['imgB', {
         ...enrichedAnnotation('imgB'),
-        stackGroupId: 'sg-imgB',
+        // Matches the engine hash so reconcilePromptHashes no-ops (a fake id
+        // would re-open similarity for the image).
+        stackGroupId: 'hash-a red fox',
         isStackAnalyzed: true,
         similarityGroupId: 'sim-imgB',
         isSimilarityAnalyzed: true,

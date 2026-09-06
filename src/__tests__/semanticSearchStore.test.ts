@@ -28,6 +28,14 @@ const coordinatorMock = vi.hoisted(() => ({
   unloadModels: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn(() => ({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null })),
   dispose: vi.fn(),
+  // Vector similarity (prompt clustering) boundary methods — the vector
+  // pipeline branch + deletion hook call these on the same coordinator.
+  embedPromptVectors: vi.fn(),
+  getPromptVectors: vi.fn(),
+  getPromptSimilarityGroups: vi.fn(),
+  clusterPromptGroups: vi.fn(),
+  removeImages: vi.fn(),
+  switchStorageDb: vi.fn(),
 }));
 
 vi.mock('../services/aiFeatureAccess', () => featureAccessMocks);
@@ -138,6 +146,22 @@ beforeEach(() => {
   });
   coordinatorMock.clearIndex.mockResolvedValue(undefined);
   coordinatorMock.search.mockResolvedValue([]);
+
+  // Vector-similarity defaults: embed is Δ-skipped in steady state, and an
+  // empty groupIdToSimId map makes every new group self-assign its
+  // stackGroupId (the caller-side default for groups the module drops).
+  coordinatorMock.embedPromptVectors.mockReset();
+  coordinatorMock.embedPromptVectors.mockResolvedValue({ embedded: 0, skipped: 0 });
+  coordinatorMock.clusterPromptGroups.mockReset();
+  coordinatorMock.clusterPromptGroups.mockResolvedValue({ groupIdToSimId: new Map(), updatedRepresentatives: [] });
+  coordinatorMock.getPromptVectors.mockReset();
+  coordinatorMock.getPromptVectors.mockResolvedValue([]);
+  coordinatorMock.getPromptSimilarityGroups.mockReset();
+  coordinatorMock.getPromptSimilarityGroups.mockResolvedValue([]);
+  coordinatorMock.removeImages.mockReset();
+  coordinatorMock.removeImages.mockResolvedValue(undefined);
+  coordinatorMock.switchStorageDb.mockReset();
+  coordinatorMock.switchStorageDb.mockResolvedValue(undefined);
 
   // Reset in-flight search/index state (module-level vars survive between tests).
   useImageStore.getState().clearSemanticSearch();
@@ -758,11 +782,21 @@ describe('runSemanticSearch', () => {
 });
 
 describe('semanticIndexImages + pipeline Phase 3', () => {
-  it('runs the post-indexing pipeline phases in order, ending with semantic indexing', async () => {
-    // One enriched + fully-analyzed but UNSTAMPED image: phases 1-3 no-op
-    // for it (no stacking/similarity/AI work), yet phase 4's Δ-run genuinely
+  it.each([
+    // Vector branch: prompt vectors only exist after the semantic pass, so
+    // similarity must run LAST.
+    { branch: 'vector', enabled: true, order: ['stacking', 'autoTag', 'semantic', 'similarity'] },
+    // Lexical branch: byte-for-byte the pre-vector phase order.
+    { branch: 'lexical', enabled: false, order: ['stacking', 'similarity', 'autoTag', 'semantic'] },
+  ])('runs the post-indexing pipeline phases in $branch-branch order', async ({ enabled, order }) => {
+    featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(enabled);
+    // One enriched + fully-analyzed but UNSTAMPED image: stacking/similarity
+    // phases no-op or self-assign for it, yet phase 4's Δ-run genuinely
     // reaches the coordinator. An empty library short-circuits phase 4
-    // before any coordinator call (isSemanticIndexed gate).
+    // before any coordinator call (isSemanticIndexed gate). The fake
+    // stackGroupId also exercises reconcilePromptHashes (both branches):
+    // it patches the annotation to the engine's `hash-…` id and re-opens
+    // similarity/indexing for the image.
     const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
     useImageStore.setState({
       images: [img],
@@ -789,16 +823,18 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
     await useImageStore.getState().processPostIndexingPipeline();
     unsub();
 
-    const iStacking = phases.indexOf('stacking');
-    const iSimilarity = phases.indexOf('similarity');
-    const iAutoTag = phases.indexOf('autoTag');
-    const iSemantic = phases.indexOf('semantic');
-    expect(iStacking).toBeGreaterThan(-1);
-    expect(iSimilarity).toBeGreaterThan(iStacking);
-    expect(iAutoTag).toBeGreaterThan(iSimilarity);
-    expect(iSemantic).toBeGreaterThan(iAutoTag);
-    expect(coordinatorMock.ensureInitialized).toHaveBeenCalledTimes(1);
-    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    const indices = order.map((p) => phases.indexOf(p));
+    expect(indices.every((i) => i > -1)).toBe(true);
+    for (let i = 1; i < indices.length; i += 1) {
+      expect(indices[i]).toBeGreaterThan(indices[i - 1]);
+    }
+    if (enabled) {
+      expect(coordinatorMock.ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    } else {
+      // Semantic is internally gated off in the lexical branch.
+      expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+    }
   });
 
   it('skips semantic indexing silently when the feature is disabled', async () => {
@@ -818,10 +854,13 @@ describe('semanticIndexImages + pipeline Phase 3', () => {
     featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(false);
     const { createStackingEngine } = await import('../services/aiBridge');
     // Real no-license behavior: the bridge factories return null, so the
-    // stacking + similarity phases skip (covered per-factory in
-    // aiBridge.license.gating.test.ts). This proves the pipeline as a whole
-    // performs no premium work and still completes.
-    vi.mocked(createStackingEngine).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    // stacking + reconciliation + similarity phases skip (covered
+    // per-factory in aiBridge.license.gating.test.ts). This proves the
+    // pipeline as a whole performs no premium work and still completes.
+    vi.mocked(createStackingEngine)
+      .mockResolvedValueOnce(null) // syncNewImagesToStacks
+      .mockResolvedValueOnce(null) // reconcilePromptHashes
+      .mockResolvedValueOnce(null); // computeSimilarityGroups
 
     const phases: Array<string | null> = [];
     const unsub = useImageStore.subscribe((s) => phases.push(s.pipelinePhase));

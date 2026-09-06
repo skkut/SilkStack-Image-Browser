@@ -1,7 +1,10 @@
 /// <reference lib="dom" />
 
 const DB_NAME = 'image-metahub-preferences';
-const DB_VERSION = 8;
+// Version must stay in lockstep with ai-intelligence/src/storage/
+// semanticVectorsStorage.ts — the module opens the same database and only
+// ensures its stores exist (it never bumps the version).
+const DB_VERSION = 9;
 
 // A blocked open request never settles on its own — no onblocked handler
 // means the promise hangs forever and takes every caller (pipeline bulk
@@ -135,6 +138,18 @@ export async function openDatabase(
           const store = db.createObjectStore('semanticVectors', { keyPath: 'imageId' });
           store.createIndex('updatedAt', 'updatedAt', { unique: false });
         }
+
+        // Vector similarity (prompt clustering): one vector per prompted
+        // image + one running-centroid representative per similarity group.
+        if (!db.objectStoreNames.contains('promptVectors')) {
+          const store = db.createObjectStore('promptVectors', { keyPath: 'imageId' });
+          store.createIndex('updatedAt', 'updatedAt', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('promptSimilarityGroups')) {
+          const store = db.createObjectStore('promptSimilarityGroups', { keyPath: 'groupId' });
+          store.createIndex('updatedAt', 'updatedAt', { unique: false });
+        }
       };
 
       request.onsuccess = () => {
@@ -175,17 +190,21 @@ export function getIsPersistenceDisabled() {
 }
 
 /**
- * Clear ONLY the semanticVectors store (defensive path when the semantic
+ * Clear ONLY the AI-index stores (defensive path when the semantic
  * coordinator is unusable — e.g. semantic search disabled). Does NOT touch
  * imageAnnotations, folderSelection, or folderPreferences, so user data and
- * folder settings survive (Reprocess Images).
+ * folder settings survive (Reprocess Images). The prompt-vector stores ride
+ * the same semantic index and are cleared with it.
  */
 export async function clearSemanticVectorsStore(): Promise<void> {
   const db = await openDatabase();
   if (!db) return;
   await new Promise<void>((resolve) => {
-    const tx = db.transaction('semanticVectors', 'readwrite');
-    tx.objectStore('semanticVectors').clear();
+    const aiStores = ['semanticVectors', 'promptVectors', 'promptSimilarityGroups'].filter(
+      (name) => db.objectStoreNames.contains(name),
+    );
+    const tx = db.transaction(aiStores, 'readwrite');
+    for (const name of aiStores) tx.objectStore(name).clear();
     // resolve on every terminal event — clear() failures must not throw into
     // the reprocess flow; the caller logs and continues.
     tx.oncomplete = tx.onabort = tx.onerror = () => {

@@ -164,6 +164,12 @@ interface TuningModuleConsts {
   SEMANTIC_TEXT_MAX_CHARS: number;
   /** The isolated test-store DB name (tester↔module contract, exported from index.ts). */
   SEMANTIC_TEST_STORE_DB: string;
+  /** Default dot-product threshold for prompt-vector clustering (blank input
+   *  = module default; the engine resolves per-model overrides itself). */
+  PROMPT_GROUPING_VECTOR_THRESHOLD: number;
+  /** The exact-prompt FNV-1a hash — same value as the app's stackGroupId, so
+   *  the readout's group ids match the stacks the app would form. */
+  generatePromptHash: (prompt: string) => string;
   queryContentTokens: (text: string) => string[];
   resolveEmbeddingModel: (modelId?: string) => { searchThreshold: number };
 }
@@ -276,6 +282,27 @@ export default function DevSemanticSearchTester() {
   const [libraryProgress, setLibraryProgress] = useState<{ current: number; total: number } | null>(null);
   /** Result of the last library scan (shown under the Index button). */
   const [librarySummary, setLibrarySummary] = useState<{ folders: number; files: number } | null>(null);
+  /**
+   * Library-scan results kept for the prompt-grouping panel: every scanned
+   * image that carries a prompt. A ref, not state — a 100k-image library
+   * must not re-render the panel; the librarySummary update right after the
+   * ref is filled guarantees the next render sees it.
+   */
+  const libraryImagesRef = useRef<Array<{ id: string; prompt: string }>>([]);
+  /** True while the prompt-grouping panel is clustering. */
+  const [promptClustering, setPromptClustering] = useState(false);
+  /** null = module default (PROMPT_GROUPING_VECTOR_THRESHOLD / per-model override). */
+  const [groupingThreshold, setGroupingThreshold] = useState<number | null>(null);
+  /** Result of the last prompt-clustering run (rendered under the button). */
+  const [promptClusterReadout, setPromptClusterReadout] = useState<{
+    distinctPrompts: number;
+    clusterCount: number;
+    mergeCount: number;
+    /** Compact previews: merged prompt → the prompt of the group it joined. */
+    merges: Array<{ prompt: string; mergedIntoDisplay: string }>;
+    thresholdUsed: number;
+    elapsed: number;
+  } | null>(null);
   /**
    * Search target store. true = the isolated test DB (all test indexing
    * writes here, never the library's); false = the library's production
@@ -502,6 +529,8 @@ export default function DevSemanticSearchTester() {
               // Fallback must stay in sync with the module's constant — it
               // only ever matters if the export above is ever dropped.
               SEMANTIC_TEST_STORE_DB: mod.SEMANTIC_TEST_STORE_DB ?? 'image-metahub-semantic-test',
+              PROMPT_GROUPING_VECTOR_THRESHOLD: mod.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85,
+              generatePromptHash: mod.generatePromptHash,
               queryContentTokens: mod.queryContentTokens,
               resolveEmbeddingModel: mod.resolveEmbeddingModel,
             };
@@ -729,6 +758,12 @@ export default function DevSemanticSearchTester() {
         }
       }
       setLibraryProgress(null);
+      // Keep the prompted images for the prompt-grouping panel; a fresh scan
+      // invalidates any previous clustering readout.
+      libraryImagesRef.current = images
+        .filter((img): img is typeof img & { prompt: string } => !!img.prompt && img.prompt.trim().length > 0)
+        .map((img) => ({ id: img.id, prompt: img.prompt.trim() }));
+      setPromptClusterReadout(null);
       setLibrarySummary({ folders: folders.length, files: images.length });
       if (images.length === 0) {
         appendLog('library scan found no image/video files');
@@ -761,6 +796,104 @@ export default function DevSemanticSearchTester() {
       setLibraryProgress(null);
     }
   }, [loadState, libraryIndexing, indexing, preempting, indexTuning, useTestStore, appendLog, refreshStatus]);
+
+  /**
+   * Prompt-grouping panel: cluster the scanned library's DISTINCT prompts by
+   * embedding similarity — the same vector pass the app runs for stack
+   * formation (embed → one vector per exact-prompt group → dot-product
+   * clustering). Runs entirely against the isolated test store, so the
+   * threshold can be swept freely without touching the library.
+   *
+   * This is the tuning vehicle for PROMPT_GROUPING_VECTOR_THRESHOLD: lower
+   * the threshold and re-cluster (re-runs are Δ-skipped — vectors persist)
+   * until the merged clusters match what the user expects stacks to be.
+   */
+  const handleClusterPrompts = useCallback(async () => {
+    const coordinator = coordinatorRef.current;
+    if (!coordinator || loadState !== 'ready' || promptClustering) return;
+    if (!useTestStore) return; // clustering writes the test store
+    const scanned = libraryImagesRef.current;
+    if (scanned.length === 0) {
+      setError('Run "Index all library images" first — its scan feeds this panel.');
+      return;
+    }
+    setPromptClustering(true);
+    setError(null);
+    try {
+      // 1. One group per distinct prompt (the app's dedupe key is the
+      // exact-prompt hash = stackGroupId; identical prompts share a vector).
+      const firstById = new Map<string, string>(); // prompt → representative imageId
+      for (const { id, prompt } of scanned) {
+        if (!firstById.has(prompt)) firstById.set(prompt, id);
+      }
+      // The module's real FNV-1a hash — group ids in the readout are the
+      // app's actual stackGroupIds. Identity fallback only if the export is
+      // ever dropped (mirrors the SEMANTIC_TEST_STORE_DB fallback pattern).
+      const hash = moduleRef.current?.generatePromptHash ?? ((p: string) => p);
+      const newGroups = Array.from(firstById, ([prompt, representativeImageId]) => ({
+        groupId: hash(prompt),
+        prompt,
+        representativeImageId,
+      }));
+      appendLog(`prompt grouping: ${newGroups.length} distinct prompt(s) from ${scanned.length} image(s)`);
+
+      // 2. Backfill missing prompt vectors (Δ-skipped on re-runs — a
+      // threshold sweep re-embeds nothing).
+      const embedStart = performance.now();
+      const embedded = await coordinator.embedPromptVectors(
+        newGroups.map((g) => ({ id: g.representativeImageId, prompt: g.prompt })),
+      );
+      appendLog(
+        `prompt vectors: embedded ${embedded.embedded}, skipped ${embedded.skipped} in ${Math.round(performance.now() - embedStart)}ms`,
+      );
+
+      // 3. Groups from prior clustering runs. Their representatives are
+      // persisted, so the coordinator never needs member lists for them
+      // (member-vector synthesis is only for rep-less groups).
+      const existing = await coordinator.getPromptSimilarityGroups();
+      const existingGroups = existing.map((g) => ({ groupId: g.groupId, memberImageIds: [] }));
+
+      // 4. Cluster (chunked at PROMPT_CLUSTER_CHUNK_SIZE inside the module).
+      const clusterStart = performance.now();
+      const result = await coordinator.clusterPromptGroups({
+        newGroups,
+        existingGroups,
+        ...(groupingThreshold !== null ? { threshold: groupingThreshold } : {}),
+        onProgress: (p) => appendLog(`prompt clustering: ${p.current}/${p.total}${p.message ? ` — ${p.message}` : ''}`),
+      });
+
+      // 5. Readout: distinct prompts → clusters, with merged-cluster previews.
+      // Groups without a usable vector are absent from the map — the app
+      // self-assigns them; mirror that here.
+      const promptById = new Map(newGroups.map((g) => [g.groupId, g.prompt]));
+      const finalByGroup = new Map<string, string>();
+      for (const g of newGroups) finalByGroup.set(g.groupId, result.groupIdToSimId.get(g.groupId) ?? g.groupId);
+      const clusters = new Set(finalByGroup.values());
+      const merges = newGroups
+        .filter((g) => finalByGroup.get(g.groupId) !== g.groupId)
+        .map((g) => ({
+          prompt: g.prompt,
+          mergedIntoDisplay: promptById.get(finalByGroup.get(g.groupId)!) ?? finalByGroup.get(g.groupId)!,
+        }));
+      const thresholdUsed =
+        groupingThreshold ?? moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85;
+      setPromptClusterReadout({
+        distinctPrompts: newGroups.length,
+        clusterCount: clusters.size,
+        mergeCount: merges.length,
+        merges: merges.slice(0, 12),
+        thresholdUsed,
+        elapsed: Math.round(performance.now() - clusterStart),
+      });
+      appendLog(
+        `prompt grouping: ${newGroups.length} prompt(s) → ${clusters.size} cluster(s), ${merges.length} merged (threshold ${thresholdUsed.toFixed(2)})`,
+      );
+    } catch (err) {
+      setError(`Prompt clustering failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setPromptClustering(false);
+    }
+  }, [loadState, promptClustering, useTestStore, groupingThreshold, appendLog]);
 
   /**
    * Explicit model load — nothing loads until this button is clicked.
@@ -1115,6 +1248,68 @@ export default function DevSemanticSearchTester() {
               weights persist in the test DB — the app's startup Δ only self-heals the library
               store. See ai-intelligence/docs/SEARCH-QUALITY-TUNING.md §2 and §5.1.
             </p>
+          </div>
+
+          {/* Prompt grouping card — the vector-similarity tuning vehicle for stack formation */}
+          <div className={`${cardClass} shrink-0`}>
+            <h3 className="text-sm font-medium text-gray-200 mb-3">Prompt grouping (vector similarity)</h3>
+            <p className="text-[11px] text-gray-500 mb-4">
+              Clusters the scanned library's distinct prompts by embedding dot-product — the same
+              vector pass the app runs to form stacks. Group ids are the app's stackGroupIds.
+              Runs against the isolated test store ({testStoreName}); sweep the threshold and
+              re-cluster (vectors are Δ-skipped, so re-runs are cheap).
+            </p>
+            <label className={labelClass} htmlFor="grouping-threshold">
+              Threshold (dot product; blank = model default{' '}
+              {moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85})
+            </label>
+            <input
+              id="grouping-threshold"
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={groupingThreshold ?? ''}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                setGroupingThreshold(v === '' ? null : Math.min(1, Math.max(0, Number(v))));
+              }}
+              placeholder={String(moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85)}
+              className={inputClass}
+            />
+            <div className="flex items-center gap-4 mt-4">
+              <button
+                onClick={handleClusterPrompts}
+                disabled={loadState !== 'ready' || promptClustering || storeBusy || !useTestStore}
+                className="px-5 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {promptClustering ? 'Clustering...' : 'Cluster library prompts'}
+              </button>
+              <span className="text-xs text-gray-400 ml-auto">
+                {libraryImagesRef.current.length > 0
+                  ? `${libraryImagesRef.current.length} prompted image(s) from the last scan`
+                  : 'run the library scan first'}
+              </span>
+            </div>
+            {promptClusterReadout && (
+              <div className="mt-4 p-3 rounded-lg bg-gray-950/70 border border-gray-800 text-xs">
+                <div className="font-mono text-gray-300">
+                  {promptClusterReadout.distinctPrompts} distinct prompt(s) →{' '}
+                  {promptClusterReadout.clusterCount} cluster(s), {promptClusterReadout.mergeCount}{' '}
+                  merged · threshold {promptClusterReadout.thresholdUsed.toFixed(2)} ·{' '}
+                  {promptClusterReadout.elapsed}ms
+                </div>
+                {promptClusterReadout.merges.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-gray-400">
+                    {promptClusterReadout.merges.map((m) => (
+                      <li key={m.prompt} className="font-mono truncate">
+                        &ldquo;{m.prompt}&rdquo; → &ldquo;{m.mergedIntoDisplay}&rdquo;
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Query card */}
