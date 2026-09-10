@@ -31,7 +31,8 @@
     "cli:parse": "tsx scripts/cli.ts parse",
     "cli:index": "tsx scripts/cli.ts index",
     "comfy:parse": "tsx scripts/parse-comfy-workflow.ts",
-    "comfy:batch": "tsx scripts/parse-comfy-batch.ts"
+    "comfy:batch": "tsx scripts/parse-comfy-batch.ts",
+    "prompt": "tsx scripts/extract-prompt.ts"
   },
   "bin": {
     "SilkStack-cli": "./scripts/cli.ts"
