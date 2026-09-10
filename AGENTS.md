@@ -47,6 +47,10 @@ When working on this codebase:
 - `npm run electron-dist` - Build distributable without publishing
 - `npm run auto-release <version>` - Execute the complete automated CI/CD pipeline
 - `npm run cli:parse` / `npm run cli:index` - Execute CLI interface commands
+- `npm run prompt <file>` - Extract a plain prompt from a workflow JSON or a media file
+- `npm run comfy:parse` / `npm run comfy:batch` - Parse ComfyUI workflows (one file / a directory)
+
+See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known gotcha.
 
 ## Project Structure
 
@@ -74,7 +78,7 @@ When working on this codebase:
 - **ARCHITECTURE.md**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Technical architecture and design decisions)
 - **CHANGELOG.md**: [docs/CHANGELOG.md](docs/CHANGELOG.md) (Version history and changes)
 - **RELEASE-GUIDE.md**: [docs/RELEASE-GUIDE.md](docs/RELEASE-GUIDE.md) (Release workflow for maintainers)
-- **CLI-README.md**: [docs/CLI-README.md](docs/CLI-README.md) (CLI tool documentation)
+- **CLI-TOOLS.md**: [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) (Every command-line script — the single CLI reference)
 
 ## Key Features to Maintain
 

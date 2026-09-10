@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Complete Cache Reset Script for Image MetaHub
+ * Complete Cache Reset Script for SilkStack
  * This script completely removes ALL application data and caches
  * Use this to test the app in a completely fresh state
  */
@@ -15,7 +15,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-console.log('🧹 COMPLETE Image MetaHub Cache Reset Script');
+// Build artifacts (node_modules/.vite, tsconfig.tsbuildinfo, dist-electron) live
+// at the repo root. This file sits in scripts/, so step up one level.
+const ROOT = path.join(__dirname, '..');
+
+console.log('🧹 COMPLETE SilkStack Cache Reset Script');
 console.log('===============================================');
 console.log('⚠️  WARNING: This will delete ALL application data!');
 console.log('   - IndexedDB caches');
@@ -32,98 +36,104 @@ if (process.argv.includes('--yes') || process.argv.includes('-y')) {
   process.exit(0);
 }
 
-// Function to get Electron userData directory
-function getElectronUserDataDir() {
-  const appName = 'ImageMetaHub';
-  let userDataDir;
+/**
+ * Electron derives userData from the app name in package.json ("silkstack"),
+ * so the packaged build and `electron .` share one folder. Dev mode appends
+ * " (Dev)" to a separate folder (see electron/main.mjs).
+ *
+ * Note: "silkstack-photos" is a different application and is deliberately not
+ * touched here, nor are the pre-rename "ImageMetaHub" folders.
+ */
+function getElectronUserDataDirs() {
+  const appNames = ['silkstack', 'silkstack (Dev)'];
+  let baseDir;
 
   switch (process.platform) {
     case 'win32':
-      userDataDir = path.join(os.homedir(), 'AppData', 'Roaming', appName);
+      baseDir = path.join(os.homedir(), 'AppData', 'Roaming');
       break;
     case 'darwin':
-      userDataDir = path.join(os.homedir(), 'Library', 'Application Support', appName);
+      baseDir = path.join(os.homedir(), 'Library', 'Application Support');
       break;
     case 'linux':
-      userDataDir = path.join(os.homedir(), '.config', appName);
+      baseDir = path.join(os.homedir(), '.config');
       break;
     default:
       console.log('❌ Unsupported platform');
-      return null;
+      return [];
   }
 
-  return userDataDir;
+  return appNames.map((name) => path.join(baseDir, name));
 }
 
-// Clear Electron userData directory
+// Clear Electron userData directories
 function clearElectronCache() {
-  const userDataDir = getElectronUserDataDir();
-  if (!userDataDir) return;
+  const userDataDirs = getElectronUserDataDirs();
+  if (userDataDirs.length === 0) return;
 
-  console.log(`📁 Checking Electron userData directory: ${userDataDir}`);
+  let cleared = 0;
 
-  if (fs.existsSync(userDataDir)) {
+  for (const userDataDir of userDataDirs) {
+    console.log(`📁 Checking Electron userData directory: ${userDataDir}`);
+
+    if (!fs.existsSync(userDataDir)) {
+      console.log('ℹ️ Not found (first run?)');
+      continue;
+    }
+
     try {
       // Remove the entire directory
       fs.rmSync(userDataDir, { recursive: true, force: true });
       console.log('✅ Electron userData directory cleared');
+      cleared++;
     } catch (error) {
       console.error('❌ Error clearing Electron userData:', error.message);
     }
-  } else {
-    console.log('ℹ️ Electron userData directory not found (first run?)');
+  }
+
+  if (cleared === 0) {
+    console.log('ℹ️ No Electron userData directories were found');
+  }
+}
+
+// Remove a path if it exists, reporting what happened
+function removePath(targetPath, label, { directory = true } = {}) {
+  console.log(`📁 Checking ${label}: ${targetPath}`);
+
+  if (!fs.existsSync(targetPath)) {
+    console.log(`ℹ️ ${label} not found`);
+    return false;
+  }
+
+  try {
+    if (directory) {
+      fs.rmSync(targetPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(targetPath);
+    }
+    console.log(`✅ ${label} cleared`);
+    return true;
+  } catch (error) {
+    console.error(`❌ Error clearing ${label}:`, error.message);
+    return false;
   }
 }
 
 // Clear dist-electron directory (built app cache)
 function clearDistElectron() {
-  const distDir = path.join(__dirname, 'dist-electron');
-  console.log(`📁 Checking dist-electron directory: ${distDir}`);
-
-  if (fs.existsSync(distDir)) {
-    try {
-      fs.rmSync(distDir, { recursive: true, force: true });
-      console.log('✅ dist-electron directory cleared');
-    } catch (error) {
-      console.error('❌ Error clearing dist-electron:', error.message);
-    }
-  } else {
-    console.log('ℹ️ dist-electron directory not found');
-  }
+  removePath(path.join(ROOT, 'dist-electron'), 'dist-electron directory');
 }
 
 // Clear node_modules/.vite cache
 function clearViteCache() {
-  const viteCacheDir = path.join(__dirname, 'node_modules', '.vite');
-  console.log(`📁 Checking Vite cache: ${viteCacheDir}`);
-
-  if (fs.existsSync(viteCacheDir)) {
-    try {
-      fs.rmSync(viteCacheDir, { recursive: true, force: true });
-      console.log('✅ Vite cache cleared');
-    } catch (error) {
-      console.error('❌ Error clearing Vite cache:', error.message);
-    }
-  } else {
-    console.log('ℹ️ Vite cache not found');
-  }
+  removePath(path.join(ROOT, 'node_modules', '.vite'), 'Vite cache');
 }
 
 // Clear TypeScript build cache
 function clearTSBuildCache() {
-  const tsBuildCache = path.join(__dirname, 'tsconfig.tsbuildinfo');
-  console.log(`📁 Checking TypeScript build cache: ${tsBuildCache}`);
-
-  if (fs.existsSync(tsBuildCache)) {
-    try {
-      fs.unlinkSync(tsBuildCache);
-      console.log('✅ TypeScript build cache cleared');
-    } catch (error) {
-      console.error('❌ Error clearing TypeScript build cache:', error.message);
-    }
-  } else {
-    console.log('ℹ️ TypeScript build cache not found');
-  }
+  removePath(path.join(ROOT, 'tsconfig.tsbuildinfo'), 'TypeScript build cache', {
+    directory: false,
+  });
 }
 
 // Clear browser data (Chrome/Chromium cache)
@@ -145,8 +155,10 @@ function killElectronProcesses() {
     switch (process.platform) {
       case 'win32':
         try {
+          // Dev runs use electron.exe; the packaged app ships as silkstack.exe.
           execSync('taskkill /f /im electron.exe', { stdio: 'ignore' });
-          execSync('taskkill /f /im ImageMetaHub.exe', { stdio: 'ignore' });
+          execSync('taskkill /f /im silkstack.exe', { stdio: 'ignore' });
+          execSync('taskkill /f /im "SilkStack Image Browser.exe"', { stdio: 'ignore' });
         } catch (e) {
           // Ignore errors if processes aren't running
         }
@@ -154,7 +166,7 @@ function killElectronProcesses() {
       case 'darwin':
         try {
           execSync('pkill -f electron', { stdio: 'ignore' });
-          execSync('pkill -f "Image MetaHub"', { stdio: 'ignore' });
+          execSync('pkill -f silkstack', { stdio: 'ignore' });
         } catch (e) {
           // Ignore errors if processes aren't running
         }
@@ -162,7 +174,7 @@ function killElectronProcesses() {
       case 'linux':
         try {
           execSync('pkill -f electron', { stdio: 'ignore' });
-          execSync('pkill -f imagemetahub', { stdio: 'ignore' });
+          execSync('pkill -f silkstack', { stdio: 'ignore' });
         } catch (e) {
           // Ignore errors if processes aren't running
         }

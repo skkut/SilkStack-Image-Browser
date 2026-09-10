@@ -147,7 +147,7 @@ function parseWorkflowJson(
 function buildFactsOutput(
   sourceName: string,
   result: Record<string, any>,
-  options: { raw?: boolean; noTelemetry?: boolean },
+  options: { raw?: boolean; telemetry?: boolean },
 ): Record<string, any> {
   const output: Record<string, any> = {
     file: sourceName,
@@ -186,7 +186,8 @@ function buildFactsOutput(
   };
 
   if (options.raw) output._raw = result;
-  if (!options.noTelemetry) output._telemetry = result._telemetry || null;
+  // Commander's `--no-telemetry` sets `telemetry: false` (default true).
+  if (options.telemetry !== false) output._telemetry = result._telemetry || null;
 
   return output;
 }
@@ -194,7 +195,7 @@ function buildFactsOutput(
 function buildDefaultOutput(
   sourceName: string,
   result: Record<string, any>,
-  options: { raw?: boolean; noTelemetry?: boolean },
+  options: { raw?: boolean; telemetry?: boolean },
 ): Record<string, any> {
   const output: Record<string, any> = {
     file: sourceName,
@@ -239,7 +240,7 @@ function buildDefaultOutput(
     vaes: result.vaes || [],
 
     // ── Metadata ───────────────────────────
-    _telemetry: options.noTelemetry ? undefined : result._telemetry || null,
+    _telemetry: options.telemetry === false ? undefined : result._telemetry || null,
   };
 
   if (options.raw) output._raw = result;
@@ -270,7 +271,7 @@ program
     pretty: boolean;
     raw: boolean;
     facts: boolean;
-    noTelemetry: boolean;
+    telemetry: boolean;
   }) => {
     try {
       let rawJson: string;

@@ -49,9 +49,17 @@ function formatOutput(
   return base;
 }
 
+/**
+ * Extensions the app indexes. Kept identical to the watcher's list in
+ * electron/fileWatcher.mjs so the CLI and the desktop app agree on what is
+ * scannable — `.webp` was previously missing here, which made `index` skip
+ * WebP files that `parse` and the app both handle.
+ */
+const INDEXABLE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.mkv', '.mov', '.avi'];
+
 function isImageFile(entry: string) {
   const ext = path.extname(entry).toLowerCase();
-  return ['.png', '.jpg', '.jpeg', '.mp4', '.webm', '.mkv', '.mov', '.avi'].includes(ext);
+  return INDEXABLE_EXTENSIONS.includes(ext);
 }
 
 async function collectFiles(dir: string, recursive: boolean): Promise<string[]> {
@@ -122,7 +130,11 @@ program
       const outputStream = fs.createWriteStream(outputPath);
 
       let processedCount = 0;
-      let errorCount = 0;
+      // Two distinct failure modes, previously conflated into one "Errors" count:
+      //   soft — the file WAS written but the parser reported warnings on it
+      //   hard — parsing threw, so the file is absent from the output entirely
+      let softErrorCount = 0;
+      let hardErrorCount = 0;
       const cpuCount = Math.max(1, os.cpus().length);
       const concurrency = Math.max(1, Math.min(64, Number(options.concurrency || cpuCount) || cpuCount));
 
@@ -145,14 +157,14 @@ program
           outputStream.write(JSON.stringify(entry) + '\n');
           processedCount++;
           if (result.errors?.length) {
-            errorCount += 1;
+            softErrorCount += 1;
           }
           if (!options.quiet && processedCount % 100 === 0) {
             console.log(`Processed ${processedCount}/${files.length} images...`);
           }
         } catch (err) {
           console.error(`Error parsing ${filePath}:`, err);
-          errorCount++;
+          hardErrorCount++;
         }
       };
 
@@ -174,10 +186,18 @@ program
 
       if (!options.quiet) {
         console.log('---');
-        console.log('✅ Indexing complete!');
+        console.log(hardErrorCount > 0 ? '⚠️ Indexing complete with failures.' : '✅ Indexing complete!');
         console.log(`   Processed: ${processedCount} images`);
-        console.log(`   Errors: ${errorCount}`);
+        console.log(`   Warnings: ${softErrorCount} (written, with parser warnings)`);
+        console.log(`   Failed: ${hardErrorCount} (skipped, absent from output)`);
         console.log(`   Output: ${outputPath}`);
+      }
+
+      // Surface hard failures to the shell. Soft warnings stay exit 0 — they are
+      // routine (e.g. missing ffprobe on video files) and would make every run
+      // over a mixed library look like a failure.
+      if (hardErrorCount > 0) {
+        process.exitCode = 1;
       }
     } catch (error) {
       console.error('Error indexing directory:', error);

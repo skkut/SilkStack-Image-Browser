@@ -12,6 +12,6 @@ COPY . .
 # Include license in the image for downstream compliance
 COPY LICENSE ./LICENSE
 
-# Default entrypoint: CLI
-ENTRYPOINT ["npx", "tsx", "cli.ts"]
+# Default entrypoint: CLI (scripts/cli.ts — see docs/CLI-TOOLS.md)
+ENTRYPOINT ["npx", "tsx", "scripts/cli.ts"]
 CMD ["--help"]

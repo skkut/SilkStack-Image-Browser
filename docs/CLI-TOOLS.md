@@ -20,6 +20,7 @@ alias (`npm run <alias>`) or directly with `node` / `tsx`.
 | [3. Release & versioning](#3-release--versioning) | `auto-release`, `release-workflow`, `generate-release`, `update-version`, `sync-changelog` |
 | [4. Data maintenance](#4-data-maintenance--one-off-utilities) | `reset-cache`, `clear-manual-tags`, `clear-stacking-tags`, `cleanup-clustering`, `cleanup-clustering-v2` |
 | [5. Application launch flags](#5-application-launch-flags) | `electron/main.mjs` |
+| [6. Docker](#6-running-the-cli-in-docker) | `Dockerfile` — run the CLI in a container |
 
 **Quick alias index** (from `package.json`):
 
@@ -41,12 +42,13 @@ npm run update-version   # bump version across all files
 npm run generate-release # generate release notes
 npm run release-workflow # version + notes + tag + push (no build)
 npm run auto-release     # full release pipeline
-npm run reset-cache      # clear app caches   ⚠️ broken — targets wrong paths (see §4)
+npm run reset-cache      # clear app caches (⚠️ deletes app data — read §4 first)
 npm run sync-changelog   # copy CHANGELOG.md → public/
 ```
 
-> ⚠️ Flags marked **broken** are documented as-is but do not work today. Each is
-> covered in its section with the cause and a workaround.
+**Legend:** ⚠️ marks commands that destroy data or deploy, not commands that are
+broken. Every script below was executed and verified on 2026-09-10; where a bug
+was found it is noted in the relevant section as **Fixed** or **Gotcha**.
 
 ---
 
@@ -174,23 +176,18 @@ On a file it cannot interpret it exits **1** with
 | `--pretty` | Pretty-print JSON with 2-space indentation |
 | `--facts` | Output the grouped `WorkflowFacts` format (`prompts`, `model`, `loras`, `sampling`, `dimensions`) |
 | `--raw` | Include the raw pre-cleaning result under `_raw` |
-| `--no-telemetry` | ⚠️ **Silently does nothing** — see below |
+| `--no-telemetry` | Omit `_telemetry` (detection method, unknown node count, warnings) |
 
 Full output schemas are documented in [comfy-cli-tools.md](comfy-cli-tools.md).
 
-> **Bug — `--no-telemetry` is a no-op.** `_telemetry` is emitted whether or not
-> you pass the flag. The cause is a Commander naming mismatch: Commander's
+`--no-telemetry` works on both output paths (the default schema and `--facts`).
+
+> **Fixed 2026-09-10.** This flag previously did nothing. Commander's
 > `--no-telemetry` convention sets `options.telemetry = false`, but the script
-> reads `options.noTelemetry` — a property that is always `undefined`, so the
-> `if (!options.noTelemetry)` guard never fires. Verified 2026-09-10 against
-> Commander 14 by probing the option object directly
-> (`{ telemetry: false }`), and by running the flag and still getting
-> `_telemetry` in the output. Both output paths are affected (the default
-> schema and `--facts`). Until it is fixed, strip the field downstream:
->
-> ```bash
-> npm run -s comfy:parse -- workflow.json | jq 'del(._telemetry)'
-> ```
+> read `options.noTelemetry` — always `undefined`, so the guard never fired and
+> `_telemetry` was emitted regardless. The helpers now read `options.telemetry`
+> (omitting the key unless it is explicitly `false`, which keeps the default
+> include behaviour for direct callers).
 
 ```bash
 npm run comfy:parse -- workflow.json --facts | jq '.sampling'
@@ -231,8 +228,9 @@ number of JSON files found.
  "error":"Not a ComfyUI workflow (no \"workflow\" or \"prompt\" section)","loras":[]}
 ```
 
-Note this differs from [`cli.ts index`](#index--directory--jsonl), which skips
-failed files entirely and reports them only in the error count.
+Note this differs from [`cli.ts index`](#index--directory--jsonl), which drops
+unparseable files from its output entirely and reports them only in its `Failed`
+count (and exit code 1). Use `comfy:batch` when you need a row for every file.
 
 ```bash
 npm run comfy:batch -- ~/ComfyUI/output/ --recursive --summary
@@ -278,32 +276,32 @@ npx tsx scripts/cli.ts index <dir> --out index.jsonl --recursive
 | `--quiet` | Suppress informational logs |
 | `--concurrency <number>` | Files processed in parallel (default: CPU count, clamped to 1–64) |
 
-> **Gotcha — `index` skips WebP.** The directory scanner accepts
-> `.png .jpg .jpeg .mp4 .webm .mkv .mov .avi` and silently ignores `.webp`,
-> even though `parse` and the desktop app both support WebP. Verified
-> 2026-09-10. Use `extract-prompt.ts` or `parse` for individual WebP files.
-> A skipped `.webp` is not even counted in the "Images found" total, and no
-> message is printed — the file simply never appears.
+`index` and `parse` accept the same extensions as the desktop app's file
+watcher (`.png .jpg .jpeg .webp .mp4 .webm .mkv .mov .avi` — the source list
+lives in [electron/fileWatcher.mjs](../electron/fileWatcher.mjs)).
 
-> **Gotcha — the "Errors" count mixes two different things, and the exit code
-> is always 0.** A file can fail in two ways, and both increment the same
-> counter:
->
-> - **Hard failure** — `parseImageFile` throws. The file is skipped, one
->   `Error parsing <file>:` block is written to **stderr**.
-> - **Soft failure** — parsing succeeds and the file *is* written to the JSONL,
->   but the result carries a non-empty `errors` array (e.g. the video fixtures
->   below report `ffprobe not available or failed to read video metadata`).
->
-> So `Errors:` can exceed the number of files actually missing from the output,
-> and `Processed + Errors` need not equal `Images found`. In a verified run over
-> 9 files: 7 processed, 2 hard + 3 soft = `Errors: 5`, exit code **0**.
->
-> The practical consequence: **you cannot detect partial failure from the exit
-> code.** Check that the JSONL line count matches "Images found", and inspect
-> `errors[]` on each record, if you need to know a run was complete. In the
-> example below, add `|| echo "some files failed"`-style handling rather than
-> relying on `&&`.
+**Failures are reported separately, and a hard failure sets the exit code:**
+
+| Outcome | Written to output? | Counted as | Exit code |
+|---|---|---|---|
+| Parsed cleanly | ✅ | `Processed` | — |
+| Parsed with parser warnings | ✅ | `Warnings` | — |
+| Threw while parsing | ❌ skipped | `Failed` | **1** |
+
+- **Warnings** are routine — e.g. `ffprobe not available or failed to read
+  video metadata` on video files. They stay exit **0** so that a mixed library
+  doesn't look like a failed run.
+- **Failed** means the file is absent from the output entirely; one
+  `Error parsing <file>:` block goes to **stderr** per file. Any failure sets
+  exit code 1, so `npm run cli:index -- ... && next-step` behaves correctly.
+
+Arithmetic closes: `Processed + Failed = Images found`. Per-file warnings are
+still in the output as `errors[]` on each record.
+
+> **Fixed 2026-09-10.** Previously `.webp` was silently skipped (not even
+> counted in "Images found"), and a single `Errors` counter conflated warnings
+> with failures while always exiting **0**, so partial failures were invisible
+> to a script.
 
 ```bash
 # Audit LoRA usage across a library
@@ -401,9 +399,18 @@ Both steps always run: a failure is recorded in a flag rather than thrown, so
 from one invocation. If the package is already absent it says so and proceeds
 without renaming anything.
 
-> **Caution:** if the process is killed mid-run (e.g. `Ctrl+C` during the build),
-> the `finally` block may not complete and `ai-intelligence/package.json` will
-> be left renamed as `_package.json.bak`. Restore it manually before building.
+**An interrupted run cannot leave the package hidden.** Three layers guard the
+restore: the `finally` block, `SIGINT`/`SIGTERM` handlers, and — for a kill that
+no handler can catch (`SIGKILL`, power loss) — a startup check that detects a
+leftover `_package.json.bak` and restores it before doing anything else. If the
+restore itself fails, it prints the manual `rename` command.
+
+> **Fixed 2026-09-10.** The `finally` block was the only restore path, so
+> `Ctrl+C` during the build left `ai-intelligence/package.json` renamed and the
+> next `npm run build` silently built without AI. Note that on Windows the
+> signal handlers only fire for a real console `Ctrl+C` — `kill` from Git Bash
+> can't deliver a catchable signal — so the **startup recovery is the safety net
+> that matters there**, and it is verified working.
 
 ### `build-and-run-dev.ps1`
 
@@ -598,62 +605,47 @@ irrelevant). Without it the script prints a usage line and **exits 0** — note
 that an aborted run is indistinguishable from a successful one by exit code
 alone.
 
+> ⚠️ **This deletes application data.** Quit the app first — see the note on
+> step 1 below, which will kill it for you.
+
 With the flag it:
 
-1. Kills running Electron processes (`taskkill /f /im electron.exe` and
-   `ImageMetaHub.exe` on Windows; `pkill` on macOS/Linux)
-2. **Deletes the entire Electron userData directory** —
-   `%APPDATA%\ImageMetaHub` on Windows,
-   `~/Library/Application Support/ImageMetaHub` on macOS,
-   `~/.config/ImageMetaHub` on Linux
-3. Attempts to clear `dist-electron`, the Vite cache, and `tsconfig.tsbuildinfo`
+1. Kills running processes — `electron.exe` (dev), `silkstack.exe` (packaged),
+   and `SilkStack Image Browser.exe` on Windows; `pkill -f electron` /
+   `pkill -f silkstack` on macOS and Linux
+2. **Deletes the Electron userData directories** — both `silkstack` *and*
+   `silkstack (Dev)`, since dev mode runs against a separate folder
+   ([electron/main.mjs](../electron/main.mjs) appends ` (Dev)`). Per platform:
+   `%APPDATA%\<name>` on Windows,
+   `~/Library/Application Support/<name>` on macOS,
+   `~/.config/<name>` on Linux
+3. Clears `dist-electron`, `node_modules/.vite`, and `tsconfig.tsbuildinfo`
+   from the **repo root**
 4. Prints manual instructions for clearing browser data (it does not do this itself)
 
-> ### ⚠️ This script appears to be broken — it targets the pre-rename paths
->
-> Every path in it is hardcoded to the project's **former name, "ImageMetaHub"**,
-> but the app has since been renamed to **SilkStack**. Verified against the
-> current repo and a live install on 2026-09-10:
->
-> | Step | Target used | Actual current value | Match |
-> |---|---|---|---|
-> | 1 | `ImageMetaHub.exe` | `productName: "SilkStack Image Browser"` | ❌ |
-> | 2 | `%APPDATA%\ImageMetaHub` | `%APPDATA%\silkstack` | ❌ |
-> | 3 | `scripts/node_modules/.vite` | `node_modules/.vite` (repo root) | ❌ |
-> | 3 | `scripts/tsconfig.tsbuildinfo` | `tsconfig.tsbuildinfo` (repo root) | ❌ |
->
-> Step 3 fails because the paths are built from `__dirname`, which is
-> `scripts/` — the real artifacts live at the repo root.
->
-> **Practical effect:** the script reports success while deleting nothing.
-> The one thing it may still do is kill a running `electron.exe`. Note also
-> that dev mode uses a separate `%APPDATA%\silkstack (Dev)` folder
-> (`electron/main.mjs`), which no step here targets.
->
-> Treat this script as **unverified** until the paths are updated. Its
-> `--yes` gate makes it safe to run, but do not rely on it having cleared
-> anything.
+It reports each path as `cleared` or `not found`, so you can see exactly what
+was removed.
 
-**What to do instead**
+> **Not touched, deliberately:** `silkstack-photos` is a *different application*
+> — deleting it here would destroy another app's data. The pre-rename
+> `ImageMetaHub` folders are likewise left alone.
+>
+> **Fixed 2026-09-10.** Every path in this script used to be wrong: it targeted
+> the project's former name (`ImageMetaHub`, `ImageMetaHub.exe`) and built the
+> build-artifact paths from `__dirname` (= `scripts/`) instead of the repo root,
+> so it reported success while deleting nothing. Verified fixed by running it
+> against a redirected `USERPROFILE` sandbox: both `silkstack` folders and all
+> three build artifacts were removed, while `silkstack-photos` and
+> `ImageMetaHub` survived.
 
-Option 1 — clear the cache folder by hand. This is closest to what the script
-intends. Quit the app first, then:
-
-```powershell
-# production install
-Remove-Item "$env:APPDATA\silkstack" -Recurse -Force
-
-# dev sessions use a separate folder (electron/main.mjs)
-Remove-Item "$env:APPDATA\silkstack (Dev)" -Recurse -Force
-```
-
-Option 2 — use the app's own **Settings → Clear Cache** button
-(`SettingsModal.tsx` → `utils/cacheReset.ts` → the `delete-cache-folder` IPC
-handler), which uses the correct `app.getPath("userData")` and so cannot drift
-the way the script did. Be aware it is **much broader than this script**: the
-confirmation dialog warns that it also deletes indexed metadata, loaded
-directories, thumbnails, `localStorage` preferences — **and your license**,
-returning the app to the unlicensed state. It auto-reloads when done.
+**A safer alternative for some cases:** the app's own **Settings → Clear Cache**
+button (`SettingsModal.tsx` → `utils/cacheReset.ts` → the `delete-cache-folder`
+IPC handler) resolves the path via `app.getPath("userData")`, so it cannot drift
+the way this script did. It is **much broader** though — its confirmation dialog
+warns that it also deletes indexed metadata, loaded directories, thumbnails and
+`localStorage` preferences — **and your license**, returning the app to the
+unlicensed state. It auto-reloads when done. Use this script when you want the
+caches gone but your license and preferences kept.
 
 ### `clear-manual-tags.js` — browser console only
 
@@ -730,11 +722,38 @@ so `--dist` overrides an ambient dev environment.
 
 ---
 
+## 6. Running the CLI in Docker
+
+The repo ships a [`Dockerfile`](../Dockerfile) (Node 22 slim + `npm ci`, dev
+deps kept so `tsx` can run TypeScript directly). Its entrypoint is
+`npx tsx scripts/cli.ts`, so anything after the image name is passed to the
+CLI as arguments:
+
+```bash
+docker build -t silkstack-cli:local .
+
+# Recursive index of a mounted folder
+docker run --rm \
+  -v /host/images:/data -v /host/output:/out \
+  silkstack-cli:local index /data --out /out/index.jsonl --recursive --raw --concurrency 8 --quiet
+
+# Single file
+docker run --rm -v /host/images:/data silkstack-cli:local parse /data/image.png --pretty --quiet
+```
+
+The CLI writes to stdout, so you can pipe the container output directly. On
+Windows, mount with a Windows-style path (`-v C:\images:/data`).
+
+> **Note:** the image tag in the old `CLI-README.md` was `imagemetahub-cli:local`
+> and the entrypoint pointed at a root-level `cli.ts` that no longer exists —
+> both were fixed when that file was retired into this one.
+
+---
+
 ## Related documentation
 
 | Document | Scope |
 |---|---|
 | [comfy-cli-tools.md](comfy-cli-tools.md) | Deep dive on the ComfyUI parsers — output schemas, supported node types, jq/PowerShell/Python examples |
-| [CLI-README.md](CLI-README.md) | Original CLI readme — **partially stale** (uses the pre-rename `imagemetahub-cli` name and a root-level `cli.ts` path) |
 | [RELEASE-AUTOMATION.md](RELEASE-AUTOMATION.md) | Release script walkthrough (Portuguese) |
 | [RELEASE-GUIDE.md](RELEASE-GUIDE.md) | Maintainer release checklist |
