@@ -26,6 +26,40 @@ function createInitialState(param: ComfyTraversableParam): TraversalState {
 }
 
 /**
+ * Inputs that carry a resource rather than text/conditioning. In an unknown
+ * node these are followed LAST — otherwise a `model` link listed before
+ * `conditioning` would be walked first and could resolve to the wrong value.
+ */
+const RESOURCE_INPUT_RE =
+  /^(model|models|clip|vae|latent|latent_image|image|images|audio|video|mask|masks|samples|noise|sigmas|control_net|guider|sampler|scheduler)$/i;
+
+/** Names that read as a negative prompt, e.g. `negative`, `negative_prompt`. */
+const NEGATIVE_INPUT_RE = /negative|_neg$/i;
+
+/**
+ * Orders an unknown node's linked inputs by how likely each name is to carry
+ * the value currently being looked for. Purely name-based and node-agnostic —
+ * it encodes conventions shared across node packs, not any one node's layout.
+ *
+ * For a positive-prompt lookup a `negative` link is tried after a neutral one
+ * (and vice versa for `negativePrompt`), so an untyped passthrough carrying
+ * both cannot hand the negative text to the positive lookup.
+ */
+function orderUnknownInputs(
+  inputs: ParserNode['inputs'] | undefined,
+  param: ComfyTraversableParam | 'generic',
+): string[] {
+  const rank = (name: string): number => {
+    if (RESOURCE_INPUT_RE.test(name)) return 3;
+    const looksNegative = NEGATIVE_INPUT_RE.test(name);
+    if (param === 'prompt') return looksNegative ? 2 : 1;
+    if (param === 'negativePrompt') return looksNegative ? 0 : 1;
+    return 1;
+  };
+  return Object.keys(inputs || {}).sort((a, b) => rank(a) - rank(b));
+}
+
+/**
  * Função central, recursiva, que navega o grafo para trás.
  * @param currentNode O nó sendo inspecionado atualmente.
  * @param state O estado da travessia (o que está sendo procurado).
@@ -46,7 +80,27 @@ function traverse(
 
   const nodeDef = NodeRegistry[currentNode.class_type];
   if (!nodeDef) {
-    return state.targetParam === 'lora' ? accumulator : null; // Nó desconhecido
+    // ── Unknown node: traverse THROUGH it generically ─────────────────────
+    // Custom-node packs add new pass-throughs constantly (e.g. a conditioning
+    // modifier sitting between CLIPTextEncode and KSampler). If traversal gives
+    // up here it severs the conditioning chain, and prompt resolution falls
+    // through to the global fallback scanner — whose "longest string wins"
+    // heuristic then returns a TextGenerate system prompt instead of the
+    // user's prompt. See the OrexStyleSelector note in nodeRegistry.ts: same
+    // failure mode, previously patched one node at a time.
+    //
+    // Nothing is known about the node's types, so treat it as a transparent
+    // pass-through: follow every linked input and return the first non-null
+    // result. Resource inputs (model/clip/vae/image/...) are tried last so
+    // they cannot shadow the conditioning link.
+    for (const inputName of orderUnknownInputs(currentNode.inputs, state.targetParam)) {
+      const link = currentNode.inputs?.[inputName];
+      if (!Array.isArray(link) || link.length !== 2) continue;
+      const value = traverseFromLink(link as NodeLink, state, graph, accumulator);
+      if (state.targetParam === 'lora') continue; // accumulate and keep walking
+      if (value !== null && value !== undefined) return value;
+    }
+    return state.targetParam === 'lora' ? accumulator : null;
   }
 
   // 1. Consciência de Estado: nós silenciados (mode 2) e bypassados (mode 4)

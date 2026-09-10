@@ -1,0 +1,136 @@
+{
+  "workflow": {
+    "227": {
+      "_meta": { "title": "Positive Prompt" },
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "a beautiful woman dressed in a beautiful Diwali outfit, adorned with traditional Indian jewelry and vibrant colors, surrounded by Diwali decorations"
+      }
+    },
+    "228": {
+      "_meta": { "title": "Negative Prompt" },
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "ugly, bad, blurred, watermark, dithered, freckles"
+      }
+    },
+    "152:210": {
+      "_meta": { "title": "Text String (System Prompt)" },
+      "class_type": "PrimitiveStringMultiline",
+      "inputs": {
+        "value": "You are an expert prompt engineer for text-to-image models. Your task is to expand the user's prompt into a highly effective image-generation prompt and output generated prompt as one paragraph. Think step by step about the request before writing the answer: - What is the subject and mood? - What visual styles, mediums, and lighting options would fit? Consider two or three alternatives and pick the one that best serves the caption. - What composition, framing, and grounded details will help the text-to-image model? Then output a single expanded prompt paragraph. Follow these rules strictly: 0. Make the user's input to poetic and descriptive form. 1. Faithfulness First: Preserve all original subjects, actions, colors, and spatial relationships. 2. Practical T2I Structure: Write a prompt that a text-to-image model can parse cleanly. 3. Style Planning Stays Internal: Do not emit planning tags or wrappers in the visible answer body. 4. Text Rendering: If the user requests visible text, specify the exact text clearly. 5. Structure: Write one cohesive paragraph after the thinking block. 6. Respect Existing Detail: If the user's input is already detailed, lightly polish and finalize rather than heavily expanding. 9. Preserve User Medium: When the user explicitly requests a medium, honor it. User's Input:"
+      }
+    },
+    "152:209": {
+      "_meta": { "title": "Concatenate Text" },
+      "class_type": "StringConcatenate",
+      "inputs": {
+        "string_a": ["152:210", 0],
+        "string_b": ["227", 0],
+        "delimiter": ""
+      }
+    },
+    "152:212": {
+      "_meta": { "title": "Generate Text" },
+      "class_type": "TextGenerate",
+      "inputs": {
+        "prompt": ["152:209", 0],
+        "max_length": 2048,
+        "sampling_mode": "on",
+        "thinking": true,
+        "clip": ["165", 1]
+      }
+    },
+    "152:213": {
+      "_meta": { "title": "If/Else Switch" },
+      "class_type": "ComfySwitchNode",
+      "inputs": {
+        "switch": true,
+        "on_false": ["227", 0],
+        "on_true": ["152:212", 0]
+      }
+    },
+    "152:145": {
+      "_meta": { "title": "CLIP Text Encode (Positive Prompt)" },
+      "class_type": "CLIPTextEncode",
+      "inputs": { "text": ["152:213", 0], "clip": ["165", 1] }
+    },
+    "152:146": {
+      "_meta": { "title": "CLIP Text Encode (Negative Prompt)" },
+      "class_type": "CLIPTextEncode",
+      "inputs": { "text": ["228", 0], "clip": ["165", 1] }
+    },
+    "152:229": {
+      "_meta": { "title": "RBG Smart Seed Variance" },
+      "class_type": "RBG_Smart_Seed_Variance",
+      "inputs": {
+        "variance_preset": "Bold",
+        "fine_tune_variance": 85,
+        "model_type": "Krea2 (SingleStream)",
+        "seed": 532576265045437,
+        "conditioning": ["152:145", 0]
+      }
+    },
+    "152:144": {
+      "class_type": "EmptySD3LatentImage",
+      "inputs": { "width": ["152:220", 0], "height": ["152:220", 1], "batch_size": 1 }
+    },
+    "152:220": {
+      "_meta": { "title": "Skutils Resolution Calculator" },
+      "class_type": "SkutilsResolutionCalculator",
+      "inputs": { "aspect_ratio": "3:4 (Portrait Standard)", "megapixels": "1.5", "multiple": 8 }
+    },
+    "208:205": {
+      "class_type": "UNETLoader",
+      "inputs": {
+        "unet_name": "fasciumKREA2_experimental2008.safetensors",
+        "weight_dtype": "default"
+      }
+    },
+    "208:206": {
+      "class_type": "VAELoader",
+      "inputs": { "vae_name": "qwen_image_vae.safetensors" }
+    },
+    "208:207": {
+      "class_type": "CLIPLoader",
+      "inputs": {
+        "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+        "type": "krea2",
+        "device": "default"
+      }
+    },
+    "165": {
+      "_meta": { "title": "Power Lora Loader (rgthree)" },
+      "class_type": "Power Lora Loader (rgthree)",
+      "inputs": {
+        "lora_1": { "on": false, "lora": "Krea2\\krea2_turbo_lora_r64.safetensors", "strength": 0.8 },
+        "model": ["208:205", 0],
+        "clip": ["208:207", 0]
+      }
+    },
+    "152:150": {
+      "class_type": "KSampler",
+      "inputs": {
+        "seed": 706195062765197,
+        "steps": 8,
+        "cfg": 1,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": ["165", 0],
+        "positive": ["152:229", 0],
+        "negative": ["152:146", 0],
+        "latent_image": ["152:144", 0]
+      }
+    },
+    "152:143": {
+      "class_type": "VAEDecode",
+      "inputs": { "samples": ["152:150", 0], "vae": ["208:206", 0] }
+    },
+    "158": {
+      "_meta": { "title": "Preview Image" },
+      "class_type": "PreviewImage",
+      "inputs": { "images": ["152:143", 0] }
+    }
+  }
+}

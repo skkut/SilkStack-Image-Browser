@@ -17,6 +17,7 @@ This directory contains PNG fixtures for testing the ComfyUI metadata parser.
 11. **edit-history.json** - Workflow with LoadImage/SaveImage history
 12. **version-metadata.json** - Workflow with ComfyUI version info
 13. **orex-style-selector.json** - Krea2 API-format workflow routing prompts through the Style Selector (OreX) node (`OrexStyleSelector`) into a TextGenerate/switch chain (see `orex-style-selector.test.ts`)
+14. **krea-unknown-passthrough.json** - Krea2 API-format workflow whose positive conditioning passes through `RBG_Smart_Seed_Variance`, a custom node with no registry entry; a `StringConcatenate` pairs the user's prompt with a TextGenerate **system prompt** and a `ComfySwitchNode` routes raw-vs-enhanced text into CLIPTextEncode (see `krea-unknown-passthrough.test.ts`)
 
 ## Usage
 
