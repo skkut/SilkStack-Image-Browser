@@ -142,7 +142,7 @@ declare module '@ai-images-browser/ai-intelligence' {
     onAdapterInfo?: (info: DetectedGpuInfo) => void,
   ): void;
 
-  export function createAiWorker(): Worker;
+  export function createAiWorker(options?: { role?: 'both' | 'chat' | 'embed' }): Worker;
 
   // ── Semantic search coordinator (moved to the module 2026-08-12) ─────
 

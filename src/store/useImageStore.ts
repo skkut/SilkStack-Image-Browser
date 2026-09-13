@@ -2751,7 +2751,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                     console.warn('AI auto-tagging unavailable: ai-intelligence module not present');
                     return;
                 }
-                activeWorker = createAiWorker();
+                // Chat-scoped worker: the auto-tag route never calls the
+                // embed pipeline, so the engine loads the chat record alone
+                // (2026-09-13) — the semantic coordinator's worker owns the
+                // embedding record. Roughly halves the app's combined AI
+                // VRAM vs. the old always-both shape.
+                activeWorker = createAiWorker({ role: 'chat' });
             }
             const worker = activeWorker;
 
