@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { IndexedImage, ImageStack, StackSubGroup, StackGroupByDimension, LoRAInfo } from '../types';
+import { IndexedImage, ImageStack, StackSubGroup, StackGroupByDimension, LoRAInfo, SortOrder } from '../types';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
@@ -39,6 +39,15 @@ const isItemStarred = (item: StackItem): boolean => {
   return item.isFavorite || false;
 };
 
+/**
+ * Number of images an item represents — a stack's count, or 1 for a
+ * singleton. ImageGrid passes a MIXED array of both (when stacking is on),
+ * so this must never return undefined: NaN comparisons would leave the
+ * order undefined.
+ */
+const getItemCount = (item: StackItem): number =>
+  'coverImage' in item ? item.count : 1;
+
 const compareById = (x: IndexedImage, y: IndexedImage) => x.id.localeCompare(y.id);
 
 const compareByNameAsc = (x: IndexedImage, y: IndexedImage) => {
@@ -72,7 +81,7 @@ const hashWithSeed = (str: string, seed: number): number => {
 
 const sortItems = (
   items: StackItem[],
-  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance',
+  sortOrder: SortOrder,
   displayStarredFirst: boolean,
   randomSeed?: number
 ): StackItem[] => {
@@ -112,6 +121,18 @@ const sortItems = (
       const hashB = hashWithSeed(imgB.id, seed);
       if (hashA !== hashB) return hashA - hashB;
       return compareById(imgA, imgB);
+    }
+    // Stack-size sorts (Stacks view only). Stacks always hold >= 2 images
+    // (size-1 groups are emitted as singletons), so "fewest" starts at 2.
+    // Equal sizes tie-break by cover name — the input array's order comes
+    // from Map iteration, so returning 0 here would leave it arbitrary.
+    if (sortOrder === 'stack-desc') {
+      const c = getItemCount(b) - getItemCount(a);
+      return c !== 0 ? c : compareByNameAsc(imgA, imgB);
+    }
+    if (sortOrder === 'stack-asc') {
+      const c = getItemCount(a) - getItemCount(b);
+      return c !== 0 ? c : compareByNameAsc(imgA, imgB);
     }
     return compareById(imgA, imgB);
   });

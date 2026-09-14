@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, AutoTag, LibraryStackContext } from '../types';
+import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, AutoTag, LibraryStackContext, SortOrder, EphemeralSortOrder } from '../types';
 import { loadSelectedFolders, saveSelectedFolders, loadExcludedFolders, saveExcludedFolders } from '../services/folderSelectionStorage';
 import { loadFolderPreferences, saveFolderPreference, deleteFolderPreference, FolderPreference } from '../services/folderPreferencesStorage';
 import {
@@ -757,7 +757,7 @@ interface ImageState {
   selectedModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
-  sortOrder: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance';
+  sortOrder: SortOrder;
   randomSeed: number;
   advancedFilters: any;
 
@@ -864,7 +864,7 @@ interface ImageState {
   setSearchQuery: (query: string) => void;
   setFilterOptions: (options: { models: string[]; loras: string[]; schedulers: string[]; dimensions: string[] }) => void;
   setSelectedFilters: (filters: { models?: string[]; loras?: string[]; schedulers?: string[] }) => void;
-  setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random' | 'relevance') => void;
+  setSortOrder: (order: SortOrder) => void;
   reshuffle: () => void;
   setAdvancedFilters: (filters: any) => void;
   filterAndSortImages: () => void;
@@ -995,6 +995,23 @@ interface ImageState {
   // Reset Actions
   resetState: () => void;
 }
+
+// ── Ephemeral sort orders ──────────────────────────────────────────────
+// Sorts that are only meaningful while a particular view/overlay is on
+// screen. They are never persisted (see setSortOrder) and are restored to
+// the durable settings sort when their view/overlay goes away (see
+// setActiveView for the Stacks view, clearSemanticSearch for 'relevance').
+// Module scope so the useSettingsStore subscription at the bottom of this
+// file can apply the same guard.
+const isStackSizeSort = (order: SortOrder): boolean =>
+    order === 'stack-desc' || order === 'stack-asc';
+
+// The type predicate is what lets setSortOrder narrow to DurableSortOrder
+// before writing to useSettingsStore, whose setter only accepts durable
+// values — that is what makes "ephemeral is never persisted" a compile-time
+// guarantee rather than a convention.
+const isEphemeralSort = (order: SortOrder): order is EphemeralSortOrder =>
+    order === 'relevance' || isStackSizeSort(order);
 
 export const useImageStore = create<ImageState>((set, get) => {
     // --- Throttle map to prevent excessive setImageThumbnail calls ---
@@ -1800,7 +1817,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             if (sortOrder === 'random') return compareRandom(a, b);
             // 'relevance' outside a semantic overlay (stale state from an
             // ended search) behaves like the app default — newest first.
+            // The Stacks-view sorts have their own comparators in
+            // useImageStacking; here (the flat library list) they are likewise
+            // stale state and fall back the same way.
             if (sortOrder === 'relevance') return compareByDateDesc(a, b);
+            if (isStackSizeSort(sortOrder)) return compareByDateDesc(a, b);
             return compareById(a, b);
         });
 
@@ -2658,9 +2679,13 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         setSortOrder: (order) => {
           set(state => ({ ...filterAndSort({ ...state, sortOrder: order }), sortOrder: order }));
-          // Persist to settings — except 'relevance', which is meaningful
-          // only while a semantic search's results are on screen.
-          if (order !== 'relevance') useSettingsStore.getState().setSortOrder(order);
+          // Persist to settings — except the ephemeral sorts, which exist
+          // only while their view/overlay is on screen ('relevance' for
+          // semantic hits, 'stack-desc'/'stack-asc' for the Stacks view).
+          // Persisting one would re-inject it on every launch (App.tsx syncs
+          // settings → store) and leave the Library sort box showing a value
+          // its option list doesn't contain.
+          if (!isEphemeralSort(order)) useSettingsStore.getState().setSortOrder(order);
         },
         
         reshuffle: () => set(state => {
@@ -3922,7 +3947,29 @@ export const useImageStore = create<ImageState>((set, get) => {
             folderScrollPositions: { ...state.folderScrollPositions, [key]: position }
         })),
 
-        setActiveView: (view) => set({ activeView: view }),
+        setActiveView: (view) => set(state => {
+            // 'stack-desc'/'stack-asc' exist only in the Stacks view, so
+            // leaving it restores the durable settings sort — otherwise the
+            // shared sort box would show a value the next view's option list
+            // doesn't contain (a native select renders blank). Done in the
+            // updater rather than by calling get().setSortOrder, which would
+            // nest set() calls, write settings twice and re-fire the sync
+            // subscription below. Guarded on view !== 'smart' because
+            // re-clicking the already-active Stacks tab calls this with
+            // 'smart' and must not wipe the user's selection.
+            if (view !== 'smart' && isStackSizeSort(state.sortOrder)) {
+                const durable: SortOrder = useSettingsStore.getState().sortOrder || 'date-desc';
+                // Defensive: a stack sort can never be persisted, but never
+                // restore *to* one if settings somehow hold it.
+                const restored: SortOrder = isStackSizeSort(durable) ? 'date-desc' : durable;
+                return {
+                    ...filterAndSort({ ...state, sortOrder: restored }),
+                    activeView: view,
+                    sortOrder: restored,
+                };
+            }
+            return { activeView: view };
+        }),
 
         resetState: () => {
             try {
@@ -5543,12 +5590,17 @@ export const useImageStore = create<ImageState>((set, get) => {
 });
 
 // Sync sort order from settings changes (e.g. rehydration or settings UI).
-// 'relevance' is semantic-session-only state (never persisted) — it must
-// NOT be clobbered while a semantic search's hits are on screen; the
-// durable settings sort resumes via clearSemanticSearch's restore.
+// The ephemeral sorts ('relevance' for semantic hits, 'stack-*' for the
+// Stacks view) are never persisted, so settings.sortOrder still holds the
+// durable value while one of them is selected — and this subscription fires
+// on EVERY settings write, not just sortOrder changes. Without the guard,
+// any unrelated write (the Footer's view-mode toggle or size slider, or
+// setStackingEnabled from the Escape key / drill-down back button) would
+// silently reset the sort underneath the user. The durable sort resumes via
+// setActiveView's restore and clearSemanticSearch's instead.
 useSettingsStore.subscribe((state) => {
     const currentSortOrder = useImageStore.getState().sortOrder;
-    if (currentSortOrder === 'relevance') return;
+    if (isEphemeralSort(currentSortOrder)) return;
     if (state.sortOrder && state.sortOrder !== currentSortOrder) {
         useImageStore.getState().setSortOrder(state.sortOrder);
     }

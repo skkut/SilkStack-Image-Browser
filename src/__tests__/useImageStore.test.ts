@@ -1275,3 +1275,74 @@ describe('fetchMainProcessGpuInfo (main-process startup report)', () => {
     expect(useImageStore.getState().detectedGpuInfo).toBeNull();
   });
 });
+
+// ── Ephemeral sort orders ──────────────────────────────────────────────
+// 'relevance' (semantic hits) and 'stack-desc'/'stack-asc' (Stacks view) are
+// scoped to a view/overlay: never persisted, never clobbered by unrelated
+// settings writes, and restored to the durable sort when their view goes away.
+
+describe('useImageStore ephemeral sort orders', () => {
+  // Selecting the sort in the Stacks view — via the store directly so the
+  // test covers the state the UI produces, not the persistence path again.
+  const selectStackSort = () =>
+    useImageStore.setState({ images: [], filteredImages: [], sortOrder: 'stack-desc' });
+
+  it('does not persist a stack-size sort to settings', () => {
+    useSettingsStore.setState({ sortOrder: 'date-desc' });
+    useImageStore.getState().setSortOrder('stack-desc');
+
+    expect(useImageStore.getState().sortOrder).toBe('stack-desc');
+    // The durable value must be untouched: App.tsx syncs settings → store on
+    // startup, so persisting this would re-open the app with a Library sort
+    // box showing a value its option list doesn't contain.
+    expect(useSettingsStore.getState().sortOrder).toBe('date-desc');
+  });
+
+  it('still refuses to persist relevance', () => {
+    useSettingsStore.setState({ sortOrder: 'date-desc' });
+    useImageStore.getState().setSortOrder('relevance');
+
+    expect(useSettingsStore.getState().sortOrder).toBe('date-desc');
+  });
+
+  it('survives an unrelated settings write (the sync subscription must not clobber it)', () => {
+    useSettingsStore.setState({ sortOrder: 'asc' });
+    selectStackSort();
+
+    // The settings→store sync subscription fires on EVERY settings write,
+    // not just sortOrder changes — and the Stacks view writes settings for
+    // the view-mode toggle, the size slider and setStackingEnabled.
+    useSettingsStore.setState({ displayStarredFirst: true });
+
+    expect(useImageStore.getState().sortOrder).toBe('stack-desc');
+  });
+
+  it('restores the durable sort when leaving the Stacks view', () => {
+    useSettingsStore.setState({ sortOrder: 'asc' });
+    selectStackSort();
+
+    useImageStore.getState().setActiveView('library');
+
+    expect(useImageStore.getState().activeView).toBe('library');
+    expect(useImageStore.getState().sortOrder).toBe('asc');
+  });
+
+  it('keeps the stack-size sort when the already-active Stacks tab is re-clicked', () => {
+    useSettingsStore.setState({ sortOrder: 'asc' });
+    selectStackSort();
+
+    // Re-clicking the active tab calls setActiveView('smart') — that must not
+    // be treated as "leaving the view" and wipe the user's selection.
+    useImageStore.getState().setActiveView('smart');
+
+    expect(useImageStore.getState().sortOrder).toBe('stack-desc');
+  });
+
+  it('leaves a durable sort alone when switching views', () => {
+    useImageStore.setState({ sortOrder: 'random' });
+
+    useImageStore.getState().setActiveView('library');
+
+    expect(useImageStore.getState().sortOrder).toBe('random');
+  });
+});

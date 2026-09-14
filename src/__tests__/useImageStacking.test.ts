@@ -318,4 +318,111 @@ describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking H
 
     expect(stacked.map((item: any) => item.id)).toEqual(['2', '1', '3']);
   });
+
+  // ── Stack-size sorts (Stacks view) ───────────────────────────────────
+  // Three stacks of distinct sizes. Sizes must be >= 2: a group of one
+  // image is emitted as a singleton, not a stack, so it would not have a
+  // `count` to sort by.
+  const sizeFixtures = (): IndexedImage[] => [
+    createImage({ id: 's1', name: 'small-1', prompt: 'Small', lastModified: 900, stackGroupId: 'g-small' }),
+    createImage({ id: 's2', name: 'small-2', prompt: 'Small', lastModified: 800, stackGroupId: 'g-small' }),
+    createImage({ id: 'm1', name: 'medium-1', prompt: 'Medium', lastModified: 900, stackGroupId: 'g-medium' }),
+    createImage({ id: 'm2', name: 'medium-2', prompt: 'Medium', lastModified: 800, stackGroupId: 'g-medium' }),
+    createImage({ id: 'm3', name: 'medium-3', prompt: 'Medium', lastModified: 700, stackGroupId: 'g-medium' }),
+    createImage({ id: 'l1', name: 'large-1', prompt: 'Large', lastModified: 900, stackGroupId: 'g-large' }),
+    createImage({ id: 'l2', name: 'large-2', prompt: 'Large', lastModified: 800, stackGroupId: 'g-large' }),
+    createImage({ id: 'l3', name: 'large-3', prompt: 'Large', lastModified: 700, stackGroupId: 'g-large' }),
+    createImage({ id: 'l4', name: 'large-4', prompt: 'Large', lastModified: 600, stackGroupId: 'g-large' }),
+  ];
+
+  it('orders stacks largest-first when sortOrder is stack-desc', () => {
+    useSettingsStore.setState({ displayStarredFirst: false });
+    useImageStore.setState({ sortOrder: 'stack-desc' });
+
+    const { result } = renderHook(() => useImageStacking(sizeFixtures(), true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked.length).toBe(3);
+    expect(stacked.map(s => s.count)).toEqual([4, 3, 2]);
+    // The sort reads the stack, not its cover image: 'large-1' is not first
+    // alphabetically (large < medium < small, so A-Z would invert this).
+    expect(stacked.map(s => s.coverImage.name)).toEqual(['large-1', 'medium-1', 'small-1']);
+  });
+
+  it('orders stacks smallest-first when sortOrder is stack-asc', () => {
+    useSettingsStore.setState({ displayStarredFirst: false });
+    useImageStore.setState({ sortOrder: 'stack-asc' });
+
+    const { result } = renderHook(() => useImageStacking(sizeFixtures(), true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked.map(s => s.count)).toEqual([2, 3, 4]);
+  });
+
+  it('tie-breaks equal-size stacks by cover name, not by input order', () => {
+    useSettingsStore.setState({ displayStarredFirst: false });
+    useImageStore.setState({ sortOrder: 'stack-desc' });
+
+    // Both stacks hold 2 images, so only the tie-break decides. 'Zebra' is
+    // listed FIRST so a `return 0` tie would leave it first and pass a
+    // weaker assertion — the comparator has to actively reorder these.
+    const images: IndexedImage[] = [
+      createImage({ id: 'z1', name: 'Zebra', prompt: 'Zebra', lastModified: 900, stackGroupId: 'g-zebra' }),
+      createImage({ id: 'z2', name: 'zebra-2', prompt: 'Zebra', lastModified: 800, stackGroupId: 'g-zebra' }),
+      createImage({ id: 'a1', name: 'Apple', prompt: 'Apple', lastModified: 900, stackGroupId: 'g-apple' }),
+      createImage({ id: 'a2', name: 'apple-2', prompt: 'Apple', lastModified: 800, stackGroupId: 'g-apple' }),
+    ];
+
+    const { result } = renderHook(() => useImageStacking(images, true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked.map(s => s.count)).toEqual([2, 2]);
+    expect(stacked.map(s => s.coverImage.name)).toEqual(['Apple', 'Zebra']);
+  });
+
+  it('keeps mixed singleton + stack arrays well-formed under a stack-size sort', () => {
+    useSettingsStore.setState({ displayStarredFirst: false });
+    useImageStore.setState({ sortOrder: 'stack-desc' });
+
+    // ImageGrid passes singletons and stacks together. Singletons report a
+    // count of 1, so they must land after every real stack — and crucially
+    // no comparison may produce NaN, which would leave the order undefined.
+    const images: IndexedImage[] = [
+      createImage({ id: 'x1', name: 'lonely', prompt: 'Lonely', lastModified: 500 }),
+      createImage({ id: 'y1', name: 'st-1', prompt: 'Stacked', lastModified: 900, stackGroupId: 'g-stack' }),
+      createImage({ id: 'x2', name: 'lonely-2', prompt: 'Lonely 2', lastModified: 400 }),
+      createImage({ id: 'y2', name: 'st-2', prompt: 'Stacked', lastModified: 800, stackGroupId: 'g-stack' }),
+      createImage({ id: 'x3', name: 'lonely-3', prompt: 'Lonely 3', lastModified: 300 }),
+    ];
+
+    const { result } = renderHook(() => useImageStacking(images, true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked.length).toBe(4); // 5 images collapse into 1 stack + 3 singletons
+    expect(stacked.map(s => ('coverImage' in s ? s.count : 1))).toEqual([2, 1, 1, 1]);
+    const ids = stacked.map(s => ('coverImage' in s ? s.coverImage.id : s.id));
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  it('still floats starred items first under a stack-size sort', () => {
+    useSettingsStore.setState({ displayStarredFirst: true });
+    useImageStore.setState({ sortOrder: 'stack-desc' });
+
+    // The starred stack is the SMALLER one, so starring has to win over size
+    // — the stack-size branch sits after the starred-first block, exactly
+    // like the name/date branches.
+    const images: IndexedImage[] = [
+      createImage({ id: 'b1', name: 'big-1', prompt: 'Big', lastModified: 900, stackGroupId: 'g-big' }),
+      createImage({ id: 'b2', name: 'big-2', prompt: 'Big', lastModified: 800, stackGroupId: 'g-big' }),
+      createImage({ id: 'b3', name: 'big-3', prompt: 'Big', lastModified: 700, stackGroupId: 'g-big' }),
+      createImage({ id: 'f1', name: 'fav-1', prompt: 'Fav', lastModified: 600, stackGroupId: 'g-fav', isFavorite: true }),
+      createImage({ id: 'f2', name: 'fav-2', prompt: 'Fav', lastModified: 500, stackGroupId: 'g-fav' }),
+    ];
+
+    const { result } = renderHook(() => useImageStacking(images, true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked.map(s => s.count)).toEqual([2, 3]);
+    expect(stacked[0].coverImage.name).toBe('fav-1');
+  });
 });

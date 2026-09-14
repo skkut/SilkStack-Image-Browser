@@ -5,6 +5,7 @@ import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw } 
 import { useAiFeaturesEnabled, useAiMasterEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { SortOrder } from '../types';
 
 interface TopMenuBarProps {
     onOpenSettings: (tab?: 'general' | 'hotkeys' | 'about') => void;
@@ -20,7 +21,7 @@ interface TopMenuBarProps {
     hasDirectories?: boolean;
     // Sort Order control — moved here from the sidebar; App.tsx wires the
     // same store values/actions the sidebar used, so behavior is unchanged.
-    sortOrder?: string;
+    sortOrder?: SortOrder;
     onSortOrderChange?: (value: string) => void;
     onReshuffle?: () => void;
     /** True while semantic hits are on screen — shows the "Relevance" option. */
@@ -192,6 +193,15 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                                 <option value="asc">A-Z</option>
                                 <option value="desc">Z-A</option>
                                 <option value="random">Random</option>
+                                {/* Stack-size sorts: only meaningful in the Stacks view,
+                                    where the list is made of stacks. Kept last so the
+                                    option order of the other views is unchanged. */}
+                                {activeView === 'smart' && (
+                                    <>
+                                        <option value="stack-desc">Most Images</option>
+                                        <option value="stack-asc">Fewest Images</option>
+                                    </>
+                                )}
                             </select>
                             <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
                         </div>

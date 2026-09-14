@@ -1166,3 +1166,32 @@ export interface LibraryStackContext {
   basePrompt: string;
   subGroups?: { promptHash: string; prompt: string; label: string; groupKey: string; dimensions?: { label: string; value: string }[]; imageIds: string[] }[]; // Sub-group metadata for drill-down display
 }
+
+/**
+ * Sort orders that are only meaningful while a particular view or overlay is
+ * on screen, and that are therefore NEVER persisted to settings:
+ *
+ * - 'relevance' exists only while a semantic search's hits are on screen.
+ * - 'stack-desc' / 'stack-asc' exist only in the Stacks view, where the sort
+ *   dropdown lists them; they order stacks by ImageStack.count.
+ *
+ * Both are restored to the durable sort when their view/overlay goes away —
+ * see setActiveView and clearSemanticSearch in useImageStore.
+ */
+export type EphemeralSortOrder = 'relevance' | 'stack-desc' | 'stack-asc';
+
+/** Every sort order the image store can hold at runtime. */
+export type SortOrder =
+  | 'asc'
+  | 'desc'
+  | 'date-asc'
+  | 'date-desc'
+  | 'random'
+  | EphemeralSortOrder;
+
+/**
+ * The subset that survives a restart. This is the type of
+ * useSettingsStore.setSortOrder, so an ephemeral value cannot be persisted
+ * through typed code.
+ */
+export type DurableSortOrder = Exclude<SortOrder, EphemeralSortOrder>;

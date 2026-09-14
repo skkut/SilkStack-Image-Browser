@@ -12,7 +12,7 @@ vi.hoisted(() => {
 });
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import Stacks from '../components/SmartLibrary';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -182,5 +182,62 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
     expect(container.querySelector('.context-menu-class')).not.toBeNull();
     fireEvent.click(document.body);
     expect(container.querySelector('.context-menu-class')).toBeNull();
+  });
+});
+
+describe('Stacks view — sort by number of images', () => {
+  // Three stacks of distinct sizes. The mock StackCard renders
+  // "{count} images", so the DOM order of the cards IS the sort result.
+  const mockImages = [
+    { id: 'a1', prompt: 'A', directoryId: 'dir1', lastModified: 900, stackGroupId: 'g-a' },
+    { id: 'a2', prompt: 'A', directoryId: 'dir1', lastModified: 800, stackGroupId: 'g-a' },
+    { id: 'a3', prompt: 'A', directoryId: 'dir1', lastModified: 700, stackGroupId: 'g-a' },
+    { id: 'b1', prompt: 'B', directoryId: 'dir1', lastModified: 900, stackGroupId: 'g-b' },
+    { id: 'b2', prompt: 'B', directoryId: 'dir1', lastModified: 800, stackGroupId: 'g-b' },
+    { id: 'c1', prompt: 'C', directoryId: 'dir1', lastModified: 900, stackGroupId: 'g-c' },
+    { id: 'c2', prompt: 'C', directoryId: 'dir1', lastModified: 800, stackGroupId: 'g-c' },
+    { id: 'c3', prompt: 'C', directoryId: 'dir1', lastModified: 700, stackGroupId: 'g-c' },
+    { id: 'c4', prompt: 'C', directoryId: 'dir1', lastModified: 600, stackGroupId: 'g-c' },
+  ] as any;
+
+  const seed = (sortOrder: 'stack-desc' | 'stack-asc') => {
+    useImageStore.setState({
+      images: mockImages,
+      filteredImages: mockImages,
+      directories: [{ id: 'dir1', path: 'C:/test' }] as any,
+      scanSubfolders: false,
+      sortOrder,
+    });
+    // Stack UI is premium-gated — without a license the cards stay empty.
+    useSettingsStore.setState({
+      licenseStatus: 'valid',
+      licenseKey: 'TEST-KEY',
+      licenseLastValidated: Date.now(),
+      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
+      displayStarredFirst: false,
+    });
+  };
+
+  const cardOrder = async (container: HTMLElement) => {
+    const grid = container.querySelector('#smart-library-grid-container') as HTMLElement;
+    // Suspense: the cards arrive after the lazy module import resolves.
+    await waitFor(() => expect(within(grid).getAllByRole('button')).toHaveLength(3));
+    return within(grid)
+      .getAllByRole('button')
+      .map((b) => b.textContent?.trim());
+  };
+
+  it('shows the largest stack first for stack-desc', async () => {
+    seed('stack-desc');
+    const { container } = render(<Stacks />);
+
+    expect(await cardOrder(container)).toEqual(['4 images', '3 images', '2 images']);
+  });
+
+  it('shows the smallest stack first for stack-asc', async () => {
+    seed('stack-asc');
+    const { container } = render(<Stacks />);
+
+    expect(await cardOrder(container)).toEqual(['2 images', '3 images', '4 images']);
   });
 });
