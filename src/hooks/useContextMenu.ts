@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { type IndexedImage } from '../types';
-import { copyImageToClipboard, showInExplorer, openInNativeViewer, copyFilePathToClipboard } from '../utils/imageUtils';
+import { copyImageToClipboard, showInExplorer, openInNativeViewer } from '../utils/imageUtils';
+import { getImageAbsolutePath, quotePathForClipboard } from '../utils/pathUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 interface ContextMenuState {
@@ -141,22 +142,42 @@ export const useContextMenu = () => {
     copyToClipboardElectron(model, 'Model');
   };
 
+  /**
+   * Resolves this image's real path, or null when nothing usable is available.
+   * Shared by every action that needs a location on disk, so Copy Image Path /
+   * Show in Folder / Open in Native Viewer can never disagree about where the
+   * file is.
+   */
+  const resolvePath = () =>
+    getImageAbsolutePath(contextMenu.image, contextMenu.directoryPath) || null;
+
+  const copyPath = () => {
+    const path = resolvePath();
+    if (!path) {
+      alert('Cannot determine file path: directory path is missing.');
+      return;
+    }
+    copyToClipboardElectron(quotePathForClipboard(path), 'Image Path');
+  };
+
   const showInFolder = () => {
-    if (!contextMenu.image || !contextMenu.directoryPath) {
+    const path = resolvePath();
+    if (!path) {
       alert('Cannot determine file location: directory path is missing.');
       return;
     }
     hideContextMenu();
-    showInExplorer(`${contextMenu.directoryPath}/${contextMenu.image.name}`);
+    showInExplorer(path);
   };
 
   const openWithNativeViewer = () => {
-    if (!contextMenu.image || !contextMenu.directoryPath) {
+    const path = resolvePath();
+    if (!path) {
       alert('Cannot determine file location: directory path is missing.');
       return;
     }
     hideContextMenu();
-    openInNativeViewer(`${contextMenu.directoryPath}/${contextMenu.image.name}`);
+    openInNativeViewer(path);
   };
 
 
@@ -175,6 +196,7 @@ export const useContextMenu = () => {
     copySeed,
     copyImage,
     copyModel,
+    copyPath,
     showInFolder,
     openWithNativeViewer,
     copyRawMetadata

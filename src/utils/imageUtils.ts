@@ -1,4 +1,5 @@
 import { type IndexedImage } from '../types';
+import { getImageAbsolutePath, quotePathForClipboard } from './pathUtils';
 
 // Utility functions for image operations
 
@@ -203,11 +204,21 @@ export const openInNativeViewer = async (imageOrPath: IndexedImage | string): Pr
 };
 
 /**
- * Copies the file path to clipboard
+ * Copies the image's absolute file path to clipboard, enclosed in double
+ * quotes — see `quotePathForClipboard`.
+ *
+ * Path resolution is delegated to `getImageAbsolutePath` so this agrees with
+ * the context menu's Copy Image Path / Show in Folder actions. Callers that
+ * know the image's directory should pass it — without one, resolution falls
+ * back to whatever the image itself carries.
  * @param image - The IndexedImage object containing the file path
+ * @param directoryPath - The image's directory on disk, when known
  * @returns Promise with operation result
  */
-export const copyFilePathToClipboard = async (image: IndexedImage): Promise<OperationResult> => {
+export const copyFilePathToClipboard = async (
+  image: IndexedImage,
+  directoryPath?: string
+): Promise<OperationResult> => {
   try {
     // Ensure document has focus before clipboard operation
     if (document.hidden || !document.hasFocus()) {
@@ -215,36 +226,12 @@ export const copyFilePathToClipboard = async (image: IndexedImage): Promise<Oper
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Determine the path to copy based on environment
-    const isElectron = typeof window !== 'undefined' && (window as any).electronAPI;
-    let pathToCopy: string;
-
-    if (isElectron) {
-      // In Electron, construct full path from directory + relative path
-      let directoryPath = localStorage.getItem('invokeai-electron-directory-path');
-
-      // Try sessionStorage as fallback if localStorage is null
-      if (!directoryPath) {
-        directoryPath = sessionStorage.getItem('invokeai-electron-directory-path');
-      }
-
-      pathToCopy = directoryPath ? `${directoryPath}\\${image.name}` : image.name;
-    } else {
-      // In browser, use relative path
-      pathToCopy = image.id;
+    const filePath = getImageAbsolutePath(image, directoryPath);
+    if (!filePath) {
+      return { success: false, error: 'Could not determine the file path for this image' };
     }
 
-    await navigator.clipboard.writeText(pathToCopy);
-
-    // Show confirmation messages
-    if (isElectron) {
-      // Electron handles its own confirmation
-    } else {
-      // Show additional context if we have directory name
-      if (image.directoryName) {
-        // Browser-specific handling
-      }
-    }
+    await navigator.clipboard.writeText(quotePathForClipboard(filePath));
 
     return { success: true };
   } catch (error) {

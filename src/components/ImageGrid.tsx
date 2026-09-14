@@ -883,6 +883,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     copySeed,
     copyImage,
     copyModel,
+    copyPath,
     showInFolder,
     openWithNativeViewer,
     copyRawMetadata
@@ -1317,6 +1318,14 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
             </button>
 
           <div className="border-t border-gray-600 my-1"></div>
+
+          <button
+            onClick={copyPath}
+            className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+          >
+            <Copy className="w-4 h-4" />
+            Copy Image Path
+          </button>
 
           <button
             onClick={openWithNativeViewer}
