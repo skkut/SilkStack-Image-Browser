@@ -47,6 +47,8 @@ vi.mock('../services/aiBridge', () => ({
     }),
     computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
   }),
+  // Mirrored — full-replacement mock; see src/services/aiBridge.ts.
+  SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

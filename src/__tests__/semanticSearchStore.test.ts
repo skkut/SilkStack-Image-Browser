@@ -58,6 +58,9 @@ vi.mock('../services/aiBridge', () => ({
     }),
     computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
   }),
+  // Mirrored — this mock replaces the whole module, so the store's similarity
+  // phase needs the constant present.
+  SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

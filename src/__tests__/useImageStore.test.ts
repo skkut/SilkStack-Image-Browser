@@ -78,6 +78,9 @@ vi.mock('../services/aiBridge', () => ({
   // Mirrored default tag model — the store resolves '' (fresh install) to
   // this id for worker-reuse comparison.
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
+  // Mirrored similarity bar — read by both the lexical pass and the vector
+  // cluster request. A full-replacement mock must export it.
+  SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

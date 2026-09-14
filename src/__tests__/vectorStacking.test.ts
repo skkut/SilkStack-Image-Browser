@@ -57,13 +57,20 @@ vi.mock('../services/aiBridge', () => ({
     computeSimilarityGroupIds: vi.fn().mockResolvedValue({
       groupIdToSimId: new Map(),
     }),
-    computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
+    // SYNCHRONOUS, and 0 so the lexical pass never merges on its own — these
+    // tests isolate the vector path. A promise-returning mock would be
+    // silently falsy against the `score >= threshold` comparison and read as
+    // "lexical agrees" when it means nothing at all.
+    computePromptSimilarity: vi.fn(() => 0),
   }),
   // Mirrored by the store's enrichment gate — keep in sync with the real
   // constant (src/services/aiBridge.ts). Pre-enriched test annotations carry
   // this version so the auto-tag phase no-ops (no worker spawn, no block).
   SEARCH_ENRICHMENT_VERSION: 2,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
+  // Read by both similarity passes (lexical bar + the vector cluster request)
+  // → a full-replacement mock MUST export it or the round throws.
+  SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({
@@ -373,7 +380,7 @@ describe('vector stacking — similarity version bump (2 → 3)', () => {
     expect(ann.isSimilarityAnalyzed).toBe(false);
     expect(ann.isSemanticIndexed).toBe(true);
     expect(ann.searchTagVersion).toBe(2);
-    expect((global.localStorage as any).getItem('similarityGroupVersion')).toBe('3');
+    expect((global.localStorage as any).getItem('similarityGroupVersion')).toBe('4');
 
     // The post-upgrade round backfills the prompt vector…
     await useImageStore.getState().processPostIndexingPipeline();

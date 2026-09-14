@@ -196,6 +196,23 @@ export const TAG_GENERATION_MODEL_ID = 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC';
 export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';
 
 /**
+ * Prompt-grouping match bar, shared by BOTH similarity signals. Mirrored from
+ * the module (ai-intelligence/src/core/types.ts PROMPT_GROUPING_VECTOR_THRESHOLD
+ * — the source of truth when ai-intelligence is present).
+ *
+ * Two exact-prompt groups join one stack when the LEXICAL hybrid
+ * (0.6·jaccard + 0.4·Levenshtein) OR the VECTOR cosine clears this bar. The
+ * merge is an OR, so vector can only ADD members to a stack — never remove a
+ * lexical match. That invariant is enforced by the candidate-set rule in
+ * computeVectorSimilarityGroups (see useImageStore.ts).
+ *
+ * v4 (2026-09): 0.85 → 0.80 for both signals. Note the lexical prefilter in
+ * hybridSimilarity is derived from this value as (threshold − 0.4) / 0.6 —
+ * change one and the other must follow, or matches silently vanish.
+ */
+export const SIMILARITY_MATCH_THRESHOLD = 0.8;
+
+/**
  * Enrichment version for the auto-tag pass — must match ai-intelligence's
  * SEARCH_ENRICHMENT_VERSION (ai-intelligence/src/modules/llm-tag-generator.ts,
  * the source of truth). Images whose annotation.searchTagVersion !== this
@@ -646,7 +663,13 @@ export interface ISimilarityGroupResult {
 export interface IStackingEngine {
   generatePromptHash(prompt: string): string;
   normalizePrompt(prompt: string): string;
-  computePromptSimilarity(promptA: string, promptB: string): number;
+  /**
+   * Lexical hybrid score (0.6·jaccard + 0.4·Levenshtein) over normalized
+   * prompts. `threshold` tunes only the internal jaccard prefilter — pass the
+   * value you will compare the score against (SIMILARITY_MATCH_THRESHOLD), or
+   * the prefilter can skip a pair that would have cleared your bar.
+   */
+  computePromptSimilarity(promptA: string, promptB: string, threshold?: number): number;
   computeSimilarityGroupIds(input: ISimilarityGroupInput): Promise<ISimilarityGroupResult>;
 }
 

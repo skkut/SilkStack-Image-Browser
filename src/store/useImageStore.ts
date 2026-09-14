@@ -15,7 +15,7 @@ import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
-import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID } from '../services/aiBridge';
+import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID, SIMILARITY_MATCH_THRESHOLD } from '../services/aiBridge';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 import cacheManager from '../services/cacheManager';
@@ -58,7 +58,20 @@ const DETECTED_GPUS_STORAGE_KEY = 'image-metahub-detected-gpus';
 // "new" on the first post-upgrade round — the trigger for the one-time
 // prompt-vector backfill + re-cluster. Trade-off: pre-upgrade manual merges
 // reset (consistent with prior bumps).
-const SIMILARITY_GROUP_VERSION = 3;
+// v4 (2026-09): vector no longer REPLACES lexical. Both signals run in the
+// same round (lexical first, then vector) and a pair stacks when EITHER
+// clears SIMILARITY_MATCH_THRESHOLD, lowered 0.85 → 0.80 — together with the
+// threshold-derived jaccard prefilter in hybridSimilarity, which must change
+// with it. Vector may only ADD members to a stack, never remove a lexical
+// match. The reset is what re-derives the whole partition under the OR rule:
+// with every similarityGroupId cleared, the lexical pass runs in FULL mode
+// and the vector pass then adds on top.
+//
+// ⚠️ This bump is only safe BECAUSE v4 makes the vector branch run lexical
+// too. Bumping the version without that branch change would reset every
+// stack and re-derive the entire partition from the vector signal alone —
+// which is precisely the regression v4 exists to undo.
+const SIMILARITY_GROUP_VERSION = 4;
 const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
 
 // Mirror of NON_LATIN_SCRIPT_RE (ai-intelligence semantic-search.ts — a
@@ -354,12 +367,16 @@ export async function runSemanticIndexNow(options?: { force?: boolean; chunkSize
  *     Phase 2/4 — auto-tagging (AI enrichment, LIBRARY scope)
  *     Phase 3/4 — semantic search indexing (isSemanticIndexed gate +
  *                 textHash/promptHash Δ → semanticVectors + promptVectors)
- *     Phase 4/4 — similarity grouping (VECTOR clustering of prompt
- *                 embeddings — must run AFTER semantic: new images' prompt
- *                 vectors only exist once the pass embeds them)
+ *     Phase 4/4 — similarity grouping, BOTH signals under one label:
+ *                 lexical clustering first, then VECTOR clustering of prompt
+ *                 embeddings on top. Must run AFTER semantic: new images'
+ *                 prompt vectors only exist once the pass embeds them.
+ *                 Lexical first because vector may only ADD merges — the
+ *                 lexical partition is the floor. One phase label keeps the
+ *                 observed phase sequence unchanged.
  *
  *   LEXICAL branch (semantic disabled — byte-for-byte the old order):
- *     Phase 2/4 — similarity grouping (lexical clustering)
+ *     Phase 2/4 — similarity grouping (lexical clustering only)
  *     Phase 3/4 — auto-tagging
  *     Phase 4/4 — semantic search indexing
  *
@@ -405,9 +422,17 @@ export async function runPipelineRound(): Promise<void> {
             store.setPipelinePhase('semantic');
             await runSemanticIndexNow();
 
-            console.log('[Pipeline] Phase 4/4: Similarity grouping (vector clustering)...');
+            // Phase 4 is BOTH signals under one phase label, LEXICAL FIRST.
+            // Vector only ADDS merges on top of the lexical partition — it
+            // never removes a lexical match (the pre-vector behaviour is the
+            // floor, not an alternative). Order is not swappable: the vector
+            // pass consumes the lexical pass's candidate set, and every group
+            // it might merge INTO must already exist. Both run under the same
+            // 'similarity' label so the observed phase sequence is unchanged.
+            console.log('[Pipeline] Phase 4/4: Similarity grouping (lexical, then vector)...');
             store.setPipelinePhase('similarity');
-            await store.computeVectorSimilarityGroups();
+            const lexical = await store.computeSimilarityGroups();
+            await store.computeVectorSimilarityGroups(lexical?.processedStackGroupIds);
         } else {
             // LEXICAL branch — unchanged phase order (stacking → similarity
             // → autoTag → semantic).
@@ -864,14 +889,27 @@ interface ImageState {
   mergeSelectedToStack: () => Promise<void>;
   unmergeSelectedFromStack: () => Promise<void>;
   tryUndo: () => Promise<boolean>;
-  computeSimilarityGroups: () => Promise<void>;
   /**
-   * Vector similarity (prompt-embedding clustering) — the semantic-enabled
-   * branch of computeSimilarityGroups. Backfills prompt vectors once, then
-   * clusters new exact-prompt groups via the coordinator. Falls back to the
-   * lexical action on failure so stacks still form without AI.
+   * LEXICAL similarity pass — the hybrid Jaccard/Levenshtein clustering.
+   * Runs in BOTH pipeline branches (it is no longer the semantic-off
+   * alternative). See the return-value doc on the implementation: it hands
+   * back the exact-prompt groups it considered so the vector pass can build
+   * its candidate set from them.
    */
-  computeVectorSimilarityGroups: () => Promise<void>;
+  computeSimilarityGroups: () => Promise<{ processedStackGroupIds: Set<string> } | undefined>;
+  /**
+   * VECTOR similarity (prompt-embedding clustering) — ADDS merges on top of
+   * the lexical pass, which must have run first this round. Never removes a
+   * lexical match: it only ever writes to a group the lexical pass just
+   * offered AND that is still standalone, so a write can pull a group into a
+   * cluster but never out of one. Falls back to lexical on coordinator
+   * failure so stacks still form without AI.
+   *
+   * @param candidateStackGroupIds Exact-prompt groups the lexical pass
+   *   considered this round (its `processedStackGroupIds`). Omitted → every
+   *   never-analyzed group is a candidate (direct-call behaviour).
+   */
+  computeVectorSimilarityGroups: (candidateStackGroupIds?: ReadonlySet<string>) => Promise<void>;
   processPostIndexingPipeline: () => Promise<void>;
   setFullscreenMode: (isFullscreen: boolean) => void;
 
@@ -4581,7 +4619,9 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         /**
-         * Compute similarity-based groupings from existing exact-match stackGroupIds.
+         * Compute LEXICAL similarity groupings from existing exact-match
+         * stackGroupIds. Runs in BOTH pipeline branches — it is no longer the
+         * semantic-off alternative to the vector pass.
          *
          * INCREMENTAL MODE: When existing similarity groups are already present,
          * only the newly-assigned stackGroupIds are compared against existing
@@ -4589,8 +4629,23 @@ export const useImageStore = create<ImageState>((set, get) => {
          *
          * FULL MODE (first run): When no similarity groups exist yet, delegates
          * to the engine for full token-bucketed Union-Find clustering.
+         *
+         * Returns the exact-prompt groups this run CONSIDERED — Step 0's
+         * `newStackGroupIds`, i.e. groups that had no similarityGroupId when
+         * the pass started (plus any it backfilled a stackGroupId for).
+         *
+         * The vector pass consumes that set as its candidate list. It cannot
+         * recover it from annotations afterwards: once this pass stamps every
+         * group `isSimilarityAnalyzed`, "had no similarity id a moment ago" and
+         * "was already a permanent singleton" become indistinguishable, and
+         * offering the latter would re-offer every single-image group in the
+         * library on every round.
+         *
+         * `undefined` = the pass did not run (premium gate, reentrancy,
+         * annotations not loaded, engine unavailable) — the vector pass then
+         * falls back to its never-analyzed candidate rule.
          */
-        computeSimilarityGroups: async () => {
+        computeSimilarityGroups: async (): Promise<{ processedStackGroupIds: Set<string> } | undefined> => {
             const state = get();
             const { images, annotations } = state;
 
@@ -4599,20 +4654,20 @@ export const useImageStore = create<ImageState>((set, get) => {
             // a "Loading similarity engine..." flash for work that can't run.
             if (!isAiFeaturesEnabled()) {
                 console.log('[SimilarityGroups] Premium not enabled — skipping similarity computation');
-                return;
+                return undefined;
             }
 
             // Prevent concurrent runs (module-level guard — survives state updates)
             if (__similaritySyncInProgress) {
                 __similaritySyncQueued = true;
-                return;
+                return undefined;
             }
 
             // Guard: do not run before annotations are loaded from IndexedDB.
             // Prevents the same race described in syncNewImagesToStacks.
             if (!state.isAnnotationsLoaded) {
                 console.log('[SimilarityGroups] Annotations not yet loaded — deferring');
-                return;
+                return undefined;
             }
 
             __similaritySyncInProgress = true;
@@ -4628,7 +4683,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const engine = await createStackingEngine();
                 if (!engine) {
                     console.log('[Stacks] AI intelligence not available — skipping similarity computation');
-                    return;
+                    return undefined;
                 }
 
                 const { bulkSaveAnnotations } = await import('../services/imageAnnotationsStorage');
@@ -4718,7 +4773,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                 }
 
                 if (newStackGroupIds.size === 0) {
-                    return;
+                    // Nothing new to cluster — but still hand back the (empty)
+                    // candidate set so the vector pass knows this pass RAN and
+                    // found nothing, rather than never having run at all.
+                    return { processedStackGroupIds: newStackGroupIds };
                 }
 
                 // ── Step 1: Build existing similarity group map ──────────
@@ -4790,7 +4848,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                     } else {
                         const result = await engine.computeSimilarityGroupIds({
                             groups: Array.from(allGroups.entries()).map(([groupId, prompt]) => ({ groupId, prompt })),
-                            threshold: 0.85,
+                            threshold: SIMILARITY_MATCH_THRESHOLD,
                             onProgress: reportProgress,
                         });
                         groupIdToSimId = result.groupIdToSimId;
@@ -4819,8 +4877,8 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // Check against ALL prompts in each existing similarity group
                         for (const [simId, prompts] of existingSimGroups) {
                             for (const groupPrompt of prompts) {
-                                const score = engine.computePromptSimilarity(entry.prompt, groupPrompt);
-                                if (score >= 0.85 && score > bestScore) {
+                                const score = engine.computePromptSimilarity(entry.prompt, groupPrompt, SIMILARITY_MATCH_THRESHOLD);
+                                if (score >= SIMILARITY_MATCH_THRESHOLD && score > bestScore) {
                                     bestScore = score;
                                     bestMatch = simId;
                                 }
@@ -4835,8 +4893,8 @@ export const useImageStore = create<ImageState>((set, get) => {
                         for (const [sgId, simId] of groupIdToSimId) {
                             const otherEntry = newEntriesById.get(sgId);
                             if (!otherEntry) continue;
-                            const score = engine.computePromptSimilarity(entry.prompt, otherEntry.prompt);
-                            if (score >= 0.85 && score > bestScore) {
+                            const score = engine.computePromptSimilarity(entry.prompt, otherEntry.prompt, SIMILARITY_MATCH_THRESHOLD);
+                            if (score >= SIMILARITY_MATCH_THRESHOLD && score > bestScore) {
                                 bestScore = score;
                                 bestMatch = simId;
                             }
@@ -4912,9 +4970,12 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                     console.log(`Similarity groups updated: ${newEntries.length} new prompts → ${updatedAnnotations.length} annotations changed`);
                 }
+
+                return { processedStackGroupIds: newStackGroupIds };
             } catch (error) {
                 console.error('Failed to compute similarity groups:', error);
                 reportProgress(0, 0, 'Similarity grouping failed');
+                return undefined;
             } finally {
                 __similaritySyncInProgress = false;
                 if (__similaritySyncQueued) {
@@ -4928,28 +4989,43 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         /**
-         * Vector similarity (pipeline VECTOR branch) — the embedding-based
-         * clustering that replaces lexical matching when semantic search is
-         * enabled. Runs LAST in the vector branch because prompt vectors only
-         * exist after the semantic pass (which embeds them alongside the
-         * searchable text).
+         * Vector similarity — the embedding-based clustering that ADDS merges
+         * ON TOP of the lexical pass. Runs after the semantic pass (prompt
+         * vectors only exist once it has embedded them) and after
+         * `computeSimilarityGroups`, whose candidate set it consumes.
+         *
+         * ⚠️ INVARIANT — vector may only ADD members to a stack, never remove
+         * a lexical match. The pre-vector lexical partition is the floor.
+         * Two rules enforce it:
+         *   • Only STANDALONE groups — sole occupants of their similarity
+         *     bucket — become candidates, whichever arm admits them. An
+         *     already-clustered group is a merge TARGET, never a source:
+         *     offering it would let the module's single best-match target
+         *     repoint it out of its own cluster, i.e. silently split a stack.
+         *     The requirement applies to the never-analyzed arm too — an
+         *     un-analyzed group can still carry a similarity id inherited from
+         *     a partial reset.
+         *   • A write is skipped for any group outside the candidate set, so
+         *     every unconsidered group keeps exactly the id lexical gave it.
+         * Together these make the write provably monotone.
          *
          * Flow:
-         *   1. Collect new groups (deduped by stackGroupId — one vector per
-         *      exact prompt) and existing similarity groups (with members).
+         *   1. Collect candidate groups (deduped by stackGroupId — one vector
+         *      per exact prompt) and existing similarity groups (with members).
          *   2. embedPromptVectors backfills rep vectors — Δ-skipped in steady
          *      state, so a normal round embeds 0 texts.
-         *   3. clusterPromptGroups merges new groups into existing ones by
+         *   3. clusterPromptGroups merges candidates into existing groups by
          *      cosine similarity (union-only: manual merges never split).
-         *   4. Apply similarityGroupId per image in a new group.
+         *   4. Apply similarityGroupId per image in a candidate group.
          *      isSemanticIndexed is deliberately NOT touched — writing a
          *      similarity id is not an index-text write (stamp contract), and
          *      the semantic phase already ran this round.
          *
          * On coordinator/cluster failure the lexical computeSimilarityGroups()
-         * runs instead, so stacks still form without AI embeddings.
+         * is re-run as a safety net; since lexical already ran this round it
+         * typically no-ops, but stacks still form when this is called directly.
          */
-        computeVectorSimilarityGroups: async () => {
+        computeVectorSimilarityGroups: async (candidateStackGroupIds) => {
             // Branch gate: vector clustering only runs when semantic search is
             // fully enabled (master ∧ license ∧ settings pref).
             if (!isSemanticSearchEnabled()) {
@@ -4985,30 +5061,77 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const imagesById = new Map(images.map((img) => [img.id, img]));
 
                 // ── Step 1: collect groups ────────────────────────────────
-                // New groups: images with a stackGroupId never similarity-merged
-                // (dedupe by stackGroupId — the representative image stands for
-                // the group's prompt; the intentional-unstack guard is the
-                // existing "no stackGroupId → skip" rule). Existing groups:
-                // distinct similarityGroupIds among analyzed images.
+                // Candidates: images with a stackGroupId that can still be
+                // merged into a stack (dedupe by stackGroupId — the
+                // representative image stands for the group's prompt; the
+                // intentional-unstack guard is the existing "no stackGroupId
+                // → skip" rule). Everything else is a merge TARGET, bucketed
+                // by the similarity group it already belongs to.
+                //
+                // A group is a candidate when it is standalone AND either:
+                //   • it was never analyzed (direct calls, first round after a
+                //     version bump) — the pre-union rule, preserved so callers
+                //     that pass no candidate set behave exactly as before; or
+                //   • the lexical pass just offered it.
+                // Standalone is REQUIRED for both arms: only a group nobody
+                // else shares an id with can be helped by a vector merge, and
+                // only such a group is safe to offer as a source.
                 reportProgress(0, images.length, 'Collecting prompt groups...');
                 const newGroups: Array<{ groupId: string; prompt: string; representativeImageId: string }> = [];
                 const seenStackIds = new Set<string>();
                 const existingMemberImages = new Map<string, string[]>();
 
+                // How many exact-prompt groups share each similarity bucket. A
+                // group is STANDALONE — a legal merge source — only when it is
+                // alone in its bucket.
+                //
+                // ⚠️ Do NOT test `similarityGroupId === stackGroupId` for this.
+                // The root member of a merged cluster keeps its OWN stackGroupId
+                // as the cluster id (the module's "root member id wins"), so the
+                // root satisfies that equality forever while its siblings do not
+                // — it would be offered as a standalone candidate and the
+                // module's single best-match target could repoint it OUT of its
+                // own cluster, orphaning the siblings. Cardinality is the
+                // property that actually distinguishes merged from standalone.
+                const stackGroupIdsBySimId = new Map<string, Set<string>>();
+                for (const image of images) {
+                    const ann = currentAnnotations.get(image.id);
+                    if (!ann?.stackGroupId) continue;
+                    const bucketId = ann.similarityGroupId ?? ann.stackGroupId;
+                    const sgIds = stackGroupIdsBySimId.get(bucketId);
+                    if (sgIds) sgIds.add(ann.stackGroupId);
+                    else stackGroupIdsBySimId.set(bucketId, new Set([ann.stackGroupId]));
+                }
+
+                const isStandaloneGroup = (sgId: string, simId: string | undefined) =>
+                    (stackGroupIdsBySimId.get(simId ?? sgId)?.size ?? 1) === 1;
+
                 for (const image of images) {
                     const ann = currentAnnotations.get(image.id);
                     if (!ann?.stackGroupId) continue;
 
-                    if (!ann.isSimilarityAnalyzed) {
+                    // A source must be standalone whichever arm admits it: a
+                    // group already sharing a bucket with siblings is a merge
+                    // TARGET, and offering it back is the split described above.
+                    const isCandidate = (!ann.isSimilarityAnalyzed
+                            || (!!candidateStackGroupIds && candidateStackGroupIds.has(ann.stackGroupId)))
+                        && isStandaloneGroup(ann.stackGroupId, ann.similarityGroupId);
+
+                    if (isCandidate) {
                         if (seenStackIds.has(ann.stackGroupId)) continue;
                         seenStackIds.add(ann.stackGroupId);
                         const prompt = resolveImagePrompt(image).trim();
                         if (!prompt) continue;
                         newGroups.push({ groupId: ann.stackGroupId, prompt, representativeImageId: image.id });
-                    } else if (ann.similarityGroupId) {
-                        const members = existingMemberImages.get(ann.similarityGroupId);
+                    } else {
+                        // `?? stackGroupId` matters: an analyzed group that was
+                        // backfilled a stackGroupId but never got a similarity
+                        // id still forms its own target bucket rather than
+                        // being dropped from the existing-group set.
+                        const targetId = ann.similarityGroupId ?? ann.stackGroupId;
+                        const members = existingMemberImages.get(targetId);
                         if (members) members.push(image.id);
-                        else existingMemberImages.set(ann.similarityGroupId, [image.id]);
+                        else existingMemberImages.set(targetId, [image.id]);
                     }
                 }
 
@@ -5049,23 +5172,33 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const result = await coordinator.clusterPromptGroups({
                     newGroups,
                     existingGroups,
+                    // Same bar as the lexical signal — the two are OR-ed, so a
+                    // pair need only clear ONE of them. Passing it explicitly
+                    // keeps the app independent of the module's default.
+                    threshold: SIMILARITY_MATCH_THRESHOLD,
                     onProgress: (p) => reportProgress(p.current, p.total, p.message ?? 'Clustering prompt groups...'),
                 });
 
                 // ── Step 4: apply similarityGroupId per image ─────────────
-                // Images whose group the module dropped (no usable vector)
-                // self-assign their stackGroupId — the caller-side default
-                // documented on the coordinator boundary.
+                // ONLY the candidate groups collected in Step 1 are written.
+                // Every other group keeps exactly the similarityGroupId the
+                // lexical pass gave it — that is the "vector may only add"
+                // invariant, enforced here rather than trusted upstream.
+                //
+                // A candidate the module omitted (no usable vector, or a
+                // model/dimension mismatch) keeps its current id instead of
+                // being self-assigned; it still converges (isSimilarityAnalyzed
+                // is stamped either way) rather than being re-embedded forever.
                 const now = Date.now();
                 const updatedAnnotations: ImageAnnotations[] = [];
 
                 for (const [imageId, annotation] of currentAnnotations) {
                     const sgId = annotation.stackGroupId;
-                    if (!sgId || annotation.isSimilarityAnalyzed) continue;
+                    if (!sgId || !seenStackIds.has(sgId)) continue;
 
                     const simId = result.groupIdToSimId.get(sgId);
-                    const targetId = simId || sgId;
-                    if (annotation.similarityGroupId !== targetId) {
+                    const targetId = simId || annotation.similarityGroupId || sgId;
+                    if (annotation.similarityGroupId !== targetId || !annotation.isSimilarityAnalyzed) {
                         updatedAnnotations.push({
                             ...annotation,
                             similarityGroupId: targetId,
@@ -5115,7 +5248,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (error) {
                 console.error('Failed to compute vector similarity groups:', error);
                 reportProgress(0, 0, 'Vector clustering failed');
-                // Lexical fallback — stacks still form without AI embeddings.
+                // Lexical safety net — stacks still form without AI embeddings.
+                // In the pipeline this re-entry normally no-ops: lexical already
+                // ran this round and the store's in-progress/late-exit guards
+                // short-circuit it. It still matters for DIRECT callers, which
+                // have no lexical pass behind them.
                 console.log('[VectorSimilarity] Falling back to lexical similarity computation');
                 await get().computeSimilarityGroups();
             } finally {

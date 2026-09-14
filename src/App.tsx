@@ -31,6 +31,7 @@ import ImageTable from './components/ImageTable';
 import SimilarityStackExpandedView from './components/SimilarityStackExpandedViewWrapper';
 
 import { normalizePath } from './utils/pathUtils';
+import { clearStackingState } from './utils/stackingReset';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
 import { processingQueue } from './services/processingQueue';
@@ -267,10 +268,10 @@ export default function App() {
       });
       let count = 0;
       for (const ann of all) {
-        if (ann.stackGroupId || ann.similarityGroupId || ann.isStackAnalyzed) {
-          ann.stackGroupId = undefined;
-          ann.similarityGroupId = undefined;
-          ann.isStackAnalyzed = false;
+        // Clears all FOUR stacking/similarity fields — including
+        // isSimilarityAnalyzed, which this helper used to leave behind. See
+        // src/utils/stackingReset.ts for why the stale flag matters.
+        if (clearStackingState(ann)) {
           store.put(ann);
           count++;
         }

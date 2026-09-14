@@ -14,9 +14,11 @@
  * Contents:
  * - Prompt normalization, tokenization and FNV-1a hashing for exact-match
  *   grouping (sync, main thread)
- * - Hybrid Jaccard/Levenshtein similarity with the 0.75 jaccard prefilter
+ * - Hybrid Jaccard/Levenshtein similarity with a threshold-derived jaccard
+ *   prefilter ((threshold − 0.4) / 0.6 — 0.75 for the 0.85 default)
  * - The self-contained Web Worker script string that clusters O(n²) pairs
- *   off the main thread (token bucketing, union-find, 0.85 threshold)
+ *   off the main thread (token bucketing, union-find, caller-supplied
+ *   threshold — default 0.85)
  *
  * Pure computation only — no persistence, no state management, no I/O.
  */
@@ -55,8 +57,9 @@ function normalizedLevenshtein(str1: string, str2: string): number {
   // Guard: the O(len²) DP matrix for very long prompts can exhaust worker
   // memory and kill the worker SILENTLY (no onerror → a promise that hangs
   // forever). Above 4M cells the component clamps to 0: the pair then scores
-  // 0.6·jaccard < 0.85 and can never merge, which the jaccard prefilter in
-  // hybridSimilarity would also have excluded for j < 0.75.
+  // 0.6·jaccard, which clears the match bar only when jaccard ≥ 0.667 — and
+  // such a pair is itself shorter than 4M cells in nearly every case, so the
+  // DP runs. The clamp only ever loses the rare long-pair high-jaccard match.
   if (str1.length * str2.length > 4_000_000) return 0.0;
   const distance = levenshteinDistance(str1, str2);
   const maxLen = Math.max(str1.length, str2.length);
@@ -101,15 +104,20 @@ export function jaccardSimilarity(str1: string, str2: string): number {
   return intersection.size / union.size;
 }
 
-export function hybridSimilarity(str1: string, str2: string): number {
+export function hybridSimilarity(str1: string, str2: string, threshold: number = 0.85): number {
   const jaccard = jaccardSimilarity(str1, str2);
-  // Exact prefilter: hybrid = 0.6·jaccard + 0.4·levenshtein, and the
-  // levenshtein component is ≤ 1, so a score ≥ 0.85 REQUIRES
-  // jaccard ≥ 0.75. Below that the O(len²) DP cannot change any threshold
-  // decision — return the lower bound 0.6·jaccard (always < 0.85) and skip
-  // the DP entirely. This keeps the return value strictly below the match
-  // threshold, so clustering results are identical to the full formula.
-  if (jaccard < 0.75) return jaccard * 0.6;
+  // Exact prefilter, generalized over the threshold: hybrid =
+  // 0.6·jaccard + 0.4·levenshtein and levenshtein ≤ 1, so a score ≥ threshold
+  // REQUIRES jaccard ≥ (threshold − 0.4) / 0.6. Below that the O(len²) DP
+  // cannot change any threshold decision — return the lower bound 0.6·jaccard
+  // (< threshold) and skip the DP entirely. This keeps the return value below
+  // the match threshold, so results are identical to the full formula.
+  //
+  // The constant is DERIVED, never hard-coded: 0.75 for the 0.85 default,
+  // 0.667 for 0.80. Pinning it at 0.75 while matching at 0.80 would silently
+  // drop pairs in jaccard ∈ [0.667, 0.75) that clear the bar on Levenshtein.
+  const minJaccard = (threshold - 0.4) / 0.6;
+  if (jaccard < minJaccard) return jaccard * 0.6;
   const levenshtein = normalizedLevenshtein(str1, str2);
   return jaccard * 0.6 + levenshtein * 0.4;
 }
@@ -259,12 +267,14 @@ function jaccardSimilarity(str1, str2) {
   return intersection / union.size;
 }
 
-function hybridSimilarity(str1, str2) {
+function hybridSimilarity(str1, str2, threshold) {
   var j = jaccardSimilarity(str1, str2);
-  // Exact prefilter (same as the main-thread twin): the levenshtein
-  // component is <= 1, so score >= 0.85 requires j >= 0.75. Below that the
-  // O(len²) DP cannot change any threshold decision - skip it.
-  if (j < 0.75) return j * 0.6;
+  // Exact prefilter (same as the main-thread twin), derived from the
+  // threshold: the levenshtein component is <= 1, so score >= threshold
+  // requires j >= (threshold - 0.4) / 0.6. Below that the O(len²) DP cannot
+  // change any threshold decision - skip it.
+  var minJaccard = (threshold - 0.4) / 0.6;
+  if (j < minJaccard) return j * 0.6;
   return j * 0.6 + normalizedLevenshtein(str1, str2) * 0.4;
 }
 
@@ -343,7 +353,7 @@ self.onmessage = function(e) {
       for (var c = a + 1; c < bucket.length; c++) {
         var idxA = bucket[a], idxB = bucket[c];
         if (find(idxA) === find(idxB)) { cmpCount++; continue; }
-        var score = hybridSimilarity(entries[idxA].prompt, entries[idxB].prompt);
+        var score = hybridSimilarity(entries[idxA].prompt, entries[idxB].prompt, threshold);
         if (score >= threshold) union(idxA, idxB);
         cmpCount++;
         if (cmpCount - lastProgress >= PROGRESS_EVERY || Date.now() - lastPostTime >= 1000) {

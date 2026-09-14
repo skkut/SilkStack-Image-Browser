@@ -76,6 +76,9 @@ vi.mock('../services/aiBridge', () => ({
   // this version so a second auto-tag pass no-ops.
   SEARCH_ENRICHMENT_VERSION: 2,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
+  // Mirrored too — a full-replacement mock must export every constant the
+  // store reads at runtime, or the similarity phase throws mid-round.
+  SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

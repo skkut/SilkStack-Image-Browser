@@ -5,7 +5,7 @@ import {
   type SemanticSearchStatus,
   type PromptVectorSearchHit,
 } from '../services/semanticSearchEngine';
-import { getAiLoadError, isAiAvailable } from '../services/aiBridge';
+import { getAiLoadError, isAiAvailable, SIMILARITY_MATCH_THRESHOLD } from '../services/aiBridge';
 import { extractRawMetadataFromFile } from '../services/fileIndexer';
 
 /**
@@ -49,12 +49,14 @@ const COMPARE_PRESETS = [
 ];
 
 /**
- * The pre-vector grouping engine merged prompts when hybridSimilarity
- * (0.6·jaccard + 0.4·Levenshtein) ≥ 0.85 — the same 0.85 the vector engine
- * defaults to (stacking-similarity.ts: "union-find, 0.85 threshold"). Fixed:
- * the lexical engine had no cross-lingual relaxation.
+ * The lexical engine merges prompts when hybridSimilarity
+ * (0.6·jaccard + 0.4·Levenshtein) clears the shared bar. Reads
+ * SIMILARITY_MATCH_THRESHOLD so this instrument can never judge a pair at a
+ * different bar than the pipeline does — the two signals are OR-ed, and the
+ * vector engine's own default is pinned to the same value. The lexical engine
+ * has no cross-lingual relaxation, unlike the vector one.
  */
-const LEXICAL_MATCH_THRESHOLD = 0.85;
+const LEXICAL_MATCH_THRESHOLD = SIMILARITY_MATCH_THRESHOLD;
 
 /** Full-res file reads for previews are expensive — cap how many hits get one. */
 const MAX_RESULT_PREVIEWS = 50;
@@ -128,7 +130,7 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 /** Fallbacks for the module stash — only ever matter if an export is dropped. */
 const FALLBACK_NORMALIZE = (p: string): string => p.trim().replace(/\s+/g, ' ');
 const FALLBACK_HASH = (p: string): string => p;
-const FALLBACK_RESOLVE_THRESHOLD = (): number => 0.85;
+const FALLBACK_RESOLVE_THRESHOLD = (): number => SIMILARITY_MATCH_THRESHOLD;
 const FALLBACK_COSINE = (a: Float32Array, b: Float32Array): number => {
   let s = 0;
   const n = Math.min(a.length, b.length);
@@ -160,13 +162,14 @@ interface VectorModuleConsts {
   /** Dot product over L2-normalized vectors (the module's similarity). */
   cosineSimilarity: (a: Float32Array, b: Float32Array) => number;
   /**
-   * The pre-vector grouping engine's hybrid score (0.6·jaccard + 0.4·
-   * normalized Levenshtein — the app's retired lexical metric, still
-   * exported). null only when the export is absent; the UI hides the
-   * lexical line then rather than reimplementing MPL-covered logic
-   * app-side.
+   * The lexical engine's hybrid score (0.6·jaccard + 0.4·normalized
+   * Levenshtein). The third argument only tunes the internal jaccard
+   * prefilter — pass the bar the score will be compared against, or the
+   * prefilter can skip a pair that would have cleared it. null only when the
+   * export is absent; the UI hides the lexical line then rather than
+   * reimplementing MPL-covered logic app-side.
    */
-  hybridSimilarity: ((a: string, b: string) => number) | null;
+  hybridSimilarity: ((a: string, b: string, threshold?: number) => number) | null;
 }
 
 /** One file entry from listDirectoryFiles (recursive: name = subfolder-relative path). */
@@ -576,10 +579,14 @@ export default function DevVectorSimilarityTester() {
       }
       const cosine = stash?.cosineSimilarity ?? FALLBACK_COSINE;
       const score = cosine(va, vb);
-      // Alternate, non-AI score over the SAME normalized text: the retired
-      // pre-vector engine's hybrid (jaccard + Levenshtein), judged against
-      // its own fixed 0.85 — the comparison the vector engine replaced.
-      const lexicalScore = stash?.hybridSimilarity ? stash.hybridSimilarity(a, b) : null;
+      // Alternate, non-AI score over the SAME normalized text: the lexical
+      // engine's hybrid (jaccard + Levenshtein). It runs alongside the vector
+      // signal in the pipeline and the two are OR-ed, so its verdict is
+      // "would the lexical half of the OR have merged this?" — judged against
+      // LEXICAL_MATCH_THRESHOLD (the shared bar), with no cross-lingual relief.
+      const lexicalScore = stash?.hybridSimilarity
+        ? stash.hybridSimilarity(a, b, LEXICAL_MATCH_THRESHOLD)
+        : null;
       const resolve = stash?.resolvePromptGroupingThreshold ?? FALLBACK_RESOLVE_THRESHOLD;
       const thresholdUsed = resolve(status?.modelId);
       const nonLatinRe = stash?.NON_LATIN_SCRIPT_RE ?? FALLBACK_NON_LATIN_RE;
@@ -1118,10 +1125,12 @@ export default function DevVectorSimilarityTester() {
                   </span>
                 </div>
 
-                {/* Row 2: the alternate non-AI score — the retired lexical
-                    grouping engine's own metric (0.6·jaccard + 0.4·
-                    Levenshtein) over the same normalized text, judged against
-                    its fixed 0.85 (no cross-lingual relaxation existed). */}
+                {/* Row 2: the alternate non-AI score — the lexical grouping
+                    engine's metric (0.6·jaccard + 0.4·Levenshtein) over the
+                    same normalized text, judged against the shared match bar.
+                    Both signals run in the pipeline and are OR-ed, so either
+                    row passing means the pair stacks. The lexical side has no
+                    cross-lingual relaxation. */}
                 {compareResult.lexicalScore !== null && (
                   <div className="flex items-baseline gap-2">
                     <span className="text-gray-500 shrink-0 w-28">lexical (non-AI)</span>
