@@ -1164,18 +1164,23 @@ function setupFileOperationHandlers() {
         );
       }
 
-      // A compact window has exactly one shape, so a maximise has no meaning —
-      // and it is easy to trigger by accident, because the 32px drag bar
-      // double-clicks into a maximise and dragging the frame to the top of the
-      // screen does the same. Refuse it rather than trying to read it: as a
-      // window size, a maximised frame says "much bigger than the fit", and a
-      // feature that remembers how big the user wants the window would believe
-      // it — pinning every later image to the work area with no way back down.
+      // A compact window is shaped to its image, so "fill the screen" cannot be
+      // honoured literally — but it is a real request, and both ways of making it
+      // (the title-bar button, a double-click on the 32px drag bar) land here.
+      // It becomes the compact equivalent: as large as this display allows for
+      // this image, which is the fit at 1. The viewer owns the fit and the
+      // remembered size, so it re-applies — and its re-apply is what unmaximises
+      // the frame, in the same step as the resize, so the window goes straight
+      // from full screen to the large compact frame. Restoring the previous size
+      // here instead would show that shape as an extra beat, and could leave the
+      // window and the remembered size disagreeing if anything went wrong
+      // between the two.
       viewerWindow.on("maximize", () => {
         if (!viewerCompactWindows.has(windowId)) return;
-        // Deferred: restoring from inside the handler fights the native
-        // transition that is still in flight, and can be dropped.
-        setImmediate(() => {
+        viewerWindow.webContents.send("viewer-compact-fill-screen");
+        // Backstop for a viewer that cannot answer — it should never be left
+        // maximised, since a maximised frame cannot be resized at all.
+        setTimeout(() => {
           if (
             !viewerWindow.isDestroyed() &&
             viewerCompactWindows.has(windowId) &&
@@ -1183,7 +1188,7 @@ function setupFileOperationHandlers() {
           ) {
             viewerWindow.unmaximize();
           }
-        });
+        }, 250);
       });
 
       // Load the same app with a query parameter

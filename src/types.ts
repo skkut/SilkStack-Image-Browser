@@ -348,6 +348,13 @@ export interface ElectronAPI {
   onImageViewerClosed: (
     callback: (payload: { windowId?: number }) => void,
   ) => () => void;
+  /**
+   * The user asked the OS to maximise a compact viewer window — the title-bar
+   * button, or a double-click on the drag bar. A window shaped to its image
+   * cannot fill the screen, so the main process converts the gesture into the
+   * compact equivalent and tells the viewer to re-apply at its maximum.
+   */
+  onViewerCompactFillScreen: (callback: () => void) => () => void;
   sendImageViewerUpdate: (data: {
     windowId?: number;
     image?: any;

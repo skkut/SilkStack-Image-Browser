@@ -238,6 +238,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('image-viewer-closed', handler);
     };
   },
+  onViewerCompactFillScreen: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('viewer-compact-fill-screen', handler);
+    return () => {
+      ipcRenderer.removeListener('viewer-compact-fill-screen', handler);
+    };
+  },
   sendImageViewerUpdate: (data) => ipcRenderer.send('image-viewer-update-from-main', data),
 });
 

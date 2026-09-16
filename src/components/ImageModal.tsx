@@ -1071,6 +1071,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // see why a size was sent.
   const compactFitKeyRef = useRef<string | null>(null);
 
+  // Bumped when the user asks the OS to maximise the compact window. It is a
+  // request to re-apply at the maximum, not merely to change the remembered
+  // size: at the maximum already, the size is unchanged, and the window still
+  // has to be brought back out of its maximised state.
+  const [compactFillRequest, setCompactFillRequest] = useState(0);
+
+  useEffect(() => {
+    if (!isStandaloneWindow || !isCompactMode) return;
+    // The main process converts the OS's fill-the-screen gesture into this,
+    // because a window shaped to its image has no screen-filling shape.
+    return window.electronAPI?.onViewerCompactFillScreen?.(() => {
+      setCompactUserScale(1);
+      setCompactFillRequest((n) => n + 1);
+    });
+  }, [isStandaloneWindow, isCompactMode]);
+
   // Reshape the window whenever the image, the mode, or the fullscreen state
   // changes. Re-running on `image.id` is what makes next/previous re-fit.
   useEffect(() => {
@@ -1117,6 +1133,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     naturalWidth,
     naturalHeight,
     compactUserScale,
+    compactFillRequest,
     image.id,
   ]);
 

@@ -69,6 +69,9 @@ const stored = (key: string) => (global.localStorage as any).__store.get(key);
 
 const setViewerCompactMode = vi.fn().mockResolvedValue({ success: true });
 
+/** The viewer's subscription to the main process's fill-screen request. */
+let fillScreenCallback: (() => void) | null = null;
+
 /** Stand-in for the work area the renderer reads off `window.screen`. */
 const setScreen = (width: number, height: number) => {
   Object.defineProperty(window.screen, 'availWidth', {
@@ -89,6 +92,7 @@ const setWindowSize = (width: number, height: number) => {
 
 beforeEach(() => {
   setViewerCompactMode.mockClear();
+  fillScreenCallback = null;
   (global.localStorage as any).__store.clear();
 
   // Pin the work area so the expected window size is deterministic. jsdom
@@ -102,6 +106,14 @@ beforeEach(() => {
     toggleFullscreen: vi.fn().mockResolvedValue({ success: true, isFullscreen: true }),
     joinPaths: vi.fn().mockResolvedValue({ success: false }),
     readFile: vi.fn().mockResolvedValue({ success: false }),
+    // Same subscribe-and-return-a-cleanup shape as the real preload, so the
+    // component's effect registers and unregisters exactly as it would there.
+    onViewerCompactFillScreen: (callback: () => void) => {
+      fillScreenCallback = callback;
+      return () => {
+        fillScreenCallback = null;
+      };
+    },
   };
 });
 
@@ -492,5 +504,116 @@ describe('ImageModal compact mode — user-resized windows', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('ImageModal compact mode — the maximise gesture', () => {
+  it('takes it as "as large as this image can be"', () => {
+    global.localStorage.setItem(COMPACT_MODE_STORAGE_KEY, 'true');
+    global.localStorage.setItem(COMPACT_SCALE_STORAGE_KEY, '0.5');
+
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+
+    // Opens at the remembered half size.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
+      enabled: true,
+      contentWidth: 508,
+      contentHeight: 294,
+      anchor: 'center',
+    });
+
+    // The main process converts the OS's fill-the-screen gesture into this,
+    // because a window shaped to its image has no screen-filling shape to be
+    // given: the largest it can honestly be is the fit at scale 1.
+    act(() => {
+      fillScreenCallback?.();
+    });
+
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
+      enabled: true,
+      contentWidth: 1000,
+      contentHeight: 540,
+      anchor: 'keep',
+    });
+    // The reduction is forgotten, not multiplied — so the next image opens at
+    // its own maximum rather than at half of it.
+    expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
+  });
+
+  it('re-applies the fit even when the preference is already 1', () => {
+    global.localStorage.setItem(COMPACT_MODE_STORAGE_KEY, 'true');
+
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    expect(setViewerCompactMode).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      fillScreenCallback?.();
+    });
+
+    // Setting a scale that is already 1 changes no state, so React would bail
+    // out of the update and the window would sit maximised until the main
+    // process's backstop unmaximised it. The request counter is what forces the
+    // re-apply that unmaximises *and* restores the image's shape in one step.
+    expect(setViewerCompactMode).toHaveBeenCalledTimes(2);
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
+      enabled: true,
+      contentWidth: 1000,
+      contentHeight: 540,
+      anchor: 'keep',
+    });
+  });
+
+  it('subscribes only while compact, and only in the viewer window', () => {
+    const subscribe = vi.fn(() => () => {});
+    window.electronAPI!.onViewerCompactFillScreen = subscribe;
+
+    // The browser-hosted modal has no compact toggle and no window to fill.
+    const browserModal = render(
+      <ImageModal image={makeImage({ dimensions: '1000x500' })} onClose={() => {}} />,
+    );
+    expect(subscribe).not.toHaveBeenCalled();
+    browserModal.unmount();
+
+    const { rerender } = render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    // Not compact yet, so there is nothing the gesture could apply to.
+    expect(subscribe).not.toHaveBeenCalled();
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    expect(subscribe).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ImageModal
+        image={makeImage({ id: 'dir::b.png', dimensions: '500x1000' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+        currentIndex={1}
+        totalImages={2}
+        onNavigateNext={() => {}}
+        onNavigatePrevious={() => {}}
+      />,
+    );
+    // Navigating re-shapes the window but does not touch the subscription, so
+    // the listener survives rather than being torn down and rebuilt per image.
+    expect(subscribe).toHaveBeenCalledTimes(1);
   });
 });
