@@ -209,6 +209,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   imageViewerAction: (action) => ipcRenderer.send('image-viewer-action', action),
   imageViewerClose: () => ipcRenderer.send('image-viewer-close'),
   imageViewerReady: () => ipcRenderer.send('image-viewer-ready'),
+  setViewerCompactMode: (payload) => ipcRenderer.invoke('set-viewer-compact-mode', payload),
   onImageViewerUpdate: (callback) => {
     const handler = (event, ...args) => callback(...args);
     ipcRenderer.on('image-viewer-update', handler);

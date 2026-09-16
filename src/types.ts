@@ -291,6 +291,11 @@ export interface ElectronAPI {
     currentIndex: number;
     totalImages: number;
     imageList?: any[]; // Serialized snapshot of the current filtered image list
+    /** Open directly in compact mode (remembered preference). */
+    compact?: boolean;
+    /** Precomputed compact content size, so the window is sized before it shows. */
+    compactContentWidth?: number;
+    compactContentHeight?: number;
   }) => Promise<{ success: boolean; windowId?: number; error?: string }>;
   imageViewerNavigate: (direction: 'next' | 'previous') => void;
   imageViewerAction: (action: {
@@ -301,6 +306,16 @@ export interface ElectronAPI {
   }) => void;
   imageViewerClose: () => void;
   imageViewerReady: () => void;
+  /**
+   * Toggle the viewer's compact ("frame the image") mode. `contentWidth` /
+   * `contentHeight` describe the web-page area (not the outer window) and are
+   * only meaningful when `enabled` is true.
+   */
+  setViewerCompactMode: (payload: {
+    enabled: boolean;
+    contentWidth?: number;
+    contentHeight?: number;
+  }) => Promise<{ success: boolean; isCompact?: boolean; error?: string }>;
   onImageViewerUpdate: (
     callback: (data: {
       image?: any;

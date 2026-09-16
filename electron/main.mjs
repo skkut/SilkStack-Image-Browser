@@ -224,6 +224,78 @@ let devToolsWindow = null;
 const pendingViewerData = new Map();
 let skippedVersions = new Set();
 
+// --- Image viewer "compact" (frame-the-image) mode ---
+// Normal-mode floor for viewer windows. Compact mode legitimately produces
+// much smaller windows, so it temporarily swaps in the COMPACT_MIN_* pair.
+const VIEWER_MIN_WIDTH = 800;
+const VIEWER_MIN_HEIGHT = 600;
+// The compact floor is set by the viewer's top bar, not by the image: below
+// ~240px its buttons would slide under the OS-drawn window controls. Extreme
+// aspect ratios letterbox slightly rather than clipping the chrome.
+const COMPACT_MIN_WIDTH = 240;
+const COMPACT_MIN_HEIGHT = 160;
+// Viewer windowIds currently shaping themselves to the image
+const viewerCompactWindows = new Set();
+// windowId -> { bounds, wasMaximized } captured on first entry into compact mode,
+// so leaving the mode returns the window exactly where it was.
+const viewerCompactRestore = new Map();
+
+/**
+ * Sizes a viewer window to an exact content area, anchored to its top-left
+ * corner.
+ *
+ * Anchoring rather than centring is what stops the window wandering: the frame
+ * is rounded to whole physical pixels, so setContentSize can land a couple of
+ * DIPs off the requested size, and re-centring turns every one of those into a
+ * visible position shift. With a fixed corner, an image of the same aspect
+ * ratio leaves the window exactly where it was. The corner moves only when the
+ * new size would otherwise push the window off the display.
+ *
+ * @param {BrowserWindow} win
+ * @param {number} contentWidth
+ * @param {number} contentHeight
+ * @param {{x:number,y:number,width:number,height:number}} workArea
+ */
+function applyViewerContentSize(win, contentWidth, contentHeight, workArea) {
+  // The drag bar is a `-webkit-app-region: drag` strip, so double-clicking it
+  // maximises the window on Windows. setContentSize is a no-op while maximised,
+  // which would silently wedge every later resize — so leave that state first.
+  if (win.isMaximized()) {
+    win.unmaximize();
+  }
+
+  const before = win.getBounds();
+
+  // setContentSize measures the web-page area, so the image keeps its exact
+  // aspect ratio regardless of the title-bar overlay the frame adds.
+  win.setContentSize(contentWidth, contentHeight);
+
+  const after = win.getBounds();
+  let x = before.x;
+  let y = before.y;
+
+  // Clamp against the size we *asked* for, not the size the OS reports back:
+  // the frame is rounded to whole physical pixels, so identical requests come
+  // back a couple of DIPs apart. For a window that nearly fills the display,
+  // that noise flips it between "fits where it is" and "does not fit", which
+  // made the window jump when the next image was loaded. The requested size is
+  // deterministic, so the corner only ever moves for a real reason.
+  const outerWidth = contentWidth;
+  const outerHeight = contentHeight;
+
+  // Clamp back onto the display if growing pushed a corner off-screen.
+  if (workArea) {
+    const maxX = Math.max(workArea.x, workArea.x + workArea.width - outerWidth);
+    const maxY = Math.max(workArea.y, workArea.y + workArea.height - outerHeight);
+    x = Math.min(Math.max(x, workArea.x), maxX);
+    y = Math.min(Math.max(y, workArea.y), maxY);
+  }
+
+  if (x !== after.x || y !== after.y) {
+    win.setBounds({ x, y, width: after.width, height: after.height });
+  }
+}
+
 /**
  * setupFullscreenHandlers - Tracks fullscreen state changes and notifies renderer.
  * These events work on macOS, Windows, and Linux.
@@ -925,8 +997,8 @@ function setupFileOperationHandlers() {
         y: baseY,
         width: windowState.width || defaultWidth,
         height: windowState.height || defaultHeight,
-        minWidth: 800,
-        minHeight: 600,
+        minWidth: VIEWER_MIN_WIDTH,
+        minHeight: VIEWER_MIN_HEIGHT,
         backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
         icon: getIconPath(),
         webPreferences: {
@@ -969,8 +1041,37 @@ function setupFileOperationHandlers() {
         }
       }
 
-      if (windowState.isMaximized && imageViewerWindows.size === 1) {
+      if (windowState.isMaximized && imageViewerWindows.size === 1 && !data?.compact) {
         viewerWindow.maximize();
+      }
+
+      // A remembered compact mode sizes the window before it is ever shown, so
+      // there is no flash of a large empty frame. The renderer computes the
+      // size (it owns the layout constants) and re-applies it authoritatively
+      // once the real image dimensions are known.
+      const initialCompactWidth = Math.round(data?.compactContentWidth ?? 0);
+      const initialCompactHeight = Math.round(data?.compactContentHeight ?? 0);
+      if (
+        data?.compact &&
+        initialCompactWidth > 0 &&
+        initialCompactHeight > 0
+      ) {
+        viewerCompactWindows.add(windowId);
+        // wasMaximized is false on purpose: we deliberately skipped the
+        // maximise above, and re-saving `true` would make every later window
+        // open maximised only to be immediately reshaped — a visible flash.
+        viewerCompactRestore.set(windowId, {
+          bounds: viewerWindow.getBounds(),
+          wasMaximized: false,
+        });
+        viewerWindow.setMinimumSize(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT);
+        const workArea = primaryDisplay.workArea;
+        applyViewerContentSize(
+          viewerWindow,
+          Math.min(initialCompactWidth, workArea.width),
+          Math.min(initialCompactHeight, workArea.height),
+          workArea,
+        );
       }
 
       // Load the same app with a query parameter
@@ -992,10 +1093,18 @@ function setupFileOperationHandlers() {
       viewerWindow.on("close", async () => {
         if (!viewerWindow || viewerWindow.isDestroyed()) return;
 
-        const isMaximized = viewerWindow.isMaximized();
-        const bounds = isMaximized
-          ? viewerWindow.getNormalBounds()
-          : viewerWindow.getBounds();
+        // A window closed while compact would otherwise persist its tiny
+        // image-shaped bounds as the remembered normal-mode size. Save where
+        // the window would have been instead.
+        const compactRestore = viewerCompactRestore.get(windowId);
+        const isMaximized = compactRestore
+          ? Boolean(compactRestore.wasMaximized)
+          : viewerWindow.isMaximized();
+        const bounds =
+          compactRestore?.bounds ??
+          (isMaximized
+            ? viewerWindow.getNormalBounds()
+            : viewerWindow.getBounds());
 
         const currentSettings = await readSettings();
         currentSettings.viewerWindowState = {
@@ -1012,6 +1121,8 @@ function setupFileOperationHandlers() {
       viewerWindow.on("closed", () => {
         imageViewerWindows.delete(windowId);
         pendingViewerData.delete(windowId);
+        viewerCompactWindows.delete(windowId);
+        viewerCompactRestore.delete(windowId);
         // Notify the main window which child closed
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("image-viewer-closed", { windowId });
@@ -2391,6 +2502,71 @@ function setupFileOperationHandlers() {
       return { success: true, isFullscreen };
     }
     return { success: false, error: "Window not available" };
+  });
+
+  // Toggle the viewer's compact ("frame the image") mode.
+  // The renderer owns the layout maths and sends the desired CONTENT size; this
+  // handler clamps it to the window's display and applies it, and owns the
+  // window-state bookkeeping (minimum size, maximise, restore bounds).
+  ipcMain.handle("set-viewer-compact-mode", (event, payload) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) {
+      return { success: false, error: "Window not available" };
+    }
+
+    const windowId = win.id;
+    const enabled = Boolean(payload?.enabled);
+
+    if (!enabled) {
+      if (!viewerCompactWindows.has(windowId)) {
+        return { success: true, isCompact: false };
+      }
+      viewerCompactWindows.delete(windowId);
+
+      const restore = viewerCompactRestore.get(windowId);
+      viewerCompactRestore.delete(windowId);
+
+      // Lift the compact floor before growing the window back.
+      win.setMinimumSize(VIEWER_MIN_WIDTH, VIEWER_MIN_HEIGHT);
+      if (restore?.wasMaximized) {
+        win.maximize();
+      } else if (restore?.bounds) {
+        win.setBounds(restore.bounds);
+      }
+      return { success: true, isCompact: false };
+    }
+
+    const contentWidth = Math.round(payload?.contentWidth ?? 0);
+    const contentHeight = Math.round(payload?.contentHeight ?? 0);
+    if (contentWidth <= 0 || contentHeight <= 0) {
+      return { success: false, error: "Invalid content size" };
+    }
+
+    // Capture the way back only on the first entry, so resizing between images
+    // doesn't overwrite it with an already-compact size.
+    if (!viewerCompactWindows.has(windowId)) {
+      const wasMaximized = win.isMaximized();
+      const restoreBounds = wasMaximized
+        ? win.getNormalBounds()
+        : win.getBounds();
+      if (wasMaximized) win.unmaximize();
+      viewerCompactRestore.set(windowId, {
+        bounds: restoreBounds,
+        wasMaximized,
+      });
+      viewerCompactWindows.add(windowId);
+      win.setMinimumSize(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT);
+    }
+
+    const workArea = electron.screen.getDisplayMatching(win.getBounds()).workArea;
+    applyViewerContentSize(
+      win,
+      Math.min(contentWidth, workArea.width),
+      Math.min(contentHeight, workArea.height),
+      workArea,
+    );
+
+    return { success: true, isCompact: true };
   });
 
   // Handle setting window controls visibility

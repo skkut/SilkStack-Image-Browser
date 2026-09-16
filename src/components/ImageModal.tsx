@@ -28,8 +28,18 @@ import {
   Maximize,
   Minimize,
   ExternalLink,
+  Frame,
 } from "lucide-react";
 import hotkeyManager from "../services/hotkeyManager";
+import {
+  computeCompactContentSize,
+  clampUserScale,
+  userScaleFromResize,
+  COMPACT_MODE_STORAGE_KEY,
+  COMPACT_SCALE_STORAGE_KEY,
+  COMPACT_SCALE_EPSILON,
+  COMPACT_RESIZE_TOLERANCE,
+} from "../utils/windowSizing";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 
@@ -289,7 +299,9 @@ const VideoPlayer: React.FC<{
   src: string;
   poster?: string;
   onContextMenu?: React.MouseEventHandler;
-}> = ({ src, poster, onContextMenu }) => {
+  /** Reports the decoded track size — used to shape a compact window. */
+  onNaturalDimensions?: (width: number, height: number) => void;
+}> = ({ src, poster, onContextMenu, onNaturalDimensions }) => {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
@@ -358,6 +370,10 @@ const VideoPlayer: React.FC<{
       setDuration(videoRef.current.duration);
       // Auto-enable loop for short videos (< 5s) if not manually set?
       // For now, respect user preference only to avoid confusion.
+      const { videoWidth, videoHeight } = videoRef.current;
+      if (videoWidth > 0 && videoHeight > 0) {
+        onNaturalDimensions?.(videoWidth, videoHeight);
+      }
     }
   };
 
@@ -701,6 +717,27 @@ const ImageModal: React.FC<ImageModalProps> = ({
     );
   }, [isSidebarCollapsed]);
 
+  // Compact ("frame the image") mode: the viewer window reshapes itself to the
+  // current image's aspect ratio. Persisted like the sidebar flag, so a new
+  // viewer window opens in whichever mode was last used. Gated on
+  // isStandaloneWindow: the browser-hosted modal has no toggle button (and no
+  // window to reshape), so inheriting the flag would hide its sidebar for good.
+  const [isCompactMode, setIsCompactMode] = useState(() => {
+    return (
+      isStandaloneWindow &&
+      localStorage.getItem(COMPACT_MODE_STORAGE_KEY) === "true"
+    );
+  });
+
+  // How much smaller than the best fit the user wants the window, set by
+  // dragging a compact window by hand. Persisted with the mode, so a reduction
+  // survives into the next image and the next window. `Number(null)` is 0,
+  // which clampUserScale reads as "unset" and returns 1.
+  const [compactUserScale, setCompactUserScale] = useState(() => {
+    if (!isStandaloneWindow) return 1;
+    return clampUserScale(Number(localStorage.getItem(COMPACT_SCALE_STORAGE_KEY)));
+  });
+
   // ---- Find-in-prompt (Ctrl+F) state ----
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -718,7 +755,48 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setIsSidebarCollapsed((c) => !c);
   }, []);
 
+  useEffect(() => {
+    // Only the standalone viewer owns this preference — see the init above.
+    if (!isStandaloneWindow) return;
+    localStorage.setItem(
+      COMPACT_MODE_STORAGE_KEY,
+      String(isCompactMode),
+    );
+  }, [isCompactMode, isStandaloneWindow]);
+
+  useEffect(() => {
+    if (!isStandaloneWindow) return;
+    localStorage.setItem(
+      COMPACT_SCALE_STORAGE_KEY,
+      String(compactUserScale),
+    );
+  }, [compactUserScale, isStandaloneWindow]);
+
+  // Fullscreen owns the whole window, so leave it before reshaping and let the
+  // resize effect re-apply the compact size when fullscreen ends.
+  const toggleCompactMode = useCallback(() => {
+    if (!isCompactMode && isFullscreen) {
+      window.electronAPI?.toggleFullscreen?.().then((result) => {
+        if (result?.success) setIsFullscreen(result.isFullscreen);
+      });
+      setIsFullscreen(false);
+    }
+    setIsCompactMode((c) => !c);
+  }, [isCompactMode, isFullscreen]);
+
+  // A window sized for a 100%-scale image cannot hold a zoomed one — start
+  // each compact session from a clean 1x view.
+  useEffect(() => {
+    if (isCompactMode) {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    }
+  }, [isCompactMode]);
+
   const openSearch = useCallback(() => {
+    // Find-in-prompt lives in the metadata panel, which compact mode hides —
+    // so searching implies leaving compact mode.
+    setIsCompactMode(false);
     // Expand only when we're the one doing it; recorded for restore-on-close.
     setIsSidebarCollapsed((collapsed) => {
       sidebarAutoExpandedRef.current = collapsed;
@@ -922,6 +1000,155 @@ const ImageModal: React.FC<ImageModalProps> = ({
   })();
 
   const effectiveDuration = (nMeta as any)?.video?.duration_seconds;
+
+  // Intrinsic size of the current image, used to shape a compact window.
+  // Derived during render rather than seeded by an effect: an effect would fire
+  // the resize below once with the *previous* image's size on every navigation.
+  const metadataSize =
+    fileWidth && fileHeight ? { width: fileWidth, height: fileHeight } : null;
+  // Tagged with the image it was measured from, so a measurement taken before
+  // the navigation can never be attributed to the new image.
+  const [decodedSize, setDecodedSize] = useState<{
+    imageId: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const naturalSize =
+    decodedSize && decodedSize.imageId === image.id ? decodedSize : metadataSize;
+  // Primitive deps: `naturalSize` is a fresh object each render.
+  const naturalWidth = naturalSize?.width ?? null;
+  const naturalHeight = naturalSize?.height ?? null;
+
+  // The <img> renders the 512px-capped thumbnail before the full-size blob
+  // arrives, so its `naturalWidth` is not the file's dimensions. Only learn a
+  // size from the full-resolution URL, or the window reshapes twice per image.
+  const isThumbnailShown =
+    imageUrl != null && imageUrl === preferredThumbnailUrl;
+
+  const handleImageLoad = useCallback(() => {
+    updateZoomPercentage();
+    if (isThumbnailShown) return;
+    const img = imgRef.current;
+    const width = img?.naturalWidth ?? 0;
+    const height = img?.naturalHeight ?? 0;
+    if (width <= 0 || height <= 0) return;
+    setDecodedSize((prev) =>
+      prev?.imageId === image.id && prev.width === width && prev.height === height
+        ? prev
+        : { imageId: image.id, width, height },
+    );
+  }, [updateZoomPercentage, isThumbnailShown, image.id]);
+
+  const handleVideoDimensions = useCallback(
+    (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      setDecodedSize((prev) =>
+        prev?.imageId === image.id &&
+        prev.width === width &&
+        prev.height === height
+          ? prev
+          : { imageId: image.id, width, height },
+      );
+    },
+    [image.id],
+  );
+
+  // Compact mode is a window feature — it needs a standalone viewer window and
+  // the Electron bridge; the browser-hosted modal has neither.
+  const setViewerCompactMode = isStandaloneWindow
+    ? window.electronAPI?.setViewerCompactMode
+    : undefined;
+
+  // The content size last requested from the main process. Resize events near
+  // this size are the ones we caused; anything else is the user dragging an edge.
+  const compactAppliedRef = useRef<{ width: number; height: number } | null>(
+    null,
+  );
+
+  // Reshape the window whenever the image, the mode, or the fullscreen state
+  // changes. Re-running on `image.id` is what makes next/previous re-fit.
+  useEffect(() => {
+    if (!setViewerCompactMode) return;
+
+    if (!isCompactMode) {
+      compactAppliedRef.current = null;
+      setViewerCompactMode({ enabled: false });
+      return;
+    }
+    // Fullscreen owns the window size; the compact size is re-applied on exit.
+    if (isFullscreen || !naturalWidth || !naturalHeight) return;
+
+    const size = computeCompactContentSize(
+      naturalWidth,
+      naturalHeight,
+      window.screen?.availWidth || window.innerWidth,
+      window.screen?.availHeight || window.innerHeight,
+      compactUserScale,
+    );
+    if (!size) return;
+
+    // Record what we asked for *before* the IPC round-trip: the resize event it
+    // triggers has to be recognisable as ours.
+    compactAppliedRef.current = {
+      width: size.contentWidth,
+      height: size.contentHeight,
+    };
+    setViewerCompactMode({ enabled: true, ...size });
+  }, [
+    setViewerCompactMode,
+    isCompactMode,
+    isFullscreen,
+    naturalWidth,
+    naturalHeight,
+    compactUserScale,
+    image.id,
+  ]);
+
+  // Learn the user's window-size preference from a hand-dragged compact window.
+  // Debounced, because a drag emits a resize event per frame, and skipped while
+  // fullscreen, whose screen-sized window is not a statement about preference.
+  useEffect(() => {
+    if (!setViewerCompactMode || !isCompactMode || isFullscreen) return;
+
+    let timer: number | undefined;
+    const onResize = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const applied = compactAppliedRef.current;
+        if (!applied) return;
+
+        const observedWidth = window.innerWidth;
+        const observedHeight = window.innerHeight;
+        // Our own resize, landing inside the frame's rounding slack.
+        if (
+          Math.abs(observedWidth - applied.width) <= COMPACT_RESIZE_TOLERANCE &&
+          Math.abs(observedHeight - applied.height) <= COMPACT_RESIZE_TOLERANCE
+        ) {
+          return;
+        }
+
+        const next = userScaleFromResize(
+          compactUserScale,
+          applied.width,
+          applied.height,
+          observedWidth,
+          observedHeight,
+        );
+        if (Math.abs(next - compactUserScale) < COMPACT_SCALE_EPSILON) return;
+        setCompactUserScale(next);
+      }, 400);
+    };
+
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [setViewerCompactMode, isCompactMode, isFullscreen, compactUserScale]);
+
+  // The metadata panel is hidden in compact mode without touching the user's
+  // persisted sidebar preference (which the Ctrl+F flow reads and restores).
+  const sidebarHidden = isCompactMode || isSidebarCollapsed;
 
   const videoInfo = (nMeta as any)?.video;
   const motionModel = (nMeta as any)?.motion_model;
@@ -1527,9 +1754,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
           className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 z-[1010] select-none shadow-sm flex items-center pt-0.5 pb-0.5 shrink-0 w-full"
           style={{ height: '32px', WebkitAppRegion: 'drag' } as any}
         >
-          <div className="px-4 flex items-center text-xs font-semibold text-gray-400">
-            SilkStack Viewer
-          </div>
+          {/* Dropped while compact: the window *is* the image, and the label is
+              what pushes the buttons under the OS window controls on tall
+              portrait images. The flex-1 spacer keeps the drag region. */}
+          {!isCompactMode && (
+            <div className="px-4 flex items-center text-xs font-semibold text-gray-400">
+              SilkStack Viewer
+            </div>
+          )}
           <div className="flex-1" />
           <div className="flex items-center gap-1 pr-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button
@@ -1538,6 +1770,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
               title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             >
               {isFullscreen ? <Minimize size={14} /> : <Maximize size={14} />}
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleCompactMode(); }}
+              className={`rounded-full p-1.5 transition-colors ${
+                isCompactMode
+                  ? "text-blue-400 bg-blue-500/15"
+                  : "text-gray-400 hover:text-gray-50 hover:bg-gray-500/10"
+              }`}
+              title={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+              aria-label={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+              aria-pressed={isCompactMode}
+            >
+              <Frame size={14} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleDelete(); }}
@@ -1551,17 +1796,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
             >
               <Trash2 size={14} />
             </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
-              className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
-              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            >
-              {isSidebarCollapsed ? (
-                <PanelRightOpen className="w-4 h-4" />
-              ) : (
-                <PanelRightClose className="w-4 h-4" />
-              )}
-            </button>
+            {/* The panel is force-hidden while compact, so the toggle would be a no-op. */}
+            {!isCompactMode && (
+              <button
+                onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
+                className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
+                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
+              >
+                {isSidebarCollapsed ? (
+                  <PanelRightOpen className="w-4 h-4" />
+                ) : (
+                  <PanelRightClose className="w-4 h-4" />
+                )}
+              </button>
+            )}
           </div>
           {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
           <div className="w-[140px] flex-shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as any} />
@@ -1583,7 +1831,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         <div
           id="image-zoom-container"
           ref={containerRef}
-          className={`w-full ${isFullscreen ? "h-full" : isSidebarCollapsed ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden transition-[width] duration-300`}
+          className={`w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode ? "" : "transition-[width] duration-300"}`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
@@ -1604,6 +1852,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 src={imageUrl}
                 poster={preferredThumbnailUrl ?? undefined}
                 onContextMenu={handleContextMenu}
+                onNaturalDimensions={handleVideoDimensions}
               />
             ) : (
               <img
@@ -1613,7 +1862,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 className="max-w-full max-h-full object-contain select-none"
                 onContextMenu={handleContextMenu}
                 onDragStart={handleDragStart}
-                onLoad={updateZoomPercentage}
+                onLoad={handleImageLoad}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transition: isDragging ? "none" : "transform 0.1s ease-out",
@@ -1716,6 +1965,21 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 >
                   {isFullscreen ? <Minimize size={16} /> : <Maximize size={16} />}
                 </button>
+                {isStandaloneWindow && (
+                  <button
+                    onClick={toggleCompactMode}
+                    className={`rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity ${
+                      isCompactMode
+                        ? "bg-blue-500/20 text-blue-400"
+                        : "bg-gray-950/60 text-gray-400 hover:text-gray-50"
+                    }`}
+                    title={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+                    aria-label={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+                    aria-pressed={isCompactMode}
+                  >
+                    <Frame size={16} />
+                  </button>
+                )}
                 <button
                   onClick={handleDelete}
                   disabled={isIndexing}
@@ -1764,7 +2028,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
         {/* Metadata Panel */}
         <div
-          className={`w-full ${isSidebarCollapsed ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
+          data-testid="metadata-panel"
+          className={`w-full ${sidebarHidden ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
         >
           {isSearchOpen && (
             <div

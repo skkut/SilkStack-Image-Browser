@@ -2,8 +2,48 @@ import { useCallback, useRef } from 'react';
 import { useImageStore } from '../store/useImageStore';
 import { IndexedImage } from '../types';
 import { FileOperations } from '../services/fileOperations';
+import {
+    COMPACT_MODE_STORAGE_KEY,
+    COMPACT_SCALE_STORAGE_KEY,
+    clampUserScale,
+    computeCompactContentSize,
+    parseDimensionsString,
+} from '../utils/windowSizing';
 
 import { useSettingsStore } from '../store/useSettingsStore';
+
+/**
+ * When compact mode was left on, size the viewer window before it is ever
+ * shown — otherwise it flashes at full size until the first image decodes.
+ * The stored "WxH" string is enough to compute the shape; the viewer re-applies
+ * the real size once it has the decoded bitmap. Returns `{}` in the common
+ * (non-compact) case, so the payload is unchanged.
+ */
+function compactOpenHint(image: IndexedImage) {
+    if (localStorage.getItem(COMPACT_MODE_STORAGE_KEY) !== 'true') return {};
+
+    const dimensions = parseDimensionsString(image.dimensions);
+    const userScale = clampUserScale(
+        Number(localStorage.getItem(COMPACT_SCALE_STORAGE_KEY)),
+    );
+    const size = dimensions
+        ? computeCompactContentSize(
+              dimensions.width,
+              dimensions.height,
+              window.screen?.availWidth || window.innerWidth,
+              window.screen?.availHeight || window.innerHeight,
+              userScale,
+          )
+        : null;
+
+    return {
+        compact: true,
+        ...(size && {
+            compactContentWidth: size.contentWidth,
+            compactContentHeight: size.contentHeight,
+        }),
+    };
+}
 
 export function useImageSelection() {
     const {
@@ -82,6 +122,7 @@ export function useImageSelection() {
                     currentIndex: clickedIndex,
                     totalImages: currentFiltered.length,
                     imageList: imageListSnapshot,
+                    ...compactOpenHint(image),
                 }).then((result) => {
                     if (result?.success && result.windowId !== undefined) {
                         // Dispatch a DOM event so App.tsx can track this window ID
