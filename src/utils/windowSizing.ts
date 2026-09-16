@@ -125,32 +125,51 @@ export function computeCompactContentSize(
 }
 
 /**
- * The factor a hand-resized window implies, relative to the size we last asked
- * for. Only the dimension the user actually moved is counted, so dragging one
- * edge is not misread as a change in the other.
+ * The factor a hand-resized window implies, read as an absolute fraction of the
+ * best fit for the image on screen rather than as a multiple of the last size we
+ * applied.
+ *
+ * Absolute is the whole point. A multiplied factor compounds — each drag is
+ * measured from the previous one, so a couple of DIPs of frame rounding per pass
+ * walks the remembered size in one direction — and, worse, one bad observation
+ * used to be permanent: a window the OS had maximised (a double-click on the
+ * drag bar does it) looked like "four times the fit", the factor was raised to
+ * match, and from then on every image came back at full size with no way down.
+ * Measured against the fit, a single honest drag re-derives the true fraction,
+ * so any such value heals itself.
  *
  * Compared in image areas, not content sizes: the padding and bar are a fixed
  * cost, so a 70% drag of the *content* is a larger fraction of the picture, and
- * reading it raw would overshoot the factor a little more with every drag.
+ * reading it raw would miss by a growing margin. Only the dimension the user
+ * actually moved is counted, so dragging one edge is not misread as a change in
+ * the other.
+ *
+ * @returns the factor to remember, or 1 when the inputs cannot describe a fit.
  */
 export function userScaleFromResize(
-  current: number,
-  appliedWidth: number,
-  appliedHeight: number,
+  imgWidth: number,
+  imgHeight: number,
+  availWidth: number,
+  availHeight: number,
   observedWidth: number,
   observedHeight: number,
 ): number {
-  if (!(appliedWidth > 0) || !(appliedHeight > 0)) return clampUserScale(current);
-  if (!Number.isFinite(observedWidth) || !Number.isFinite(observedHeight)) {
-    return clampUserScale(current);
+  const fit = computeCompactContentSize(
+    imgWidth,
+    imgHeight,
+    availWidth,
+    availHeight,
+  );
+  if (!fit || !Number.isFinite(observedWidth) || !Number.isFinite(observedHeight)) {
+    return 1;
   }
-  const applied = compactImageArea(appliedWidth, appliedHeight);
+  const fitted = compactImageArea(fit.contentWidth, fit.contentHeight);
   const observed = compactImageArea(observedWidth, observedHeight);
-  const scaleW = observed.width / applied.width;
-  const scaleH = observed.height / applied.height;
+  const scaleW = observed.width / fitted.width;
+  const scaleH = observed.height / fitted.height;
   const dominant =
     Math.abs(scaleW - 1) >= Math.abs(scaleH - 1) ? scaleW : scaleH;
-  return clampUserScale(current * dominant);
+  return clampUserScale(dominant);
 }
 
 /**

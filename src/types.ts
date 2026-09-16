@@ -315,6 +315,12 @@ export interface ElectronAPI {
     enabled: boolean;
     contentWidth?: number;
     contentHeight?: number;
+    /**
+     * Where the reshaped window should sit: centred in the main app window
+     * (the default), or left exactly where it is — which is what the re-fit
+     * following the user's own drag of the frame asks for.
+     */
+    anchor?: "center" | "keep";
   }) => Promise<{ success: boolean; isCompact?: boolean; error?: string }>;
   onImageViewerUpdate: (
     callback: (data: {

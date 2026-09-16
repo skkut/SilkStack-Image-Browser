@@ -1065,6 +1065,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
     null,
   );
 
+  // The image whose fit the window is showing. A re-fit *for the same image* is
+  // the follow-up to the user's own drag; a re-fit for a different image is a
+  // fresh fit. Told apart here rather than in the main process, which cannot
+  // see why a size was sent.
+  const compactFitKeyRef = useRef<string | null>(null);
+
   // Reshape the window whenever the image, the mode, or the fullscreen state
   // changes. Re-running on `image.id` is what makes next/previous re-fit.
   useEffect(() => {
@@ -1072,6 +1078,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
     if (!isCompactMode) {
       compactAppliedRef.current = null;
+      compactFitKeyRef.current = null;
       setViewerCompactMode({ enabled: false });
       return;
     }
@@ -1093,7 +1100,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
       width: size.contentWidth,
       height: size.contentHeight,
     };
-    setViewerCompactMode({ enabled: true, ...size });
+
+    // Centre a fresh fit — a new image, or entering the mode — but leave a
+    // window the user has just dragged where they put it. The re-fit that
+    // follows a drag is still the same image, and pulling the frame back to the
+    // middle a moment later would make hand-sizing feel like it undoes itself.
+    const anchor: "center" | "keep" =
+      compactFitKeyRef.current === image.id ? "keep" : "center";
+    compactFitKeyRef.current = image.id;
+
+    setViewerCompactMode({ enabled: true, ...size, anchor });
   }, [
     setViewerCompactMode,
     isCompactMode,
@@ -1109,6 +1125,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // fullscreen, whose screen-sized window is not a statement about preference.
   useEffect(() => {
     if (!setViewerCompactMode || !isCompactMode || isFullscreen) return;
+    if (!naturalWidth || !naturalHeight) return;
 
     let timer: number | undefined;
     const onResize = () => {
@@ -1127,10 +1144,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
           return;
         }
 
+        // Read the drag against the *fit* for the image on screen rather than
+        // against the size we last applied. The remembered factor is then a
+        // statement about this window alone: it cannot compound over successive
+        // drags, and a value spoiled by a maximised window is corrected by the
+        // next drag instead of pinning every image to full size for good.
         const next = userScaleFromResize(
-          compactUserScale,
-          applied.width,
-          applied.height,
+          naturalWidth,
+          naturalHeight,
+          window.screen?.availWidth || window.innerWidth,
+          window.screen?.availHeight || window.innerHeight,
           observedWidth,
           observedHeight,
         );
@@ -1144,7 +1167,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
       window.clearTimeout(timer);
       window.removeEventListener("resize", onResize);
     };
-  }, [setViewerCompactMode, isCompactMode, isFullscreen, compactUserScale]);
+  }, [
+    setViewerCompactMode,
+    isCompactMode,
+    isFullscreen,
+    naturalWidth,
+    naturalHeight,
+    compactUserScale,
+  ]);
 
   // The metadata panel is hidden in compact mode without touching the user's
   // persisted sidebar preference (which the Ctrl+F flow reads and restores).

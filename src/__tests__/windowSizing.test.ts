@@ -146,39 +146,66 @@ describe('clampUserScale', () => {
 });
 
 describe('userScaleFromResize', () => {
-  // Sizes below are chosen so the *image area* — not the content — is a clean
-  // fraction: an applied 996x538 leaves 980x490, whose 70% is 686x343.
+  // A 1000x500 file in a 1000x1000 work area fits at 984x492 (its width is the
+  // limit), so the fit's image area is 984x492 and a proportional drag lands on
+  // clean fractions of it.
+  const FIT = [1000, 500, 1000, 1000] as const;
+
   it('reads a proportional drag', () => {
-    expect(userScaleFromResize(1, 996, 538, 702, 391)).toBeCloseTo(0.7, 5);
+    // 984x492 of picture, less the padding and bar, on both axes. A drag lands
+    // on whole pixels, so the read is quantised to ~1/492 — two decimals is the
+    // resolution a hand-resize actually has.
+    expect(userScaleFromResize(...FIT, 704, 392)).toBeCloseTo(0.7, 2);
   });
 
   it('reads a drag that moved only one edge', () => {
     // Width-only and height-only: the untouched axis must not dilute the read.
-    expect(userScaleFromResize(1, 996, 538, 702, 538)).toBeCloseTo(0.7, 5);
-    expect(userScaleFromResize(1, 996, 538, 996, 391)).toBeCloseTo(0.7, 5);
+    expect(userScaleFromResize(...FIT, 704, 540)).toBeCloseTo(0.7, 2);
+    expect(userScaleFromResize(...FIT, 1000, 392)).toBeCloseTo(0.7, 2);
   });
 
-  it('compounds onto the factor already in force', () => {
-    // 0.75 of the image area, on top of the 0.8 already in force.
-    expect(userScaleFromResize(0.8, 1000, 540, 754, 417)).toBeCloseTo(0.6, 5);
+  it('reports what the window is, not what it is replacing', () => {
+    // A window at 75% of the fit reads as 0.75. The read used to be multiplied
+    // into whatever factor was already in force, so this same window meant 0.6
+    // after a 0.8 preference — which is how one bad value, a maximised frame
+    // read as "several times the fit", came to inflate every later image.
+    expect(userScaleFromResize(...FIT, 754, 417)).toBeCloseTo(0.75, 5);
+  });
+
+  it('reads a work-area-filling window as the fit, never as an enlargement', () => {
+    // The maximised-frame shape. At worst it says "as big as the display
+    // allows", which is the value already in force at 1 — so even a maximise
+    // that slipped past the main process could not push the preference past
+    // what the screen can show.
+    expect(userScaleFromResize(4000, 2000, 2048, 1104, 2048, 1064)).toBeCloseTo(1, 3);
   });
 
   it('measures the image area, not the content', () => {
     // Halving the *content* takes more than half the picture, because the
     // padding and bar are a fixed cost that does not shrink with it. Reading
-    // the raw content ratio would store 0.7 and slowly creep the window down.
-    const factor = userScaleFromResize(1, 1000, 540, 700, 378);
+    // the raw content ratio would store 0.7 and creep the window down.
+    const factor = userScaleFromResize(...FIT, 700, 378);
     expect(factor).toBeCloseTo(330 / 492, 5); // the height's area ratio
     expect(factor).toBeLessThan(0.7);
   });
 
+  it('lets a small image be dragged larger than its own fit', () => {
+    // A 200x200 file fits at 200x200 — nothing is ever upscaled — so a bigger
+    // window is a statement of preference, not an artefact. Clamping here would
+    // make "make this window bigger" impossible for every small image.
+    expect(userScaleFromResize(200, 200, 1000, 1000, 416, 448)).toBeCloseTo(2, 4);
+  });
+
   it('clamps a degenerate drag instead of collapsing the window', () => {
-    expect(userScaleFromResize(1, 996, 538, 5, 3)).toBe(COMPACT_MIN_USER_SCALE);
+    expect(userScaleFromResize(...FIT, 5, 3)).toBe(COMPACT_MIN_USER_SCALE);
   });
 
   it('ignores unusable input', () => {
-    expect(userScaleFromResize(0.7, 0, 0, 702, 391)).toBeCloseTo(0.7, 5);
-    expect(userScaleFromResize(0.7, 996, 538, NaN, 391)).toBeCloseTo(0.7, 5);
+    // No fit to compare against: 1 is the neutral answer, and the caller only
+    // trusts a factor it can see a change in.
+    expect(userScaleFromResize(0, 0, 1000, 1000, 704, 392)).toBe(1);
+    expect(userScaleFromResize(1000, 500, 10, 10, 704, 392)).toBe(1);
+    expect(userScaleFromResize(...FIT, NaN, 392)).toBe(1);
   });
 });
 

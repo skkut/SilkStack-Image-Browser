@@ -239,24 +239,95 @@ const viewerCompactWindows = new Set();
 // windowId -> { bounds, wasMaximized } captured on first entry into compact mode,
 // so leaving the mode returns the window exactly where it was.
 const viewerCompactRestore = new Map();
+// windowId -> { anchorX, anchorY, placedX, placedY }: the point a compact window
+// grows and shrinks around, and the corner we last put it at. A window still
+// sitting on `placed` has not been touched by the user, which is what lets a
+// hand-moved window keep its own centre instead of being pulled back to the app
+// window on the next image.
+const viewerCompactPlacement = new Map();
+// Positions closer than this to the one we set count as ours — the frame is
+// rounded to whole physical pixels, so a window "at" our position can report a
+// DIP or two of drift.
+const COMPACT_MOVE_TOLERANCE = 4;
 
 /**
- * Sizes a viewer window to an exact content area, anchored to its top-left
- * corner.
+ * The rect a compact viewer is centred in.
  *
- * Anchoring rather than centring is what stops the window wandering: the frame
- * is rounded to whole physical pixels, so setContentSize can land a couple of
- * DIPs off the requested size, and re-centring turns every one of those into a
- * visible position shift. With a fixed corner, an image of the same aspect
- * ratio leaves the window exactly where it was. The corner moves only when the
- * new size would otherwise push the window off the display.
+ * The main app window, when it is on screen, so the viewer reads as belonging
+ * to the app rather than floating loose over the desktop. A maximised main
+ * window already covers its display's work area, which makes this identical to
+ * centring on the screen — the two differ only while the app is restored to a
+ * smaller size, and then "over the app" is the useful answer.
+ *
+ * @param {BrowserWindow} win
+ * @returns {{x:number,y:number,width:number,height:number}}
+ */
+function viewerPlacementTarget(win) {
+  if (
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    mainWindow.isVisible() &&
+    !mainWindow.isMinimized()
+  ) {
+    return mainWindow.getBounds();
+  }
+  return electron.screen.getDisplayMatching(win.getBounds()).workArea;
+}
+
+/**
+ * The point a compact window's next shape should grow and shrink around.
+ *
+ * A window the user has moved by hand anchors on where it is *now*, so a new
+ * image opens around the spot they chose rather than jumping back to the middle
+ * of the app window — the placement they made is a decision, and re-centring on
+ * every image reads as the app refusing to remember it. A window still sitting
+ * exactly where we last put it keeps the anchor it already has, which is what
+ * makes an image of the same shape open without moving the window at all.
+ *
+ * @param {BrowserWindow} win
+ * @param {{x:number,y:number,width:number,height:number}} bounds the window's bounds after resizing
+ * @param {{x:number,y:number,width:number,height:number}} target rect to centre in when nothing else applies
+ */
+function compactAnchorFor(win, bounds, target) {
+  const previous = viewerCompactPlacement.get(win.id);
+  if (previous) {
+    const movedByUser =
+      Math.abs(bounds.x - previous.placedX) > COMPACT_MOVE_TOLERANCE ||
+      Math.abs(bounds.y - previous.placedY) > COMPACT_MOVE_TOLERANCE;
+    if (movedByUser) {
+      return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    }
+    return { x: previous.anchorX, y: previous.anchorY };
+  }
+  // First placement — entering the mode, or the window opening compact — starts
+  // over the app window (or the display's work area when that is off screen).
+  return { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+}
+
+/**
+ * Sizes a viewer window to an exact content area and centres it in `target`.
+ *
+ * The position is derived from the size we *asked* for, never from the size the
+ * OS reports back. The frame is rounded to whole physical pixels, so an
+ * identical request can come back a couple of DIPs larger; a centring that read
+ * that number would put the window somewhere slightly different on every load,
+ * which is what made an image of the same aspect ratio appear to nudge the
+ * window. From the request, the position is a pure function of the image's
+ * shape — same shape, same spot, whatever the display scaling does.
  *
  * @param {BrowserWindow} win
  * @param {number} contentWidth
  * @param {number} contentHeight
- * @param {{x:number,y:number,width:number,height:number}} workArea
+ * @param {{x:number,y:number,width:number,height:number}} target rect to centre in
+ * @param {boolean} [recenter] false to leave the window where the user put it
  */
-function applyViewerContentSize(win, contentWidth, contentHeight, workArea) {
+function applyViewerContentSize(
+  win,
+  contentWidth,
+  contentHeight,
+  target,
+  recenter = true,
+) {
   // The drag bar is a `-webkit-app-region: drag` strip, so double-clicking it
   // maximises the window on Windows. setContentSize is a no-op while maximised,
   // which would silently wedge every later resize — so leave that state first.
@@ -264,36 +335,56 @@ function applyViewerContentSize(win, contentWidth, contentHeight, workArea) {
     win.unmaximize();
   }
 
-  const before = win.getBounds();
+  // A compact window is never larger than the display it is about to sit on,
+  // which is the target's display: the viewer may well be moving to it.
+  const workArea = electron.screen.getDisplayMatching(target).workArea;
+  const width = Math.min(contentWidth, workArea.width);
+  const height = Math.min(contentHeight, workArea.height);
 
   // setContentSize measures the web-page area, so the image keeps its exact
   // aspect ratio regardless of the title-bar overlay the frame adds.
-  win.setContentSize(contentWidth, contentHeight);
+  win.setContentSize(width, height);
 
   const after = win.getBounds();
-  let x = before.x;
-  let y = before.y;
-
-  // Clamp against the size we *asked* for, not the size the OS reports back:
-  // the frame is rounded to whole physical pixels, so identical requests come
-  // back a couple of DIPs apart. For a window that nearly fills the display,
-  // that noise flips it between "fits where it is" and "does not fit", which
-  // made the window jump when the next image was loaded. The requested size is
-  // deterministic, so the corner only ever moves for a real reason.
-  const outerWidth = contentWidth;
-  const outerHeight = contentHeight;
-
-  // Clamp back onto the display if growing pushed a corner off-screen.
-  if (workArea) {
-    const maxX = Math.max(workArea.x, workArea.x + workArea.width - outerWidth);
-    const maxY = Math.max(workArea.y, workArea.y + workArea.height - outerHeight);
-    x = Math.min(Math.max(x, workArea.x), maxX);
-    y = Math.min(Math.max(y, workArea.y), maxY);
+  let x = after.x;
+  let y = after.y;
+  if (recenter) {
+    // Measured in content sizes, so the window's own border is ignored — a
+    // pixel or two of asymmetry, in exchange for a position that cannot drift.
+    const anchor = compactAnchorFor(win, after, target);
+    x = Math.round(anchor.x - width / 2);
+    y = Math.round(anchor.y - height / 2);
   }
+
+  // Centring a window taller or wider than its target would hang it off the
+  // display, so pull it back on — this only ever moves a window that is
+  // actually overflowing, never one the user has parked at an edge.
+  const maxX = Math.max(workArea.x, workArea.x + workArea.width - width);
+  const maxY = Math.max(workArea.y, workArea.y + workArea.height - height);
+  x = Math.min(Math.max(x, workArea.x), maxX);
+  y = Math.min(Math.max(y, workArea.y), maxY);
 
   if (x !== after.x || y !== after.y) {
     win.setBounds({ x, y, width: after.width, height: after.height });
   }
+
+  // Record where the window *ended up*, not where it was aimed: a clamp that
+  // pulled a too-large window back onto the display moves the centre with it,
+  // and anchoring on the aim would make the next same-shaped image try to push
+  // it back out again. From the realised bounds the placement is a fixed point —
+  // same shape, same spot, to the pixel.
+  //
+  // The centre is taken with the size we *asked* for, for the same reason the
+  // position is: the OS reports the content area a couple of DIPs wide, and an
+  // anchor built from that number sits half the difference off — enough to give
+  // the next image of the same shape a visible nudge.
+  const placed = win.getBounds();
+  viewerCompactPlacement.set(win.id, {
+    anchorX: placed.x + width / 2,
+    anchorY: placed.y + height / 2,
+    placedX: placed.x,
+    placedY: placed.y,
+  });
 }
 
 /**
@@ -1065,14 +1156,35 @@ function setupFileOperationHandlers() {
           wasMaximized: false,
         });
         viewerWindow.setMinimumSize(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT);
-        const workArea = primaryDisplay.workArea;
         applyViewerContentSize(
           viewerWindow,
-          Math.min(initialCompactWidth, workArea.width),
-          Math.min(initialCompactHeight, workArea.height),
-          workArea,
+          initialCompactWidth,
+          initialCompactHeight,
+          viewerPlacementTarget(viewerWindow),
         );
       }
+
+      // A compact window has exactly one shape, so a maximise has no meaning —
+      // and it is easy to trigger by accident, because the 32px drag bar
+      // double-clicks into a maximise and dragging the frame to the top of the
+      // screen does the same. Refuse it rather than trying to read it: as a
+      // window size, a maximised frame says "much bigger than the fit", and a
+      // feature that remembers how big the user wants the window would believe
+      // it — pinning every later image to the work area with no way back down.
+      viewerWindow.on("maximize", () => {
+        if (!viewerCompactWindows.has(windowId)) return;
+        // Deferred: restoring from inside the handler fights the native
+        // transition that is still in flight, and can be dropped.
+        setImmediate(() => {
+          if (
+            !viewerWindow.isDestroyed() &&
+            viewerCompactWindows.has(windowId) &&
+            viewerWindow.isMaximized()
+          ) {
+            viewerWindow.unmaximize();
+          }
+        });
+      });
 
       // Load the same app with a query parameter
       const queryString = `?imageViewer=true`;
@@ -1123,6 +1235,7 @@ function setupFileOperationHandlers() {
         pendingViewerData.delete(windowId);
         viewerCompactWindows.delete(windowId);
         viewerCompactRestore.delete(windowId);
+        viewerCompactPlacement.delete(windowId);
         // Notify the main window which child closed
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("image-viewer-closed", { windowId });
@@ -2525,6 +2638,10 @@ function setupFileOperationHandlers() {
 
       const restore = viewerCompactRestore.get(windowId);
       viewerCompactRestore.delete(windowId);
+      // Forgetting the placement matters as much as forgetting the restore
+      // bounds: re-entering the mode should centre over the app window again,
+      // not on wherever the window happened to be left last time.
+      viewerCompactPlacement.delete(windowId);
 
       // Lift the compact floor before growing the window back.
       win.setMinimumSize(VIEWER_MIN_WIDTH, VIEWER_MIN_HEIGHT);
@@ -2558,12 +2675,16 @@ function setupFileOperationHandlers() {
       win.setMinimumSize(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT);
     }
 
-    const workArea = electron.screen.getDisplayMatching(win.getBounds()).workArea;
     applyViewerContentSize(
       win,
-      Math.min(contentWidth, workArea.width),
-      Math.min(contentHeight, workArea.height),
-      workArea,
+      contentWidth,
+      contentHeight,
+      viewerPlacementTarget(win),
+      // The re-fit that follows the user's own drag of the frame keeps the
+      // position they chose; only a fresh fit — a new image, or entering the
+      // mode — re-centres, so sizing the window by hand never feels like it
+      // undoes itself a moment later.
+      payload?.anchor !== "keep",
     );
 
     return { success: true, isCompact: true };

@@ -135,6 +135,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 1000,
       contentHeight: 540,
+      anchor: "center",
     });
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
     // The sidebar toggle would be a no-op while compact, so it is gone.
@@ -178,6 +179,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 1000,
       contentHeight: 540,
+      anchor: "center",
     });
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
   });
@@ -238,6 +240,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 1000,
       contentHeight: 540,
+      anchor: "center",
     });
 
     // Arrow to a portrait image: the window must reshape to the new aspect
@@ -258,6 +261,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 492,
       contentHeight: 1000,
+      anchor: "center",
     });
   });
 
@@ -281,6 +285,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 1000,
       contentHeight: 540,
+      anchor: "center",
     });
 
     // The <img> shows the thumbnail first; learning its size would reshape the
@@ -296,6 +301,7 @@ describe('ImageModal compact mode', () => {
       enabled: true,
       contentWidth: 1000,
       contentHeight: 540,
+      anchor: "center",
     });
   });
 });
@@ -318,6 +324,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       enabled: true,
       contentWidth: 508,
       contentHeight: 294,
+      anchor: "center",
     });
   });
 
@@ -338,6 +345,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
         enabled: true,
         contentWidth: 1000,
         contentHeight: 540,
+        anchor: "center",
       });
 
       // The user drags the window down to 70% of the picture. We gave them a
@@ -350,11 +358,64 @@ describe('ImageModal compact mode — user-resized windows', () => {
 
       expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.7, 2);
       // …and the window is re-fitted to the image at that size, so the aspect
-      // ratio stays exact rather than being whatever the drag produced.
+      // ratio stays exact rather than being whatever the drag produced — while
+      // being left where the user put it, since re-centring here would yank the
+      // window out from under the hand that just resized it.
       expect(setViewerCompactMode).toHaveBeenLastCalledWith({
         enabled: true,
         contentWidth: 704,
         contentHeight: 392,
+        anchor: "keep",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('heals a factor left behind by a maximised window', () => {
+    vi.useFakeTimers();
+    try {
+      // A window maximised by a double-click on the drag bar used to be read as
+      // "several times the fit", saturating the remembered factor at its
+      // ceiling. From there every drag was multiplied into an already-too-big
+      // number, the re-fit put the window straight back to full size, and the
+      // window could not be made smaller at all. The factor is read against the
+      // fit now, so one honest drag states the truth again.
+      // Through the storage API — the mock writes to the same map, and this is
+      // the write the app itself makes.
+      global.localStorage.setItem(COMPACT_MODE_STORAGE_KEY, 'true');
+      global.localStorage.setItem(COMPACT_SCALE_STORAGE_KEY, '4');
+
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '1000x500' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+
+      // The ceiling is inert on the way in — the work area caps the size — so
+      // the window still opens at the fit.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
+        enabled: true,
+        contentWidth: 1000,
+        contentHeight: 540,
+        anchor: "center",
+      });
+
+      // …and dragging it to half of that picture stores half, not 4 x 0.5.
+      setWindowSize(508, 294);
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.5, 2);
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
+        enabled: true,
+        contentWidth: 508,
+        contentHeight: 294,
+        anchor: "keep",
       });
     } finally {
       vi.useRealTimers();
@@ -380,6 +441,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       enabled: true,
       contentWidth: 508,
       contentHeight: 294,
+      anchor: "center",
     });
 
     // 500x1000 at half of its 0.952 fit → 476x952 becomes 238x476.
@@ -399,6 +461,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       enabled: true,
       contentWidth: 254,
       contentHeight: 524,
+      anchor: "center",
     });
   });
 
