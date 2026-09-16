@@ -972,6 +972,12 @@ export default function DevSemanticSearchTester() {
           {progress && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-400">{progress.message}</span>
+              {/* The engine's message is count-free (its production consumer,
+                  the footer pill, renders the numbers itself) — the tester has
+                  no such label, so it prints the image counts here. */}
+              <span className="text-xs text-gray-500 tabular-nums">
+                {progress.current}/{progress.total}
+              </span>
               <div className="w-32 h-1 bg-gray-800 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-blue-500 transition-all duration-300"

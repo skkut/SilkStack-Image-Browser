@@ -54,7 +54,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
         <div className="flex flex-col gap-1 pt-2 border-t border-gray-700">
           <div className="flex justify-between items-center text-xs">
             <span className="text-indigo-400">
-              ✨ Semantic indexing: {semanticIndexProgress!.current} / {semanticIndexProgress!.total}
+              ✨ Semantic indexing: {semanticIndexProgress!.current} / {semanticIndexProgress!.total} images
             </span>
             <span className="text-gray-400">
               {Math.round((semanticIndexProgress!.current / semanticIndexProgress!.total) * 100)}%

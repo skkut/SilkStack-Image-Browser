@@ -573,7 +573,9 @@ describe('semantic chunked Δ-indexing — per-chunk stamps persist DURING the r
 
     try {
       const engine = semanticConstructorCallbacks.onProgress!;
-      // Per-chunk {1, 2} of chunk 2 composes to global {3, 5}.
+      // Per-chunk {1, 2} of chunk 2 composes to global {3, 5}. The engine
+      // reports IMAGE space — a chunk's total is the number of images in it —
+      // which is what makes `total === chunkLength` the indexing-report match.
       engine({ current: 1, total: 2, message: 'embedding' });
       expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 3, total: 5, message: 'embedding' });
 

@@ -29,6 +29,15 @@ import type { ISemanticSearchHit, AiDevicePreference, DetectedGpuInfo, AiModelsS
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled } from './aiFeatureAccess';
 import { useSettingsStore } from '../store/useSettingsStore';
 
+/**
+ * Progress event from the module coordinator. The numbers are in IMAGE space:
+ * `total` is the number of images in the call the engine was handed (so it
+ * equals the store's chunk length during a chunked run, which is how the store
+ * tells an indexing report from a model-loading one), and an image advances
+ * `current` only when every half it needs — searchable text and normalized
+ * prompt — has been embedded. Model-loading reports use their own scale
+ * (`total: 100`).
+ */
 export interface SemanticIndexProgress {
   current: number;
   total: number;

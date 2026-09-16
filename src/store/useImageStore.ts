@@ -122,9 +122,11 @@ const SEMANTIC_INDEX_CANCELLED = 'Semantic indexing cancelled by user';
 // to a Δ run. Survives coalescing into a pending non-force job.
 let __semanticIndexQueuedForce = false;
 // Chunked-run progress composition state: the engine reports per-call
-// progress (current/total relative to the current chunk), and the coordinator
-// callback composes it into global run progress (offset + current over the
-// full payload) so the footer bar advances monotonically across chunks.
+// progress in IMAGE space (current/total relative to the chunk it was handed —
+// an image needing both its searchable-text and prompt halves counts once,
+// when the last half lands), and the coordinator callback composes it into
+// global run progress (offset + current over the full payload) so the footer
+// bar advances monotonically across chunks and reads as "image n of N".
 // Non-null only while a chunked run is active.
 let __semanticChunkRun: { offset: number; chunkLength: number; total: number } | null = null;
 
@@ -197,10 +199,13 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
     if (!__semanticCoordinator) {
         const { SemanticSearchCoordinator } = await import('../services/semanticSearchEngine');
         __semanticCoordinator = new SemanticSearchCoordinator((progress) => {
-            // Chunked runs report progress relative to the current chunk;
-            // offset it into the full payload so the footer bar advances
-            // monotonically. The engine's loading phases report other totals
-            // (e.g. 100 during WebGPU model load) — those pass through.
+            // Chunked runs report progress relative to the current chunk, in
+            // image space: the engine's per-chunk total is the number of images
+            // it was handed, so it matches chunkLength exactly. Offset it into
+            // the full payload so the footer bar advances monotonically and
+            // counts images rather than the two texts each one can contribute.
+            // The engine's loading phases report other totals (e.g. 100 during
+            // WebGPU model load) — those pass through.
             const run = __semanticChunkRun;
             if (run && progress.total === run.chunkLength && progress.current <= run.chunkLength) {
                 useImageStore.getState().setSemanticIndexProgress({

@@ -321,7 +321,9 @@ describe('Footer semantic indexing pill (Phase 6)', () => {
     useImageStore.setState({ semanticIndexProgress: { current: 1, total: 4, message: 'embedding' } });
     const { container } = renderFooter();
 
-    expect(screen.getByText(/Semantic indexing 1\/4/)).toBeDefined();
+    // The unit matters: the numbers are a position in the image sequence, not
+    // a count of tags/texts (the engine reports one step per image).
+    expect(screen.getByText(/Semantic indexing 1\/4 images/)).toBeDefined();
     expect(screen.getByText(/embedding/)).toBeDefined();
     expect(container.querySelector('.bg-indigo-500')).not.toBeNull();
   });

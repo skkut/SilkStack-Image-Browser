@@ -324,7 +324,7 @@ const Footer: React.FC<FooterProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
                   </span>
                   <span className="font-medium">
-                    Semantic indexing {semanticIndexProgress!.current}/{semanticIndexProgress!.total}
+                    Semantic indexing {semanticIndexProgress!.current}/{semanticIndexProgress!.total} images
                     {semanticIndexProgress!.message && (
                       <span className="text-gray-500 ml-1 font-normal truncate max-w-[200px] inline-block align-bottom">
                         — {semanticIndexProgress!.message}
