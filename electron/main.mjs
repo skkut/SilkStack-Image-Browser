@@ -252,6 +252,15 @@ const viewerCompactPlacement = new Map();
 // what the fit is. Same number the window maximum is built from; the two are
 // stored separately because that one carries COMPACT_MAX_MARGIN.
 const viewerCompactCeiling = new Map();
+// windowId -> { width, height }: the window maximum actually in force, in window
+// units. Kept because a fullscreen request has to LIFT the maximum that compact
+// mode installed — Windows applies a window maximum to a fullscreen window, so an
+// unlifted one clamps the display-sized frame straight back down to the image's
+// fit and the fullscreen button looks dead (measured: 589x1143 on a 2048x1152
+// display, `isFullScreen` true). The value is remembered rather than recomputed so
+// the restore can't drift from what was applied: the ceiling above is only half
+// of it, the other half being the size the renderer asked for.
+const viewerCompactMaxSize = new Map();
 // Positions closer than this to the one we set count as ours — the frame is
 // rounded to whole physical pixels, so a window "at" our position can report a
 // DIP or two of drift.
@@ -1289,6 +1298,7 @@ function setupFileOperationHandlers() {
         viewerCompactRestore.delete(windowId);
         viewerCompactPlacement.delete(windowId);
         viewerCompactCeiling.delete(windowId);
+        viewerCompactMaxSize.delete(windowId);
         // Notify the main window which child closed
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("image-viewer-closed", { windowId });
@@ -2664,6 +2674,24 @@ function setupFileOperationHandlers() {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win) {
       const isFullscreen = !win.isFullScreen();
+
+      // A compact window carries a maximum of the image's fit, and Windows
+      // applies a window maximum to a fullscreen window as well — so asking for
+      // fullscreen while it is in force just clamps the display-sized frame back
+      // down to the fit and the button appears to do nothing. Lift it for the
+      // duration, and put it back on the way out. The renderer re-fits on exit
+      // (the compact effect re-runs when the fullscreen state flips), which
+      // re-applies the same value; this is the guarantee that it is never left
+      // off, since an unclamped compact window is the original maximise bug.
+      if (viewerCompactWindows.has(win.id)) {
+        const applied = viewerCompactMaxSize.get(win.id);
+        if (isFullscreen) {
+          win.setMaximumSize(0, 0);
+        } else if (applied) {
+          win.setMaximumSize(applied.width, applied.height);
+        }
+      }
+
       win.setFullScreen(isFullscreen);
       return { success: true, isFullscreen };
     }
@@ -2696,6 +2724,7 @@ function setupFileOperationHandlers() {
       // not on wherever the window happened to be left last time.
       viewerCompactPlacement.delete(windowId);
       viewerCompactCeiling.delete(windowId);
+      viewerCompactMaxSize.delete(windowId);
 
       // Lift the compact floor before growing the window back, and drop the
       // compact ceiling with it — a maximum left over from the mode would keep
@@ -2745,10 +2774,13 @@ function setupFileOperationHandlers() {
     // still be honoured rather than silently wedging the window.
     const maxWidth = Math.round(payload?.maxContentWidth ?? 0);
     const maxHeight = Math.round(payload?.maxContentHeight ?? 0);
-    win.setMaximumSize(
-      Math.max(maxWidth, contentWidth) + COMPACT_MAX_MARGIN,
-      Math.max(maxHeight, contentHeight) + COMPACT_MAX_MARGIN,
-    );
+    const windowMaxWidth = Math.max(maxWidth, contentWidth) + COMPACT_MAX_MARGIN;
+    const windowMaxHeight = Math.max(maxHeight, contentHeight) + COMPACT_MAX_MARGIN;
+    win.setMaximumSize(windowMaxWidth, windowMaxHeight);
+    viewerCompactMaxSize.set(windowId, {
+      width: windowMaxWidth,
+      height: windowMaxHeight,
+    });
 
     // The fit itself, kept for the maximise handler: undoing a maximise has to
     // happen in the event that reports it, too early to ask the viewer. Absent
