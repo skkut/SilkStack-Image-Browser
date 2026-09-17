@@ -90,6 +90,27 @@ const setWindowSize = (width: number, height: number) => {
   Object.defineProperty(window, 'innerHeight', { value: height, configurable: true });
 };
 
+/**
+ * The payload the viewer sends for an image area of `contentWidth` x
+ * `contentHeight` at the remembered scale. The window's ceiling — the fit at
+ * scale 1 — is a separate number rather than something the helper derives, and
+ * it defaults to the size itself because the two coincide whenever the window is
+ * at its fit. Tests where the user has reduced the window pass it explicitly.
+ */
+const compactPayload = (
+  contentWidth: number,
+  contentHeight: number,
+  anchor: 'center' | 'keep',
+  ceiling: [number, number] = [contentWidth, contentHeight],
+) => ({
+  enabled: true,
+  contentWidth,
+  contentHeight,
+  maxContentWidth: ceiling[0],
+  maxContentHeight: ceiling[1],
+  anchor,
+});
+
 beforeEach(() => {
   setViewerCompactMode.mockClear();
   fillScreenCallback = null;
@@ -143,12 +164,7 @@ describe('ImageModal compact mode', () => {
 
     // 1000x500 in a 1000x1000 work area: scale 0.984 → 984x492 image area,
     // plus 8px padding each side and the 32px drag bar.
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
     // The sidebar toggle would be a no-op while compact, so it is gone.
     expect(screen.queryByLabelText('Collapse Sidebar')).toBeNull();
@@ -187,12 +203,7 @@ describe('ImageModal compact mode', () => {
     );
 
     // A remembered-compact window resizes on mount, before any user gesture.
-    expect(setViewerCompactMode).toHaveBeenCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenCalledWith(compactPayload(1000, 540, 'center'));
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
   });
 
@@ -248,12 +259,7 @@ describe('ImageModal compact mode', () => {
     act(() => {
       screen.getByLabelText('Fit window to image').click();
     });
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
     // Arrow to a portrait image: the window must reshape to the new aspect
     // ratio, not stay at the previous image's shape.
@@ -269,12 +275,7 @@ describe('ImageModal compact mode', () => {
       />,
     );
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 492,
-      contentHeight: 1000,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(492, 1000, 'center'));
   });
 
   it('does not size the window from the 512px-capped thumbnail', () => {
@@ -293,12 +294,7 @@ describe('ImageModal compact mode', () => {
     act(() => {
       screen.getByLabelText('Fit window to image').click();
     });
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
     // The <img> shows the thumbnail first; learning its size would reshape the
     // window down to 512px and then back up once the real file decoded.
@@ -309,12 +305,7 @@ describe('ImageModal compact mode', () => {
       fireEvent.load(img);
     });
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
   });
 });
 
@@ -332,12 +323,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
     );
 
     // Half of the 984x492 fit, with the chrome left at full size.
-    expect(setViewerCompactMode).toHaveBeenCalledWith({
-      enabled: true,
-      contentWidth: 508,
-      contentHeight: 294,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenCalledWith(compactPayload(508, 294, 'center', [1000, 540]));
   });
 
   it('learns the reduction from a hand-dragged window', () => {
@@ -353,12 +339,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       act(() => {
         screen.getByLabelText('Fit window to image').click();
       });
-      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-        enabled: true,
-        contentWidth: 1000,
-        contentHeight: 540,
-        anchor: "center",
-      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
       // The user drags the window down to 70% of the picture. We gave them a
       // 984x492 image area, so 70% is 689x344 — content 705x392.
@@ -373,12 +354,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       // ratio stays exact rather than being whatever the drag produced — while
       // being left where the user put it, since re-centring here would yank the
       // window out from under the hand that just resized it.
-      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-        enabled: true,
-        contentWidth: 704,
-        contentHeight: 392,
-        anchor: "keep",
-      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(704, 392, 'keep', [1000, 540]));
     } finally {
       vi.useRealTimers();
     }
@@ -408,12 +384,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
 
       // The ceiling is inert on the way in — the work area caps the size — so
       // the window still opens at the fit.
-      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-        enabled: true,
-        contentWidth: 1000,
-        contentHeight: 540,
-        anchor: "center",
-      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
       // …and dragging it to half of that picture stores half, not 4 x 0.5.
       setWindowSize(508, 294);
@@ -423,12 +394,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       });
 
       expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.5, 2);
-      expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-        enabled: true,
-        contentWidth: 508,
-        contentHeight: 294,
-        anchor: "keep",
-      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(508, 294, 'keep', [1000, 540]));
     } finally {
       vi.useRealTimers();
     }
@@ -449,12 +415,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
         onNavigatePrevious={() => {}}
       />,
     );
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 508,
-      contentHeight: 294,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(508, 294, 'center', [1000, 540]));
 
     // 500x1000 at half of its 0.952 fit → 476x952 becomes 238x476.
     rerender(
@@ -469,12 +430,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
       />,
     );
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 254,
-      contentHeight: 524,
-      anchor: "center",
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(254, 524, 'center', [492, 1000]));
   });
 
   it('does not mistake its own resize for a user drag', () => {
@@ -521,12 +477,7 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     );
 
     // Opens at the remembered half size.
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 508,
-      contentHeight: 294,
-      anchor: 'center',
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(508, 294, 'center', [1000, 540]));
 
     // The main process converts the OS's fill-the-screen gesture into this,
     // because a window shaped to its image has no screen-filling shape to be
@@ -535,12 +486,7 @@ describe('ImageModal compact mode — the maximise gesture', () => {
       fillScreenCallback?.();
     });
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: 'keep',
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'keep'));
     // The reduction is forgotten, not multiplied — so the next image opens at
     // its own maximum rather than at half of it.
     expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
@@ -567,12 +513,7 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     // process's backstop unmaximised it. The request counter is what forces the
     // re-apply that unmaximises *and* restores the image's shape in one step.
     expect(setViewerCompactMode).toHaveBeenCalledTimes(2);
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({
-      enabled: true,
-      contentWidth: 1000,
-      contentHeight: 540,
-      anchor: 'keep',
-    });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'keep'));
   });
 
   it('subscribes only while compact, and only in the viewer window', () => {

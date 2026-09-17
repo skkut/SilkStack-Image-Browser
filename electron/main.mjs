@@ -245,10 +245,24 @@ const viewerCompactRestore = new Map();
 // hand-moved window keep its own centre instead of being pulled back to the app
 // window on the next image.
 const viewerCompactPlacement = new Map();
+// windowId -> { width, height }: the largest content size this image is allowed
+// to take, in content units — the fit at scale 1. The renderer computes it and
+// sends it with every re-fit, and it is kept here because a maximise has to be
+// undone from inside the event that reports it, before the viewer could be asked
+// what the fit is. Same number the window maximum is built from; the two are
+// stored separately because that one carries COMPACT_MAX_MARGIN.
+const viewerCompactCeiling = new Map();
 // Positions closer than this to the one we set count as ours — the frame is
 // rounded to whole physical pixels, so a window "at" our position can report a
 // DIP or two of drift.
 const COMPACT_MOVE_TOLERANCE = 4;
+// Slack added to a compact window's maximum size. setMaximumSize takes *window*
+// units while the viewer's ceiling is a content size, and the frame's invisible
+// resize border is worth a few DIPs — clamping exactly would shave the requested
+// content area. A little generosity costs nothing: the maximum only has to stop
+// short of the work area, and the few DIPs it overshoots the fit by are taken
+// back inside the same turn as the maximise, before the frame is painted.
+const COMPACT_MAX_MARGIN = 32;
 
 /**
  * The rect a compact viewer is centred in.
@@ -287,13 +301,15 @@ function viewerPlacementTarget(win) {
  * @param {BrowserWindow} win
  * @param {{x:number,y:number,width:number,height:number}} bounds the window's bounds after resizing
  * @param {{x:number,y:number,width:number,height:number}} target rect to centre in when nothing else applies
+ * @param {boolean} [movedBySystem] true when `bounds` are the window manager's doing, not the user's
  */
-function compactAnchorFor(win, bounds, target) {
+function compactAnchorFor(win, bounds, target, movedBySystem = false) {
   const previous = viewerCompactPlacement.get(win.id);
   if (previous) {
     const movedByUser =
-      Math.abs(bounds.x - previous.placedX) > COMPACT_MOVE_TOLERANCE ||
-      Math.abs(bounds.y - previous.placedY) > COMPACT_MOVE_TOLERANCE;
+      !movedBySystem &&
+      (Math.abs(bounds.x - previous.placedX) > COMPACT_MOVE_TOLERANCE ||
+        Math.abs(bounds.y - previous.placedY) > COMPACT_MOVE_TOLERANCE);
     if (movedByUser) {
       return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
     }
@@ -331,7 +347,13 @@ function applyViewerContentSize(
   // The drag bar is a `-webkit-app-region: drag` strip, so double-clicking it
   // maximises the window on Windows. setContentSize is a no-op while maximised,
   // which would silently wedge every later resize — so leave that state first.
-  if (win.isMaximized()) {
+  //
+  // Noted before leaving it, because a maximised frame sits wherever the window
+  // manager parked it (the work area's top-left), and that corner is not evidence
+  // of anything the user did. Read as a hand-move it would become the anchor, and
+  // the window would settle into the corner instead of coming back.
+  const wasMaximized = win.isMaximized();
+  if (wasMaximized) {
     win.unmaximize();
   }
 
@@ -351,7 +373,7 @@ function applyViewerContentSize(
   if (recenter) {
     // Measured in content sizes, so the window's own border is ignored — a
     // pixel or two of asymmetry, in exchange for a position that cannot drift.
-    const anchor = compactAnchorFor(win, after, target);
+    const anchor = compactAnchorFor(win, after, target, wasMaximized);
     x = Math.round(anchor.x - width / 2);
     y = Math.round(anchor.y - height / 2);
   }
@@ -1168,16 +1190,41 @@ function setupFileOperationHandlers() {
       // honoured literally — but it is a real request, and both ways of making it
       // (the title-bar button, a double-click on the 32px drag bar) land here.
       // It becomes the compact equivalent: as large as this display allows for
-      // this image, which is the fit at 1. The viewer owns the fit and the
-      // remembered size, so it re-applies — and its re-apply is what unmaximises
-      // the frame, in the same step as the resize, so the window goes straight
-      // from full screen to the large compact frame. Restoring the previous size
-      // here instead would show that shape as an extra beat, and could leave the
-      // window and the remembered size disagreeing if anything went wrong
-      // between the two.
+      // this image, which is the fit at 1.
+      //
+      // Done here, in the same turn Windows reported the maximise, and not by
+      // asking the viewer. Two things are wrong with the frame Windows just
+      // committed: it is a few DIPs over the fit (the ceiling carries
+      // COMPACT_MAX_MARGIN), and it is *positioned* at the work area's top-left
+      // corner — a maximised window goes to ptMaxPosition, which Windows chooses
+      // and Electron cannot set. Correcting the size alone would still leave the
+      // window animating across to the corner and back, because the round trip
+      // to the renderer and back through React takes tens of milliseconds, and
+      // the message loop paints in the middle of it. Corrected here, both are
+      // settled before the loop ever reaches a paint, and the window simply
+      // appears at the fit, where it already was.
       viewerWindow.on("maximize", () => {
         if (!viewerCompactWindows.has(windowId)) return;
+
+        const ceiling = viewerCompactCeiling.get(windowId);
+        if (ceiling) {
+          applyViewerContentSize(
+            viewerWindow,
+            ceiling.width,
+            ceiling.height,
+            viewerPlacementTarget(viewerWindow),
+            true,
+          );
+        } else if (viewerWindow.isMaximized()) {
+          viewerWindow.unmaximize();
+        }
+
+        // The viewer still has to hear about the gesture: it owns the remembered
+        // size, and "fill the screen" means the largest fit — scale 1 — so that
+        // the next image opens the same way. Its re-apply computes this same
+        // ceiling and finds the window already there, so it changes nothing.
         viewerWindow.webContents.send("viewer-compact-fill-screen");
+
         // Backstop for a viewer that cannot answer — it should never be left
         // maximised, since a maximised frame cannot be resized at all.
         setTimeout(() => {
@@ -1241,6 +1288,7 @@ function setupFileOperationHandlers() {
         viewerCompactWindows.delete(windowId);
         viewerCompactRestore.delete(windowId);
         viewerCompactPlacement.delete(windowId);
+        viewerCompactCeiling.delete(windowId);
         // Notify the main window which child closed
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("image-viewer-closed", { windowId });
@@ -2647,8 +2695,12 @@ function setupFileOperationHandlers() {
       // bounds: re-entering the mode should centre over the app window again,
       // not on wherever the window happened to be left last time.
       viewerCompactPlacement.delete(windowId);
+      viewerCompactCeiling.delete(windowId);
 
-      // Lift the compact floor before growing the window back.
+      // Lift the compact floor before growing the window back, and drop the
+      // compact ceiling with it — a maximum left over from the mode would keep
+      // capping the window after it is no longer compact.
+      win.setMaximumSize(0, 0);
       win.setMinimumSize(VIEWER_MIN_WIDTH, VIEWER_MIN_HEIGHT);
       if (restore?.wasMaximized) {
         win.maximize();
@@ -2678,6 +2730,34 @@ function setupFileOperationHandlers() {
       });
       viewerCompactWindows.add(windowId);
       win.setMinimumSize(COMPACT_MIN_WIDTH, COMPACT_MIN_HEIGHT);
+    }
+
+    // The compact ceiling: the image's fit at scale 1, handed to the window
+    // manager. Windows reads it back through WM_GETMINMAXINFO *before* it
+    // commits a maximise, so the OS's own maximise — the title-bar button, a
+    // double-click on the 32px drag bar, Aero-snap — lands on the compact
+    // maximum directly. The work-area-sized frame a maximise would otherwise
+    // paint on the way there is never drawn, which is the whole point: there is
+    // no flash to shorten because the wrong size never reaches the screen.
+    //
+    // Never below the size we are about to ask for, so a stored preference above
+    // the fit (reachable from the pre-fix builds, which could saturate it) can
+    // still be honoured rather than silently wedging the window.
+    const maxWidth = Math.round(payload?.maxContentWidth ?? 0);
+    const maxHeight = Math.round(payload?.maxContentHeight ?? 0);
+    win.setMaximumSize(
+      Math.max(maxWidth, contentWidth) + COMPACT_MAX_MARGIN,
+      Math.max(maxHeight, contentHeight) + COMPACT_MAX_MARGIN,
+    );
+
+    // The fit itself, kept for the maximise handler: undoing a maximise has to
+    // happen in the event that reports it, too early to ask the viewer. Absent
+    // from an older renderer, or a non-positive size — then there is no ceiling
+    // to re-apply and the handler falls back to simply unmaximising.
+    if (maxWidth > 0 && maxHeight > 0) {
+      viewerCompactCeiling.set(windowId, { width: maxWidth, height: maxHeight });
+    } else {
+      viewerCompactCeiling.delete(windowId);
     }
 
     applyViewerContentSize(

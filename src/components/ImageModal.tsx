@@ -1101,14 +1101,30 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // Fullscreen owns the window size; the compact size is re-applied on exit.
     if (isFullscreen || !naturalWidth || !naturalHeight) return;
 
+    const availWidth = window.screen?.availWidth || window.innerWidth;
+    const availHeight = window.screen?.availHeight || window.innerHeight;
+
     const size = computeCompactContentSize(
       naturalWidth,
       naturalHeight,
-      window.screen?.availWidth || window.innerWidth,
-      window.screen?.availHeight || window.innerHeight,
+      availWidth,
+      availHeight,
       compactUserScale,
     );
     if (!size) return;
+
+    // The largest this window may ever be: the fit at scale 1. The main process
+    // hands it to the window manager as the window's maximum, and Windows
+    // consults that maximum *before* it commits a maximise — so the OS's own
+    // maximise gesture lands on the compact maximum directly, and the
+    // work-area-sized frame it would otherwise paint on the way is never drawn.
+    const ceiling = computeCompactContentSize(
+      naturalWidth,
+      naturalHeight,
+      availWidth,
+      availHeight,
+      1,
+    );
 
     // Record what we asked for *before* the IPC round-trip: the resize event it
     // triggers has to be recognisable as ours.
@@ -1125,7 +1141,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
       compactFitKeyRef.current === image.id ? "keep" : "center";
     compactFitKeyRef.current = image.id;
 
-    setViewerCompactMode({ enabled: true, ...size, anchor });
+    setViewerCompactMode({
+      enabled: true,
+      ...size,
+      maxContentWidth: ceiling?.contentWidth,
+      maxContentHeight: ceiling?.contentHeight,
+      anchor,
+    });
   }, [
     setViewerCompactMode,
     isCompactMode,

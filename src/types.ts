@@ -316,6 +316,14 @@ export interface ElectronAPI {
     contentWidth?: number;
     contentHeight?: number;
     /**
+     * The largest content size this window may take: the image's fit at scale
+     * 1. The main process sets it as the window's maximum, so the OS's own
+     * maximise gesture is clamped to the compact maximum and never paints a
+     * work-area-sized frame on the way.
+     */
+    maxContentWidth?: number;
+    maxContentHeight?: number;
+    /**
      * Where the reshaped window should sit: centred in the main app window
      * (the default), or left exactly where it is — which is what the re-fit
      * following the user's own drag of the frame asks for.
