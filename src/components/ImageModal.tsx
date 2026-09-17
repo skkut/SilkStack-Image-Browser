@@ -1,4 +1,4 @@
-import React, { useEffect, useState, FC, useCallback, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useState, FC, useCallback, useRef } from "react";
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
 import { FileOperations } from "../services/fileOperations";
 import { copyImageToClipboard, showInExplorer, openInNativeViewer, getAspectRatio } from "../utils/imageUtils";
@@ -40,6 +40,8 @@ import {
   COMPACT_SCALE_EPSILON,
   COMPACT_RESIZE_TOLERANCE,
 } from "../utils/windowSizing";
+import ImageMinimap from "./ImageMinimap";
+import type { Point } from "../utils/minimapGeometry";
 import { useImageStore } from "../store/useImageStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 
@@ -852,8 +854,50 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  // A live minimap drag: the image drops its easing so the picture keeps up with
+  // the box rather than trailing it.
+  const [isMinimapDragging, setIsMinimapDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+
+  // What the minimap maps from: the pane and the image's laid-out size at scale 1.
+  // Refs do not re-render and `scale()` leaves clientWidth alone, so this is synced
+  // from the observer below rather than read during render.
+  const [viewMetrics, setViewMetrics] = useState<{
+    viewportWidth: number;
+    viewportHeight: number;
+    imageWidth: number;
+    imageHeight: number;
+  } | null>(null);
+
+  const syncViewMetrics = useCallback(() => {
+    const viewportWidth = containerRef.current?.clientWidth ?? 0;
+    const viewportHeight = containerRef.current?.clientHeight ?? 0;
+    const imageWidth = imgRef.current?.clientWidth ?? 0;
+    const imageHeight = imgRef.current?.clientHeight ?? 0;
+    setViewMetrics((prev) =>
+      prev &&
+      prev.viewportWidth === viewportWidth &&
+      prev.viewportHeight === viewportHeight &&
+      prev.imageWidth === imageWidth &&
+      prev.imageHeight === imageHeight
+        ? prev
+        : { viewportWidth, viewportHeight, imageWidth, imageHeight },
+    );
+  }, []);
+
+  // The minimap earns its place only once the image is zoomed past its fit (below
+  // that the box would cover the whole map) and only once the pane and image have
+  // both been measured — which is what keeps it off the pre-load skeleton.
+  const showMinimap =
+    !isVideo &&
+    zoom > 1 &&
+    Boolean(imageUrl) &&
+    Boolean(viewMetrics) &&
+    viewMetrics!.imageWidth > 0 &&
+    viewMetrics!.imageHeight > 0 &&
+    viewMetrics!.viewportWidth > 0 &&
+    viewMetrics!.viewportHeight > 0;
 
   // Calculate true zoom percentage based on rendered size vs natural size
   const updateZoomPercentage = useCallback(() => {
@@ -868,20 +912,30 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   useEffect(() => {
     updateZoomPercentage();
+    syncViewMetrics();
 
     const observer = new ResizeObserver(() => {
       updateZoomPercentage();
+      syncViewMetrics();
     });
-    
+
     if (imgRef.current) {
       observer.observe(imgRef.current);
     }
     if (containerRef.current) {
       observer.observe(containerRef.current);
     }
-    
+
     return () => observer.disconnect();
-  }, [updateZoomPercentage]);
+  }, [updateZoomPercentage, syncViewMetrics, imageUrl]);
+
+  // The observer is asynchronous and only fires on a size *change*; this catches
+  // the first measurement after the image element appears, before the browser
+  // paints. The guarded setter returns the same object when nothing moved, so
+  // running on every render costs nothing.
+  useLayoutEffect(() => {
+    syncViewMetrics();
+  });
 
   // Clamp pan so the image can't be dragged past its own edges.
   // Uses actual rendered image size (object-contain may make it narrower/shorter
@@ -902,6 +956,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
       };
     },
     [],
+  );
+
+  // Moves the pane and hands back where it actually landed. The minimap anchors a
+  // drag on the returned value, so a jump or drag that the clamp trims keeps the
+  // box under the cursor instead of a bit of slack away from it.
+  const applyPan = useCallback(
+    (x: number, y: number): Point => {
+      const applied = clampPan(x, y, zoom);
+      setPan(applied);
+      return applied;
+    },
+    [clampPan, zoom],
   );
 
 
@@ -1027,6 +1093,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const handleImageLoad = useCallback(() => {
     updateZoomPercentage();
+    // The picture has laid out by now, so this is where the minimap learns the
+    // size it maps from — including the swap to the full-resolution blob.
+    syncViewMetrics();
     if (isThumbnailShown) return;
     const img = imgRef.current;
     const width = img?.naturalWidth ?? 0;
@@ -1359,6 +1428,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    // The minimap unmounts at scale 1; clearing this too means a drag that was
+    // live when the image changed cannot leave the next image un-eased.
+    setIsMinimapDragging(false);
   }, [image.id]);
 
   // Zoom handlers
@@ -1407,8 +1479,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // Pan handlers
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      // Don't start dragging if clicking zoom controls or other interactive elements
-      if ((e.target as HTMLElement).closest(".zoom-controls")) {
+      // Don't start dragging if clicking zoom controls, the minimap, or other
+      // interactive elements
+      if ((e.target as HTMLElement).closest(".zoom-controls, .image-minimap")) {
         return;
       }
 
@@ -1934,7 +2007,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 onLoad={handleImageLoad}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transition: isDragging ? "none" : "transform 0.1s ease-out",
+                  // Easing is for the discrete jumps (buttons, wheel); a drag has to
+                  // track the pointer, and the minimap's box would otherwise lead the
+                  // picture it is describing.
+                  transition:
+                    isDragging || isMinimapDragging
+                      ? "none"
+                      : "transform 0.1s ease-out",
                 }}
                 draggable={canDragExternally && zoom === 1}
               />
@@ -1965,63 +2044,90 @@ const ImageModal: React.FC<ImageModalProps> = ({
           </div>
 
           {!isVideo && (
+            // The minimap and the controls share one bottom-right stack: the map
+            // sits directly above the controls with no offset to keep in sync.
+            // pointer-events pass through the stack's own box (the gap between the
+            // two) so a pan drag started there still reaches the pane.
             <div
-              className="zoom-controls absolute bottom-4 right-4 flex items-center gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 opacity-0 group-hover/modal:opacity-100 transition-opacity z-50"
-              onMouseDown={(e) => e.stopPropagation()}
-              onMouseMove={(e) => e.stopPropagation()}
-              onMouseUp={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchMove={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => e.stopPropagation()}
+              className={`zoom-controls absolute bottom-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none transition-opacity ${
+                isMinimapDragging
+                  ? "opacity-100"
+                  : "opacity-0 group-hover/modal:opacity-100"
+              }`}
             >
-              <button
-                onClick={handleZoomOut}
-                disabled={zoom <= 1}
-                className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Zoom Out"
-              >
-                <ZoomOut className="h-5 w-5" />
-              </button>
-              <input
-                type="range"
-                min={MIN_ZOOM}
-                max={MAX_ZOOM}
-                step="0.1"
-                value={zoom}
+              {showMinimap && (
+                <div className="bg-gray-950/60 backdrop-blur-sm border border-gray-50/20 rounded-lg p-1 shadow-lg pointer-events-auto">
+                  <ImageMinimap
+                    thumbnailUrl={preferredThumbnailUrl ?? imageUrl!}
+                    imageWidth={viewMetrics!.imageWidth}
+                    imageHeight={viewMetrics!.imageHeight}
+                    viewportWidth={viewMetrics!.viewportWidth}
+                    viewportHeight={viewMetrics!.viewportHeight}
+                    zoom={zoom}
+                    pan={pan}
+                    onPanChange={applyPan}
+                    onDragStateChange={setIsMinimapDragging}
+                  />
+                </div>
+              )}
+              <div
+                className="zoom-controls flex items-center gap-2 bg-gray-950/60 rounded-lg p-2 backdrop-blur-sm border border-gray-50/20 pointer-events-auto"
                 onMouseDown={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  const newZoom = parseFloat(e.target.value);
-                  if (newZoom === zoom) return;
-                  setZoom(newZoom);
-                  if (newZoom === MIN_ZOOM) {
-                    setPan({ x: 0, y: 0 });
-                  } else {
-                    const ratio = newZoom / zoom;
-                    setPan((prev) => clampPan(prev.x * ratio, prev.y * ratio, newZoom));
-                  }
-                }}
-                className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                title="Adjust zoom"
-              />
-              <button
-                onClick={handleZoomIn}
-                disabled={zoom >= MAX_ZOOM}
-                className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                title="Zoom In"
+                onMouseMove={(e) => e.stopPropagation()}
+                onMouseUp={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
               >
-                <ZoomIn className="h-5 w-5" />
-              </button>
-              <div className="text-gray-50 text-xs font-mono w-10 text-center">
-                {displayedZoomPercentage}%
+                <button
+                  onClick={handleZoomOut}
+                  disabled={zoom <= 1}
+                  className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="h-5 w-5" />
+                </button>
+                <input
+                  type="range"
+                  min={MIN_ZOOM}
+                  max={MAX_ZOOM}
+                  step="0.1"
+                  value={zoom}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const newZoom = parseFloat(e.target.value);
+                    if (newZoom === zoom) return;
+                    setZoom(newZoom);
+                    if (newZoom === MIN_ZOOM) {
+                      setPan({ x: 0, y: 0 });
+                    } else {
+                      const ratio = newZoom / zoom;
+                      setPan((prev) => clampPan(prev.x * ratio, prev.y * ratio, newZoom));
+                    }
+                  }}
+                  className="w-32 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  title="Adjust zoom"
+                />
+                <button
+                  onClick={handleZoomIn}
+                  disabled={zoom >= MAX_ZOOM}
+                  className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="h-5 w-5" />
+                </button>
+                <div className="text-gray-50 text-xs font-mono w-10 text-center">
+                  {displayedZoomPercentage}%
+                </div>
+                <button
+                  onClick={handleResetZoom}
+                  disabled={zoom <= 1}
+                  className="text-gray-50 px-2 py-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-medium"
+                  title="Reset Zoom"
+                >
+                  Reset
+                </button>
               </div>
-              <button
-                onClick={handleResetZoom}
-                disabled={zoom <= 1}
-                className="text-gray-50 px-2 py-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-medium"
-                title="Reset Zoom"
-              >
-                Reset
-              </button>
             </div>
           )}
 
