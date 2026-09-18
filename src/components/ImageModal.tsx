@@ -66,6 +66,17 @@ interface ImageModalProps {
   isStandaloneWindow?: boolean;
 }
 
+/**
+ * The pane and the image's laid-out size at scale 1 — what the minimap maps
+ * from, and what `clampPan` works in. All four are 0 until the elements exist.
+ */
+interface ViewMetrics {
+  viewportWidth: number;
+  viewportHeight: number;
+  imageWidth: number;
+  imageHeight: number;
+}
+
 // Helper function to format LoRA with weight
 const formatLoRA = (lora: string | LoRAInfo): string => {
   if (typeof lora === "string") {
@@ -863,27 +874,37 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // What the minimap maps from: the pane and the image's laid-out size at scale 1.
   // Refs do not re-render and `scale()` leaves clientWidth alone, so this is synced
   // from the observer below rather than read during render.
-  const [viewMetrics, setViewMetrics] = useState<{
-    viewportWidth: number;
-    viewportHeight: number;
-    imageWidth: number;
-    imageHeight: number;
-  } | null>(null);
+  const [viewMetrics, setViewMetrics] = useState<ViewMetrics | null>(null);
+
+  // The geometry the last dispatch was built from. The "nothing moved" test has to
+  // happen *here*, before dispatching, and not inside the updater: an updater that
+  // returns the previous object still enqueues an update, and this runs from a
+  // layout effect — where React skips its same-value eager bailout while the fiber
+  // has work pending. Every commit would then schedule the next one, and 50 nested
+  // updates arrive in a single burst (entering or leaving compact mode is exactly
+  // that: the reshape, the sidebar flip and the resize all land together). That is
+  // the "Maximum update depth exceeded" the dep-less layout effect below used to
+  // throw. Comparing first means a commit that moved nothing dispatches nothing.
+  const viewMetricsRef = useRef<ViewMetrics | null>(null);
 
   const syncViewMetrics = useCallback(() => {
     const viewportWidth = containerRef.current?.clientWidth ?? 0;
     const viewportHeight = containerRef.current?.clientHeight ?? 0;
     const imageWidth = imgRef.current?.clientWidth ?? 0;
     const imageHeight = imgRef.current?.clientHeight ?? 0;
-    setViewMetrics((prev) =>
-      prev &&
-      prev.viewportWidth === viewportWidth &&
-      prev.viewportHeight === viewportHeight &&
-      prev.imageWidth === imageWidth &&
-      prev.imageHeight === imageHeight
-        ? prev
-        : { viewportWidth, viewportHeight, imageWidth, imageHeight },
-    );
+    const previous = viewMetricsRef.current;
+    if (
+      previous &&
+      previous.viewportWidth === viewportWidth &&
+      previous.viewportHeight === viewportHeight &&
+      previous.imageWidth === imageWidth &&
+      previous.imageHeight === imageHeight
+    ) {
+      return;
+    }
+    const next = { viewportWidth, viewportHeight, imageWidth, imageHeight };
+    viewMetricsRef.current = next;
+    setViewMetrics(next);
   }, []);
 
   // The minimap earns its place only once the image is zoomed past its fit (below
@@ -931,8 +952,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // The observer is asynchronous and only fires on a size *change*; this catches
   // the first measurement after the image element appears, before the browser
-  // paints. The guarded setter returns the same object when nothing moved, so
-  // running on every render costs nothing.
+  // paints. Deliberately dependency-less, which is only safe because
+  // `syncViewMetrics` compares before it dispatches: a commit that moved nothing
+  // writes no state, so this costs one layout read per render and nothing else.
+  // (An always-dispatching version of this effect is what threw "Maximum update
+  // depth exceeded" — see the note on `viewMetricsRef`.)
   useLayoutEffect(() => {
     syncViewMetrics();
   });
