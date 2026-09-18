@@ -182,3 +182,67 @@ export function panForMinimapCentre(input: PanForCentreInput): Point {
     y: zoom * (imageHeight / 2 - clampedY / layout.scale),
   };
 }
+
+/**
+ * Drag smoothing.
+ *
+ * Pointer positions arrive in whole CSS px and the map magnifies them: one map
+ * pixel is `zoom / scale` image pixels, which on a 4000px image at 10x is 222 px
+ * of travel, because the view box is only 3.6 px wide up there. Applied straight,
+ * a steady drag arrives as a staircase of those steps and a 1px tremor is
+ * amplified by the same factor.
+ *
+ * So the pointer only sets a *target* and the applied centre eases toward it. That
+ * interpolates the steps into a ramp and low-passes the tremor, while still
+ * following intent: a deliberate drag closes the gap in a few frames, whereas
+ * jitter that reverses every frame largely cancels itself out.
+ */
+
+/** The frame length the easing is tuned for. */
+export const REFERENCE_FRAME_MS = 1000 / 60;
+/** Longest frame the easing will believe in — a stall should catch up, not lurch. */
+export const MAX_FRAME_MS = 64;
+/** Share of the remaining distance closed per reference-length frame. */
+export const CENTRE_EASING = 0.4;
+/** Within this distance of the target the centre has arrived, in map px. */
+export const CENTRE_SETTLE_PX = 0.05;
+
+/**
+ * The share to close in a frame that actually took `dtMs`. Without this the
+ * smoothing would have a different time constant at 60Hz and 144Hz, and a stalled
+ * frame would leave the box further behind instead of letting it catch up.
+ */
+export function frameFactor(base: number, dtMs: number): number {
+  const frames = clamp(dtMs, 0, MAX_FRAME_MS) / REFERENCE_FRAME_MS;
+  if (!(frames > 0)) return 0;
+  return 1 - Math.pow(1 - base, frames);
+}
+
+export interface EasedCentre {
+  point: Point;
+  /** True once the centre is on the target — the caller can stop redrawing. */
+  settled: boolean;
+}
+
+/**
+ * One frame of that easing. Snaps exactly onto the target within `settle`, rather
+ * than approaching it forever, so a drag always finishes at the position asked for
+ * and an idle pointer stops producing work.
+ */
+export function easeCentre(
+  current: Point,
+  target: Point,
+  factor: number,
+  settle: number = CENTRE_SETTLE_PX,
+): EasedCentre {
+  const dx = target.x - current.x;
+  const dy = target.y - current.y;
+  if (Math.abs(dx) <= settle && Math.abs(dy) <= settle) {
+    return { point: { x: target.x, y: target.y }, settled: true };
+  }
+  const share = clamp(factor, 0, 1);
+  return {
+    point: { x: current.x + dx * share, y: current.y + dy * share },
+    settled: false,
+  };
+}

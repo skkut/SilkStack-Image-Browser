@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // The stores read localStorage at module load, and this jsdom setup ships a
 // non-functional localStorage — stub it (and sessionStorage, read by ImageModal)
 // before any module import. Same harness as image-modal-file-params.test.tsx.
-vi.hoisted(() => {
+const frames = vi.hoisted(() => {
   const store = new Map<string, string>();
   const makeStorage = () =>
     ({
@@ -30,10 +30,45 @@ vi.hoisted(() => {
     disconnect() {}
   }
   global.ResizeObserver = ResizeObserverMock as any;
+
+  // The minimap's drag eases on requestAnimationFrame, so the tests own the clock
+  // rather than racing a timer they cannot see.
+  const pending = new Map<number, FrameRequestCallback>();
+  let nextId = 0;
+  let clock = 0;
+  global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    pending.set(++nextId, callback);
+    return nextId;
+  }) as typeof requestAnimationFrame;
+  global.cancelAnimationFrame = ((id: number) => {
+    pending.delete(id);
+  }) as typeof cancelAnimationFrame;
+
+  return {
+    /**
+     * Runs `count` frames, advancing the clock a reference frame each. Inside
+     * `act`: a frame moves the pane through React state, and without this the
+     * assertions would read a DOM that has not caught up yet.
+     */
+    flush(count = 1, dt = 1000 / 60) {
+      act(() => {
+        for (let i = 0; i < count; i++) {
+          clock += dt;
+          const due = [...pending.values()];
+          pending.clear();
+          for (const callback of due) callback(clock);
+        }
+      });
+    },
+    reset() {
+      pending.clear();
+      clock = 0;
+    },
+  };
 });
 
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import ImageModal from '../components/ImageModal';
 import type { IndexedImage } from '../types';
 
@@ -116,6 +151,7 @@ beforeEach(() => {
   startFileDrag.mockClear();
   (global.localStorage as any).__store.clear();
   (window as any).electronAPI = { startFileDrag };
+  frames.reset();
 });
 
 describe('ImageModal minimap', () => {
@@ -170,13 +206,33 @@ describe('ImageModal minimap', () => {
     fireEvent.mouseDown(minimap()!, { button: 0, clientX: 90, clientY: 45 });
 
     // +30 map px is +133.33 display px of centre, which at 1.5x is -200 px of pan
-    // — exactly this zoom's travel limit.
+    // — exactly this zoom's travel limit, and where the easing comes to rest.
     fireEvent.mouseMove(minimap()!, { clientX: 120, clientY: 45 });
+    frames.flush(30);
     expect(imageTransform().x).toBeCloseTo(-200, 6);
     expect(imageTransform().y).toBeCloseTo(0, 6);
 
     // The box followed the pointer: it is now flush with the map's right edge.
     expect(parseFloat(viewBox().style.left)).toBeCloseTo(60, 6);
+  });
+
+  it('moves the picture gradually rather than in one jump', () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+    stubSizes(800, 400);
+    zoomIn();
+    fireEvent.mouseDown(minimap()!, { button: 0, clientX: 90, clientY: 45 });
+    fireEvent.mouseMove(minimap()!, { clientX: 120, clientY: 45 });
+
+    // One pixel of pointer travel is worth 30 map px here, which at this zoom is
+    // 200 px of picture — the step the easing exists to break up. A single frame
+    // covers part of it; the frames after that cover the rest.
+    frames.flush(1);
+    const partial = Math.abs(imageTransform().x);
+    expect(partial).toBeGreaterThan(0);
+    expect(partial).toBeLessThan(200);
+
+    frames.flush(30);
+    expect(imageTransform().x).toBeCloseTo(-200, 6);
   });
 
   it('does not start the pane panning underneath it', () => {

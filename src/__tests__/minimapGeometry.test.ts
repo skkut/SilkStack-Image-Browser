@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CENTRE_EASING,
+  CENTRE_SETTLE_PX,
+  MAX_FRAME_MS,
+  REFERENCE_FRAME_MS,
   computeViewBox,
+  easeCentre,
   fitMinimap,
+  frameFactor,
   panForMinimapCentre,
   type MinimapLayout,
   type MinimapMetrics,
+  type Point,
 } from '../utils/minimapGeometry';
 
 /**
@@ -257,5 +264,153 @@ describe('panForMinimapCentre', () => {
         centreY: 50,
       }),
     ).toEqual({ x: 0, y: 0 });
+  });
+});
+
+/** Runs the easing to a standstill, the way the frame loop in the component does. */
+const settle = (
+  from: Point,
+  target: Point,
+  factor = CENTRE_EASING,
+  maxFrames = 200,
+): { point: Point; frames: number } => {
+  let point = from;
+  for (let frames = 1; frames <= maxFrames; frames++) {
+    const next = easeCentre(point, target, factor);
+    point = next.point;
+    if (next.settled) return { point, frames };
+  }
+  return { point, frames: maxFrames };
+};
+
+describe('frameFactor', () => {
+  it('closes the tuned share in a reference-length frame', () => {
+    expect(frameFactor(CENTRE_EASING, REFERENCE_FRAME_MS)).toBeCloseTo(
+      CENTRE_EASING,
+      10,
+    );
+  });
+
+  it('closes more of the gap the longer the frame took', () => {
+    const short = frameFactor(CENTRE_EASING, REFERENCE_FRAME_MS);
+    const long = frameFactor(CENTRE_EASING, REFERENCE_FRAME_MS * 2);
+    const longer = frameFactor(CENTRE_EASING, REFERENCE_FRAME_MS * 4);
+    expect(long).toBeGreaterThan(short);
+    expect(longer).toBeGreaterThan(long);
+    // Two half-length frames and one whole one agree, so the smoothing has the
+    // same time constant however the frames happen to fall.
+    const halves = 1 - (1 - frameFactor(CENTRE_EASING, REFERENCE_FRAME_MS / 2)) ** 2;
+    expect(halves).toBeCloseTo(short, 10);
+  });
+
+  it('closes nothing in no time at all', () => {
+    expect(frameFactor(CENTRE_EASING, 0)).toBe(0);
+    expect(frameFactor(CENTRE_EASING, -5)).toBe(0);
+    expect(frameFactor(CENTRE_EASING, Number.NaN)).toBe(0);
+  });
+
+  it('bounds a stalled frame rather than letting it lurch', () => {
+    const stalled = frameFactor(CENTRE_EASING, 5000);
+    expect(stalled).toBeCloseTo(frameFactor(CENTRE_EASING, MAX_FRAME_MS), 10);
+    // Catching up is the point; overshooting the target is not.
+    expect(stalled).toBeLessThan(1);
+  });
+});
+
+describe('easeCentre', () => {
+  it('moves part of the way and never past the target', () => {
+    const next = easeCentre({ x: 0, y: 0 }, { x: 100, y: 50 }, CENTRE_EASING);
+    expect(next.settled).toBe(false);
+    expect(next.point.x).toBeCloseTo(40, 10);
+    expect(next.point.y).toBeCloseTo(20, 10);
+  });
+
+  it('arrives exactly, in a bounded number of frames', () => {
+    // 35 map px is what one pixel of pointer travel is worth in the fixtures above;
+    // at 40% a frame it should be done well inside a sixth of a second.
+    const { point, frames } = settle({ x: 0, y: 0 }, { x: 35, y: 0 });
+    expect(point).toEqual({ x: 35, y: 0 });
+    expect(frames).toBeLessThan(20);
+  });
+
+  it('never backs away from the target on the way', () => {
+    const target = { x: 35, y: -20 };
+    let point: Point = { x: 0, y: 0 };
+    let previous = Math.hypot(target.x - point.x, target.y - point.y);
+    for (let i = 0; i < 30; i++) {
+      point = easeCentre(point, target, CENTRE_EASING).point;
+      const distance = Math.hypot(target.x - point.x, target.y - point.y);
+      expect(distance).toBeLessThanOrEqual(previous);
+      previous = distance;
+    }
+    expect(previous).toBe(0);
+  });
+
+  it('has nothing to do when it is already there', () => {
+    const there = { x: 12, y: 34 };
+    const next = easeCentre(there, there, CENTRE_EASING);
+    expect(next.settled).toBe(true);
+    // Identical, not merely close: the caller skips its redraw on this being true.
+    expect(next.point).toEqual(there);
+  });
+
+  it('lands in one frame when asked for the whole distance', () => {
+    const next = easeCentre({ x: 0, y: 0 }, { x: 100, y: 0 }, 1);
+    expect(next.point).toEqual({ x: 100, y: 0 });
+  });
+
+  it('snaps within the settle distance and keeps travelling outside it', () => {
+    const target = { x: 10, y: 10 };
+    const justInside = easeCentre(
+      { x: 10 + CENTRE_SETTLE_PX / 2, y: 10 },
+      target,
+      CENTRE_EASING,
+    );
+    expect(justInside.settled).toBe(true);
+    expect(justInside.point).toEqual(target);
+
+    const justOutside = easeCentre(
+      { x: 10 + CENTRE_SETTLE_PX * 2, y: 10 },
+      target,
+      CENTRE_EASING,
+    );
+    expect(justOutside.settled).toBe(false);
+  });
+
+  it('stays put when asked for none of it', () => {
+    const next = easeCentre({ x: 0, y: 0 }, { x: 100, y: 0 }, 0);
+    expect(next.settled).toBe(false);
+    expect(next.point).toEqual({ x: 0, y: 0 });
+  });
+
+  it('damps a shaking pointer to a standstill', () => {
+    // The complaint this easing exists for: a hand tremor of a pixel or so, which
+    // the map would otherwise magnify into a couple of hundred pixels of picture.
+    // Alternating the target every frame is the worst case — the pointer never
+    // rests, so the easing can never fully catch up.
+    let point: Point = { x: 100, y: 100 };
+    // Seeded by the first *sampled* frame, not by the starting point: the band is
+    // what the shake settles into, not how far it travelled getting there.
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    let widestStep = 0;
+    for (let frame = 0; frame < 120; frame++) {
+      const target = { x: 100 + (frame % 2), y: 100 };
+      const before = point;
+      point = easeCentre(point, target, CENTRE_EASING).point;
+      if (frame >= 60) {
+        min = Math.min(min, point.x);
+        max = Math.max(max, point.x);
+        widestStep = Math.max(widestStep, Math.abs(point.x - before.x));
+      }
+    }
+    // Rather than swinging the full pixel the pointer does, it settles into a band
+    // a fraction of that wide, moving a fraction of a pixel each frame. Both are
+    // comfortably under half the tremor, so this fails if the easing is weakened
+    // or removed — a raw pointer would give a band and a step of 1.
+    expect(point.x).toBeGreaterThanOrEqual(100);
+    expect(point.x).toBeLessThanOrEqual(101);
+    expect(max - min).toBeLessThan(0.5);
+    expect(widestStep).toBeLessThan(0.5);
   });
 });

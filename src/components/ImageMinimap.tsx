@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CENTRE_EASING,
+  REFERENCE_FRAME_MS,
   computeViewBox,
+  easeCentre,
   fitMinimap,
+  frameFactor,
   panForMinimapCentre,
   type Point,
 } from "../utils/minimapGeometry";
@@ -57,6 +61,12 @@ const ImageMinimap: React.FC<ImageMinimapProps> = ({
 }) => {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  // Where the pointer has asked the box's centre to be, and where the easing has
+  // actually got it to, both in map px. Refs, not state: the pointer writes the
+  // target on every event with no render, and the easing has to survive a
+  // re-render (a wheel-zoom mid-drag rebuilds the effect below).
+  const targetRef = useRef<Point | null>(null);
+  const appliedRef = useRef<Point | null>(null);
 
   const layout = fitMinimap(imageWidth, imageHeight);
   const mapWidth = layout?.width ?? 0;
@@ -115,6 +125,10 @@ const ImageMinimap: React.FC<ImageMinimapProps> = ({
         onPanChange(jumped.x, jumped.y);
       }
 
+      // Both ends start on the anchor, so the first frame has nothing to ease and
+      // the drag begins from exactly where the box already is.
+      targetRef.current = { x: centreX, y: centreY };
+      appliedRef.current = { x: centreX, y: centreY };
       setDrag({ centreX, centreY, originX: e.clientX, originY: e.clientY });
     },
     [
@@ -137,30 +151,68 @@ const ImageMinimap: React.FC<ImageMinimapProps> = ({
 
     onDragStateChange(true);
 
+    let frame = 0;
+    let lastFrameTime = 0;
+
     const handleMove = (e: MouseEvent) => {
-      // The centre moves with the pointer 1:1 — the map is at 1:1 with client px —
-      // so a wheel-zoom landing mid-drag re-derives the pan for the new zoom
-      // instead of re-baselining the gesture.
-      const next = panForMinimapCentre({
+      // The whole reason the pointer goes through a target: this costs no render, so
+      // a 1000Hz mouse cannot outrun the display, and the frame loop below turns the
+      // raw steps into movement instead of applying them one jump at a time.
+      targetRef.current = {
+        x: drag.centreX + (e.clientX - drag.originX),
+        y: drag.centreY + (e.clientY - drag.originY),
+      };
+    };
+
+    const step = (now: number) => {
+      frame = requestAnimationFrame(step);
+
+      const applied = appliedRef.current;
+      const target = targetRef.current;
+      if (!applied || !target) return;
+
+      const next = easeCentre(
+        applied,
+        target,
+        frameFactor(
+          CENTRE_EASING,
+          lastFrameTime ? now - lastFrameTime : REFERENCE_FRAME_MS,
+        ),
+      );
+      lastFrameTime = now;
+      // Already there: no work, and no render for a pointer sitting still.
+      if (next.point.x === applied.x && next.point.y === applied.y) return;
+      appliedRef.current = next.point;
+
+      const pan = panForMinimapCentre({
         imageWidth,
         imageHeight,
         viewportWidth,
         viewportHeight,
         zoom,
         layout: { width: mapWidth, height: mapHeight, scale: mapScale },
-        centreX: drag.centreX + (e.clientX - drag.originX),
-        centreY: drag.centreY + (e.clientY - drag.originY),
+        centreX: next.point.x,
+        centreY: next.point.y,
       });
-      onPanChange(next.x, next.y);
+      onPanChange(pan.x, pan.y);
     };
-    const handleUp = () => setDrag(null);
 
+    const handleUp = () => {
+      // Cleared here rather than in the cleanup below, which also runs when a
+      // wheel-zoom rebuilds this effect mid-drag and must not lose the position.
+      targetRef.current = null;
+      appliedRef.current = null;
+      setDrag(null);
+    };
+
+    frame = requestAnimationFrame(step);
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
     // Alt-tabbing away with the button down never delivers a mouseup.
     window.addEventListener("blur", handleUp);
 
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
       window.removeEventListener("blur", handleUp);

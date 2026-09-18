@@ -988,7 +988,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const applyPan = useCallback(
     (x: number, y: number): Point => {
       const applied = clampPan(x, y, zoom);
-      setPan(applied);
+      // Handing back the previous object is React's bail-out, and it matters here:
+      // a drag held against an edge lands on the same pair every frame, and the
+      // picture has nothing to redraw for it. (Safe from a frame callback — the
+      // layout-effect caveat that rules this out for syncViewMetrics does not
+      // apply, since no fiber work is pending when this runs.)
+      setPan((prev) =>
+        prev.x === applied.x && prev.y === applied.y ? prev : applied,
+      );
       return applied;
     },
     [clampPan, zoom],

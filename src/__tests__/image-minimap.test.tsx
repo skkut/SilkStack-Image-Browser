@@ -1,6 +1,49 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/**
+ * A frame clock the tests drive by hand. The drag eases on requestAnimationFrame,
+ * so a test has to decide when a frame happens — jsdom's own rAF would fire on a
+ * timer nobody can see, and every position assertion would race it.
+ */
+const frames = vi.hoisted(() => {
+  const pending = new Map<number, FrameRequestCallback>();
+  let nextId = 0;
+  let clock = 0;
+  global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+    pending.set(++nextId, callback);
+    return nextId;
+  }) as typeof requestAnimationFrame;
+  global.cancelAnimationFrame = ((id: number) => {
+    pending.delete(id);
+  }) as typeof cancelAnimationFrame;
+  return {
+    /**
+     * Runs `count` frames, advancing the clock a reference frame each. Inside
+     * `act`: a frame moves the pane through React state, and without this an
+     * assertion could read a DOM that has not caught up yet.
+     */
+    flush(count = 1, dt = 1000 / 60) {
+      act(() => {
+        for (let i = 0; i < count; i++) {
+          clock += dt;
+          const due = [...pending.values()];
+          pending.clear();
+          for (const callback of due) callback(clock);
+        }
+      });
+    },
+    /** Frames still scheduled — a finished drag should leave none behind. */
+    pendingCount: () => pending.size,
+    /** Drop anything queued, so one test's drag cannot run inside the next. */
+    reset() {
+      pending.clear();
+      clock = 0;
+    },
+  };
+});
+
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import ImageMinimap from '../components/ImageMinimap';
 import { fitMinimap } from '../utils/minimapGeometry';
 
@@ -48,6 +91,7 @@ const viewBoxElement = () =>
 beforeEach(() => {
   onPanChange.mockClear();
   onDragStateChange.mockClear();
+  frames.reset();
 });
 
 describe('ImageMinimap', () => {
@@ -85,19 +129,64 @@ describe('ImageMinimap', () => {
     expect(onPanChange).not.toHaveBeenCalled();
   });
 
-  it('follows the pointer 1:1 once dragging, from wherever it was grabbed', () => {
+  it('follows the pointer, from wherever it was grabbed', () => {
     renderMap();
     fireEvent.mouseDown(surface(), { button: 0, clientX: 80, clientY: 70 });
 
     // +35 map px is +200 display px of centre, which at 2x is -400 px of pan.
     fireEvent.mouseMove(window, { clientX: 115, clientY: 70 });
-    expect(onPanChange).toHaveBeenCalledWith(-400, 0);
+    frames.flush(30);
+    const [x, y] = onPanChange.mock.lastCall!;
+    expect(x).toBeCloseTo(-400, 6);
+    expect(y).toBeCloseTo(0, 6);
 
     // And the offset from the grab is preserved: another +35 moves it again.
     fireEvent.mouseMove(window, { clientX: 150, clientY: 70 });
+    frames.flush(30);
     const [lastX, lastY] = onPanChange.mock.lastCall!;
     expect(lastX).toBeCloseTo(-800, 6);
     expect(lastY).toBeCloseTo(0, 6);
+  });
+
+  it('eases into the move instead of arriving in one jump', () => {
+    renderMap();
+    fireEvent.mouseDown(surface(), { button: 0, clientX: 80, clientY: 70 });
+    fireEvent.mouseMove(window, { clientX: 115, clientY: 70 });
+
+    // One frame is 40% of the way from the box centre (87.5) toward 122.5, which at
+    // 2x over a 0.175 scale is -160 of pan — the raw step would have been -400.
+    frames.flush(1);
+    expect(onPanChange.mock.lastCall![0]).toBeCloseTo(-160, 6);
+
+    // And it closes the rest of the gap over the frames that follow.
+    frames.flush(30);
+    expect(onPanChange.mock.lastCall![0]).toBeCloseTo(-400, 6);
+  });
+
+  it('takes the latest pointer position, not every one it was told', () => {
+    renderMap();
+    fireEvent.mouseDown(surface(), { button: 0, clientX: 80, clientY: 70 });
+
+    // Three events, no frames between them: a high-rate mouse must not be able to
+    // outrun the display, and the ones it did report must not accumulate.
+    fireEvent.mouseMove(window, { clientX: 95, clientY: 70 });
+    fireEvent.mouseMove(window, { clientX: 105, clientY: 70 });
+    fireEvent.mouseMove(window, { clientX: 115, clientY: 70 });
+    frames.flush(30);
+
+    // Where the last of them asked to be — not the sum of all three.
+    expect(onPanChange.mock.lastCall![0]).toBeCloseTo(-400, 6);
+  });
+
+  it('stops working once it has arrived, so a held pointer costs nothing', () => {
+    renderMap();
+    fireEvent.mouseDown(surface(), { button: 0, clientX: 80, clientY: 70 });
+    fireEvent.mouseMove(window, { clientX: 115, clientY: 70 });
+    frames.flush(30);
+    const settled = onPanChange.mock.calls.length;
+
+    frames.flush(60);
+    expect(onPanChange.mock.calls.length).toBe(settled);
   });
 
   it('hears the move while the pointer is over the map itself', () => {
@@ -109,7 +198,8 @@ describe('ImageMinimap', () => {
     // synthetic event at window skips that journey and hides a handler that stops
     // it, which is exactly how the map's own drag broke.
     fireEvent.mouseMove(surface(), { clientX: 115, clientY: 70 });
-    expect(onPanChange).toHaveBeenCalledWith(-400, 0);
+    frames.flush(30);
+    expect(onPanChange.mock.lastCall![0]).toBeCloseTo(-400, 6);
   });
 
   it('hears the button come up over the map itself', () => {
@@ -118,6 +208,7 @@ describe('ImageMinimap', () => {
 
     fireEvent.mouseUp(surface());
     fireEvent.mouseMove(surface(), { clientX: 150, clientY: 70 });
+    frames.flush(5);
     expect(onPanChange).not.toHaveBeenCalled();
     expect(onDragStateChange).toHaveBeenLastCalledWith(false);
   });
@@ -141,11 +232,15 @@ describe('ImageMinimap', () => {
     renderMap();
     fireEvent.mouseDown(surface(), { button: 0, clientX: 80, clientY: 70 });
     fireEvent.mouseMove(window, { clientX: 115, clientY: 70 });
-    expect(onPanChange).toHaveBeenCalledTimes(1);
+    frames.flush(30);
+    const calls = onPanChange.mock.calls.length;
 
     fireEvent.mouseUp(window);
     fireEvent.mouseMove(window, { clientX: 150, clientY: 70 });
-    expect(onPanChange).toHaveBeenCalledTimes(1);
+    frames.flush(30);
+    expect(onPanChange.mock.calls.length).toBe(calls);
+    // The frame loop is torn down with the drag, not merely idle.
+    expect(frames.pendingCount()).toBe(0);
   });
 
   it('announces the drag so the caller can drop the image easing', () => {
