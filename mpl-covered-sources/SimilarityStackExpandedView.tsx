@@ -245,7 +245,7 @@ JustifiedRow.displayName = 'JustifiedRow';
 
 export interface SimilarityStackExpandedViewProps {
   images: StackImage[];
-  subGroups: { promptHash: string; prompt: string; label?: string; groupKey?: string; dimensions?: { label: string; value: string }[]; imageIds: string[] }[];
+  subGroups: { promptHash: string; prompt: string; label?: string; groupKey?: string; dimensions?: { label: string; value: string; segments?: { text: string; isVariation: boolean }[] }[]; imageIds: string[] }[];
   onImageClick: (image: StackImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
   onBack: () => void;
@@ -461,7 +461,24 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
                             )}
                           </div>
                           <p className="text-xs text-gray-400 leading-relaxed font-mono whitespace-pre-wrap break-all select-text pl-0.5">
-                            {dim.value || '(none)'}
+                            {/* When the caller supplies variation segments, render
+                                them instead of the raw value. Segments cover the
+                                whole value verbatim, so nothing is lost or doubled.
+                                The caller decides which dimensions get segments. */}
+                            {dim.segments && dim.segments.length > 0
+                              ? dim.segments.map((seg, si) =>
+                                  seg.isVariation ? (
+                                    <mark
+                                      key={si}
+                                      className="prompt-variation-hit bg-yellow-300 text-gray-900 rounded-[2px] px-px"
+                                    >
+                                      {seg.text}
+                                    </mark>
+                                  ) : (
+                                    <React.Fragment key={si}>{seg.text}</React.Fragment>
+                                  ),
+                                )
+                              : dim.value || '(none)'}
                           </p>
                         </div>
                       ))}

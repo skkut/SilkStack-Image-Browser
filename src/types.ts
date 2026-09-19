@@ -1158,6 +1158,35 @@ export interface SmartCollectionQuery {
 export type StackGroupByDimension = 'model' | 'prompt' | 'loras';
 
 /**
+ * One slice of a dimension value, used to mark up the parts of a prompt that
+ * vary between the sub-groups of a stack.
+ *
+ * `text` is a verbatim slice of the source value — whitespace included — so the
+ * segments of a value always concatenate back to it exactly. That invariant is
+ * what lets the view render segments in place of the raw value without
+ * re-interleaving text.
+ */
+export interface PromptVariationSegment {
+  /** Verbatim slice of the source value. */
+  text: string;
+  /** True when this slice is NOT shared by every prompt in the stack. */
+  isVariation: boolean;
+}
+
+/** A dimension heading/value pair shown in a sub-group header. */
+export interface StackSubGroupDimension {
+  label: string;
+  value: string;
+  /**
+   * Word-level markup of `value`, present only when variation highlighting is
+   * enabled AND this dimension has comparable text. Absent means "render
+   * `value` as plain text" — the view treats the two cases identically when
+   * the array is missing or empty.
+   */
+  segments?: PromptVariationSegment[];
+}
+
+/**
  * Sub-group within a stack — images sharing the same grouping key.
  * A similarity-based stack may contain multiple sub-groups, each with
  * its own label displayed above its images in the drill-down view.
@@ -1170,7 +1199,7 @@ export interface StackSubGroup {
   prompt: string;           // The prompt text (primary dimension, kept for backward compat)
   label: string;            // Human-readable label shown above the image group (e.g. "SDXL · a cat")
   groupKey: string;         // Raw compound grouping key (dimension values joined by |||)
-  dimensions?: { label: string; value: string }[];  // Dimension heading/value pairs for separate display
+  dimensions?: StackSubGroupDimension[];  // Dimension heading/value pairs for separate display
   imageIds: string[];       // Image IDs in this sub-group
   coverImageId: string;     // First image chronologically (used as thumbnail)
   size: number;             // Number of images in this sub-group
@@ -1200,7 +1229,7 @@ export interface LibraryStackContext {
   stackId: string;
   imageIds: string[];
   basePrompt: string;
-  subGroups?: { promptHash: string; prompt: string; label: string; groupKey: string; dimensions?: { label: string; value: string }[]; imageIds: string[] }[]; // Sub-group metadata for drill-down display
+  subGroups?: { promptHash: string; prompt: string; label: string; groupKey: string; dimensions?: StackSubGroupDimension[]; imageIds: string[] }[]; // Sub-group metadata for drill-down display
 }
 
 /**

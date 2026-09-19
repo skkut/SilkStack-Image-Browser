@@ -5,6 +5,11 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
     "./*.{js,ts,jsx,tsx}",
+    // The AI module ships components that are bundled into the app and already
+    // render Tailwind classes. Without this glob a utility used ONLY there is
+    // never generated — `select-text` and `pl-0.5` in the stack drill-down were
+    // silently missing. The glob matches nothing when the module is absent.
+    "./ai-intelligence/src/**/*.{ts,tsx}",
   ],
   darkMode: ['class', '[data-theme="dark"]'],
   theme: {

@@ -98,6 +98,10 @@ interface SettingsState {
   isSidebarCollapsed: boolean;
   isStackingEnabled: boolean;
   stackGroupByDimensions: StackGroupByDimension[];
+  /** Highlight the words that differ between prompts in the stack drill-down,
+   *  when grouping by Prompt. Pure render-time markup over data already in
+   *  memory — no model load — so it ships ON by default. */
+  stackHighlightPromptVariations: boolean;
   isSemanticSearchEnabled: boolean;
   semanticRerankEnabled: boolean;
   /** Master switch for ALL model-loading AI features (auto-tagging, semantic
@@ -144,6 +148,7 @@ interface SettingsState {
   setSidebarCollapsed: (value: boolean) => void;
   setStackingEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
+  setStackHighlightPromptVariations: (value: boolean) => void;
   setSemanticSearchEnabled: (enabled: boolean) => void;
   setSemanticRerankEnabled: (enabled: boolean) => void;
   setAiFeaturesEnabled: (enabled: boolean) => void;
@@ -201,6 +206,7 @@ export const useSettingsStore = create<SettingsState>()(
       isSidebarCollapsed: true,
       isStackingEnabled: true,
       stackGroupByDimensions: ['prompt'],
+      stackHighlightPromptVariations: true,
 
       // Semantic search — premium, opt-in. Off until the user enables it
       // in Settings (requires a valid license + the ai-intelligence module).
@@ -253,6 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
+      setStackHighlightPromptVariations: (value) => set({ stackHighlightPromptVariations: !!value }),
       setSemanticSearchEnabled: (enabled) => set({ isSemanticSearchEnabled: enabled }),
       setSemanticRerankEnabled: (enabled) => set({ semanticRerankEnabled: enabled }),
       setAiFeaturesEnabled: (enabled) => set({ aiFeaturesEnabled: enabled }),
@@ -370,6 +377,13 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && !Array.isArray(state.stackGroupByDimensions)) {
           state.stackGroupByDimensions = ['prompt'];
+        }
+
+        // Shipped after users existed — ON by default so the drill-down
+        // explains itself. A `typeof` check (not truthiness) so a user who
+        // turned it off keeps it off across restarts.
+        if (state && typeof state.stackHighlightPromptVariations !== 'boolean') {
+          state.stackHighlightPromptVariations = true;
         }
 
         if (state && typeof state.isSemanticSearchEnabled !== 'boolean') {

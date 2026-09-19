@@ -5,6 +5,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { buildSubGroups } from '../hooks/useImageStacking';
+import { withPromptVariationSegments } from '../utils/promptVariation';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
 
@@ -80,6 +81,8 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   const displayStarredFirst = useSettingsStore(s => s.displayStarredFirst);
   const stackGroupByDimensions = useSettingsStore(s => s.stackGroupByDimensions);
   const setStackGroupByDimensions = useSettingsStore(s => s.setStackGroupByDimensions);
+  const stackHighlightPromptVariations = useSettingsStore(s => s.stackHighlightPromptVariations);
+  const setStackHighlightPromptVariations = useSettingsStore(s => s.setStackHighlightPromptVariations);
   const toggleFavorite = useImageStore(s => s.toggleFavorite);
   const toggleImageSelection = useImageStore(s => s.toggleImageSelection);
 
@@ -90,8 +93,16 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
 
   const subGroups = useMemo(() => {
     if (images.length === 0) return [];
-    return buildSubGroups(images, displayStarredFirst, stackGroupByDimensions);
-  }, [images, displayStarredFirst, stackGroupByDimensions]);
+    const groups = buildSubGroups(images, displayStarredFirst, stackGroupByDimensions);
+
+    // Variation markup is drill-down-only decoration, so it is layered on here
+    // rather than inside buildSubGroups — that function also runs for every
+    // stack in the library while the drill-down is closed.
+    if (!stackHighlightPromptVariations || !stackGroupByDimensions.includes('prompt')) {
+      return groups;
+    }
+    return withPromptVariationSegments(groups, 'Prompt');
+  }, [images, displayStarredFirst, stackGroupByDimensions, stackHighlightPromptVariations]);
 
   // ── Dimension labels for the external component heading ──────────────
 
@@ -115,6 +126,9 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   }, [setStackGroupByDimensions]);
 
   // ── Build the group-by segmented control as a ReactNode ─────────────
+
+  // Highlighting only has anything to act on while prompts are on screen.
+  const promptGroupingActive = stackGroupByDimensions.includes('prompt');
 
   const groupByToolbar = useMemo(() => (
     <div className="flex items-center gap-2">
@@ -154,8 +168,46 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
         );
       })}
       </div>
+
+      <div className="w-px h-4 bg-gray-700/60 shrink-0" />
+
+      {/* Variation highlighting — disabled rather than hidden when Prompt
+          grouping is off, so the toolbar keeps its shape and the tooltip can
+          explain why it does nothing. */}
+      <label
+        className={[
+          'flex items-center gap-1.5 shrink-0 select-none px-1 py-1 rounded-md transition-colors',
+          promptGroupingActive ? 'cursor-pointer hover:bg-white/5' : 'cursor-not-allowed opacity-40',
+        ].join(' ')}
+        title={
+          promptGroupingActive
+            ? 'Highlight the words that differ between prompts'
+            : 'Enable Prompt grouping to highlight prompt variations'
+        }
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500 shrink-0">
+          Highlight
+        </span>
+        <div className="relative inline-flex items-center">
+          <input
+            type="checkbox"
+            aria-label="Highlight prompt variations"
+            checked={stackHighlightPromptVariations}
+            disabled={!promptGroupingActive}
+            onChange={(e) => setStackHighlightPromptVariations(e.target.checked)}
+            className="sr-only peer"
+          />
+          <div className="w-8 h-4 bg-gray-700/80 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 peer-checked:after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500 shadow-inner"></div>
+        </div>
+      </label>
     </div>
-  ), [stackGroupByDimensions, handleToggleDimension]);
+  ), [
+    stackGroupByDimensions,
+    handleToggleDimension,
+    promptGroupingActive,
+    stackHighlightPromptVariations,
+    setStackHighlightPromptVariations,
+  ]);
 
   // ── Callback bridges ─────────────────────────────────────────────────
 
