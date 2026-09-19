@@ -146,6 +146,14 @@ export interface PromptVectorRecord {
   promptHash: string;
   modelId: string;
   dimension: number;
+  /**
+   * Version of the canonical TEXT FORM this vector was embedded from
+   * (PROMPT_TEXT_VERSION). The third staleness dimension beside modelId and
+   * dimension: when the canonicalization changes, old vectors are re-embedded
+   * rather than silently mixed with new ones. Absent on records written before
+   * canonicalization existed — those are stale by definition.
+   */
+  textVersion?: number;
   updatedAt: number;
 }
 
@@ -156,6 +164,14 @@ export interface PromptSimilarityGroupRecord {
   modelId: string;
   dimension: number;
   memberCount: number;
+  /** See PromptVectorRecord.textVersion. */
+  textVersion?: number;
+  /**
+   * Canonical tokens of the member CLOSEST to this group's rep — the evidence
+   * for the clustering loose tier's vocabulary guard. Read by the coordinator
+   * and relayed to the module as `tokens`; never used for scoring.
+   */
+  repTokens?: string[];
   updatedAt: number;
 }
 
@@ -222,6 +238,16 @@ interface ModuleCoordinator {
     query: string,
     options?: { limit?: number; minScore?: number },
   ): Promise<PromptVectorSearchHit[]>;
+  /**
+   * The corpus mean used for anisotropy correction, estimated from every
+   * persisted group rep in the active DB (+ any extra vectors the caller has
+   * in hand). `null` when there is too little corpus to estimate one, in which
+   * case clustering scores on the raw cosine.
+   *
+   * The dev tester calls this so its compare readout shows PRODUCTION-scale
+   * numbers — a raw cosine shown beside a centered threshold is meaningless.
+   */
+  getPromptCenteringMean(extraVectors?: Float32Array[]): Promise<Float32Array | null>;
   /** Delete images from the vector stores + worker index (deletion hook). */
   removeImages(imageIds: string[]): Promise<void>;
   dispose(): void;
@@ -449,6 +475,14 @@ export class SemanticSearchCoordinator {
   /** All persisted similarity-group representatives (running centroids). */
   getPromptSimilarityGroups(): Promise<PromptSimilarityGroupRecord[]> {
     return this.withModule((coordinator) => coordinator.getPromptSimilarityGroups());
+  }
+
+  /**
+   * The corpus mean for anisotropy correction, read from the ACTIVE db's group
+   * representatives. `null` below the module's minimum-vector gate.
+   */
+  getPromptCenteringMean(extraVectors: Float32Array[] = []): Promise<Float32Array | null> {
+    return this.withModule((coordinator) => coordinator.getPromptCenteringMean(extraVectors));
   }
 
   /**

@@ -71,7 +71,29 @@ const DETECTED_GPUS_STORAGE_KEY = 'image-metahub-detected-gpus';
 // too. Bumping the version without that branch change would reset every
 // stack and re-derive the entire partition from the vector signal alone —
 // which is precisely the regression v4 exists to undo.
-const SIMILARITY_GROUP_VERSION = 4;
+// v5 (2026-09): the VECTOR signal was recalibrated. Prompt text is now
+// canonicalized before embedding (quality boilerplate, `(word:1.2)` weights,
+// brackets and bare numbers are stripped — the same vocabulary the lexical
+// half already used), scoring subtracts the corpus mean to correct embedding
+// anisotropy, the vector bar is no longer the app's SIMILARITY_MATCH_THRESHOLD
+// (it is the module's own, now 0.90 on the CENTERED scale), and a new
+// loose-tier vocabulary guard sits under it. Triggered by the module's
+// prompt-vector quality work; the reset re-derives the partition once.
+// The one-time cost is a full re-embed of the PROMPT half — automatic, since
+// this reset re-opens the clustering pass and `embedPromptVectors` Δ-checks
+// `textVersion`.
+//
+// ⚠️ The SEARCH half is NOT covered by this reset, even though the canonical
+// text also feeds the searchable document. `runSemanticIndexNow` filters its
+// payload by the `isSemanticIndexed` stamp BEFORE any coordinator round-trip,
+// so a fully-indexed library sends nothing and the coordinator's `textHash` Δ
+// never runs — clearing this version does not change that (a similarity-id
+// write is not an index-text write). Without a manual **Settings → Re-index**,
+// search keeps matching boilerplate-laden text while stacking matches
+// canonical text, and the two halves silently disagree. Deliberate decision
+// (2026-09-19): manual over a reset lever that would force a full library
+// re-embed on every user's first launch after the update.
+const SIMILARITY_GROUP_VERSION = 5;
 const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
 
 // Mirror of NON_LATIN_SCRIPT_RE (ai-intelligence semantic-search.ts — a
@@ -5224,10 +5246,18 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const result = await coordinator.clusterPromptGroups({
                     newGroups,
                     existingGroups,
-                    // Same bar as the lexical signal — the two are OR-ed, so a
-                    // pair need only clear ONE of them. Passing it explicitly
-                    // keeps the app independent of the module's default.
-                    threshold: SIMILARITY_MATCH_THRESHOLD,
+                    // NO threshold. The vector bar is the MODULE's own constant
+                    // (PROMPT_GROUPING_VECTOR_THRESHOLD, 0.90 on the CENTERED
+                    // scale), deliberately not this app's
+                    // SIMILARITY_MATCH_THRESHOLD (0.80). The two signals merge
+                    // on OR, which once argued for a shared bar — but 0.80 is
+                    // calibrated for the lexical hybrid (0.6·jaccard +
+                    // 0.4·levenshtein) while the cosine is a different metric on
+                    // a different scale. Sharing the number was itself part of
+                    // the over-merging: passing it here re-imposed a lexical bar
+                    // on a cosine. The dev tester still passes one explicitly —
+                    // that is its threshold sweep, and the calibration vehicle
+                    // for the module's default.
                     onProgress: (p) => reportProgress(p.current, p.total, p.message ?? 'Clustering prompt groups...'),
                 });
 

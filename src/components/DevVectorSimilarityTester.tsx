@@ -14,8 +14,10 @@ import { extractRawMetadataFromFile } from '../services/fileIndexer';
  * → worker → storage stack against the LIBRARY's production DB — the same
  * records the app's own pipeline (semantic indexing + vector grouping) writes:
  *
- *   1. Compare two prompts — embed both (non-persisting) and score their
- *      cosine similarity against the ACTIVE model's grouping threshold.
+ *   1. Compare two prompts — canonicalize both, embed them (non-persisting),
+ *      and score their corpus-CENTERED cosine against the ACTIVE model's
+ *      grouping threshold. The raw cosine and the canonical embed forms are
+ *      shown beside it so a surprising score is attributable, not mysterious.
  *   2. Prompt grouping — the tuning vehicle moved here from the Semantic
  *      Search tab: scan the library, then cluster its distinct prompts into
  *      similarity groups. Runs LIVE on the library DB with the same union-only
@@ -50,13 +52,29 @@ const COMPARE_PRESETS = [
 
 /**
  * The lexical engine merges prompts when hybridSimilarity
- * (0.6·jaccard + 0.4·Levenshtein) clears the shared bar. Reads
- * SIMILARITY_MATCH_THRESHOLD so this instrument can never judge a pair at a
- * different bar than the pipeline does — the two signals are OR-ed, and the
- * vector engine's own default is pinned to the same value. The lexical engine
- * has no cross-lingual relaxation, unlike the vector one.
+ * (0.6·jaccard + 0.4·Levenshtein) clears the LEXICAL bar. Reads
+ * SIMILARITY_MATCH_THRESHOLD because that constant IS the lexical bar, and the
+ * pipeline's lexical half must be judged at exactly the bar it applies.
+ *
+ * ⚠️ This is NOT the vector bar. The two signals were once pinned to the same
+ * number ("they are OR-ed, so they should share a bar"); they no longer are,
+ * and this panel shows them as two independent rows precisely because the
+ * divergence between the metrics is what threshold tuning is about. The vector
+ * bar is the module's own (see VECTOR_MATCH_FALLBACK below).
+ *
+ * The lexical engine has no cross-lingual relaxation, unlike the vector one.
  */
 const LEXICAL_MATCH_THRESHOLD = SIMILARITY_MATCH_THRESHOLD;
+
+/**
+ * Fallback for the module's vector bar — the CENTERED-cosine default
+ * (PROMPT_GROUPING_VECTOR_THRESHOLD). Only ever used when the module export is
+ * dropped; it must NOT be sourced from SIMILARITY_MATCH_THRESHOLD, which is a
+ * lexical bar on a different metric and a different scale. Kept as its own
+ * literal so a missing export shows a slightly wrong number rather than
+ * silently judging every pair at the pre-v5 over-merging threshold.
+ */
+const VECTOR_MATCH_FALLBACK = 0.9;
 
 /** Full-res file reads for previews are expensive — cap how many hits get one. */
 const MAX_RESULT_PREVIEWS = 50;
@@ -130,7 +148,20 @@ type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 /** Fallbacks for the module stash — only ever matter if an export is dropped. */
 const FALLBACK_NORMALIZE = (p: string): string => p.trim().replace(/\s+/g, ' ');
 const FALLBACK_HASH = (p: string): string => p;
-const FALLBACK_RESOLVE_THRESHOLD = (): number => SIMILARITY_MATCH_THRESHOLD;
+const FALLBACK_RESOLVE_THRESHOLD = (): number => VECTOR_MATCH_FALLBACK;
+/**
+ * Identity fallback: with no canonicalizer the embedded text is the raw prompt,
+ * which is the pre-v5 behavior — wrong, but wrong in the direction of showing
+ * MORE similarity, and this panel's job is to expose over-merging rather than
+ * to hide it.
+ */
+const FALLBACK_EMBED_TEXT = (p: string): string => p;
+/**
+ * Raw dot product over L2-normalized vectors. Serves as the fallback for BOTH
+ * cosines: with no module export there is no centering either (the mean comes
+ * from the same module), so the uncentered dot is the honest degradation — and
+ * the panel labels the row "no corpus mean yet, so this IS the score used".
+ */
 const FALLBACK_COSINE = (a: Float32Array, b: Float32Array): number => {
   let s = 0;
   const n = Math.min(a.length, b.length);
@@ -147,16 +178,33 @@ const FALLBACK_NON_LATIN_RE = /[\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7AF\u0E00-\u
  * values. All names are barrel-exported.
  */
 interface VectorModuleConsts {
-  /** Default dot-product threshold for prompt-vector clustering. */
+  /** Default threshold for prompt-vector clustering — on the CENTERED scale. */
   PROMPT_GROUPING_VECTOR_THRESHOLD: number;
   /** Threshold relaxation when one side of a comparison is non-Latin. */
   PROMPT_GROUPING_CROSSLINGUAL_DELTA: number;
+  /** How far below the strict bar the LOOSE tier (with a vocabulary guard) reaches. */
+  PROMPT_GROUPING_LOOSE_DELTA: number;
   /** Resolve the effective grouping threshold for a model id. */
   resolvePromptGroupingThreshold: (modelId?: string) => number;
   /** Non-Latin script probe (CJK etc.) — gates the cross-lingual delta. */
   NON_LATIN_SCRIPT_RE: RegExp;
   /** The same normalization stored prompt vectors embed + hash with. */
   normalizePrompt: (prompt: string) => string;
+  /**
+   * The text actually EMBEDDED for a prompt — canonical (boilerplate, weights,
+   * brackets and stopwords stripped) with a fallback to the normalized form
+   * when canonicalization empties it. Distinct from `normalizePrompt`, which
+   * only feeds the exact-prompt HASH: the hash must stay stable across
+   * canonicalization changes, so the two deliberately differ.
+   */
+  promptEmbeddingText: (prompt: string) => string;
+  /**
+   * Cosine of two unit vectors AFTER subtracting the corpus mean — the exact
+   * transform the clustering engine scores with. Raw cosines are NOT comparable
+   * to the threshold; without this the panel would report numbers the pipeline
+   * never uses (see centeredCosineSimilarity in the module).
+   */
+  centeredCosineSimilarity: (a: Float32Array, b: Float32Array, mean: Float32Array | null) => number;
   /** Exact-prompt FNV-1a hash — the app's stackGroupId / store promptHash. */
   generatePromptHash: (prompt: string) => string;
   /** Dot product over L2-normalized vectors (the module's similarity). */
@@ -182,11 +230,25 @@ interface LibraryFile {
 }
 
 interface CompareResult {
+  /** Normalized display forms (what the user typed, lowercased). */
   a: string;
   b: string;
+  /** Canonical EMBED forms — what the model actually saw. Differs from `a`/`b`
+   *  whenever canonicalization drops boilerplate, which is the usual case. */
+  embedA: string;
+  embedB: string;
+  /** Centered cosine — comparable to `effThreshold`. */
   score: number;
+  /** Raw cosine, for reference: the gap between the two IS the anisotropy. */
+  rawScore: number;
+  /** False when no corpus mean was available (too little corpus) — `score` is
+   *  then the raw cosine and the threshold is not comparable. */
+  centered: boolean;
   /** The model's grouping threshold actually applied (delta included). */
   effThreshold: number;
+  /** The LOOSE tier's bar: below `effThreshold` by the loose delta, and it
+   *  additionally requires vocabulary agreement with the existing group. */
+  looseThreshold: number;
   /** True when the cross-lingual relaxation was applied. */
   crosslingual: boolean;
   /**
@@ -473,13 +535,16 @@ export default function DevVectorSimilarityTester() {
             moduleRef.current = {
               // Fallbacks must stay in sync with the module's values — they
               // only ever matter if the export above is ever dropped.
-              PROMPT_GROUPING_VECTOR_THRESHOLD: mod.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85,
+              PROMPT_GROUPING_VECTOR_THRESHOLD: mod.PROMPT_GROUPING_VECTOR_THRESHOLD ?? VECTOR_MATCH_FALLBACK,
               PROMPT_GROUPING_CROSSLINGUAL_DELTA: mod.PROMPT_GROUPING_CROSSLINGUAL_DELTA ?? 0.05,
+              PROMPT_GROUPING_LOOSE_DELTA: mod.PROMPT_GROUPING_LOOSE_DELTA ?? 0.06,
               resolvePromptGroupingThreshold: mod.resolvePromptGroupingThreshold ?? FALLBACK_RESOLVE_THRESHOLD,
               NON_LATIN_SCRIPT_RE: mod.NON_LATIN_SCRIPT_RE ?? FALLBACK_NON_LATIN_RE,
               normalizePrompt: mod.normalizePrompt ?? FALLBACK_NORMALIZE,
+              promptEmbeddingText: mod.promptEmbeddingText ?? FALLBACK_EMBED_TEXT,
               generatePromptHash: mod.generatePromptHash ?? FALLBACK_HASH,
               cosineSimilarity: mod.cosineSimilarity ?? FALLBACK_COSINE,
+              centeredCosineSimilarity: mod.centeredCosineSimilarity ?? FALLBACK_COSINE,
               hybridSimilarity: mod.hybridSimilarity ?? null,
             };
           }
@@ -548,10 +613,20 @@ export default function DevVectorSimilarityTester() {
 
   /**
    * Compare two prompts: embed both through the public non-persisting route
-   * and score the cosine of the normalized forms — the SAME text the store
-   * embeds, so the score is directly comparable to the grouping threshold the
-   * clustering engine applies (per-model override, relaxed by the module's
-   * cross-lingual delta when either side is non-Latin).
+   * and score them THE WAY THE PIPELINE DOES — canonical text in, corpus-mean
+   * censtering on the way out.
+   *
+   * The canonical step matters as much as the centering: the pipeline embeds
+   * `promptEmbeddingText`, not `normalizePrompt`. Embedding the normalized form
+   * here (as this panel used to) fed the model the boilerplate the pipeline
+   * strips, so a pair that clusters as distinct could be shown as high-scoring
+   * — the panel would contradict the thing it exists to measure.
+   *
+   * The centered form is what makes the number comparable to the threshold. A
+   * raw cosine is not: the threshold ships at 0.90 on the CENTERED scale, and
+   * the two scales are not the same axis. The raw value is still reported
+   * (log line + a muted note in the panel) because seeing the gap between raw
+   * and centered is itself useful — that gap IS the anisotropy being corrected.
    */
   const handleCompare = useCallback(async () => {
     const coordinator = coordinatorRef.current;
@@ -562,9 +637,15 @@ export default function DevVectorSimilarityTester() {
     }
     const stash = moduleRef.current;
     const normalize = stash?.normalizePrompt ?? FALLBACK_NORMALIZE;
+    const embedText = stash?.promptEmbeddingText ?? FALLBACK_EMBED_TEXT;
+    // Display forms (what the user typed, normalized) vs embed forms (what the
+    // model actually sees) — both are shown so a surprise score can be traced
+    // to the canonicalization rather than guessed at.
     const a = normalize(promptA);
     const b = normalize(promptB);
-    if (!a || !b) {
+    const embedA = embedText(promptA);
+    const embedB = embedText(promptB);
+    if (!a || !b || !embedA || !embedB) {
       setError('Both prompts must normalize to non-empty text to compare.');
       return;
     }
@@ -572,18 +653,27 @@ export default function DevVectorSimilarityTester() {
     setError(null);
     try {
       const start = performance.now();
-      const [va, vb] = await coordinator.embedTexts([a, b]);
+      const [va, vb] = await coordinator.embedTexts([embedA, embedB]);
       if (!va || !vb) {
         setError('Embedding returned no vectors — check the model state.');
         return;
       }
-      const cosine = stash?.cosineSimilarity ?? FALLBACK_COSINE;
-      const score = cosine(va, vb);
+      // The corpus mean the CLUSTERING run would use. Read from the persisted
+      // group reps in the active DB, plus this pair's own vectors (the
+      // clustering run counts the round's new vectors too — see
+      // estimateCenteringMean). null below the module's minimum-vector gate,
+      // in which case the pipeline scores raw as well and so does this.
+      const meanVector = await coordinator.getPromptCenteringMean([va, vb]);
+      const centeredCosine = stash?.centeredCosineSimilarity ?? FALLBACK_COSINE;
+      const rawCosine = stash?.cosineSimilarity ?? FALLBACK_COSINE;
+      const score = meanVector ? centeredCosine(va, vb, meanVector) : rawCosine(va, vb);
+      const rawScore = rawCosine(va, vb);
       // Alternate, non-AI score over the SAME normalized text: the lexical
       // engine's hybrid (jaccard + Levenshtein). It runs alongside the vector
       // signal in the pipeline and the two are OR-ed, so its verdict is
       // "would the lexical half of the OR have merged this?" — judged against
-      // LEXICAL_MATCH_THRESHOLD (the shared bar), with no cross-lingual relief.
+      // LEXICAL_MATCH_THRESHOLD (its own bar, not the vector one), with no
+      // cross-lingual relief.
       const lexicalScore = stash?.hybridSimilarity
         ? stash.hybridSimilarity(a, b, LEXICAL_MATCH_THRESHOLD)
         : null;
@@ -595,14 +685,19 @@ export default function DevVectorSimilarityTester() {
       setCompareResult({
         a,
         b,
+        embedA,
+        embedB,
         score,
+        rawScore,
+        centered: !!meanVector,
         effThreshold: Math.max(0, thresholdUsed - delta),
+        looseThreshold: Math.max(0, thresholdUsed - (stash?.PROMPT_GROUPING_LOOSE_DELTA ?? 0.06)),
         crosslingual,
         lexicalScore,
         elapsed: Math.round(performance.now() - start),
       });
       appendLog(
-        `compare: ${(score * 100).toFixed(1)}% similar (${crosslingual ? 'cross-lingual — ' : ''}threshold ${thresholdUsed.toFixed(2)}${crosslingual ? ` − ${delta} delta` : ''}${lexicalScore !== null ? ` · lexical ${(lexicalScore * 100).toFixed(1)}%` : ''})`,
+        `compare: ${(score * 100).toFixed(1)}% centered${meanVector ? '' : ' (NO MEAN — raw)'} / ${(rawScore * 100).toFixed(1)}% raw (${crosslingual ? 'cross-lingual — ' : ''}threshold ${thresholdUsed.toFixed(2)}${crosslingual ? ` − ${delta} delta` : ''}${lexicalScore !== null ? ` · lexical ${(lexicalScore * 100).toFixed(1)}%` : ''})`,
       );
     } catch (err) {
       setError(`Compare failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -812,7 +907,7 @@ export default function DevVectorSimilarityTester() {
           mergedIntoDisplay: promptById.get(finalByGroup.get(g.groupId)!) ?? finalByGroup.get(g.groupId)!,
         }));
       const thresholdUsed =
-        groupingThreshold ?? stash?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85;
+        groupingThreshold ?? stash?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? VECTOR_MATCH_FALLBACK;
       setPromptClusterReadout({
         distinctPrompts: newGroups.length,
         existingGroups: existing.length,
@@ -835,10 +930,16 @@ export default function DevVectorSimilarityTester() {
 
   /**
    * Rank the library DB's stored prompt vectors against a prompt-like query
-   * and show the matching images — "what was this prompt-like text used
-   * for?". The query is normalized and embedded exactly like the persisted
-   * records, so scores are the same cosine the grouping thresholds use.
-   * Read-only: nothing is written or re-embedded beyond the transient query.
+   * and show the matching images — "what was this prompt-like text used for?".
+   * The query is canonicalized and embedded exactly like the persisted records
+   * (both sides go through `promptEmbeddingText` inside the coordinator), so
+   * the scores are like-for-like.
+   *
+   * ⚠️ These scores are RAW cosines against the SEARCH thresholds
+   * (SEMANTIC_SEARCH: 0.45 Qwen3 / 0.55 Arctic), not the CENTERED cosines the
+   * grouping thresholds use. Semantic search was deliberately left uncentered —
+   * its threshold is calibrated on the raw distribution. Read-only: nothing is
+   * written or re-embedded beyond the transient query.
    */
   const handleSearchPromptVectors = useCallback(async () => {
     const coordinator = coordinatorRef.current;
@@ -906,7 +1007,7 @@ export default function DevVectorSimilarityTester() {
 
   // Effective grouping threshold for the current model (chips + verdicts).
   const modelThreshold =
-    moduleRef.current?.resolvePromptGroupingThreshold(status?.modelId ?? undefined) ?? 0.85;
+    moduleRef.current?.resolvePromptGroupingThreshold(status?.modelId ?? undefined) ?? VECTOR_MATCH_FALLBACK;
   const crosslingualDelta = moduleRef.current?.PROMPT_GROUPING_CROSSLINGUAL_DELTA ?? 0.05;
   const promptCount = libraryImagesRef.current.length;
   /**
@@ -1114,7 +1215,18 @@ export default function DevVectorSimilarityTester() {
                         <span className="font-mono text-gray-300">
                           {compareResult.effThreshold.toFixed(2)}
                         </span>{' '}
-                        — distinct stacks
+                        {/* The band below the strict bar is not simply "no
+                            merge": the loose tier merges there when the prompts
+                            share vocabulary. Say so, or a merge the pipeline
+                            performs looks like a bug in this readout. */}
+                        {compareResult.score >= compareResult.looseThreshold ? (
+                          <span className="text-amber-300">
+                            — in the LOOSE band: merges only if the prompts share
+                            vocabulary (≥2 tokens, ≥25% of the shorter one)
+                          </span>
+                        ) : (
+                          '— distinct stacks'
+                        )}
                       </>
                     )}
                     {compareResult.crosslingual && (
@@ -1124,6 +1236,30 @@ export default function DevVectorSimilarityTester() {
                     )}
                   </span>
                 </div>
+
+                {/* The raw score, muted — reference only. The gap to the row
+                    above is the anisotropy correction, and it is usually large
+                    (that is why absolute raw cosines over-merged). */}
+                <div className="flex items-baseline gap-2 text-gray-600">
+                  <span className="shrink-0 w-28">raw cosine</span>
+                  <span className="font-mono">{(compareResult.rawScore * 100).toFixed(1)}%</span>
+                  <span>
+                    {compareResult.centered
+                      ? '— before centering; NOT comparable to the threshold'
+                      : '— no corpus mean yet, so this IS the score used'}
+                  </span>
+                </div>
+
+                {/* The text the model actually saw. Without this, a surprising
+                    score is unattributable: "a red fox, masterpiece, 8k" and
+                    "a red fox" both embed as "red fox". */}
+                {(compareResult.embedA !== compareResult.a ||
+                  compareResult.embedB !== compareResult.b) && (
+                  <div className="text-gray-600 font-mono truncate">
+                    embedded as: &ldquo;{compareResult.embedA}&rdquo; · &ldquo;
+                    {compareResult.embedB}&rdquo;
+                  </div>
+                )}
 
                 {/* Row 2: the alternate non-AI score — the lexical grouping
                     engine's metric (0.6·jaccard + 0.4·Levenshtein) over the
@@ -1186,15 +1322,18 @@ export default function DevVectorSimilarityTester() {
           <div className={`${cardClass} shrink-0`}>
             <h3 className="text-sm font-medium text-gray-200 mb-3">Prompt grouping (vector similarity)</h3>
             <p className="text-[11px] text-gray-500 mb-4">
-              Clusters the scanned library&apos;s distinct prompts by embedding dot-product — the same
+              Clusters the scanned library&apos;s distinct prompts by embedding cosine — the same
               vector pass the app runs to form stacks. Group ids are the app&apos;s stackGroupIds.
-              Runs LIVE against the library store with the app pipeline&apos;s union-only semantics
-              (vectors Δ-skip on re-runs, group records are upserted — never deleted); sweep the
-              threshold and re-cluster.
+              Prompts are CANONICALIZED before embedding (boilerplate, weights, brackets and
+              stopwords stripped) and scored after subtracting the corpus mean, so this sweep moves
+              the exact bar the app applies. Group membership is also gated on vocabulary agreement
+              below the threshold — see the compare card. Runs LIVE against the library store with
+              the app pipeline&apos;s union-only semantics (vectors Δ-skip on re-runs, group records
+              are upserted — never deleted); sweep the threshold and re-cluster.
             </p>
             <label className={labelClass} htmlFor="grouping-threshold">
-              Threshold (dot product; blank = model default{' '}
-              {moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85})
+              Threshold (CENTERED cosine; blank = model default{' '}
+              {moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? VECTOR_MATCH_FALLBACK})
             </label>
             <input
               id="grouping-threshold"
@@ -1207,7 +1346,7 @@ export default function DevVectorSimilarityTester() {
                 const v = e.target.value.trim();
                 setGroupingThreshold(v === '' ? null : Math.min(1, Math.max(0, Number(v))));
               }}
-              placeholder={String(moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? 0.85)}
+              placeholder={String(moduleRef.current?.PROMPT_GROUPING_VECTOR_THRESHOLD ?? VECTOR_MATCH_FALLBACK)}
               className={inputClass}
             />
             <div className="flex items-center gap-4 mt-4">
@@ -1423,7 +1562,7 @@ export default function DevVectorSimilarityTester() {
                         {hit.lexicalScore !== null && (
                           <p
                             className="text-[10px] text-gray-500 mt-0.5"
-                            title="Non-AI score: the pre-vector grouping engine's hybrid (jaccard+Levenshtein) between this image's stored prompt and the query — it merges at the fixed 0.85"
+                            title="Non-AI score: the pre-vector grouping engine's hybrid (jaccard+Levenshtein) between this image's stored prompt and the query — it merges at the fixed 0.80"
                           >
                             lexical vs query:{' '}
                             <span

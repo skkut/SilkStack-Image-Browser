@@ -8,8 +8,11 @@
  * performed better) was switched OFF, not superseded, and stacks regressed.
  *
  * The contract now: a pair of prompt groups shares a stack when the lexical
- * score **OR** the vector score clears `SIMILARITY_MATCH_THRESHOLD` (0.80). The
- * vector pass may only ADD members — the lexical partition is the floor, and
+ * score clears `SIMILARITY_MATCH_THRESHOLD` (0.80, the app's lexical bar) **OR**
+ * the vector score clears the MODULE's own bar (now 0.90 on the mean-centered
+ * cosine scale — the two are different metrics, so the numbers are
+ * deliberately independent and the vector pass is passed no threshold at all).
+ * The vector pass may only ADD members — the lexical partition is the floor, and
  * `computeVectorSimilarityGroups` is handed the lexical candidate set to make
  * that structural rather than aspirational.
  *
@@ -291,7 +294,13 @@ describe('similarity OR-merge — the lexical floor survives a vector miss', () 
         nonLatin: false,
       },
     ]);
-    expect(call.threshold).toBe(0.8);
+    // ④ No threshold is passed. The vector bar is the MODULE's own constant
+    //    (0.90 on the CENTERED scale), deliberately not this app's lexical
+    //    SIMILARITY_MATCH_THRESHOLD (0.80) — the two are different metrics on
+    //    different scales, and sharing the number was part of the over-merging.
+    //    Passing 0.8 here again would be a silent regression, so assert the
+    //    key is ABSENT rather than merely not-0.8.
+    expect('threshold' in call).toBe(false);
   });
 });
 

@@ -357,9 +357,13 @@ describe('vector stacking — pipeline round integration', () => {
   });
 });
 
-describe('vector stacking — similarity version bump (2 → 3)', () => {
+describe('vector stacking — similarity version bump', () => {
   it('loadAnnotations resets similarity groups on the version bump; the next round backfills vectors', async () => {
-    // Pre-upgrade persisted state: version 2, one merged group.
+    // Pre-upgrade persisted state: a stale version and one merged group. The
+    // fixture is deliberately an OLD version rather than "the previous one":
+    // the reset is `persisted !== current`, so any stale value exercises the
+    // same branch and this test survives the next bump unchanged. (The
+    // assertion below is the only line that tracks the current version.)
     (global.localStorage as any).setItem('similarityGroupVersion', '2');
     const persisted: ImageAnnotations = enrichedAnnotation('imgA', 'a red fox', {
       similarityGroupId: 'sim-1',
@@ -380,7 +384,10 @@ describe('vector stacking — similarity version bump (2 → 3)', () => {
     expect(ann.isSimilarityAnalyzed).toBe(false);
     expect(ann.isSemanticIndexed).toBe(true);
     expect(ann.searchTagVersion).toBe(2);
-    expect((global.localStorage as any).getItem('similarityGroupVersion')).toBe('4');
+    // v5: canonicalized prompt text + mean-centered vector scoring. Bumping
+    // THIS line is the whole cost of a version bump — the reset itself is
+    // version-agnostic, and the v5 comment lives in useImageStore.
+    expect((global.localStorage as any).getItem('similarityGroupVersion')).toBe('5');
 
     // The post-upgrade round backfills the prompt vector…
     await useImageStore.getState().processPostIndexingPipeline();

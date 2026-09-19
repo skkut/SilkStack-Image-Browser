@@ -196,19 +196,29 @@ export const TAG_GENERATION_MODEL_ID = 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC';
 export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';
 
 /**
- * Prompt-grouping match bar, shared by BOTH similarity signals. Mirrored from
- * the module (ai-intelligence/src/core/types.ts PROMPT_GROUPING_VECTOR_THRESHOLD
- * — the source of truth when ai-intelligence is present).
+ * The LEXICAL prompt-grouping bar — and ONLY the lexical one.
  *
- * Two exact-prompt groups join one stack when the LEXICAL hybrid
- * (0.6·jaccard + 0.4·Levenshtein) OR the VECTOR cosine clears this bar. The
+ * Two exact-prompt groups join one stack when the lexical hybrid
+ * (0.6·jaccard + 0.4·Levenshtein) OR the vector cosine clears its bar. The
  * merge is an OR, so vector can only ADD members to a stack — never remove a
  * lexical match. That invariant is enforced by the candidate-set rule in
  * computeVectorSimilarityGroups (see useImageStore.ts).
  *
- * v4 (2026-09): 0.85 → 0.80 for both signals. Note the lexical prefilter in
- * hybridSimilarity is derived from this value as (threshold − 0.4) / 0.6 —
- * change one and the other must follow, or matches silently vanish.
+ * ⚠️ It is NOT the vector bar, and the two must not be re-synced. Until v5
+ * (2026-09) this constant was passed explicitly into clusterPromptGroups on the
+ * reasoning that OR-ed signals should share a bar. That was wrong on the
+ * metric: 0.80 is calibrated for the lexical hybrid, while the vector signal is
+ * a cosine — a different metric on a different scale — and since v5 it is a
+ * cosine of MEAN-CENTERED vectors, whose numbers are not comparable to a raw
+ * cosine at all. The vector bar lives in the module
+ * (PROMPT_GROUPING_VECTOR_THRESHOLD, ai-intelligence/src/core/types.ts) and is
+ * resolved there per model; the app passes no threshold into clustering.
+ *
+ * The lexical prefilter in hybridSimilarity is derived from THIS value as
+ * (threshold − 0.4) / 0.6 — change one and the other must follow, or matches
+ * silently vanish.
+ *
+ * v4 (2026-09): 0.85 → 0.80.
  */
 export const SIMILARITY_MATCH_THRESHOLD = 0.8;
 
