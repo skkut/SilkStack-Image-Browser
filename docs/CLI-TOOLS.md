@@ -17,7 +17,8 @@ alias (`npm run <alias>`) or directly with `node` / `tsx`.
 |---|---|
 | [1. Metadata & prompt extraction](#1-metadata--prompt-extraction) | `extract-prompt`, `parse-comfy-workflow`, `parse-comfy-batch`, `SilkStack-cli` |
 | [2. Development & build](#2-development--build) | `build-ai-intelligence`, `build-and-run-dev`, `build-prod`, `start-dev`, `verify-build-without-ai` |
-| [3. Release & versioning](#3-release--versioning) | `auto-release`, `release-workflow`, `generate-release`, `update-version`, `sync-changelog` |
+| [3. Release & versioning](#3-release--versioning) | `auto-release`, `release-workflow`, `generate-release`, `update-version`, `sync-changelog`, `build-mpl-archive` |
+| [3b. Release automation](#3b-release-automation-github-actions) | `.github/workflows/release.yml` — what runs on a `v*` tag |
 | [4. Data maintenance](#4-data-maintenance--one-off-utilities) | `reset-cache`, `clear-manual-tags`, `clear-stacking-tags`, `cleanup-clustering`, `cleanup-clustering-v2` |
 | [5. Application launch flags](#5-application-launch-flags) | `electron/main.mjs` |
 | [6. Docker](#6-running-the-cli-in-docker) | `Dockerfile` — run the CLI in a container |
@@ -573,6 +574,57 @@ The full pipeline — the only script here that runs the build:
 Only step 1 has error handling; every later failure aborts with an uncaught
 exception. Unlike `release-workflow.js` it performs no version-format
 validation, so a typo'd version becomes a real tag and push.
+
+### `build-mpl-archive.py`
+
+```bash
+python3 scripts/build-mpl-archive.py <version> [--out-dir DIR]
+```
+
+Builds `silkstack-mpl-covered-sources-v<version>.zip` from
+[`mpl-covered-sources/`](../mpl-covered-sources/) — the corresponding Source
+Code Form for the MPL-2.0-covered portions of the app (§3.1/§3.2). Prints the
+archive path and its uppercase SHA-256, one per line.
+
+The archive is **byte-reproducible**, which is the whole point: anyone can
+rebuild it and get the same digest the release notes cite. That requires three
+things, all of which the script pins — sorted entries (by entry name, since
+`Path` ordering is case-folded on Windows but raw on POSIX), `ZIP_STORED` (no
+compression, so no zlib-version drift), and fixed timestamps / `create_system`
+/ permission bits. Verified on 2026-09-20: two consecutive runs produce
+identical bytes; do **not** substitute `Compress-Archive`, `zip` or any other
+archiver, which embed host-dependent metadata.
+
+Release procedure from v2.4.0 onward: build the archive with this script,
+paste the printed digest into the release notes, then tag. CI re-derives it and
+refuses to publish on a mismatch.
+
+---
+
+## 3b. Release automation (GitHub Actions)
+
+`.github/workflows/release.yml` runs three jobs on a `v*` tag:
+
+| Job | Does |
+|---|---|
+| `verify-provenance` | Rebuilds the covered-sources archive and checks its SHA-256 against the digest cited in `docs/release-v<version>.md`; also rejects a notes file whose H1 names a different version. Gates everything else, so a release that cannot prove its provenance never publishes. |
+| `release` | The build matrix (macOS/Ubuntu/Windows) → `npm run release`, publishing installers with `electron-builder`. |
+| `publish-notes` | Sets the release body from the committed notes and attaches the covered-sources archive, using the runner's `gh` CLI. |
+
+Why the third job exists: **electron-builder cannot set a release body.** Its
+GitHub publisher sends only `tag_name`, `name`, `draft` and `prerelease`
+(`electron-publish/out/gitHubPublisher.js` → `createRelease`), and
+`electron-builder.json`'s `releaseInfo.releaseNotesFile` feeds only
+`latest.yml` for the auto-updater. Before this job existed, the body and the
+MPL archive had to be attached by hand after every release (how v2.2.0 and
+v2.3.0 were finished).
+
+**Gotchas.** `releaseInfo.releaseNotesFile` is a *fixed* path — re-point it at
+the new `docs/release-v<next>.md` before tagging, or the next release ships the
+previous version's notes. And bump `AI_INTELLIGENCE_REVISION` in the workflow
+to the private module's pushed HEAD, or the binary won't match the revision the
+notes cite. `"releaseType": "release"` means the tag publishes publicly and
+rolls the auto-updater immediately — it is not a draft.
 
 ---
 

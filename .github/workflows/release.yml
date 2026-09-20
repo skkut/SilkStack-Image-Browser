@@ -9,7 +9,55 @@ permissions:
   contents: write
 
 jobs:
+  # Fail fast, before a single asset is published: a release that cannot prove
+  # its provenance must not go out at all. This rebuilds the covered-sources
+  # archive from the tag and checks it against the digest the release notes
+  # cite — which only works because scripts/build-mpl-archive.py is
+  # byte-reproducible (see its docstring).
+  verify-provenance:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v6
+
+      - name: Verify the release notes and their covered-sources digest
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES="docs/release-v${VERSION}.md"
+
+          if [ ! -f "$NOTES" ]; then
+            echo "::error::$NOTES not found. Every release ships its notes in docs/ (also re-point releaseInfo.releaseNotesFile in electron-builder.json)."
+            exit 1
+          fi
+
+          # Guards the copy-paste trap: stale notes republished under a new tag.
+          if ! head -n1 "$NOTES" | grep -q "$GITHUB_REF_NAME"; then
+            echo "::error::$NOTES does not start with a heading for $GITHUB_REF_NAME — is it left over from the previous release?"
+            head -n1 "$NOTES"
+            exit 1
+          fi
+
+          python3 scripts/build-mpl-archive.py "$VERSION" --out-dir .
+
+          CITED=$(grep -oiE 'sha-?256[^0-9a-f]*[0-9a-f]{64}' "$NOTES" \
+            | grep -oiE '[0-9a-f]{64}' | head -n1 | tr 'a-f' 'A-F')
+          ACTUAL=$(sha256sum "silkstack-mpl-covered-sources-v${VERSION}.zip" | cut -d' ' -f1 | tr 'a-f' 'A-F')
+
+          if [ -z "$CITED" ]; then
+            echo "::error::$NOTES cites no SHA-256 for the covered-sources archive. Add: Covered-sources ZIP SHA-256: \`$ACTUAL\`"
+            exit 1
+          fi
+          if [ "$CITED" != "$ACTUAL" ]; then
+            echo "::error::digest mismatch — notes cite $CITED but the archive builds as $ACTUAL. Regenerate the archive, update the notes, and re-tag."
+            exit 1
+          fi
+          echo "provenance verified: $ACTUAL"
+
   release:
+    needs: verify-provenance
     runs-on: ${{ matrix.os }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -46,3 +94,40 @@ jobs:
         run: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # electron-builder cannot set a release body: its GitHub publisher sends only
+  # tag_name/name/draft/prerelease (electron-publish/out/gitHubPublisher.js,
+  # createRelease), and releaseInfo.releaseNotes only feeds latest.yml for the
+  # auto-updater. So the notes and the covered-sources archive are attached
+  # here, after publishing, with the runner's own gh CLI.
+  publish-notes:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v6
+
+      - name: Rebuild and re-verify the covered-sources archive
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 scripts/build-mpl-archive.py "$VERSION" --out-dir .
+          ACTUAL=$(sha256sum "silkstack-mpl-covered-sources-v${VERSION}.zip" | cut -d' ' -f1 | tr 'a-f' 'A-F')
+          grep -qiE 'sha-?256[^0-9a-f]*'"$ACTUAL" "docs/release-v${VERSION}.md" \
+            || { echo "::error::archive digest $ACTUAL is not the one cited in the notes"; exit 1; }
+
+      - name: Set the release body from the committed notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release edit "$GITHUB_REF_NAME" \
+            --title "SilkStack Image Browser $GITHUB_REF_NAME" \
+            --notes-file "docs/release-v${GITHUB_REF_NAME#v}.md"
+
+      - name: Attach the MPL covered-sources archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" "silkstack-mpl-covered-sources-v${GITHUB_REF_NAME#v}.zip" --clobber

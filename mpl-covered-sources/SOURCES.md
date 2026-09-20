@@ -26,6 +26,25 @@ derives from, with the verified blob/commit references used in the audit.
 | `useImageStacking.ts` | `src/hooks/useImageStacking.ts` lineage | public hook, moved into the module and extended |
 | `stacking-types.ts` | Structural type subset of the public `IndexedImage`/`ImageStack` types | no independent logic — types only |
 
+## Reproducing the release archive
+
+From v2.4.0 onward, the archive attached to each release is built with
+[`scripts/build-mpl-archive.py`](../scripts/build-mpl-archive.py) and nowhere
+else:
+
+```sh
+python3 scripts/build-mpl-archive.py <version> --out-dir .
+```
+
+The script is byte-reproducible — entries sorted by name, stored uncompressed,
+fixed timestamps and host-independent metadata — so anyone can rebuild a
+release's archive and get the identical SHA-256 the release notes cite. CI
+enforces this: the release workflow rebuilds the archive from the tag and
+refuses to publish unless the digest matches the one committed in the notes
+(`.github/workflows/release.yml`). Do not build this archive with a different
+tool; `Compress-Archive`, `zip` and friends embed host- and version-dependent
+metadata and will not match.
+
 ## Notes
 
 - **Not covered:** the LLM tag generator, the shared WebGPU engine and model
