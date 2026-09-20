@@ -73,6 +73,10 @@ favorites-development-issues.md
 development-changelog.md
 ImageMetaHub-Source2.zip
 ImageMetaHub-source.zip
+
+# Generated MPL covered-sources release archive (scripts/build-mpl-archive.py) —
+# built and attached to a release, never committed
+silkstack-mpl-covered-sources-v*.zip
 services/parsers/comfyui/workflows/pikachu.json
 IMPLEMENTATION_NOTES.md
 nul
