@@ -67,5 +67,8 @@
     "repo": "SilkStack-Image-Browser",
     "releaseType": "release"
   },
+  "releaseInfo": {
+    "releaseNotesFile": "docs/release-v2.3.0.md"
+  },
   "generateUpdatesFilesForAllChannels": true
 }

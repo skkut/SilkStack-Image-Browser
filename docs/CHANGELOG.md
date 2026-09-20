@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.3.0] - 2026-09-20
+
+### Similarity Stacks (Premium)
+
+- **Vector-based prompt grouping** — prompts are embedded with the same local model that powers semantic search, and images whose prompts *mean* the same thing are grouped together, so reworded, translated and synonym-only variations land in the same stack
+- A stack now forms when **either** the lexical hybrid (0.6·Jaccard + 0.4·Levenshtein) **or** the vector cosine clears its bar — the merge is a union, so vector similarity can only *add* members and can never split a group text matching already found
+- Vector grouping is additive over text matching, so stacks still work with AI features switched off
+- Group by **Prompt**, **Model** or **Loras**, or turn grouping off
+- **Highlight prompt variations** — with Prompt grouping on, the words that differ between the prompts in a stack are highlighted
+- Stacks view gains **Most Images** / **Fewest Images** sort orders (view-scoped, never persisted)
+
+### AI Feature Control
+
+- **Master AI on/off toggle** in the top bar — one button disables all model loading, semantic search and auto-tagging (license-gated)
+- **Settings → AI Intelligence** manages cached models end to end: every model on disk is listed with its size and can be deleted individually; deleted models are re-downloaded on demand
+- AI settings section reorganised
+
+### Image Viewer
+
+- **`Ctrl+F` in-prompt search** — search inside the prompt of the current image, with match highlighting, a match counter, `Enter` / `Shift+Enter` cycling with wrap-around, and `Esc` closing the search without closing the viewer
+- **Minimap** appears when zoomed in and can be dragged to navigate; zoom percentage and one-click reset in the footer
+- **Compact window mode** (*Fit window to image*) collapses the viewer into a window sized to the image; maximise, free resize and fullscreen all handled correctly in this mode
+
+### Pipelines & Reliability
+
+- **Auto-watch consistency rewrite** — in-place overwrites (`change` events) force a re-index; an unlink + add inside one batch window is treated as a **replace** (the stale store entry is dropped before the re-add, so the new content is actually indexed); sidecar JSON edits re-index the image; deletions are always delivered before additions
+- Folders on removable drives that go offline and come back resume monitoring automatically
+
+### UI
+
+- Sort order dropdown moved from the sidebar to the **top bar**, so it stays reachable with the sidebar collapsed
+- **Copy Image Path** added to the context menus (grid, table, stacks, image modal)
+- Global **auto-watch toggle** button in the top bar
+- Toasts repositioned below the top bar (they were rendering underneath it)
+- Tags panel sorted by count
+- Image preview pane removed
+
+### Under the Hood
+
+- **Electron 43**
+- New CLI command `npm run prompt <file>` — extract a plain prompt from a workflow JSON or a media file, with content-based detection and `--negative` / `--json` / `--require-prompt`
+- Krea2 / OREX style-selector ComfyUI node support
+- Parser fixes, CLI fixes, more efficient model loading, cleaner semantic indexing progress
+- MPL compliance update
+
+### Fixed
+
+- Incorrect vector similarity grouping
+- Fullscreen handling in compact mode
+- Viewer zoom, navigation and sidebar fixes
+- Notifications hidden behind the top bar
+
+### Not Included
+
+- **Gemma-4-E2B** was evaluated as a tag-generation model and rejected: as a multimodal instruct model it will not perform the plain text-only tag extraction the pipeline requires. The trial was rolled back and the existing tag models are unchanged.
+
 ## [2.2.0] - 2026-08-21
 
 ### AI Intelligence (Premium)

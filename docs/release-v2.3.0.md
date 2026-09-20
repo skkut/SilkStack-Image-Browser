@@ -95,6 +95,12 @@ I evaluated **Gemma-4-E2B** as an alternative tag-generation model for the auto-
 
 ---
 
+## License & Build Provenance
+
+This release contains Mozilla Public License 2.0 code. The corresponding source ships in the attached **`silkstack-mpl-covered-sources-v2.3.0.zip`** and in the repository's [`mpl-covered-sources/`](https://github.com/skkut/SilkStack-Image-Browser/tree/main/mpl-covered-sources) directory. Built from the private `ai-intelligence` revision `499dcb3` (source drop at the link above). Covered-sources ZIP SHA-256: `016A92B445F14DA5DD6CB05C3BD13713BEF05E4E7592B1E49E4094207316974D`.
+
+---
+
 ## Feedback
 
 Found a bug or have a feature request? [Open an issue](https://github.com/skkut/SilkStack-Image-Browser/issues)!
