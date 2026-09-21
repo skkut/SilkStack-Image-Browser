@@ -276,12 +276,15 @@ const MetadataItem: FC<{
       </div>
       {isPrompt ? (
         <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">
+          {/* The mark's text-black is literal, not a gray token: the gray scale
+              is theme-inverted (gray-900 is near-white in light mode), so no gray
+              token stays readable on this fixed yellow. */}
           {hasMatches
             ? matchParts!.map((part, i) =>
                 i % 2 === 1 ? (
                   <mark
                     key={`m${i}`}
-                    className="search-hit bg-yellow-300 text-gray-900 rounded-[2px] px-px"
+                    className="search-hit bg-yellow-300 text-black rounded-[2px] px-px"
                   >
                     {part}
                   </mark>

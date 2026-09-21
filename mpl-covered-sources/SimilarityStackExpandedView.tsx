@@ -464,13 +464,17 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
                             {/* When the caller supplies variation segments, render
                                 them instead of the raw value. Segments cover the
                                 whole value verbatim, so nothing is lost or doubled.
-                                The caller decides which dimensions get segments. */}
+                                The caller decides which dimensions get segments.
+                                The mark's text-black is literal, not a gray token:
+                                the gray scale is theme-inverted (gray-900 is
+                                near-white in light mode), so no gray token stays
+                                readable on this fixed yellow. */}
                             {dim.segments && dim.segments.length > 0
                               ? dim.segments.map((seg, si) =>
                                   seg.isVariation ? (
                                     <mark
                                       key={si}
-                                      className="prompt-variation-hit bg-yellow-300 text-gray-900 rounded-[2px] px-px"
+                                      className="prompt-variation-hit bg-yellow-300 text-black rounded-[2px] px-px"
                                     >
                                       {seg.text}
                                     </mark>
