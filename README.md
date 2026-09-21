@@ -43,7 +43,7 @@ I have added a lot of new features to this project, notably:
 
 ## Premium AI features
 
-Everything under **AI Intelligence** runs on your own machine via WebGPU - no cloud service, no account, no API keys, and your images, prompts and tags are never uploaded anywhere.
+Everything under **AI Intelligence** runs on your own machine via WebGPU - no cloud service, no account, no API keys, and external dependencies. Your images, prompts and tags are also never uploaded anywhere.
 
 The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License**.
 
