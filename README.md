@@ -45,7 +45,7 @@ I have added a lot of new features to this project, notably:
 
 Everything under **AI Intelligence** runs on your own machine via WebGPU - no cloud service, no account, no API keys, and your images, prompts and tags are never uploaded anywhere.
 
-The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License** (see [License, privacy & offline use](#license-privacy--offline-use)).
+The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License**.
 
 ![Semantic search and AI features in SilkStack](docs/Semantic-Search-and-AI%20Features.jpg)
 
