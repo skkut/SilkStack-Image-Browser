@@ -33,15 +33,18 @@ import { useSettingsStore } from '../store/useSettingsStore';
  * Progress event from the module coordinator. The numbers are in IMAGE space:
  * `total` is the number of images in the call the engine was handed (so it
  * equals the store's chunk length during a chunked run, which is how the store
- * tells an indexing report from a model-loading one), and an image advances
+ * offsets a per-chunk report into the whole run), and an image advances
  * `current` only when every half it needs — searchable text and normalized
- * prompt — has been embedded. Model-loading reports use their own scale
- * (`total: 100`).
+ * prompt — has been embedded. Model-loading reports set `loadingModel` and use
+ * their own scale (`total: 100`, `current` = percent); the flag is what marks
+ * the phase, because a chunk of exactly 100 images reports the same total.
  */
 export interface SemanticIndexProgress {
   current: number;
   total: number;
   message: string;
+  /** True during the GPU model load — render `current` as a percent, not an image count. */
+  loadingModel?: boolean;
 }
 
 export type SemanticProgressCallback = (progress: SemanticIndexProgress) => void;

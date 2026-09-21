@@ -44,9 +44,11 @@ const coordinatorMock = vi.hoisted(() => ({
 }));
 
 // Captures the constructor callbacks so tests can drive the engine's per-run
-// progress events (chunked-run composition test).
+// progress events (chunked-run composition test). The shape mirrors
+// SemanticIndexProgress — keep `loadingModel` here or the load-phase cases
+// fail to type-check even though vitest (no type-check) runs them.
 const semanticConstructorCallbacks = vi.hoisted(() => ({
-  onProgress: null as null | ((p: { current: number; total: number; message: string }) => void),
+  onProgress: null as null | ((p: { current: number; total: number; message: string; loadingModel?: boolean }) => void),
 }));
 
 vi.mock('../services/aiFeatureAccess', () => featureAccessMocks);
@@ -56,7 +58,7 @@ vi.mock('../services/aiFeatureAccess', () => featureAccessMocks);
 // the module-level singleton in useImageStore. Constructable via `function`.
 vi.mock('../services/semanticSearchEngine', () => ({
   SemanticSearchCoordinator: vi.fn(function SemanticSearchCoordinator(
-    onProgress?: (p: { current: number; total: number; message: string }) => void,
+    onProgress?: (p: { current: number; total: number; message: string; loadingModel?: boolean }) => void,
   ) {
     semanticConstructorCallbacks.onProgress = onProgress ?? null;
     return coordinatorMock;
@@ -579,10 +581,19 @@ describe('semantic chunked Δ-indexing — per-chunk stamps persist DURING the r
       engine({ current: 1, total: 2, message: 'embedding' });
       expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 3, total: 5, message: 'embedding' });
 
-      // The engine's loading phases report other totals — they pass through
-      // untouched instead of being offset into the payload.
-      engine({ current: 100, total: 100, message: 'Finish loading on WebGPU' });
-      expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 100, total: 100, message: 'Finish loading on WebGPU' });
+      // The engine's loading phases are flagged `loadingModel` and carry the
+      // percent scale — they pass through untouched (flag included) instead of
+      // being offset into image space.
+      engine({ current: 100, total: 100, message: 'Finish loading on WebGPU', loadingModel: true });
+      expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 100, total: 100, message: 'Finish loading on WebGPU', loadingModel: true });
+
+      // Collision regression: the offset discriminator matches on
+      // `total === chunkLength`, and a load report for a 2-image chunk would
+      // satisfy it numerically. The flag must win — an unflagged check here
+      // would compose this into {3, 5} and the footer would read
+      // "indexing 3/5 images" during a model load.
+      engine({ current: 1, total: 2, message: 'Loading model: fetching', loadingModel: true });
+      expect(useImageStore.getState().semanticIndexProgress).toEqual({ current: 1, total: 2, message: 'Loading model: fetching', loadingModel: true });
     } finally {
       // Release the run even if an assertion above fails — a held Once that
       // survives a failed test poisons the next test's first indexImages call.

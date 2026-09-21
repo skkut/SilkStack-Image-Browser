@@ -1031,6 +1031,123 @@ describe('useImageStore auto-tagging incremental persistence (image-tagged)', ()
   });
 });
 
+// ── Auto-tag model-load progress (loadingModel flag) ───────────────────
+// Before it can tag anything the worker must fetch + load the chat model
+// into GPU memory (seconds to tens of seconds) and reports that phase as
+// `{ current: percent, total: 100, loadingModel: true }`. The footer keys
+// its "Loading AI model: N%" label off the flag — `total: 100` alone is
+// ambiguous (a 100-image run reports the same numbers in image space), so
+// the flag is the only reliable phase discriminator.
+describe('useImageStore auto-tagging model-load progress', () => {
+  beforeEach(() => {
+    FakeTaggingWorker.lastInstance = null;
+    useSettingsStore.setState({ aiDevicePreference: 'auto', aiTagModel: '' });
+    const img1 = createImage({ id: 'img1', prompt: 'a dragon' });
+    useImageStore.setState({
+      images: [img1],
+      filteredImages: [img1],
+      annotations: new Map(),
+      isAnnotationsLoaded: true,
+      autoTaggingWorker: null,
+      autoTagWorkerModelId: null,
+      isAutoTagging: false,
+      autoTaggingProgress: null,
+    });
+    vi.stubGlobal('Worker', FakeTaggingWorker);
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('stores the flagged load report, then drops the flag on the first image-space report', async () => {
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    // Percent-scale load report, arriving while the model is still loading.
+    worker.onmessage?.({
+      data: {
+        type: 'progress',
+        payload: { current: 42, total: 100, message: 'Loading model: fetching params', loadingModel: true },
+      },
+    } as MessageEvent);
+
+    expect(useImageStore.getState().autoTaggingProgress).toEqual({
+      current: 42,
+      total: 100,
+      message: 'Loading model: fetching params',
+      loadingModel: true,
+    });
+
+    // First image finishes; its report is image space and must clear the
+    // flag so the footer switches from the load bar to the image counter.
+    worker.onmessage?.({
+      data: { type: 'image-tagged', payload: { id: 'img1', tags: [{ tag: 'dragon', sourceType: 'prompt' }] } },
+    } as MessageEvent);
+    worker.onmessage?.({
+      data: { type: 'progress', payload: { current: 1, total: 1, message: 'Tagging' } },
+    } as MessageEvent);
+
+    expect(useImageStore.getState().autoTaggingProgress).toEqual({
+      current: 1,
+      total: 1,
+      message: 'Tagging',
+      loadingModel: false,
+    });
+
+    worker.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run;
+  });
+
+  it('falls back to a stable message when a load report carries no text', async () => {
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    // The engine's first announcement is `(0, 100, '')` — no text yet, but
+    // the pill still has to explain itself.
+    worker.onmessage?.({
+      data: { type: 'progress', payload: { current: 0, total: 100, message: '', loadingModel: true } },
+    } as MessageEvent);
+
+    expect(useImageStore.getState().autoTaggingProgress).toEqual({
+      current: 0,
+      total: 100,
+      message: 'Loading model…',
+      loadingModel: true,
+    });
+
+    worker.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run;
+  });
+
+  it('treats the (0, 0) cancel sentinel as no active job and clears the pill', async () => {
+    const run = useImageStore.getState().startAutoTagging('', false, {});
+    await flush();
+    const worker = FakeTaggingWorker.lastInstance!;
+
+    worker.onmessage?.({
+      data: { type: 'progress', payload: { current: 7, total: 100, message: 'Loading model: fetching', loadingModel: true } },
+    } as MessageEvent);
+    expect(useImageStore.getState().autoTaggingProgress).not.toBeNull();
+
+    // `total: 0` is the worker's "no active job" sentinel, posted on cancel.
+    // Storing it verbatim would leave a pill behind that nothing can remove
+    // (the worker is dead and cancelAutoTagging early-returns on a null
+    // worker), so the store clears state instead.
+    worker.onmessage?.({
+      data: { type: 'progress', payload: { current: 0, total: 0, message: 'Cancelled' } },
+    } as MessageEvent);
+
+    expect(useImageStore.getState().autoTaggingProgress).toBeNull();
+
+    worker.onmessage?.({ data: { type: 'complete', payload: { autoTags: {} } } } as MessageEvent);
+    await run;
+  });
+});
+
 // ── Annotation enrichment preservation (version-wipe regression) ───────
 // toggleFavorite / addTagToImage / bulkToggleFavorite / bulkAddTag used to
 // rebuild ImageAnnotations from hardcoded field lists, dropping

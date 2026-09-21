@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Model-loading progress is visible again** — clicking **Auto-Tag** shows *"Loading AI model: N%"* with a filling progress bar while the tag model is fetched and loaded into GPU memory, instead of a pill that disappeared for the entire load and reappeared only once the first image was tagged. Semantic indexing shows the same readout during its model load, rather than counting images it is not yet indexing.
+
 ## [2.3.0] - 2026-09-20
 
 ### Similarity Stacks (Premium)

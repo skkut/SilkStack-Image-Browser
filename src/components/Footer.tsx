@@ -12,7 +12,8 @@ interface FooterProps {
   filteredCount?: number;
   totalCount?: number;
   enrichmentProgress?: { processed: number; total: number; message?: string } | null;
-  autoTaggingProgress?: { current: number; total: number; message: string } | null;
+  /** `loadingModel` marks the GPU model-load phase: `current` is a percent, not an image count. */
+  autoTaggingProgress?: { current: number; total: number; message: string; loadingModel?: boolean } | null;
   clusteringProgress?: { current: number; total: number; message: string } | null;
   similarityGroupProgress?: { current: number; total: number; message: string } | null;
   showStackingToggle?: boolean;
@@ -324,7 +325,9 @@ const Footer: React.FC<FooterProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
                   </span>
                   <span className="font-medium">
-                    Semantic indexing {semanticIndexProgress!.current}/{semanticIndexProgress!.total} images
+                    {semanticIndexProgress!.loadingModel
+                      ? `Loading AI model: ${semanticIndexProgress!.current}%`
+                      : `Semantic indexing ${semanticIndexProgress!.current}/${semanticIndexProgress!.total} images`}
                     {semanticIndexProgress!.message && (
                       <span className="text-gray-500 ml-1 font-normal truncate max-w-[200px] inline-block align-bottom">
                         — {semanticIndexProgress!.message}
@@ -355,7 +358,9 @@ const Footer: React.FC<FooterProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
                   </span>
                   <span className="font-medium">
-                    Auto-tagging {autoTaggingProgress!.current}/{autoTaggingProgress!.total}
+                    {autoTaggingProgress!.loadingModel
+                      ? `Loading AI model: ${autoTaggingProgress!.current}%`
+                      : `Auto-tagging ${autoTaggingProgress!.current}/${autoTaggingProgress!.total}`}
                     {autoTaggingProgress!.message && (
                       <span className="text-gray-500 ml-1 font-normal truncate max-w-[200px] inline-block align-bottom">
                         — {autoTaggingProgress!.message}

@@ -19,7 +19,7 @@
  * Protocol (chat / auto-tag):
  *   Main → Worker:  { type: 'start',  payload: { images, topN?, disableFallback?, isPremium?, devicePreference?, tagModelId? } }
  *                   { type: 'cancel' }
- *   Worker → Main:  { type: 'progress', payload: { current, total, message } }
+ *   Worker → Main:  { type: 'progress', payload: { current, total, message, loadingModel? } }  — TWO scales: image space while tagging (total = the run's image count, current = images done) and the PERCENT scale while the model loads into GPU memory (total = 100, current = percent) with `loadingModel: true` — present only on those reports — marking that phase, so the host renders a model-load bar rather than an image counter.
  *                   { type: 'image-tagged', payload: { id, tags, synonyms? } }  — one per image, emitted as soon as that image's tags are generated so the host persists each image incrementally (resume-safe); `synonyms` is the MERGED hidden search vocabulary — synonyms followed by the main-subject categories (zebra → "animal") — absent when the rule-based fallback ran (it has no engine)
  *                   { type: 'complete', payload: { autoTags } }   — the accumulated CONCEPTS-only map for backward compatibility; per-image persistence (incl. the merged search vocabulary) happens on 'image-tagged'
  *                   { type: 'error',    payload: { error } }
@@ -66,7 +66,20 @@ export interface CancelAutoTaggingMessage {
 
 export interface AutoTagProgressResponse {
   type: 'progress';
-  payload: { current: number; total: number; message: string };
+  payload: {
+    current: number;
+    total: number;
+    message: string;
+    /**
+     * True while the model is loading into GPU memory. That phase reports on
+     * the PERCENT scale (total 100, current = percent), which is otherwise
+     * indistinguishable from a run of exactly 100 images — the host renders
+     * this flag as a model-load bar instead of an image counter. Present ONLY
+     * on a load report: an ordinary image-space report omits the key entirely,
+     * so its shape is unchanged from before the flag existed.
+     */
+    loadingModel?: boolean;
+  };
 }
 
 export interface AutoTagCompleteResponse {
@@ -92,8 +105,13 @@ export interface AutoTagWorkerContext {
   getChatEngine(): Promise<SharedMLEngine | null>;
   /** The live tag-model id (set from the start payload by the host). */
   getTagModelId(): string;
-  /** Auto-tag shape: { current, total, message }. */
-  postProgress(current: number, total: number, message: string): void;
+  /**
+   * Auto-tag shape: { current, total, message } — plus `loadingModel: true` on
+   * a model-load report only. A report with `total: 0` is the "no active job"
+   * sentinel (cancel) — the host's pill gate keys on it, so do not rescale
+   * those to the percent scale.
+   */
+  postProgress(current: number, total: number, message: string, loadingModel?: boolean): void;
   /**
    * One image's tags + (LLM path) its MERGED hidden search vocabulary —
    * synonyms followed by the main-subject categories (zebra → "animal",
@@ -224,7 +242,9 @@ export class AutoTagWorker {
   private async initLLM(): Promise<boolean> {
     if (this.llmGenerator) return true;
 
-    this.ctx.postProgress(0, 0, 'Loading tag generation model...');
+    // Percent scale (total 100) — this is the model-load phase, not image
+    // progress: the host shows it as a loading bar, not as "0 of N images".
+    this.ctx.postProgress(0, 100, 'Loading tag generation model...', true);
 
     try {
       const engine = await this.ctx.getChatEngine();
@@ -238,7 +258,8 @@ export class AutoTagWorker {
         resolveTagModel(this.ctx.getTagModelId()).modelId,
         (report) => {
           if (!this.isCancelled) {
-            this.ctx.postProgress(report.progress, 0, `Loading model: ${report.text}`);
+            // Percent scale (total 100) — see the protocol note above.
+            this.ctx.postProgress(Math.round(report.progress * 100), 100, `Loading model: ${report.text}`, true);
           }
         },
         engine.getChatEngine(),

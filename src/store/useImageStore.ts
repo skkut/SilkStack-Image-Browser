@@ -226,10 +226,17 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
             // it was handed, so it matches chunkLength exactly. Offset it into
             // the full payload so the footer bar advances monotonically and
             // counts images rather than the two texts each one can contribute.
-            // The engine's loading phases report other totals (e.g. 100 during
-            // WebGPU model load) — those pass through.
+            // Model-loading phases carry `loadingModel` and report on the
+            // percent scale — that flag is checked FIRST, because a chunk of
+            // exactly 100 images otherwise satisfies the composition test below
+            // and would fold a load report into image space.
             const run = __semanticChunkRun;
-            if (run && progress.total === run.chunkLength && progress.current <= run.chunkLength) {
+            if (
+                run
+                && !progress.loadingModel
+                && progress.total === run.chunkLength
+                && progress.current <= run.chunkLength
+            ) {
                 useImageStore.getState().setSemanticIndexProgress({
                     ...progress,
                     current: run.offset + progress.current,
@@ -815,7 +822,19 @@ interface ImageState {
 
   // Auto-Tagging State (Phase 3)
 
-  autoTaggingProgress: { current: number; total: number; message: string } | null;
+  /**
+   * Auto-tag progress. `loadingModel` marks the GPU model-load phase, whose
+   * report is on the percent scale (`total: 100`, `current` = percent) — the
+   * footer renders that as a load bar instead of an image counter. A report
+   * with `total: 0` is the worker's "no active job" sentinel (cancel) and
+   * clears this state rather than storing it.
+   */
+  autoTaggingProgress: {
+    current: number;
+    total: number;
+    message: string;
+    loadingModel?: boolean;
+  } | null;
   autoTaggingWorker: Worker | null;
   isAutoTagging: boolean;
   /** Which tag model id the resident auto-tag worker was loaded with
@@ -973,7 +992,7 @@ interface ImageState {
     options?: { topN?: number; minScore?: number; scope?: 'view' | 'library' }
   ) => Promise<void>;
   cancelAutoTagging: () => void;
-  setAutoTaggingProgress: (progress: { current: number; total: number; message: string } | null) => void;
+  setAutoTaggingProgress: (progress: { current: number; total: number; message: string; loadingModel?: boolean } | null) => void;
   restoreSmartLibraryCache: (directoryPath: string, scanSubfolders: boolean) => Promise<void>;
 
 
@@ -2955,10 +2974,28 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                 switch (type) {
                     case 'progress':
-                        // The worker's payload may omit a human-readable
-                        // message — fall back to a stable description so the
-                        // footer bar always explains what it is doing.
-                        set({ autoTaggingProgress: { ...payload, message: payload.message || 'Generating tags…' } });
+                        // `total: 0` is the worker's "no active job" sentinel
+                        // (posted on cancel) — clear rather than store it, so a
+                        // late-delivered cancel cannot leave a pill behind.
+                        if (!(payload.total > 0)) {
+                            set({ autoTaggingProgress: null });
+                            break;
+                        }
+                        // `loadingModel` marks the GPU model-load phase, whose
+                        // report is on the percent scale (total 100) — the
+                        // footer labels it "Loading AI model: N%" instead of
+                        // counting images. The worker's payload may omit a
+                        // human-readable message — fall back to a stable
+                        // description so the pill always explains itself.
+                        set({
+                            autoTaggingProgress: {
+                                current: payload.current,
+                                total: payload.total,
+                                message: payload.message
+                                    || (payload.loadingModel ? 'Loading model…' : 'Generating tags…'),
+                                loadingModel: payload.loadingModel === true,
+                            },
+                        });
                         break;
                     case 'image-tagged': {
                         // One image finished in the worker — persist it NOW

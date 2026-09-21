@@ -355,6 +355,69 @@ describe('Footer semantic indexing pill (Phase 6)', () => {
   });
 });
 
+// ── Footer (model-load phase) ─────────────────────────────────────────
+// Regression: the model-load phase used to be reported as a fraction with
+// `total: 0`, which the pill's `total > 0` gate discarded — the pill flashed
+// "Initializing" and vanished for the entire (multi-second) GPU load. Load
+// reports now carry `loadingModel` on the percent scale, so the pill stays
+// visible and counts up.
+describe('Footer model-loading pill (loadingModel flag)', () => {
+  const renderFooter = (props: Partial<React.ComponentProps<typeof Footer>> = {}) =>
+    render(<Footer viewMode="grid" onViewModeChange={vi.fn()} {...props} />);
+
+  it('labels a flagged semantic load report as a percent, not an image count', () => {
+    useImageStore.setState({
+      semanticIndexProgress: { current: 45, total: 100, message: 'Loading model: fetching', loadingModel: true },
+    });
+    const { container } = renderFooter();
+
+    expect(screen.getByText(/Loading AI model: 45%/)).toBeDefined();
+    expect(screen.queryByText(/Semantic indexing/)).toBeNull();
+    // The bar is fed the same numbers, so it fills to 45% — the percent scale
+    // is what makes `current / total` meaningful here. (`.h-full` is what
+    // separates the bar from the pill's solid `bg-indigo-500` status dot.)
+    const bar = container.querySelector('.h-full.bg-indigo-500') as HTMLElement;
+    expect(bar.style.width).toBe('45%');
+  });
+
+  it('keeps the image-counter wording for an unflagged 100-total report', () => {
+    // `total: 100` with no flag is a real (if large) indexing run — the flag
+    // alone decides the wording, never the magnitude.
+    useImageStore.setState({
+      semanticIndexProgress: { current: 45, total: 100, message: 'embedding' },
+    });
+    renderFooter();
+
+    expect(screen.getByText(/Semantic indexing 45\/100 images/)).toBeDefined();
+    expect(screen.queryByText(/Loading AI model/)).toBeNull();
+  });
+
+  it('labels a flagged auto-tag load report and keeps the pill’s cancel control', () => {
+    const onCancelAutoTag = vi.fn();
+    const { container } = renderFooter({
+      autoTaggingProgress: { current: 12, total: 100, message: '', loadingModel: true },
+      onCancelAutoTag,
+    });
+
+    // Visible at all is the point: this is the report the old `total > 0`
+    // gate threw away.
+    expect(screen.getByText(/Loading AI model: 12%/)).toBeDefined();
+    expect(screen.queryByText(/Auto-tagging/)).toBeNull();
+    const bar = container.querySelector('.h-full.bg-purple-500') as HTMLElement;
+    expect(bar.style.width).toBe('12%');
+
+    fireEvent.click(screen.getByTitle('Cancel auto-tagging'));
+    expect(onCancelAutoTag).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the image-counter wording for an unflagged auto-tag report', () => {
+    renderFooter({ autoTaggingProgress: { current: 3, total: 12, message: 'Generating tags…' } });
+
+    expect(screen.getByText(/Auto-tagging 3\/12/)).toBeDefined();
+    expect(screen.queryByText(/Loading AI model/)).toBeNull();
+  });
+});
+
 // ── SettingsModal (premium section) ───────────────────────────────────
 
 describe('SettingsModal semantic section (Phase 6)', () => {
