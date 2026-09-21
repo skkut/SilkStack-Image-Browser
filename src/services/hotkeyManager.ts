@@ -19,6 +19,21 @@ hotkeys.filter = function(event) {
   return true;
 };
 
+/**
+ * The scope every action in `hotkeyConfig` is bound to, and the scope that
+ * must be ACTIVE for the library to dispatch them.
+ *
+ * hotkeys-js matches a handler only when `handler.scope === activeScope ||
+ * handler.scope === 'all'`. Its default active scope is `'all'`, which matches
+ * nothing bound to `'global'` — so without activating this scope, every
+ * registered hotkey is silently inert: the DOM listener runs on each keydown,
+ * but the callback is never invoked.
+ *
+ * Typed against `HotkeyDefinition['scope']` so a change to the config's scope
+ * is a compile error here rather than a silently dead keyboard.
+ */
+const ACTIVE_SCOPE: HotkeyDefinition['scope'] = 'global';
+
 // A map to store the actions that the application supports.
 const registeredActions = new Map<string, RegisteredAction>();
 
@@ -40,6 +55,10 @@ const unbindAll = () => {
 const bindAllActions = () => {
   unbindAll();
   const { keymap } = useSettingsStore.getState();
+
+  // Activate the scope the actions below are bound to. Kept next to the
+  // binding so the two can never drift apart again (see ACTIVE_SCOPE).
+  hotkeys.setScope(ACTIVE_SCOPE);
 
   registeredActions.forEach((action) => {
     const scopeKeymap = keymap[action.scope] as Record<string, string> | undefined;
