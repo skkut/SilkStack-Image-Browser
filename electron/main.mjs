@@ -230,9 +230,12 @@ let skippedVersions = new Set();
 const VIEWER_MIN_WIDTH = 800;
 const VIEWER_MIN_HEIGHT = 600;
 // The compact floor is set by the viewer's top bar, not by the image: below
-// ~240px its buttons would slide under the OS-drawn window controls. Extreme
-// aspect ratios letterbox slightly rather than clipping the chrome.
-const COMPACT_MIN_WIDTH = 240;
+// ~272px its four buttons (fullscreen, compact, delete, sidebar) would slide
+// under the OS-drawn window controls. The bar keeps all four in both modes, so
+// the sidebar toggle costs the compact window ~32px of width it did not need
+// while it was hidden. Extreme aspect ratios letterbox slightly rather than
+// clipping the chrome.
+const COMPACT_MIN_WIDTH = 272;
 const COMPACT_MIN_HEIGHT = 160;
 // Viewer windowIds currently shaping themselves to the image
 const viewerCompactWindows = new Set();
@@ -2804,7 +2807,19 @@ function setupFileOperationHandlers() {
       payload?.anchor !== "keep",
     );
 
-    return { success: true, isCompact: true };
+    // Report the size the window actually took, not the one asked for. The
+    // window manager is free to overrule the request — the compact floor widens
+    // a window narrower than the top bar, the work area caps a larger one — and
+    // the renderer tells its own resizes from the user's by comparing against
+    // this number, so a size it did not take reads as a hand-drag and is
+    // remembered as a window-size preference.
+    const [appliedWidth, appliedHeight] = win.getContentSize();
+    return {
+      success: true,
+      isCompact: true,
+      contentWidth: appliedWidth,
+      contentHeight: appliedHeight,
+    };
   });
 
   // Handle setting window controls visibility

@@ -768,8 +768,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // doesn't undo a manual collapse/expand made while the search was open.
   const toggleSidebar = useCallback(() => {
     sidebarUserToggledRef.current = true;
+    // Compact hides the panel whatever the flag says, so the button reads
+    // "Expand" there. That makes the press it offers "leave compact mode and
+    // show the panel" rather than a flip of a flag with nothing on screen to
+    // show for it. The flag itself is only written to when it would be
+    // visible, so entering compact cannot rewrite the user's preference.
+    if (isCompactMode) {
+      setIsCompactMode(false);
+      setIsSidebarCollapsed(false);
+      return;
+    }
     setIsSidebarCollapsed((c) => !c);
-  }, []);
+  }, [isCompactMode]);
 
   useEffect(() => {
     // Only the standalone viewer owns this preference — see the init above.
@@ -1242,6 +1252,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // middle a moment later would make hand-sizing feel like it undoes itself.
     const anchor: "center" | "keep" =
       compactFitKeyRef.current === image.id ? "keep" : "center";
+    // The fit this request is about, so its reply can be recognised as current
+    // (or not) when it lands.
+    const requestedFit = image.id;
     compactFitKeyRef.current = image.id;
 
     setViewerCompactMode({
@@ -1250,6 +1263,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
       maxContentWidth: ceiling?.contentWidth,
       maxContentHeight: ceiling?.contentHeight,
       anchor,
+    })?.then((result) => {
+      // …and correct it to the size the window actually took. The window
+      // manager overrules the request in two places: below its floor it widens
+      // a window narrower than the top bar (see COMPACT_MIN_WIDTH), and above
+      // the work area it caps a large one. Left uncorrected, a size we never
+      // took is the one thing the resize effect below reads as a hand-drag.
+      if (!result?.success) return;
+      if (!result.contentWidth || !result.contentHeight) return;
+      // Holding an arrow key down can outrun the round-trip, and a reply that
+      // lands after the viewer has moved on describes a window that is no
+      // longer on screen.
+      if (compactFitKeyRef.current !== requestedFit) return;
+      compactAppliedRef.current = {
+        width: result.contentWidth,
+        height: result.contentHeight,
+      };
     });
   }, [
     setViewerCompactMode,
@@ -1320,6 +1349,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // The metadata panel is hidden in compact mode without touching the user's
   // persisted sidebar preference (which the Ctrl+F flow reads and restores).
+  // The sidebar buttons read this rather than the flag alone: while compact the
+  // panel is hidden either way, so they show "Expand" — the state the panel is
+  // actually in — instead of claiming there is something to collapse.
   const sidebarHidden = isCompactMode || isSidebarCollapsed;
 
   const videoInfo = (nMeta as any)?.video;
@@ -1972,20 +2004,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
             >
               <Trash2 size={14} />
             </button>
-            {/* The panel is force-hidden while compact, so the toggle would be a no-op. */}
-            {!isCompactMode && (
-              <button
-                onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
-                className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              >
-                {isSidebarCollapsed ? (
-                  <PanelRightOpen className="w-4 h-4" />
-                ) : (
-                  <PanelRightClose className="w-4 h-4" />
-                )}
-              </button>
-            )}
+            {/* Kept while compact, where it reads "Expand": pressing it leaves
+                the mode and hands the panel back, so the bar keeps the same
+                buttons in both states. The content width it costs is why the
+                compact floor is as wide as it is — see COMPACT_MIN_WIDTH. */}
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
+              className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
+              aria-label={sidebarHidden ? "Expand sidebar" : "Collapse sidebar"}
+              title={sidebarHidden ? "Expand Sidebar" : "Collapse Sidebar"}
+            >
+              {sidebarHidden ? (
+                <PanelRightOpen className="w-4 h-4" />
+              ) : (
+                <PanelRightClose className="w-4 h-4" />
+              )}
+            </button>
           </div>
           {/* Right Side - Reserved for Windows Native Controls (approx 140px) */}
           <div className="w-[140px] flex-shrink-0 h-full" style={{ WebkitAppRegion: 'no-drag' } as any} />
@@ -2209,13 +2243,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   onClick={() => toggleSidebar()}
                   className="bg-gray-950/60 text-gray-400 hover:text-gray-50 rounded-full p-2 opacity-0 group-hover/modal:opacity-100 transition-opacity"
                   aria-label={
-                    isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                    sidebarHidden ? "Expand sidebar" : "Collapse sidebar"
                   }
                   title={
-                    isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"
+                    sidebarHidden ? "Expand Sidebar" : "Collapse Sidebar"
                   }
                 >
-                  {isSidebarCollapsed ? (
+                  {sidebarHidden ? (
                     <PanelRightOpen className="w-4 h-4" />
                   ) : (
                     <PanelRightClose className="w-4 h-4" />

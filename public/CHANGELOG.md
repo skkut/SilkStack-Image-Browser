@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Model-loading progress is visible again** — clicking **Auto-Tag** shows *"Loading AI model: N%"* with a filling progress bar while the tag model is fetched and loaded into GPU memory, instead of a pill that disappeared for the entire load and reappeared only once the first image was tagged. Semantic indexing shows the same readout during its model load, rather than counting images it is not yet indexing.
+- **The viewer's sidebar button survives compact mode** — it used to disappear when the window was shaped to the image, so the bar carried a different set of buttons in each mode. It now stays and reads *Expand*: one press leaves compact mode and brings the metadata panel back. The panel's own collapsed/expanded setting is untouched by the mode either way.
 
 ## [2.3.0] - 2026-09-20
 

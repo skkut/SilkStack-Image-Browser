@@ -67,7 +67,9 @@ function makeImage(overrides: Partial<IndexedImage> = {}): IndexedImage {
 /** The persisted value, read back from the stub's backing map. */
 const stored = (key: string) => (global.localStorage as any).__store.get(key);
 
-const setViewerCompactMode = vi.fn().mockResolvedValue({ success: true });
+// Reset and re-armed in beforeEach: a test that overrides the reply must not
+// leave that override standing for the next one.
+const setViewerCompactMode = vi.fn();
 
 /** The viewer's subscription to the main process's fill-screen request. */
 let fillScreenCallback: (() => void) | null = null;
@@ -112,7 +114,8 @@ const compactPayload = (
 });
 
 beforeEach(() => {
-  setViewerCompactMode.mockClear();
+  setViewerCompactMode.mockReset();
+  setViewerCompactMode.mockResolvedValue({ success: true });
   fillScreenCallback = null;
   (global.localStorage as any).__store.clear();
 
@@ -166,9 +169,83 @@ describe('ImageModal compact mode', () => {
     // plus 8px padding each side and the 32px drag bar.
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
-    // The sidebar toggle would be a no-op while compact, so it is gone.
-    expect(screen.queryByLabelText('Collapse Sidebar')).toBeNull();
-    expect(screen.queryByLabelText('Expand Sidebar')).toBeNull();
+    // The bar keeps every button in both modes, and the sidebar one reads
+    // "Expand" because that is the state the hidden panel is in.
+    expect(screen.getByLabelText('Expand sidebar')).toBeTruthy();
+    expect(screen.queryByLabelText('Collapse sidebar')).toBeNull();
+  });
+
+  it('reads as collapsed while compact without rewriting the preference', () => {
+    // Seeded expanded: the button must show collapsed *because of the mode*,
+    // not by flipping the user's own setting underneath them.
+    (global.localStorage as any).__store.set('image_modal_sidebar_collapsed', 'false');
+
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+
+    expect(screen.getByLabelText('Expand sidebar')).toBeTruthy();
+    expect(stored('image_modal_sidebar_collapsed')).toBe('false');
+  });
+
+  it('leaves compact mode when the sidebar is expanded from the compact bar', () => {
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
+
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+
+    // One press: the window hands the image back to the desktop and the panel
+    // comes with it, rather than leaving a window that is still shaped to the
+    // image with its metadata hidden.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith({ enabled: false });
+    expect(screen.getByTestId('metadata-panel').className).not.toContain('hidden');
+    expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy();
+  });
+
+  it('expands the panel even when the sidebar was collapsed before compact', () => {
+    // Compact hides the panel regardless of this flag, so the button shows
+    // "Expand" either way — and pressing it has to deliver the panel the
+    // button promises, not merely leave the mode.
+    (global.localStorage as any).__store.set('image_modal_sidebar_collapsed', 'true');
+
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '1000x500' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith({ enabled: false });
+    expect(stored('image_modal_sidebar_collapsed')).toBe('false');
+    expect(screen.getByTestId('metadata-panel').className).not.toContain('hidden');
   });
 
   it('restores the previous window size when toggled back off', () => {
@@ -457,6 +534,54 @@ describe('ImageModal compact mode — user-resized windows', () => {
 
       expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
       expect(setViewerCompactMode).toHaveBeenCalledTimes(2); // toggle + apply
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not read the window manager overruling the fit as a hand-drag', async () => {
+    vi.useFakeTimers();
+    try {
+      // A 1:4 portrait asks for a 254px-wide window. The compact window's floor
+      // is 272 so the top bar's buttons stay clear of the OS window controls,
+      // so the window commits wider than the fit — which is not evidence of
+      // anything the user did, and must not be remembered as a preference.
+      setViewerCompactMode.mockImplementation(
+        async (payload: { enabled?: boolean }) =>
+          payload?.enabled
+            ? {
+                success: true,
+                isCompact: true,
+                contentWidth: 272,
+                contentHeight: 1000,
+              }
+            : { success: true, isCompact: false },
+      );
+
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '512x2048' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(254, 1000, 'center'),
+      );
+
+      // Let the reply land — it carries the size the window actually took —
+      // then have the OS report exactly that size back.
+      await act(async () => {});
+      setWindowSize(272, 1000);
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
     } finally {
       vi.useRealTimers();
     }

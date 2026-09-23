@@ -329,7 +329,20 @@ export interface ElectronAPI {
      * following the user's own drag of the frame asks for.
      */
     anchor?: "center" | "keep";
-  }) => Promise<{ success: boolean; isCompact?: boolean; error?: string }>;
+  }) => Promise<{
+    success: boolean;
+    isCompact?: boolean;
+    /**
+     * The content size the window actually took, when one was applied. The
+     * request is a request: the compact floor widens a window narrower than the
+     * top bar and the work area caps a larger one, so the viewer reads this
+     * back rather than assuming it got what it asked for. Absent from the
+     * `enabled: false` reply, which applies no size.
+     */
+    contentWidth?: number;
+    contentHeight?: number;
+    error?: string;
+  }>;
   onImageViewerUpdate: (
     callback: (data: {
       image?: any;
