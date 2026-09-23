@@ -3,6 +3,10 @@ import { IndexedImage } from '../types';
 
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
+// Static on purpose: useImageStore imports this module statically, so it is
+// already in the entry chunk. A dynamic import here cannot split anything and
+// only earns an INEFFECTIVE_DYNAMIC_IMPORT warning.
+import { thumbnailManager } from '../services/thumbnailManager';
 
 export function useThumbnail(image: IndexedImage | null): void {
   const disableThumbnails = useSettingsStore((state) => state.disableThumbnails);
@@ -41,7 +45,6 @@ export function useThumbnail(image: IndexedImage | null): void {
 
       const run = async () => {
         try {
-          const { thumbnailManager } = await import('../services/thumbnailManager');
           await thumbnailManager.ensureThumbnail(image);
         } catch (error) {
           if (!cancelled) {

@@ -31,6 +31,9 @@ import {
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useImageStacking } from '../hooks/useImageStacking';
 import { useStackingEnabled } from '../services/aiFeatureAccess';
+// Static on purpose: this file already imports useImageStore, which imports
+// this module statically — the dynamic import below could never split it out.
+import { thumbnailManager } from '../services/thumbnailManager';
 
 class GridErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: React.ReactNode}) {
@@ -850,7 +853,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   useEffect(() => {
     if (prevScrollKeyRef.current !== scrollKey) {
       prevScrollKeyRef.current = scrollKey;
-      import('../services/thumbnailManager').then(m => m.thumbnailManager.clearAllUrls());
+      thumbnailManager.clearAllUrls();
       useImageStore.getState().clearAllThumbnails();
     }
   }, [scrollKey]);
