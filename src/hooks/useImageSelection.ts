@@ -49,10 +49,11 @@ export function useImageSelection() {
     const {
         images,
         filteredImages,
-        selectedImage,
         selectedImages,
         setSelectedImage,
         toggleImageSelection,
+        selectSingleImage,
+        selectImageRange,
         clearImageSelection,
         removeImage,
         setError,
@@ -60,43 +61,51 @@ export function useImageSelection() {
     } = useImageStore();
 
     // ── Stabilize the click callback ──────────────────────────────────
-    // filteredImages, selectedImage, and selectedImages change on almost every
-    // store update.  If handleImageSelection depends on them directly (via
-    // useCallback deps), it changes identity on every render, which cascades
-    // through ImageGrid → itemData → every react-window row re-rendering.
-    // Refs break this chain: the callback identity is stable while always
-    // reading the latest values from the store snapshot.
+    // filteredImages and selectedImages change on almost every store update.
+    // If handleImageSelection depends on them directly (via useCallback deps),
+    // it changes identity on every render, which cascades through ImageGrid →
+    // itemData → every react-window row re-rendering. Refs break this chain:
+    // the callback identity is stable while always reading the latest values
+    // from the store snapshot.
     const filteredImagesRef = useRef(filteredImages);
     filteredImagesRef.current = filteredImages;
-    const selectedImageRef = useRef(selectedImage);
-    selectedImageRef.current = selectedImage;
     const selectedImagesRef = useRef(selectedImages);
     selectedImagesRef.current = selectedImages;
 
-    const handleImageSelection = useCallback((image: IndexedImage, event: React.MouseEvent) => {
+    const handleImageSelection = useCallback((
+        image: IndexedImage,
+        event: React.MouseEvent,
+        displayOrder?: string[],
+    ) => {
         const currentFiltered = filteredImagesRef.current;
-        const currentSelectedImage = selectedImageRef.current;
         const currentSelectedImages = selectedImagesRef.current;
 
-        // Update focused index
-        const clickedIndex = currentFiltered.findIndex(img => img.id === image.id);
-        if (clickedIndex !== -1) {
-            setFocusedImageIndex(clickedIndex);
+        // The cards the grid is showing, in layout order. With stacking on this
+        // is NOT filteredImages — a stack is a single card and the stacking hook
+        // re-sorts the items — so both the focused index and the Shift+click run
+        // have to be measured here. Callers that render a plain list omit it.
+        const order = displayOrder ?? currentFiltered.map(img => img.id);
+
+        // Update focused index. It indexes the rendered list: itemsToRender
+        // [focusedImageIndex] and the arrow-key walk both read it, so using the
+        // library index here would focus the wrong card once stacks collapse.
+        const displayIndex = order.indexOf(image.id);
+        if (displayIndex !== -1) {
+            setFocusedImageIndex(displayIndex);
         }
 
-        if (event.shiftKey && currentSelectedImage) {
-            const lastSelectedIndex = currentFiltered.findIndex(img => img.id === currentSelectedImage.id);
-            const clickedIdx = currentFiltered.findIndex(img => img.id === image.id);
-            if (lastSelectedIndex !== -1 && clickedIdx !== -1) {
-                const start = Math.min(lastSelectedIndex, clickedIdx);
-                const end = Math.max(lastSelectedIndex, clickedIdx);
-                const rangeIds = currentFiltered.slice(start, end + 1).map(img => img.id);
-                const newSelection = new Set(currentSelectedImages);
-                rangeIds.forEach(id => newSelection.add(id));
-                useImageStore.setState({ selectedImages: newSelection });
-                return;
-            }
+        // Shift+click extends the selection from the anchor (the last image
+        // picked) to the clicked one. Purely additive — the range is unioned
+        // into the existing selection, so Shift never drops an image and never
+        // opens the viewer. With nothing selected there is no run to draw, so
+        // it falls through to the plain click below.
+        if (event.shiftKey && currentSelectedImages.size > 0) {
+            selectImageRange(image.id, order);
+            return;
         }
+
+        // The viewer carries the filtered list, so its index is a filtered one.
+        const clickedIndex = currentFiltered.findIndex(img => img.id === image.id);
 
         if (event.ctrlKey || event.metaKey) {
             toggleImageSelection(image.id);
@@ -113,7 +122,7 @@ export function useImageSelection() {
 
                 // Set selectedImage in store so main window highlights the image in the grid
                 setSelectedImage(image);
-                useImageStore.setState({ selectedImages: new Set([image.id]) });
+                selectSingleImage(image.id);
 
                 // Always open a new viewer window — multiple windows can be open simultaneously
                 window.electronAPI.openImageViewer({
@@ -134,10 +143,10 @@ export function useImageSelection() {
             } else {
                 // Browser fallback: use in-app modal
                 setSelectedImage(image);
-                useImageStore.setState({ selectedImages: new Set([image.id]) });
+                selectSingleImage(image.id);
             }
         }
-    }, [toggleImageSelection, clearImageSelection, setSelectedImage, setFocusedImageIndex]);
+    }, [toggleImageSelection, clearImageSelection, setSelectedImage, selectSingleImage, selectImageRange, setFocusedImageIndex]);
 
     const handleDeleteSelectedImages = useCallback(async () => {
         if (selectedImages.size === 0) return;

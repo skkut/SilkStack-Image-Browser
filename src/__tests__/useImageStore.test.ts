@@ -518,6 +518,249 @@ describe('useImageStore computeVectorSimilarityGroups', () => {
   });
 });
 
+// ── Shift+click range selection (additive, connecting to the nearest edge) ─
+
+describe('useImageStore shift+click range selection', () => {
+  const rangeImages = (count: number) =>
+    Array.from({ length: count }, (_, i) => createImage({ id: `img${i}`, name: `img${i}.png` }));
+
+  const seed = (images: IndexedImage[]) => {
+    useImageStore.setState({
+      images,
+      filteredImages: images,
+      selectedImages: new Set<string>(),
+      selectionAnchorId: null,
+    });
+  };
+
+  const selectedIds = () => Array.from(useImageStore.getState().selectedImages).sort();
+
+  it('fills the run between the anchor and the clicked image', () => {
+    seed(rangeImages(6));
+    const store = useImageStore.getState();
+
+    store.selectSingleImage('img1');
+    store.selectImageRange('img4');
+
+    expect(selectedIds()).toEqual(['img1', 'img2', 'img3', 'img4']);
+    expect(useImageStore.getState().selectionAnchorId).toBe('img4');
+  });
+
+  it('never deselects: earlier picks outside the run survive', () => {
+    seed(rangeImages(8));
+    const store = useImageStore.getState();
+
+    store.selectSingleImage('img0');
+    store.toggleImageSelection('img6'); // Ctrl+click → {img0, img6}, anchor img6
+    store.selectImageRange('img7');
+
+    expect(selectedIds()).toEqual(['img0', 'img6', 'img7']);
+  });
+
+  it('anchors on the last PICKED image, not the last opened one', () => {
+    seed(rangeImages(6));
+    const store = useImageStore.getState();
+
+    store.selectSingleImage('img1'); // opened + selected
+    store.toggleImageSelection('img4'); // Ctrl+click → anchor moves to img4
+    store.selectImageRange('img3'); // backward run from img4 → 3..4
+
+    // Drawn from img4, so img2 is NOT swept in (an img1 anchor would give 1..3).
+    expect(selectedIds()).toEqual(['img1', 'img3', 'img4']);
+    expect(useImageStore.getState().selectionAnchorId).toBe('img3');
+  });
+
+  it('clicking before the selection fills up to it, keeping every existing pick', () => {
+    seed(rangeImages(8));
+    const store = useImageStore.getState();
+
+    store.selectSingleImage('img4');
+    store.selectImageRange('img6'); // {4,5,6}
+    const before = selectedIds();
+
+    store.selectImageRange('img1'); // run 1..6 — img1 is the clicked image, 4 the selection's first
+    const after = selectedIds();
+
+    expect(after).toEqual(['img1', 'img2', 'img3', 'img4', 'img5', 'img6']);
+    expect(before.every(id => after.includes(id))).toBe(true);
+    // The newly covered images are exactly clicked → first image of the old selection.
+    expect(after.filter(id => !before.includes(id))).toEqual(['img1', 'img2', 'img3']);
+  });
+
+  it('clicking before a selection built in parts stops at its first image', () => {
+    seed(rangeImages(9));
+    const store = useImageStore.getState();
+
+    // Two parts, as a selection picked part by part really looks: the second
+    // Shift+click leaves the anchor at the far END of the selection.
+    store.selectSingleImage('img2');
+    store.selectImageRange('img3'); // part one: {2,3}
+    store.toggleImageSelection('img6');
+    store.selectImageRange('img7'); // part two: {6,7}, anchor img7
+
+    store.selectImageRange('img0');
+
+    // Up to the selection's FIRST image — the gap at 4,5 stays out. Drawing the
+    // run to the anchor instead would have selected the whole 0..7 span.
+    expect(selectedIds()).toEqual(['img0', 'img1', 'img2', 'img3', 'img6', 'img7']);
+  });
+
+  it('clicking after a selection built in parts starts at its last image', () => {
+    seed(rangeImages(9));
+    const store = useImageStore.getState();
+
+    // Built the later part first, so the anchor sits at the EARLIER part's end
+    // and a run to it would have swept the gap.
+    store.selectSingleImage('img6');
+    store.selectImageRange('img7'); // a later part: {6,7}
+    store.toggleImageSelection('img2');
+    store.selectImageRange('img3'); // an earlier part: {2,3}, anchor img3
+
+    store.selectImageRange('img8');
+
+    expect(selectedIds()).toEqual(['img2', 'img3', 'img6', 'img7', 'img8']);
+  });
+
+  it('a click inside the span still fills the gap back to the last pick', () => {
+    seed(rangeImages(9));
+    useImageStore.setState({
+      selectedImages: new Set(['img2', 'img3', 'img6', 'img7']),
+      selectionAnchorId: 'img7',
+    });
+
+    useImageStore.getState().selectImageRange('img4'); // in the gap, within 2..7
+
+    // Inside the span there is no near edge to reach for, so the anchor decides
+    // (4..7). A nearest-edge reading would have given 3..4 instead.
+    expect(selectedIds()).toEqual(['img2', 'img3', 'img4', 'img5', 'img6', 'img7']);
+  });
+
+  it('re-anchors on the clicked image, so a second Shift+click extends from it', () => {
+    seed(rangeImages(9));
+    const store = useImageStore.getState();
+
+    store.selectSingleImage('img1');
+    store.selectImageRange('img3'); // {1,2,3}
+    store.selectImageRange('img5'); // from the re-anchored img3 → {1..5}
+
+    expect(selectedIds()).toEqual(['img1', 'img2', 'img3', 'img4', 'img5']);
+  });
+
+  it('derives the anchor from the selection when no pick recorded one (drag-box, Select All)', () => {
+    seed(rangeImages(6));
+    // A drag-box or Select All sets the whole selection at once: no pick ⇒ no anchor.
+    useImageStore.setState({ selectedImages: new Set(['img2', 'img3']), selectionAnchorId: null });
+
+    useImageStore.getState().selectImageRange('img5');
+
+    // Measured from the selection's last visible image (img3), not from the start.
+    expect(selectedIds()).toEqual(['img2', 'img3', 'img4', 'img5']);
+  });
+
+  it('re-derives the anchor when the anchor itself was deselected', () => {
+    seed(rangeImages(8));
+    // A selection with a gap in it and a stale anchor parked inside that gap:
+    // the stored img3 is no longer selected, so the fallback — the last drawn
+    // selected image, img6 — has to place the run instead. Only an inside click
+    // consults the anchor at all; from outside, the edge is what it reaches for.
+    useImageStore.setState({
+      selectedImages: new Set(['img1', 'img2', 'img5', 'img6']),
+      selectionAnchorId: 'img3',
+    });
+
+    useImageStore.getState().selectImageRange('img4'); // inside the span 1..6
+
+    // Derived anchor img6 → run 4..6. The stale img3 would have given 3..4.
+    expect(selectedIds()).toEqual(['img1', 'img2', 'img4', 'img5', 'img6']);
+  });
+
+  it('uses the clicked image alone when the anchor is not in the visible list', () => {
+    seed(rangeImages(4));
+    // The anchor lives in a filtered-away part of the library.
+    useImageStore.setState({ selectedImages: new Set(['hidden']), selectionAnchorId: 'hidden' });
+
+    useImageStore.getState().selectImageRange('img2');
+
+    expect(selectedIds()).toEqual(['hidden', 'img2']);
+  });
+
+  it('leaves the selection untouched for an image that is not in the list', () => {
+    seed(rangeImages(4));
+    useImageStore.getState().selectSingleImage('img1');
+
+    useImageStore.getState().selectImageRange('not-on-screen');
+
+    expect(selectedIds()).toEqual(['img1']);
+    expect(useImageStore.getState().selectionAnchorId).toBe('img1');
+  });
+
+  it('clearImageSelection drops the anchor with the selection', () => {
+    seed(rangeImages(4));
+    useImageStore.getState().selectSingleImage('img2');
+
+    useImageStore.getState().clearImageSelection();
+
+    expect(selectedIds()).toEqual([]);
+    expect(useImageStore.getState().selectionAnchorId).toBeNull();
+  });
+
+  // ── Runs are measured in the DISPLAYED order ────────────────────────
+  // With stacking on, the grid draws one card per stack and re-sorts the
+  // items, so the displayed order is not `filteredImages` — the caller passes
+  // what it drew (see ImageGrid's toDisplayOrder).
+
+  it('measures the run in the passed display order, not the library order', () => {
+    seed(rangeImages(5));
+    const store = useImageStore.getState();
+
+    // The grid drew the same cards in a different order (semantic mode: the
+    // store hands over score order, the stacking hook keeps stacks first).
+    const displayOrder = ['img4', 'img2', 'img0', 'img3', 'img1'];
+
+    store.selectSingleImage('img0');
+    store.selectImageRange('img3', displayOrder);
+
+    // img0 and img3 are adjacent in the display order, so only those two are
+    // covered. In library order they span img0..img3 — which is what the same
+    // call without the display order still yields.
+    expect(selectedIds()).toEqual(['img0', 'img3']);
+
+    store.clearImageSelection();
+    store.selectSingleImage('img0');
+    store.selectImageRange('img3');
+    expect(selectedIds()).toEqual(['img0', 'img1', 'img2', 'img3']);
+  });
+
+  it('covers only the cards the grid draws, skipping the members a stack hides', () => {
+    seed(rangeImages(6));
+    const store = useImageStore.getState();
+
+    // img2 and img4 are collapsed into stack cards, so the grid draws four
+    // cards. Every drawn card in the run lights up; the hidden members do not,
+    // matching what a click on a stack card selects (its cover alone).
+    store.selectSingleImage('img0');
+    store.selectImageRange('img5', ['img0', 'img1', 'img3', 'img5']);
+
+    expect(selectedIds()).toEqual(['img0', 'img1', 'img3', 'img5']);
+  });
+
+  it('ignores an anchor with no card, deriving one from the displayed picks', () => {
+    seed(rangeImages(6));
+    // A stack member picked in the drill-down: selected, but the grid draws
+    // only the stack's cover, so there is no card to measure a run from.
+    useImageStore.setState({
+      selectedImages: new Set(['img2', 'img1']),
+      selectionAnchorId: 'img2',
+    });
+
+    useImageStore.getState().selectImageRange('img4', ['img0', 'img1', 'img3', 'img4', 'img5']);
+
+    // Measured from img1 — the last displayed pick — so img3 comes along, and
+    // the hidden img2 stays selected.
+    expect(selectedIds()).toEqual(['img1', 'img2', 'img3', 'img4']);
+  });
+});
+
 // ── Enrichment gate semantics (pure function) ─────────────────────────
 
 describe('needsSearchEnrichment', () => {

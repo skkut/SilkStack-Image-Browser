@@ -233,6 +233,20 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
 
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // Shift+click on the box is the same gesture as Shift+click on the card,
+    // so it has to run through the card's path: that is the one carrying the
+    // grid's layout order, which the run is measured in. Without this the box
+    // swallowed the modifier and every Shift+click was a plain toggle.
+    // Read the selection imperatively — a card subscribing to the Set would
+    // re-render every card in the grid on each click.
+    if (e.shiftKey && useImageStore.getState().selectedImages.size > 0) {
+      onImageClick(image, e);
+      return;
+    }
+
+    // Plain (or Ctrl) click: a pure toggle. It must never fall through to the
+    // card path, which would open the viewer.
     toggleImageSelection(image.id);
   };
 
@@ -453,6 +467,16 @@ function isImageStack(item: IndexedImage | ImageStack): item is ImageStack {
   return (item as ImageStack).coverImage !== undefined;
 }
 
+/**
+ * The id of every card a grid lays out, in layout order — one entry per card,
+ * a stack contributing its cover (the id its clicks report). This is the order
+ * Shift+click ranges are measured in (see selectImageRange in useImageStore);
+ * with stacking on it is neither the same length nor the same order as
+ * `filteredImages`.
+ */
+export const toDisplayOrder = (items: (IndexedImage | ImageStack)[]): string[] =>
+  items.map(item => (isImageStack(item) ? item.coverImage.id : item.id));
+
 const GAP_SIZE = 8;
 const ITEM_HEIGHT_RATIO = 1.2; // Normal aspect ratio (rectangular)
 
@@ -580,7 +604,12 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
 
 interface ImageGridProps {
   images: IndexedImage[];
-  onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
+  /**
+   * `displayOrder` is the id of every card this grid is showing, in layout
+   * order (stack cards contribute their cover id). Shift+click ranges are
+   * measured in it — see selectImageRange in useImageStore.
+   */
+  onImageClick: (image: IndexedImage, event: React.MouseEvent, displayOrder?: string[]) => void;
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
   disableStacking?: boolean;
@@ -669,6 +698,19 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   // Layout logic
   const itemsToRender: (IndexedImage | ImageStack)[] = (stackingEnabled && !disableStacking) ? stackedItems : images;
   const focusedItemId = itemsToRender[focusedImageIndex] ? (isImageStack(itemsToRender[focusedImageIndex]) ? (itemsToRender[focusedImageIndex] as ImageStack).coverImage.id : (itemsToRender[focusedImageIndex] as IndexedImage).id) : null;
+
+  // Shift+click ranges are measured in the displayed card order, which with
+  // stacking on differs from filteredImages — see toDisplayOrder.
+  const displayOrder = useMemo(() => toDisplayOrder(itemsToRender), [itemsToRender]);
+  // Read through a ref so the click handler stays identity-stable: itemData
+  // carries it, and a new identity would re-render every react-window row.
+  const displayOrderRef = useRef(displayOrder);
+  displayOrderRef.current = displayOrder;
+  const handleImageClick = useCallback(
+    (image: IndexedImage, event: React.MouseEvent) =>
+      onImageClick(image, event, displayOrderRef.current),
+    [onImageClick],
+  );
   
   const rows = useMemo(() => {
       // Account for padding (p-2 = 16px) and scrollbar (approx 17px) to avoid horizontal scroll
@@ -904,7 +946,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     // Windows behavior: Clicking background deselects everything (unless Ctrl/Shift is held)
     if (!e.ctrlKey && !e.shiftKey) {
-        useImageStore.setState({ selectedImages: new Set() });
+        useImageStore.getState().clearImageSelection();
         setFocusedImageIndex(-1); // Also clear focus
     }
 
@@ -1050,10 +1092,10 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
           if (e.altKey) {
             sessionStorage.setItem('openImageFullscreen', 'true');
-            onImageClick(selectedItem, e as any);
+            handleImageClick(selectedItem, e as any);
           } else {
             sessionStorage.removeItem('openImageFullscreen');
-            onImageClick(selectedItem, e as any);
+            handleImageClick(selectedItem, e as any);
           }
           return;
         }
@@ -1156,7 +1198,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
           const nextItem = itemsToRender[nextIndex];
           if (!e.ctrlKey && !e.shiftKey) {
              const imageId = isImageStack(nextItem) ? nextItem.coverImage.id : (nextItem as IndexedImage).id;
-             useImageStore.setState({ selectedImages: new Set([imageId]) });
+             useImageStore.getState().selectSingleImage(imageId);
           }
 
           // Scroll the newly focused image into view (keyboard nav only —
@@ -1190,7 +1232,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, onImageClick, rows]);
+  }, [focusedImageIndex, itemsToRender, setFocusedImageIndex, handleImageClick, rows]);
 
   // Add global mouseup listener to handle selection end even outside the grid
   useEffect(() => {
@@ -1464,7 +1506,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     semanticHitIds,
     focusedItemId,
 
-    onImageClick,
+    onImageClick: handleImageClick,
     handleStackClick,
     handleImageLoad,
     handleContextMenu,
@@ -1479,7 +1521,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     semanticHitIds,
     focusedItemId,
 
-    onImageClick,
+    handleImageClick,
     handleStackClick,
     handleImageLoad,
     handleContextMenu,

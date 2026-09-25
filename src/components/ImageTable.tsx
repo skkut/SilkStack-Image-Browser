@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { FixedSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { type IndexedImage } from '../types';
@@ -11,7 +11,12 @@ import { useSettingsStore } from '../store/useSettingsStore';
 
 interface ImageTableProps {
   images: IndexedImage[];
-  onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
+  /**
+   * `displayOrder` is the id of every row this table is showing, in display
+   * order (column sorting reorders rows). Shift+click ranges are measured in
+   * it — see selectImageRange in useImageStore.
+   */
+  onImageClick: (image: IndexedImage, event: React.MouseEvent, displayOrder?: string[]) => void;
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
 }
@@ -242,6 +247,17 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
   const gridTemplateColumns = columnWidths.map(w => `${w}px`).join(' ');
   const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
 
+  // The order the rows are actually drawn in: a column sort reorders them, so
+  // it can differ from the library's filtered order.
+  const displayOrder = useMemo(() => sortedImages.map(image => image.id), [sortedImages]);
+  const displayOrderRef = useRef(displayOrder);
+  displayOrderRef.current = displayOrder;
+  const handleImageClick = useCallback(
+    (image: IndexedImage, event: React.MouseEvent) =>
+      onImageClick(image, event, displayOrderRef.current),
+    [onImageClick],
+  );
+
   // Row renderer for virtualized list
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
     const image = sortedImages[index];
@@ -249,7 +265,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
       <div style={style}>
         <ImageTableRow
           image={image}
-          onImageClick={onImageClick}
+          onImageClick={handleImageClick}
           isSelected={selectedImages.has(image.id)}
           isSemanticMatch={semanticHitIds?.has(image.id)}
           onContextMenu={handleContextMenu}
