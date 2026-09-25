@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useState, FC, useCallback, useRef } from "react";
+import { flushSync } from "react-dom";
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
 import { FileOperations } from "../services/fileOperations";
 import { copyImageToClipboard, showInExplorer, openInNativeViewer, getAspectRatio } from "../utils/imageUtils";
@@ -33,12 +34,17 @@ import {
 import hotkeyManager from "../services/hotkeyManager";
 import {
   computeCompactContentSize,
+  compactPinnedSize,
+  compactPanAxes,
   clampUserScale,
   userScaleFromResize,
   COMPACT_MODE_STORAGE_KEY,
   COMPACT_SCALE_STORAGE_KEY,
   COMPACT_SCALE_EPSILON,
   COMPACT_RESIZE_TOLERANCE,
+  COMPACT_GROW_SETTLE_MS,
+  COMPACT_GROW_MAX_STEP,
+  COMPACT_GROW_STEP_MS,
 } from "../utils/windowSizing";
 import ImageMinimap from "./ImageMinimap";
 import type { Point } from "../utils/minimapGeometry";
@@ -519,6 +525,48 @@ const VideoPlayer: React.FC<{
   );
 };
 
+/**
+ * Every axis pannable — the answer wherever the pane does not follow the zoom
+ * (the ordinary modal, fullscreen), and the fallback when a compact frame cannot
+ * be measured. A shared frozen value rather than a fresh object, because it is
+ * the answer on every wheel tick of every ordinary zoom.
+ */
+const ALL_AXES_PANNABLE = Object.freeze({ width: true, height: true });
+
+/**
+ * The screen area a compact window may occupy.
+ *
+ * Read rather than captured, so a window moved to another display re-reads the
+ * one it is on — and defined once, because every compact size is measured
+ * against it: the frame the window is shaped to, the pinned size the picture is
+ * laid out at, and the question of which axes can still be panned all have to be
+ * answering about the same screen or they disagree about where the frame stops.
+ */
+const compactAvailSize = (): { width: number; height: number } => ({
+  width: window.screen?.availWidth || window.innerWidth,
+  height: window.screen?.availHeight || window.innerHeight,
+});
+
+/**
+ * Drop a frame growth that is still waiting to be sent.
+ *
+ * Called wherever the reason for waiting has gone — the mode was left, the
+ * window went fullscreen, or a change arrived that supersedes it. A growth that
+ * outlives its magnification would resize the window to a size the user has
+ * already zoomed away from.
+ *
+ * Takes the two refs structurally rather than as React ref types, so it can live
+ * outside the component and stay a stable value for an effect to use.
+ */
+const cancelCompactGrow = (
+  timerRef: { current: number | undefined },
+  sendRef: { current: (() => void) | null },
+): void => {
+  window.clearTimeout(timerRef.current);
+  timerRef.current = undefined;
+  sendRef.current = null;
+};
+
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
   onClose,
@@ -920,12 +968,26 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setViewMetrics(next);
   }, []);
 
+  // Whether the picture is actually bigger than the pane showing it. In the
+  // ordinary modal that is the same statement as "zoomed", but a compact window
+  // grows with the zoom, so a magnified image can still fit it exactly — and
+  // then a grab cursor, a drag, or a map whose box covers the whole picture
+  // would all promise something the pane cannot do. Unmeasured counts as
+  // overflowing, which is how the pane behaved before there was a mode to grow.
+  const imageOverflowsPane =
+    !viewMetrics ||
+    viewMetrics.imageWidth * zoom > viewMetrics.viewportWidth + 1 ||
+    viewMetrics.imageHeight * zoom > viewMetrics.viewportHeight + 1;
+  // Panning moves the picture inside the pane, so it needs both a magnification
+  // and somewhere to move it to.
+  const canPan = zoom > 1 && (!isCompactMode || imageOverflowsPane);
+
   // The minimap earns its place only once the image is zoomed past its fit (below
   // that the box would cover the whole map) and only once the pane and image have
   // both been measured — which is what keeps it off the pre-load skeleton.
   const showMinimap =
     !isVideo &&
-    zoom > 1 &&
+    canPan &&
     Boolean(imageUrl) &&
     Boolean(viewMetrics) &&
     viewMetrics!.imageWidth > 0 &&
@@ -951,6 +1013,27 @@ const ImageModal: React.FC<ImageModalProps> = ({
     const observer = new ResizeObserver(() => {
       updateZoomPercentage();
       syncViewMetrics();
+      // A compact window resized to follow the zoom moves the pane out from
+      // under the picture: what filled it a moment ago no longer does, and a pan
+      // held against the old edge would show a band of background. Re-clamp
+      // against the pane as it is now. Handing back the object React already has
+      // is the bail-out this needs — the callback runs on every frame of a
+      // resize, and almost every one of them moves nothing.
+      //
+      // Flushed, not scheduled. A resize observation is delivered before the
+      // frame is painted but from outside React's event system, so the render it
+      // schedules waits for the next task — which is after this paint. The pan
+      // would then be corrected in the *following* frame: one more step of the
+      // picture, arriving after the one the window just made, which is exactly
+      // the kind of late second motion the zoom was making feel jerky. Flushed
+      // here, the corrected pan is painted with the pane that caused it. The
+      // bail-out above keeps that flush free of a re-render when nothing moved.
+      flushSync(() => {
+        setPan((prev) => {
+          const next = clampPan(prev.x, prev.y, zoom);
+          return next.x === prev.x && next.y === prev.y ? prev : next;
+        });
+      });
     });
 
     if (imgRef.current) {
@@ -961,7 +1044,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
 
     return () => observer.disconnect();
-  }, [updateZoomPercentage, syncViewMetrics, imageUrl]);
+    // `zoom` is here for the pan clamp above, and rebuilds the observer on every
+    // zoom step — which it already did, since `updateZoomPercentage` is rebuilt
+    // for the same reason. `clampPan` is deliberately left out: it is a stable
+    // useCallback reading only refs, and it is declared below this effect, so
+    // naming it in the deps would read it in its temporal dead zone.
+  }, [updateZoomPercentage, syncViewMetrics, imageUrl, zoom]);
 
   // The observer is asynchronous and only fires on a size *change*; this catches
   // the first measurement after the image element appears, before the browser
@@ -1184,6 +1272,51 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // see why a size was sent.
   const compactFitKeyRef = useRef<string | null>(null);
 
+  // The magnification the window is showing. A re-fit at the same zoom is the
+  // follow-up to a drag; one at a different zoom is the user magnifying, and the
+  // frame has to grow about its centre rather than from a corner.
+  const compactZoomRef = useRef(1);
+
+  // The last thing we asked the main process for. A capped window computes the
+  // same size at every step of a wheel flick or a slider drag — the frame has
+  // stopped growing and only the picture is moving — and the main process is on
+  // the far side of an IPC round trip, so it is not asked twice.
+  const compactRequestKeyRef = useRef<string | null>(null);
+
+  // Counts requests, so a reply can be recognised as the answer to the one still
+  // in flight rather than to an older one that crossed it.
+  const compactRequestIdRef = useRef(0);
+
+  // A growth of the frame, waiting for the magnification to settle before it is
+  // sent. One wheel flick is a dozen steps; each would otherwise be a window
+  // resize, and a resize cannot be shown for ~50ms (measured) — further apart
+  // than the steps arrive, so the picture never settles while the gesture lasts.
+  // The send is held as a closure rather than as a size, so whichever step is
+  // last is the one that goes out.
+  const compactGrowTimerRef = useRef<number | undefined>(undefined);
+  const compactGrowSendRef = useRef<(() => void) | null>(null);
+
+  // The magnification the frame should hold. Flattened to 1 outside the mode so
+  // that wheeling the ordinary modal does not re-run the reshape effect for an
+  // answer that never changes — it would tell the main process the compact mode
+  // is off once per wheel tick.
+  const compactZoom = isCompactMode ? zoom : 1;
+
+  // The size the picture is laid out at while the frame is compact — the fixed
+  // shape the window grows around, with the zoom left out of it for the
+  // transform to supply. Null in every other mode, where the image sizes itself.
+  const compactAvail =
+    isCompactMode && !isFullscreen ? compactAvailSize() : null;
+  const compactPin = compactAvail
+    ? compactPinnedSize(
+        naturalWidth,
+        naturalHeight,
+        compactAvail.width,
+        compactAvail.height,
+        compactUserScale,
+      )
+    : null;
+
   // Bumped when the user asks the OS to maximise the compact window. It is a
   // request to re-apply at the maximum, not merely to change the remembered
   // size: at the maximum already, the size is unchanged, and the window still
@@ -1196,26 +1329,59 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // because a window shaped to its image has no screen-filling shape.
     return window.electronAPI?.onViewerCompactFillScreen?.(() => {
       setCompactUserScale(1);
+      // The gesture lands the window on the compact maximum, which is the fit at
+      // 1x — a magnification on top of that has no frame to live in, and the
+      // resize effect would ask for one the main process has just refused.
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
       setCompactFillRequest((n) => n + 1);
     });
   }, [isStandaloneWindow, isCompactMode]);
 
-  // Reshape the window whenever the image, the mode, or the fullscreen state
-  // changes. Re-running on `image.id` is what makes next/previous re-fit.
-  useEffect(() => {
+  // Reshape the window whenever the image, the mode, the magnification, or the
+  // fullscreen state changes. Re-running on `image.id` is what makes
+  // next/previous re-fit; re-running on the zoom is what lets the frame grow with
+  // the picture until the work area stops it.
+  //
+  // A *layout* effect, so the request is on its way before the frame this render
+  // is about is painted. The picture's magnification and the window's size are
+  // committed by two different mechanisms — a CSS transform and a window-manager
+  // call — and the only thing that can hold them together is the timing: from a
+  // passive effect the message leaves after the paint, so the window is
+  // guaranteed to be a frame behind the picture, every step of a zoom. Sent
+  // here, the main process applies it (≈1.7ms, measured) inside the same frame.
+  // Nothing in the effect reads layout or sets state, so it costs no re-render.
+  useLayoutEffect(() => {
     if (!setViewerCompactMode) return;
 
     if (!isCompactMode) {
+      cancelCompactGrow(compactGrowTimerRef, compactGrowSendRef);
       compactAppliedRef.current = null;
       compactFitKeyRef.current = null;
+      compactZoomRef.current = 1;
+      compactRequestKeyRef.current = null;
       setViewerCompactMode({ enabled: false });
       return;
     }
     // Fullscreen owns the window size; the compact size is re-applied on exit.
-    if (isFullscreen || !naturalWidth || !naturalHeight) return;
+    // The last request is forgotten with it — the size that comes back is not a
+    // repeat of one the fullscreen window overrode, it is that answer again.
+    if (isFullscreen || !naturalWidth || !naturalHeight) {
+      cancelCompactGrow(compactGrowTimerRef, compactGrowSendRef);
+      compactRequestKeyRef.current = null;
+      return;
+    }
 
-    const availWidth = window.screen?.availWidth || window.innerWidth;
-    const availHeight = window.screen?.availHeight || window.innerHeight;
+    const { width: availWidth, height: availHeight } = compactAvailSize();
+
+    // The magnification this request is about. A window is only ever shaped for
+    // the image it is showing, and effects run in declaration order — so on
+    // navigation this one runs before the reset below and would otherwise size
+    // the *new* image's frame from the *outgoing* image's zoom, flashing a
+    // wrongly-shaped window before correcting itself. A fresh fit is 1x by
+    // construction, which is what "frame window to image" means.
+    const requestedZoom =
+      compactFitKeyRef.current === image.id ? compactZoom : 1;
 
     const size = computeCompactContentSize(
       naturalWidth,
@@ -1223,6 +1389,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       availWidth,
       availHeight,
       compactUserScale,
+      requestedZoom,
     );
     if (!size) return;
 
@@ -1239,47 +1406,175 @@ const ImageModal: React.FC<ImageModalProps> = ({
       1,
     );
 
-    // Record what we asked for *before* the IPC round-trip: the resize event it
-    // triggers has to be recognisable as ours.
-    compactAppliedRef.current = {
-      width: size.contentWidth,
-      height: size.contentHeight,
+    // Everything this request would say, as one value. A window that has already
+    // grown as far as the work area allows computes the same size at every step
+    // of a wheel flick or a slider drag — the frame has stopped growing and only
+    // the picture is moving — yet this effect re-runs on each of those steps,
+    // across an IPC round trip. Saying it once is enough. The image is in the key
+    // because the same numbers for another picture are a fresh fit, and the
+    // counter because a fill-the-screen request has to go out even when the size
+    // it asks for is the one already in force.
+    const requestKey = [
+      image.id,
+      size.contentWidth,
+      size.contentHeight,
+      ceiling?.contentWidth,
+      ceiling?.contentHeight,
+      compactFillRequest,
+    ].join(":");
+
+    // Recorded whether or not the message goes out: what the next re-fit has to
+    // know is what the window is showing *now*, and a step that sent nothing —
+    // because the frame was already as large as it can be — still moved the
+    // magnification the next request has to divide out.
+    const previousFit = compactFitKeyRef.current;
+    const previousZoom = compactZoomRef.current;
+    compactFitKeyRef.current = image.id;
+    compactZoomRef.current = requestedZoom;
+
+    if (compactRequestKeyRef.current === requestKey) return;
+    compactRequestKeyRef.current = requestKey;
+
+    // Centre a fresh fit — a new image, entering the mode, or the user
+    // magnifying — but leave a window the user has just dragged where they put
+    // it. The re-fit that follows a drag is the same image at the same zoom, and
+    // pulling the frame back to the middle a moment later would make hand-sizing
+    // feel like it undoes itself. A zoom change is the case that must not keep
+    // the corner: the frame is growing, and a window held by its top-left would
+    // crawl the picture across the screen as the user scrolls — while the wheel
+    // anchors its magnification on a centre it takes to be standing still. (The
+    // main process reads "center" as "grow around the centre you are showing",
+    // so a window the user moved by hand is not pulled back to the app window.)
+    const anchor: "center" | "keep" =
+      previousFit === image.id && previousZoom === requestedZoom
+        ? "keep"
+        : "center";
+
+    // `requested` is the size this call sends, which is the fit the magnification
+    // asks for except when a paced growth is on its way there a step at a time.
+    const send = (
+      requested: { contentWidth: number; contentHeight: number } = size,
+    ) => {
+      // Record what we asked for *before* the IPC round-trip: the resize event
+      // it triggers has to be recognisable as ours.
+      compactAppliedRef.current = {
+        width: requested.contentWidth,
+        height: requested.contentHeight,
+      };
+      // Which request this reply will belong to, so one that an older zoom step
+      // left in flight can be recognised when it lands.
+      const requestId = ++compactRequestIdRef.current;
+
+      setViewerCompactMode({
+        enabled: true,
+        ...requested,
+        maxContentWidth: ceiling?.contentWidth,
+        maxContentHeight: ceiling?.contentHeight,
+        anchor,
+      })?.then((result) => {
+        // …and correct it to the size the window actually took. The window
+        // manager overrules the request in two places: below its floor it widens
+        // a window narrower than the top bar (see COMPACT_MIN_WIDTH), and above
+        // the work area it caps a large one. Left uncorrected, a size we never
+        // took is the one thing the resize effect below reads as a hand-drag.
+        if (!result?.success) return;
+        if (!result.contentWidth || !result.contentHeight) return;
+        // Holding an arrow key down can outrun the round-trip, and a reply that
+        // lands after the viewer has moved on describes a window that is no
+        // longer on screen.
+        if (compactRequestIdRef.current !== requestId) return;
+        if (compactFitKeyRef.current !== image.id) return;
+        compactAppliedRef.current = {
+          width: result.contentWidth,
+          height: result.contentHeight,
+        };
+      });
     };
 
-    // Centre a fresh fit — a new image, or entering the mode — but leave a
-    // window the user has just dragged where they put it. The re-fit that
-    // follows a drag is still the same image, and pulling the frame back to the
-    // middle a moment later would make hand-sizing feel like it undoes itself.
-    const anchor: "center" | "keep" =
-      compactFitKeyRef.current === image.id ? "keep" : "center";
-    // The fit this request is about, so its reply can be recognised as current
-    // (or not) when it lands.
-    const requestedFit = image.id;
-    compactFitKeyRef.current = image.id;
+    // A magnification *growing* the frame waits for the gesture to finish; every
+    // other change goes out at once. The gesture this guards against is a wheel
+    // flick or a slider drag — many magnification steps a few tens of
+    // milliseconds apart, each of which would otherwise be its own window
+    // resize, and a resize cannot be shown for ~50ms (measured). At speed the
+    // resizes arrive faster than they can be presented and the picture never
+    // settles for the length of the gesture, which is the flicker. Coalesced,
+    // the gesture is pure magnification — a change the compositor can make
+    // without touching the window at all — and one resize lands at the end.
+    //
+    // Growth only, and only when the image is the one already on screen: a
+    // navigation, a hand-drag's follow-up re-fit and the fill-the-screen gesture
+    // are single discrete changes with no second step coming to coalesce with,
+    // so deferring them would only make the frame look late. A shrink is sent at
+    // once for the same reason it has no partner — and because leaving the frame
+    // larger than the picture would show the background this mode exists to keep
+    // out of sight.
+    const appliedBefore = compactAppliedRef.current;
+    const grows =
+      appliedBefore !== null &&
+      previousFit === image.id &&
+      previousZoom !== requestedZoom &&
+      size.contentWidth * size.contentHeight >
+        appliedBefore.width * appliedBefore.height;
 
-    setViewerCompactMode({
-      enabled: true,
-      ...size,
-      maxContentWidth: ceiling?.contentWidth,
-      maxContentHeight: ceiling?.contentHeight,
-      anchor,
-    })?.then((result) => {
-      // …and correct it to the size the window actually took. The window
-      // manager overrules the request in two places: below its floor it widens
-      // a window narrower than the top bar (see COMPACT_MIN_WIDTH), and above
-      // the work area it caps a large one. Left uncorrected, a size we never
-      // took is the one thing the resize effect below reads as a hand-drag.
-      if (!result?.success) return;
-      if (!result.contentWidth || !result.contentHeight) return;
-      // Holding an arrow key down can outrun the round-trip, and a reply that
-      // lands after the viewer has moved on describes a window that is no
-      // longer on screen.
-      if (compactFitKeyRef.current !== requestedFit) return;
-      compactAppliedRef.current = {
-        width: result.contentWidth,
-        height: result.contentHeight,
-      };
-    });
+    if (!grows) {
+      // A growth still waiting describes a magnification the user has already
+      // left — navigating, dragging, or shrinking past it must not have that
+      // older size land on top of the newer one a moment later.
+      cancelCompactGrow(compactGrowTimerRef, compactGrowSendRef);
+      send();
+      return;
+    }
+
+    // Runs the growth that was due, and then keeps running it until the frame is
+    // as large as the magnification needs, in steps of at most
+    // COMPACT_GROW_MAX_STEP. A coalesced flick asks for a resize of x2.4 at once,
+    // and the cost of a resize is proportional to how far it moves (see
+    // COMPACT_GROW_MAX_STEP), so the one place the mode draws its biggest flash is
+    // the growth that coalescing just built. Stepped, the flick lands as a few
+    // resizes no larger than the ones the gesture itself was making.
+    //
+    // Reads the applied size rather than the target so each step is measured from
+    // where the frame actually is — including a step the window manager overruled
+    // — and is therefore never more than the cap however the gesture got here.
+    const growOneStep = () => {
+      const applied = compactAppliedRef.current;
+      const toGo = applied
+        ? Math.min(
+            size.contentWidth / applied.width,
+            size.contentHeight / applied.height,
+          )
+        : 0;
+      if (!applied || !Number.isFinite(toGo) || toGo <= COMPACT_GROW_MAX_STEP) {
+        send();
+        return;
+      }
+      send({
+        contentWidth: Math.round(applied.width * COMPACT_GROW_MAX_STEP),
+        contentHeight: Math.round(applied.height * COMPACT_GROW_MAX_STEP),
+      });
+      // The rest of the way once this step has had time to reach the screen. The
+      // continuation goes in the same two refs the settle uses, so every path
+      // that abandons a waiting growth — navigating, hand-dragging, shrinking,
+      // leaving the mode — abandons the rest of this one with it.
+      compactGrowSendRef.current = growOneStep;
+      compactGrowTimerRef.current = window.setTimeout(() => {
+        compactGrowTimerRef.current = undefined;
+        const pending = compactGrowSendRef.current;
+        compactGrowSendRef.current = null;
+        pending?.();
+      }, COMPACT_GROW_STEP_MS);
+    };
+
+    // Replaces whatever was waiting: of a flick's worth of steps only the last
+    // magnification is worth a resize, and the wait restarts with it.
+    window.clearTimeout(compactGrowTimerRef.current);
+    compactGrowSendRef.current = growOneStep;
+    compactGrowTimerRef.current = window.setTimeout(() => {
+      compactGrowTimerRef.current = undefined;
+      const pending = compactGrowSendRef.current;
+      compactGrowSendRef.current = null;
+      pending?.();
+    }, COMPACT_GROW_SETTLE_MS);
   }, [
     setViewerCompactMode,
     isCompactMode,
@@ -1289,7 +1584,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
     compactUserScale,
     compactFillRequest,
     image.id,
+    // Through `compactZoom`, not `zoom`: outside the mode the magnification is
+    // none of this effect's business, and reading it raw would tell the main
+    // process the mode is off once per wheel tick of the ordinary modal.
+    compactZoom,
   ]);
+
+  // A growth that is still waiting when the viewer goes away would fire against
+  // a window that is no longer there — closing the viewer mid-flick would resize
+  // whatever came next.
+  useEffect(
+    () => () => cancelCompactGrow(compactGrowTimerRef, compactGrowSendRef),
+    [],
+  );
 
   // Learn the user's window-size preference from a hand-dragged compact window.
   // Debounced, because a drag emits a resize event per frame, and skipped while
@@ -1327,6 +1634,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
           window.screen?.availHeight || window.innerHeight,
           observedWidth,
           observedHeight,
+          // Read from the ref rather than the state: this runs on a debounce,
+          // when the drag has finished and the reader is asking what the window
+          // is showing *now*. A zoomed frame is a multiple of the fit before the
+          // user touches anything, so without it a drag at 3x would remember
+          // "three times as large" and open the next image at nine.
+          compactZoomRef.current,
         );
         if (Math.abs(next - compactUserScale) < COMPACT_SCALE_EPSILON) return;
         setCompactUserScale(next);
@@ -1521,9 +1834,37 @@ const ImageModal: React.FC<ImageModalProps> = ({
         const normalizedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150);
         const delta = normalizedDeltaY * -0.0025; // Zoom by 0.25x max per standard click
         
-        const newZoom = Math.min(Math.max(MIN_ZOOM, prevZoom + delta), MAX_ZOOM); // Min 1x, Max 7.5x
+        const newZoom = Math.min(Math.max(MIN_ZOOM, prevZoom + delta), MAX_ZOOM); // Min 1x, Max 10x
 
         if (newZoom === prevZoom) return prevZoom;
+
+        // Which axes the picture can still be moved along at the magnification
+        // being asked for — see `compactPanAxes`. The pane cannot answer that
+        // here, because the pane is the thing about to change: below the display
+        // cap the compact window grows to hold the whole picture, so a pan
+        // anchored on the cursor would slide the picture sideways and the resize
+        // would put it back a moment later, two motions for one step of the
+        // wheel. Asked of the new zoom, because that is the frame the window is
+        // about to take. In fullscreen the window is not the frame, and outside
+        // the mode the pane never follows the zoom, so every axis pans as it
+        // always has.
+        let panAxes: { width: boolean; height: boolean } = ALL_AXES_PANNABLE;
+        if (
+          isCompactMode &&
+          !isFullscreen &&
+          naturalWidth &&
+          naturalHeight
+        ) {
+          const avail = compactAvailSize();
+          panAxes = compactPanAxes(
+            naturalWidth,
+            naturalHeight,
+            avail.width,
+            avail.height,
+            compactUserScale,
+            newZoom,
+          );
+        }
 
         // Schedule pan correctly based on exact prev values
         setPan((prevPan) => {
@@ -1531,15 +1872,29 @@ const ImageModal: React.FC<ImageModalProps> = ({
             return { x: 0, y: 0 };
           }
           const ratio = newZoom / prevZoom;
-          const rawPx = prevPan.x * ratio + mx * (1 - ratio);
-          const rawPy = prevPan.y * ratio + my * (1 - ratio);
+          // An axis the frame will hold whole gets no pan at all: centred is the
+          // only place the picture can end up, so anchoring it on the cursor
+          // there is motion with nothing to show for it.
+          const rawPx = panAxes.width
+            ? prevPan.x * ratio + mx * (1 - ratio)
+            : 0;
+          const rawPy = panAxes.height
+            ? prevPan.y * ratio + my * (1 - ratio)
+            : 0;
           return clampPan(rawPx, rawPy, newZoom);
         });
 
         return newZoom;
       });
     },
-    [clampPan],
+    [
+      clampPan,
+      isCompactMode,
+      isFullscreen,
+      naturalWidth,
+      naturalHeight,
+      compactUserScale,
+    ],
   );
 
   // Pan handlers
@@ -1551,13 +1906,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
         return;
       }
 
-      if (zoom > 1 && e.button === 0) {
+      // `canPan` rather than `zoom > 1`: a compact frame that grew to hold the
+      // magnification has nothing to pan, and a grab that does not move the
+      // picture promises otherwise.
+      if (canPan && e.button === 0) {
         setIsDragging(true);
         setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
         e.preventDefault();
       }
     },
-    [zoom, pan],
+    [canPan, pan],
   );
 
   const triggerExternalDrag = useCallback(() => {
@@ -1581,7 +1939,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (isDragging && zoom > 1) {
+      if (isDragging && canPan) {
         // Edge detection: if user drags near the window border while zoomed,
         // trigger external drag automatically.
         const threshold = 8;
@@ -1601,7 +1959,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
         setPan(clampPan(rawX, rawY, zoom));
       }
     },
-    [isDragging, dragStart, zoom, clampPan, triggerExternalDrag],
+    [isDragging, dragStart, canPan, zoom, clampPan, triggerExternalDrag],
   );
 
   const handleMouseUp = useCallback(() => {
@@ -1609,13 +1967,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }, []);
 
   const handleMouseLeaveContainer = useCallback(() => {
-    if (isDragging && zoom > 1) {
+    if (isDragging && canPan) {
       // If we leave the container while panning, trigger the file drag
       triggerExternalDrag();
     } else {
       handleMouseUp();
     }
-  }, [isDragging, zoom, triggerExternalDrag, handleMouseUp]);
+  }, [isDragging, canPan, triggerExternalDrag, handleMouseUp]);
 
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLImageElement>) => {
@@ -2048,7 +2406,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           onMouseLeave={isVideo ? undefined : handleMouseLeaveContainer}
           style={{
             cursor:
-              !isVideo && zoom > 1
+              !isVideo && canPan
                 ? isDragging
                   ? "grabbing"
                   : "grab"
@@ -2077,11 +2435,27 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   // Easing is for the discrete jumps (buttons, wheel); a drag has to
                   // track the pointer, and the minimap's box would otherwise lead the
-                  // picture it is describing.
+                  // picture it is describing. A compact frame is the third case: the
+                  // window changes size the instant the zoom does, and an eased
+                  // picture would trail the frame it was just sized for — showing the
+                  // background this mode exists to avoid.
                   transition:
-                    isDragging || isMinimapDragging
+                    isDragging || isMinimapDragging || compactPin
                       ? "none"
                       : "transform 0.1s ease-out",
+                  // Laid out at the fit the frame is built around, with the zoom left
+                  // to the transform above. Left to `max-w-full`, a grown container
+                  // would re-lay the image out *and* the transform would scale it, the
+                  // two multiplying — the picture would overshoot the frame it was
+                  // just sized to fill by exactly its own magnification.
+                  ...(compactPin
+                    ? {
+                        width: `${compactPin.width}px`,
+                        height: `${compactPin.height}px`,
+                        maxWidth: "none",
+                        maxHeight: "none",
+                      }
+                    : {}),
                 }}
                 draggable={canDragExternally && zoom === 1}
               />

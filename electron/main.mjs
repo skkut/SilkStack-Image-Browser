@@ -375,17 +375,23 @@ function applyViewerContentSize(
   const width = Math.min(contentWidth, workArea.width);
   const height = Math.min(contentHeight, workArea.height);
 
-  // setContentSize measures the web-page area, so the image keeps its exact
-  // aspect ratio regardless of the title-bar overlay the frame adds.
-  win.setContentSize(width, height);
+  // The frame around the web-page area, as a size. setBounds — the one call that
+  // resizes and moves in the *same* commit — takes the window's outer size, while
+  // everything above this line is a content size. Measured rather than assumed,
+  // because the title-bar overlay and the display scaling both move it, and
+  // clamped, because a reading taken in the same turn the window was unmaximised
+  // is not worth trusting.
+  const before = win.getBounds();
+  const beforeContent = win.getContentBounds();
+  const frameWidth = Math.min(64, Math.max(0, before.width - beforeContent.width));
+  const frameHeight = Math.min(64, Math.max(0, before.height - beforeContent.height));
 
-  const after = win.getBounds();
-  let x = after.x;
-  let y = after.y;
+  let x = before.x;
+  let y = before.y;
   if (recenter) {
     // Measured in content sizes, so the window's own border is ignored — a
     // pixel or two of asymmetry, in exchange for a position that cannot drift.
-    const anchor = compactAnchorFor(win, after, target, wasMaximized);
+    const anchor = compactAnchorFor(win, before, target, wasMaximized);
     x = Math.round(anchor.x - width / 2);
     y = Math.round(anchor.y - height / 2);
   }
@@ -398,9 +404,23 @@ function applyViewerContentSize(
   x = Math.min(Math.max(x, workArea.x), maxX);
   y = Math.min(Math.max(y, workArea.y), maxY);
 
-  if (x !== after.x || y !== after.y) {
-    win.setBounds({ x, y, width: after.width, height: after.height });
-  }
+  // Size and position in *one* commit, never a resize followed by a move.
+  // setContentSize keeps the top-left corner, so a separate setBounds to
+  // re-centre means the window-manager applies the new size in the old place
+  // first, and paints there before the move lands. Measured on a 2048x1104 work
+  // area, one wheel step of the compact zoom (739 -> 1104 wide) drew the frame
+  // with its centre 182 DIP to the right of where it belonged for that commit,
+  // and the matching zoom-out step put it 293 DIP the other way — a lurch the
+  // user sees on every step, in both directions, because compact windows grow
+  // per axis and so move a long way per step. Windows applies an unchanged
+  // SetWindowPos as nothing at all, so a re-apply that computes the geometry it
+  // already has costs no paint.
+  win.setBounds({
+    x,
+    y,
+    width: width + frameWidth,
+    height: height + frameHeight,
+  });
 
   // Record where the window *ended up*, not where it was aimed: a clamp that
   // pulled a too-large window back onto the display moves the centre with it,

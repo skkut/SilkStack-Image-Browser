@@ -23,7 +23,13 @@ vi.hoisted(() => {
   global.localStorage = makeStorage();
   global.sessionStorage = makeStorage();
   // jsdom ships no ResizeObserver — ImageModal observes the zoom container.
+  // The callback is kept so a test can replay the resize the real one reports:
+  // jsdom lays nothing out, so the sizes the modal measures are stubbed by hand
+  // and no real resize ever arrives to trigger the observer on its own.
   class ResizeObserverMock {
+    constructor(callback: ResizeObserverCallback) {
+      resizeObserverCallback = callback;
+    }
     observe() {}
     unobserve() {}
     disconnect() {}
@@ -31,12 +37,18 @@ vi.hoisted(() => {
   global.ResizeObserver = ResizeObserverMock as any;
 });
 
+/** The live observer callback — the one the modal's most recent zoom built. */
+let resizeObserverCallback: ResizeObserverCallback | null = null;
+
 import React from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import ImageModal from '../components/ImageModal';
 import {
   COMPACT_MODE_STORAGE_KEY,
   COMPACT_SCALE_STORAGE_KEY,
+  COMPACT_GROW_SETTLE_MS,
+  COMPACT_GROW_MAX_STEP,
+  COMPACT_GROW_STEP_MS,
 } from '../utils/windowSizing';
 import type { IndexedImage } from '../types';
 
@@ -112,6 +124,81 @@ const compactPayload = (
   maxContentHeight: ceiling[1],
   anchor,
 });
+
+/**
+ * Skip the wait a *growth* of the frame serves before it is sent.
+ *
+ * A magnification that would enlarge the frame waits COMPACT_GROW_SETTLE_MS for
+ * the zoom to stop, so that a flick's dozen steps become one window resize
+ * rather than a dozen of them (a resize cannot be presented for ~50ms, which is
+ * longer than the steps are apart, so the picture would never settle). Tests
+ * that zoom and then assert the reshape are past the gesture, so they run the
+ * clock out rather than sitting through it. Needs fake timers.
+ */
+const settleGrow = () => {
+  act(() => {
+    vi.advanceTimersByTime(COMPACT_GROW_SETTLE_MS);
+  });
+  // A growth more than COMPACT_GROW_MAX_STEP away is not sent in one go: each
+  // step waits for the one before it to reach the screen, so a coalesced flick
+  // lands as several resizes no larger than the ones the gesture was making.
+  // The wait is over once a step's interval passes with nothing further to send.
+  for (let step = 0; step < 40; step += 1) {
+    const sent = setViewerCompactMode.mock.calls.length;
+    act(() => {
+      vi.advanceTimersByTime(COMPACT_GROW_STEP_MS);
+    });
+    if (setViewerCompactMode.mock.calls.length === sent) break;
+  }
+};
+
+/** The picture the viewer magnifies. */
+const picture = () => screen.getByAltText('test.png') as HTMLImageElement;
+
+/**
+ * Stub the two sizes the modal measures off the DOM.
+ *
+ * jsdom lays nothing out, so both are handed over by hand: the *pane* the pan is
+ * clamped against is the zoom container — which is the frame's image area plus
+ * the padding each side, the drag bar being outside it — and the picture reports
+ * the size it is *laid out* at, the pin, because the magnification is a
+ * transform and a transform does not move `clientWidth`.
+ */
+const stubPaintedSizes = (
+  paneWidth: number,
+  paneHeight: number,
+  pinnedWidth: number,
+  pinnedHeight: number,
+) => {
+  const elements: [Element, number, number][] = [
+    [document.getElementById('image-zoom-container')!, paneWidth, paneHeight],
+    [picture(), pinnedWidth, pinnedHeight],
+  ];
+  for (const [element, width, height] of elements) {
+    Object.defineProperty(element, 'clientWidth', { value: width, configurable: true });
+    Object.defineProperty(element, 'clientHeight', { value: height, configurable: true });
+  }
+};
+
+/**
+ * One wheel detent, at a point in the container. jsdom reports the container's
+ * rect as all zeros, so the offsets below are the pointer's own coordinates —
+ * which is all the anchoring needs, since it exists to magnify about wherever
+ * the cursor is.
+ */
+const wheelStep = (clientX: number, clientY: number) => {
+  act(() => {
+    document.getElementById('image-zoom-container')!.dispatchEvent(
+      new WheelEvent('wheel', {
+        deltaY: -100,
+        clientX,
+        clientY,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+};
 
 beforeEach(() => {
   setViewerCompactMode.mockReset();
@@ -641,6 +728,47 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'keep'));
   });
 
+  it('takes a zoomed frame back to 1x, where the maximum is defined', () => {
+    global.localStorage.setItem(COMPACT_MODE_STORAGE_KEY, 'true');
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '200x100' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+
+      act(() => {
+        screen.getByTitle('Zoom In').click();
+      });
+      settleGrow();
+      // Magnified, the frame followed the picture out to 1.5x of the fit.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(316, 198, 'center', [216, 148]),
+      );
+
+      act(() => {
+        fillScreenCallback?.();
+      });
+
+      // The gesture lands the window on its maximum, which is the fit at scale 1 —
+      // so the magnification goes with it. Left in force it would ask for a frame
+      // the main process has just refused, and the two would trade the window back
+      // and forth.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
+
+      // A growth still waiting when the gesture arrives would do the same thing
+      // by the back door, a moment later.
+      const afterFill = setViewerCompactMode.mock.calls.length;
+      settleGrow();
+      expect(setViewerCompactMode).toHaveBeenCalledTimes(afterFill);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('subscribes only while compact, and only in the viewer window', () => {
     const subscribe = vi.fn(() => () => {});
     window.electronAPI!.onViewerCompactFillScreen = subscribe;
@@ -682,4 +810,459 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     // the listener survives rather than being torn down and rebuilt per image.
     expect(subscribe).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('ImageModal compact mode — zooming inside the frame', () => {
+  // A 200x100 file is the case where the frame has room to grow: nothing is
+  // upscaled by the fit, so it is 200x100 of picture (content 216x148) and the
+  // work area only stops it at 4.92x of that.
+  const SMALL = '200x100';
+
+  it('grows the window with the magnification', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: SMALL })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
+
+      act(() => {
+        screen.getByTitle('Zoom In').click();
+      });
+
+      // Nothing yet. The frame is about to be asked to grow, and a growth waits
+      // for the magnification to stop changing — one resize when the gesture
+      // ends, instead of one per step of it.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
+
+      settleGrow();
+
+      // 1.5x of the picture: 300x150 of it plus the same fixed chrome, so the
+      // window took the image's aspect ratio with it. The ceiling stays the fit
+      // at 1x — it is the largest the window may ever *be*, which the OS's
+      // maximise gesture also lands on.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(316, 198, 'center', [216, 148]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('grows a coalesced flick in steps, not in one jump', () => {
+    // The flash this answers. A resize is drawn by rescaling the previous frame
+    // into the new rectangle — the window manager commits the size at once, but
+    // the compositor has nothing to put in it for another 40-60ms, and what is
+    // on the glass in between is that rescaled frame. So the cost of a resize is
+    // how far it moved: one wheel step moves the frame by 1.11-1.24 of itself
+    // and reads as a flicker, while the six steps of a flick coalesce into one
+    // resize of 2.4 and read as a flash.
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: SMALL })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      // Straight to 2x, which is the shape a flick arrives in: the gesture's
+      // steps coalesce, and what the frame is finally asked for is the whole
+      // distance at once.
+      act(() => {
+        fireEvent.change(screen.getByTitle('Adjust zoom') as HTMLInputElement, {
+          target: { value: '2' },
+        });
+      });
+      settleGrow();
+
+      const widths = setViewerCompactMode.mock.calls
+        .map(([payload]) => payload.contentWidth)
+        .filter((width): width is number => typeof width === 'number');
+      // From the fit it was showing to the size 2x asks for, in more than one
+      // step — which is the whole point: the jump it replaces is 416/216.
+      expect(widths[0]).toBe(216);
+      expect(widths[widths.length - 1]).toBe(416);
+      expect(widths.length).toBeGreaterThan(2);
+      for (let i = 1; i < widths.length; i += 1) {
+        // A hair of slack for the whole-pixel rounding of each step.
+        expect(widths[i] / widths[i - 1]).toBeLessThanOrEqual(
+          COMPACT_GROW_MAX_STEP + 0.01,
+        );
+      }
+      expect(416 / 216).toBeGreaterThan(COMPACT_GROW_MAX_STEP);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('grows a portrait frame into the width a wide display still has', () => {
+    // The report this change answers: on a 2048x1104 work area a portrait file
+    // is out of height at 1x with most of the width free, and clamping both axes
+    // by the zoom's own factor held the frame at its opening size for every step
+    // of the zoom — "the window does not grow with the zoom". The width is what
+    // follows the magnification, until the display runs out of that too.
+    setScreen(2048, 1104);
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '832x1216' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(739, 1104, 'center'),
+      );
+
+      act(() => {
+        fireEvent.change(screen.getByTitle('Adjust zoom') as HTMLInputElement, {
+          target: { value: '2' },
+        });
+      });
+      // The slider is the same kind of gesture as the wheel — a drag is a run of
+      // steps a few milliseconds apart — so its growth waits with it.
+      settleGrow();
+
+      // 1446x1056 of picture: every pixel of width the display has, and the same
+      // height, which is bound at 1x and stays bound.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(1462, 1104, 'center', [739, 1104]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops growing at the work area — and stops asking', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: SMALL })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      const slider = () => screen.getByTitle('Adjust zoom') as HTMLInputElement;
+
+      act(() => {
+        fireEvent.change(slider(), { target: { value: '10' } });
+      });
+      settleGrow();
+      // 10x of a 200x100 picture is 2000x1000, and the display holds 984x952 of
+      // it: the frame is the display. (At 8x it is not — the width is bound but
+      // the height is still growing, which is the point of clamping the axes
+      // apart.)
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(1000, 1000, 'center', [216, 148]),
+      );
+
+      const atTheCap = setViewerCompactMode.mock.calls.length;
+      act(() => {
+        fireEvent.change(slider(), { target: { value: '9.9' } });
+      });
+      // Run the clock out too: the second step computes the same size, so it is
+      // dropped before a wait is even started — and this proves it stays dropped
+      // rather than arriving late.
+      settleGrow();
+
+      // Still magnified, still the same frame: every further step would ask the
+      // main process for the window it is already showing, once per wheel tick,
+      // across an IPC round trip. The picture keeps magnifying inside the frame
+      // instead — the crop and pan the viewer already has.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(1000, 1000, 'center', [216, 148]),
+      );
+      expect(setViewerCompactMode).toHaveBeenCalledTimes(atTheCap);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('frames the next image at 1x, whatever the zoom was', () => {
+    const navigation = {
+      onClose: () => {},
+      isStandaloneWindow: true,
+      totalImages: 2,
+      onNavigateNext: () => {},
+      onNavigatePrevious: () => {},
+    } as const;
+
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(
+        <ImageModal
+          image={makeImage({ id: 'dir::a.png', dimensions: SMALL })}
+          currentIndex={0}
+          {...navigation}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      act(() => {
+        screen.getByTitle('Zoom In').click();
+      });
+      settleGrow();
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(316, 198, 'center', [216, 148]),
+      );
+
+      const beforeNavigation = setViewerCompactMode.mock.calls.length;
+
+      rerender(
+        <ImageModal
+          image={makeImage({ id: 'dir::b.png', dimensions: SMALL })}
+          currentIndex={1}
+          {...navigation}
+        />,
+      );
+
+      // One reshape, to the new image's fit at 1x. The outgoing image's 1.5x is
+      // not carried into it: the reset that follows the navigation cannot change
+      // the zoom before this effect has run, so the size it would be read from is
+      // the one it has to ignore. And the reset's own re-run says nothing new, so
+      // it does not send a second request.
+      expect(setViewerCompactMode).toHaveBeenCalledTimes(beforeNavigation + 1);
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a growth the user has already navigated away from', () => {
+    // The growth waits for the gesture to settle, and a navigation can land
+    // inside that wait. The pane is the same size for both images here, so the
+    // only thing that can put the old size back on the window is the wait
+    // outliving the magnification that asked for it.
+    vi.useFakeTimers();
+    try {
+      const navigation = {
+        onClose: () => {},
+        isStandaloneWindow: true,
+        totalImages: 2,
+        onNavigateNext: () => {},
+        onNavigatePrevious: () => {},
+      } as const;
+
+      const { rerender } = render(
+        <ImageModal
+          image={makeImage({ id: 'dir::a.png', dimensions: SMALL })}
+          currentIndex={0}
+          {...navigation}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      // Magnified but not yet grown: the request is still waiting.
+      act(() => {
+        screen.getByTitle('Zoom In').click();
+      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
+
+      rerender(
+        <ImageModal
+          image={makeImage({ id: 'dir::b.png', dimensions: SMALL })}
+          currentIndex={1}
+          {...navigation}
+        />,
+      );
+      const afterNavigation = setViewerCompactMode.mock.calls.length;
+
+      settleGrow();
+
+      // The growth belonged to the image that is gone. Left to fire it would
+      // resize the window for a 1.5x that is no longer on screen.
+      expect(setViewerCompactMode).toHaveBeenCalledTimes(afterNavigation);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not remember a zoomed frame as a size the user chose', () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: SMALL })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      act(() => {
+        screen.getByTitle('Zoom In').click();
+      });
+      settleGrow();
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(316, 198, 'center', [216, 148]),
+      );
+
+      // Dragged to 70% of the 1.5x frame: 210x105 of picture, content 226x153.
+      // Read raw that is 1.05x of the file — a number that says nothing about
+      // the user's window, and one that would open the next image at 1.05 times
+      // its own fit *and* its own zoom on top.
+      setWindowSize(226, 153);
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.7, 2);
+      // The frame is re-fitted to the image at that size, and left where the
+      // hand that dragged it put it.
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(226, 153, 'keep', [216, 148]),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pins the picture to the fit and drops the easing, only while compact', () => {
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: SMALL, thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+        directoryPath=""
+      />,
+    );
+
+    const picture = () => screen.getByAltText('test.png') as HTMLImageElement;
+    // The ordinary modal sizes the image from its container and eases the jumps.
+    expect(picture().style.transition).toBe('transform 0.1s ease-out');
+    expect(picture().style.width).toBe('');
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+
+    // Compact: the layout is pinned to the fit the frame was built around, so
+    // that a container growing with the zoom cannot re-lay the picture out *and*
+    // have the transform scale it, multiplying the two. The easing goes for the
+    // same reason — an eased picture would trail the window it was just sized
+    // for, showing the background the mode exists to keep out of sight.
+    expect(picture().style.width).toBe('200px');
+    expect(picture().style.height).toBe('100px');
+    expect(picture().style.maxWidth).toBe('none');
+    expect(picture().style.maxHeight).toBe('none');
+    expect(picture().style.transition).toBe('none');
+  });
+
+  // The two halves of the pan rule, as one wheel step each — 1x to 1.25x with
+  // the cursor up and to the right of the middle. What differs is whether the
+  // frame the window is about to take still has room for the picture: where it
+  // does, the window will hold the whole of it and the middle is the only place
+  // the picture can end up, so anchoring it on the cursor would shift it and the
+  // resize would shift it back — two motions, in opposite directions, for one
+  // step of the wheel. Where the display has stopped the frame there is no
+  // resize to undo anything, and the anchor is the magnification about the point
+  // the user is pointing at, which is the whole reason the wheel has one.
+
+  it('leaves the pan alone while the frame still has room to grow', () => {
+    vi.useFakeTimers();
+    try {
+      // 200x100 of picture that nothing is upscaling, on the 1000x1000 work
+      // area: the frame can follow the zoom until 4.92x.
+      // The thumbnail stands in for a decoded picture — without one there is no
+      // <img> to magnify, only the loading skeleton.
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: SMALL, thumbnailUrl: 'blob:thumb' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      // The frame at 1x and the pointer 200,100 from the middle of it. Anchored,
+      // this step comes to 50px of slide, of which the pane as it is now allows
+      // 17 — so the picture would jump 17px and the growth would take it back.
+      stubPaintedSizes(216, 116, 200, 100);
+      wheelStep(200, 100);
+      expect(picture().style.transform).toBe('translate(0px, 0px) scale(1.25)');
+
+      // The window lands at 266x141 of pane, holding the magnified picture
+      // whole, and the re-clamp it triggers has nothing to correct — the pan is
+      // where the frame it was measured against will leave it.
+      stubPaintedSizes(266, 141, 200, 100);
+      act(() => {
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      });
+      expect(picture().style.transform).toBe('translate(0px, 0px) scale(1.25)');
+
+      settleGrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('anchors on the cursor once the display has stopped the frame', () => {
+    vi.useFakeTimers();
+    try {
+      // Twice the width of the work area: the fit is the display's own width, so
+      // the frame is against the cap on that axis from the moment it opens, and
+      // the pane the pan is measured against is one it is going to keep.
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '2000x1000', thumbnailUrl: 'blob:thumb' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      // 984x492 of picture across a 1000x508 pane. One step is 1230x615 of
+      // picture: 246px of it cropped by the width, which is the axis that can be
+      // panned, and nothing cropped by the height, which the frame is still free
+      // to grow into.
+      stubPaintedSizes(1000, 508, 984, 492);
+      wheelStep(200, 100);
+      expect(picture().style.transform).toBe('translate(-50px, 0px) scale(1.25)');
+
+      // The frame grows to hold the magnification on the free axis. The pan
+      // taken on the bound one is still exactly where it was — the picture moved
+      // once, and the resize does not move it again.
+      stubPaintedSizes(1000, 631, 984, 492);
+      act(() => {
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      });
+      expect(picture().style.transform).toBe('translate(-50px, 0px) scale(1.25)');
+
+      settleGrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
 });
