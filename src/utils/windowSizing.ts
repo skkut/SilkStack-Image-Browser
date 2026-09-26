@@ -18,13 +18,37 @@ export const COMPACT_MAX_FRACTION = 1;
  */
 export const COMPACT_MODE_STORAGE_KEY = "image_modal_compact_mode";
 /**
- * Persisted window-size factor. 1 is "as large as the image allows"; anything
- * lower is the user having shrunk the window by hand, which every later image —
- * and every later window — honours.
+ * Persisted window-size factor, read two ways that meet at 1.
+ *
+ * **Below 1** it is the share of the screen the window is to take — the size the
+ * user asked for, in the one unit that means the same thing for every file, and
+ * the one `COMPACT_MIN_FRACTION` is written in. "This small" is then a statement
+ * about a rectangle on the screen rather than about whichever image happens to be
+ * on it, which is what lets the next image open at the same size.
+ *
+ * **At or above 1** it is a multiple of the image's own fit, exactly as it always
+ * was, so every value already in storage keeps its meaning.
  */
 export const COMPACT_SCALE_STORAGE_KEY = "image_modal_compact_scale";
-/** Bounds on that factor: it can neither vanish nor run away. */
-export const COMPACT_MIN_USER_SCALE = 0.2;
+/**
+ * Bounds on that factor: it can neither vanish nor run away.
+ *
+ * The lower bound is **not** the floor anyone feels — it is a degeneracy guard,
+ * and deliberately far below the smallest size a drag can produce in practice.
+ * What bounds a hand-drag is the window manager: a frame under
+ * `COMPACT_MIN_WINDOW_*` is not refused by Electron but quietly *widened*, which
+ * leaves the frame larger than the picture — the background this mode exists to
+ * keep out of sight. That floor is per-image and has its own function in these
+ * same units (`compactWindowMinimumScale`), and a drag that would fall under it
+ * is refused rather than clamped (see the resize handler in ImageModal).
+ *
+ * It used to be 0.2, which was a *different quantity*: it was written when the
+ * factor was read as a multiple of the image's own fit, and 0.2 of the fit is a
+ * far smaller window than 0.2 of the screen for every file that does not fill the
+ * display. Carried over unchanged it would have turned a drag of a small image's
+ * window into a clamp that springs back, so it comes down with the unit.
+ */
+export const COMPACT_MIN_USER_SCALE = 0.05;
 export const COMPACT_MAX_USER_SCALE = 4;
 /** A hand-resize must clear this to count as intent rather than rounding. */
 export const COMPACT_SCALE_EPSILON = 0.02;
@@ -94,6 +118,58 @@ export const COMPACT_GROW_MAX_STEP = 1.25;
  */
 export const COMPACT_GROW_STEP_MS = 80;
 
+/**
+ * How small a compact frame may be left: the window's longest side, as a
+ * fraction of the largest the picture may be on this display — 40%.
+ *
+ * The same number as the stored size factor, in the same units, with no
+ * conversion between them: the factor *is* "the window's longest side as a share
+ * of the screen", so the gesture that writes it and the rule that stops it are
+ * speaking about the same edge.
+ *
+ * Dominant, because the frame keeps the picture's aspect and so its footprint is
+ * set by whichever dimension runs out of screen first — for a square image on a
+ * wide display that is the height. Holding that axis is what makes "the window
+ * shrinks to 40% of the screen" a statement about the window rather than about
+ * whichever edge happened to be incidental.
+ *
+ * It was a quarter, and a quarter turned out to read as far smaller than it
+ * sounds: the other axis is **not** held to it, so a square file on a 2048x1152
+ * display stopped at 288x288 — 25% of the height, 14% of the width, and 3.5% of
+ * the screen's *area*. The number people judge a window by is its footprint, and
+ * for anything that is not the display's own shape the two differ by the aspect
+ * ratio. 40% of the dominant axis is what makes the window look like a window.
+ *
+ * Since the shrink gesture *is* a window resize, this is also the unit the
+ * remembered size is kept in — `compactMinUserScale` floors the stored factor at
+ * exactly this number, with no conversion, because the two are the same thing.
+ *
+ * A **gesture** floor, not a property of the mode. A hand-drag already leaves a
+ * compact window far below it (`COMPACT_MIN_USER_SCALE` is 0.2 of the screen, in
+ * the same units), and that is unchanged: what this bounds is how far the shrink
+ * gesture goes.
+ */
+export const COMPACT_MIN_FRACTION = 0.4;
+
+/**
+ * Mirrors of `COMPACT_MIN_WIDTH` / `COMPACT_MIN_HEIGHT` in electron/main.mjs,
+ * which main applies with `win.setMinimumSize` on entering the mode.
+ *
+ * They are about the viewer's top bar rather than the image — below ~272px its
+ * four buttons would slide under the OS-drawn window controls. They belong in
+ * this file because a request below them is **not refused**: Electron takes it,
+ * and the window manager quietly widens the frame instead, which leaves the
+ * frame bigger than the picture — the background this mode exists to keep out of
+ * sight. The floor has to respect them or the invariant has a hole in it.
+ *
+ * Read as *content* minimums, which is a few DIPs stricter than the window units
+ * main actually passes (it measures the frame at main.mjs:386 for the same
+ * reason). The error is in the safe direction — the shrink stops a hair early
+ * rather than a hair late. Keep in sync with main.mjs.
+ */
+export const COMPACT_MIN_WINDOW_WIDTH = 272;
+export const COMPACT_MIN_WINDOW_HEIGHT = 160;
+
 export interface CompactContentSize {
   contentWidth: number;
   contentHeight: number;
@@ -108,13 +184,21 @@ export function clampUserScale(scale: number): number {
 /**
  * Guard for the zoom multiplier a compact window is asked to hold.
  *
- * The viewer owns the real bounds (its zoom control's MIN_ZOOM and MAX_ZOOM), so
- * this is only a floor: a missing or nonsensical value means "not zoomed", and
- * anything below 1 would ask for a window smaller than the image's fit, where the
- * picture can no longer fill it. The fit is the smallest a compact window goes.
+ * A missing or nonsensical value means "not zoomed". Anything finite and
+ * positive is taken as written — **including values below 1**, which ask for a
+ * frame smaller than the image's fit.
+ *
+ * That is legal, because the frame is built from the same pinned size the viewer
+ * lays its `<img>` out at: a frame of `pin x zoom` is covered by a picture of
+ * `pin x zoom` whatever the zoom is. The fit stopped being a special value the
+ * moment the two were derived from one size. The viewer no longer *sends* a zoom
+ * below 1 — shrinking a window is now the size factor's job, so that the size
+ * survives into the next image — but this stays permissive rather than clamping,
+ * because clamping *up* to 1 would size a frame larger than the picture the
+ * viewer is drawing, which is the one thing these functions exist to prevent.
  */
 function compactZoomFactor(zoom: number): number {
-  return Number.isFinite(zoom) ? Math.max(1, zoom) : 1;
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
 }
 
 /**
@@ -152,21 +236,14 @@ export function compactImageArea(
 }
 
 /**
- * Content size (the web-page area `setContentSize` takes) for a compact window
- * showing an image of `imgWidth` x `imgHeight`.
+ * Content size of a compact frame at **1x** — the image at the user's size
+ * factor, with no magnification in it.
  *
  * The image is scaled down to fit the work area but never up, so a small file
  * yields a small window. The result is the image at that scale plus equal
- * padding on all four sides, with the drag bar stacked on top. At 1x that makes
- * the content exactly the image's own aspect ratio, which is what makes the
- * letterbox bands disappear.
- *
- * The promise the bands rest on is per axis, not on the aspect: **the frame is
- * never larger than the picture**. The viewer lays the picture out at
- * `round(image x fit)` and magnifies it with a transform, so a frame of
- * `floor(that x zoom)` or less on each axis is always covered by it. Sizing from
- * the same rounded base is what makes that hold to the pixel rather than to
- * whatever rounding happened to agree.
+ * padding on all four sides, with the drag bar stacked on top, which makes the
+ * content exactly the image's own aspect ratio and is what makes the letterbox
+ * bands disappear.
  *
  * `userScale` is the user's own window-size preference, applied to the image
  * area only so the padding and bar stay constant. It is still capped by the work
@@ -174,27 +251,16 @@ export function compactImageArea(
  * shrinks the picture to keep it whole rather than cropping it, because asking
  * for a bigger window is not a request to see less of the image.
  *
- * `zoom` is the viewer's magnification, applied on top of that size, and it is
- * clamped **per axis**. That difference is the whole point: an image is usually
- * bound by one axis of the display long before the other — a portrait file on a
- * wide screen has run out of height at 1:1 and has half the width to spare — so
- * clamping the two axes by one shared factor freezes the frame at exactly the
- * moment the user starts zooming. Clamped per axis, the axis that still has room
- * keeps growing into it while the bound one stops, and the picture is cropped
- * along the bound axis instead. That crop is what the viewer's panning and
- * minimap are for, so the frame follows the zoom as far as the display allows
- * and magnifies inside it after that. Below 1 the zoom is ignored — see
- * `compactZoomFactor`.
- *
- * @returns the content size, or null when any input is unusable.
+ * Split out of `computeCompactContentSize` so that the picture's laid-out size
+ * and every frame size grown from it are derived from one definition — see
+ * `compactPinnedSize`.
  */
-export function computeCompactContentSize(
+function compactFitContentSize(
   imgWidth: number,
   imgHeight: number,
   availWidth: number,
   availHeight: number,
-  userScale = 1,
-  zoom = 1,
+  userScale: number,
 ): CompactContentSize | null {
   if (
     !Number.isFinite(imgWidth) ||
@@ -213,34 +279,120 @@ export function computeCompactContentSize(
   );
   if (maxWidth <= 0 || maxHeight <= 0) return null;
 
-  // The automatic fit never enlarges a file beyond its own pixels…
-  const fitScale = Math.min(1, maxWidth / imgWidth, maxHeight / imgHeight);
-  // …and the user's factor is then clamped by the work area as one scale, so
-  // the result can never leave the display and the picture stays whole.
-  const scale = Math.min(
-    fitScale * clampUserScale(userScale),
-    maxWidth / imgWidth,
-    maxHeight / imgHeight,
+  // The picture at the largest the display allows: 1:1 for a file that fits, the
+  // fit for one that does not. Its longest side is the display's own on that
+  // axis, which is exactly what makes the factor below comparable between files.
+  const displayFit = Math.min(maxWidth / imgWidth, maxHeight / imgHeight);
+
+  // The automatic fit, which also never enlarges a file beyond its own pixels —
+  // so a small file yields a small window.
+  const fitScale = Math.min(1, displayFit);
+  const wanted = clampUserScale(userScale);
+
+  // The factor is read two ways, and 1 is the one point where they agree: there
+  // the answer is `fitScale`, exactly as it always was.
+  //
+  // **Below 1** it is a share of the screen: the window's longest side, as a
+  // fraction of the longest side the display allows. One number, one rectangle,
+  // the same meaning whatever file it is read on — so a window shrunk to 26%
+  // comes back at 26% for the next image as well. A multiple of the image's own
+  // fit could not do that, which is what was wrong before: the fit is 1963px for
+  // a file that fills the screen and 1024px for a square one smaller than it, so
+  // the same factor meant two different windows and there was no way to ask for
+  // "this small" and be understood.
+  //
+  // **At or above 1** it stays a multiple of the fit — the drag-a-window-larger
+  // gesture — which is the reading every stored factor has always had.
+  //
+  // The `min(1, …)` on the lower branch is what keeps a file smaller than the
+  // share from being enlarged to honour it: there the window simply hugs the
+  // picture at 100% until the share drops below what the file can fill.
+  const factor =
+    wanted >= 1
+      ? wanted * fitScale
+      : Math.min(1, wanted * displayFit);
+
+  // …and the result is capped by the work area on both axes together, so the
+  // window can never leave the display and the picture stays whole.
+  const scale = Math.min(factor, maxWidth / imgWidth, maxHeight / imgHeight);
+
+  // At least 1px, so a tiny scale cannot round down to nothing. Floor rather
+  // than round against the work area: a frame half a pixel wider than the
+  // picture is a visible hairline of background, half a pixel narrower is
+  // nothing. This is what makes "the picture always covers the frame" exact
+  // rather than likely.
+  const width = Math.max(1, Math.min(Math.round(imgWidth * scale), Math.floor(maxWidth)));
+  const height = Math.max(1, Math.min(Math.round(imgHeight * scale), Math.floor(maxHeight)));
+
+  return {
+    contentWidth: width + COMPACT_PADDING * 2,
+    contentHeight: height + COMPACT_PADDING * 2 + COMPACT_BAR_HEIGHT,
+  };
+}
+
+/**
+ * Content size (the web-page area `setContentSize` takes) for a compact window
+ * showing an image of `imgWidth` x `imgHeight` at a magnification of `zoom`.
+ *
+ * The promise the bands rest on is per axis, not on the aspect: **the frame is
+ * never larger than the picture**. The viewer pins its `<img>` to
+ * `compactPinnedSize` and magnifies it with a transform, so `floor(that x zoom)`
+ * is the largest frame that is still covered on both axes — and that is exactly
+ * what this returns. Sizing from the same pinned size is what makes the promise
+ * hold to the pixel rather than to whatever rounding happened to agree, and it
+ * is why a zoom **below 1** is unremarkable: the picture shrinks by the same
+ * factor, so it still covers the frame it is in.
+ *
+ * `zoom` is clamped **per axis** against the work area, and that difference is
+ * the whole point above 1x: an image is usually bound by one axis of the display
+ * long before the other — a portrait file on a wide screen has run out of height
+ * at 1:1 and has half the width to spare — so clamping the two axes by one
+ * shared factor freezes the frame at exactly the moment the user starts zooming.
+ * Clamped per axis, the axis that still has room keeps growing into it while the
+ * bound one stops, and the picture is cropped along the bound axis instead. That
+ * crop is what the viewer's panning and minimap are for, so the frame follows
+ * the zoom as far as the display allows and magnifies inside it after that.
+ *
+ * The floor on how far *down* the frame may go is deliberately **not** applied
+ * here — see `compactZoomFactor`. Applying it would make this function produce a
+ * frame larger than the picture, which is the one thing it exists to prevent.
+ *
+ * @returns the content size, or null when any input is unusable.
+ */
+export function computeCompactContentSize(
+  imgWidth: number,
+  imgHeight: number,
+  availWidth: number,
+  availHeight: number,
+  userScale = 1,
+  zoom = 1,
+): CompactContentSize | null {
+  const fit = compactFitContentSize(
+    imgWidth,
+    imgHeight,
+    availWidth,
+    availHeight,
+    userScale,
+  );
+  if (!fit) return null;
+
+  const { width: maxWidth, height: maxHeight } = compactDisplayCaps(
+    availWidth,
+    availHeight,
   );
 
-  // The image area at 1x — which is exactly the size the viewer pins its <img>
-  // to, so the magnification below is measured from the same rounded pixels the
-  // browser lays out. At least 1px, so a tiny scale cannot round down to
-  // nothing.
-  const baseWidth = Math.max(1, Math.round(imgWidth * scale));
-  const baseHeight = Math.max(1, Math.round(imgHeight * scale));
-
+  // The size the viewer pins its <img> to — the same rounded, work-area-clamped
+  // pixels the browser lays out — so the magnification below is measured from
+  // what is actually on screen.
+  const base = compactImageArea(fit.contentWidth, fit.contentHeight);
   const zoomFactor = compactZoomFactor(zoom);
-  // Floor rather than round: a frame half a pixel wider than the picture is a
-  // visible hairline of background, half a pixel narrower is nothing. This is
-  // what makes "the picture always covers the frame" exact rather than likely.
   const displayWidth = Math.max(
     1,
-    Math.min(Math.floor(baseWidth * zoomFactor), Math.floor(maxWidth)),
+    Math.min(Math.floor(base.width * zoomFactor), Math.floor(maxWidth)),
   );
   const displayHeight = Math.max(
     1,
-    Math.min(Math.floor(baseHeight * zoomFactor), Math.floor(maxHeight)),
+    Math.min(Math.floor(base.height * zoomFactor), Math.floor(maxHeight)),
   );
 
   return {
@@ -266,7 +418,7 @@ export function compactPinnedSize(
   availHeight: number,
   userScale = 1,
 ): { width: number; height: number } | null {
-  const fit = computeCompactContentSize(
+  const fit = compactFitContentSize(
     imgWidth,
     imgHeight,
     availWidth,
@@ -274,6 +426,115 @@ export function compactPinnedSize(
     userScale,
   );
   return fit ? compactImageArea(fit.contentWidth, fit.contentHeight) : null;
+}
+
+/**
+ * How far the shrink gesture may take a compact window: the smallest the stored
+ * size factor may be left at, for this image on this display.
+ *
+ * Always at most **1**, so it can never forbid the fit itself. That clamp is what
+ * makes the rule safe for a small image — a 200px picture is already far under
+ * 40% of the screen and already under the window minimum — and for a window
+ * the user has dragged small. Where it comes back as 1 the mode simply has no
+ * shrink to give, and the gesture behaves exactly as it did before.
+ *
+ * Otherwise the largest of two terms wins:
+ *
+ * - `COMPACT_MIN_FRACTION` of the display, on the frame's dominant axis — which
+ *   is *literally the stored factor*, because below 1 that factor is a share of
+ *   the screen. No conversion is needed, and that is the point of reading the
+ *   factor that way: the number the user's gesture writes and the number this
+ *   rule names are the same number.
+ * - The window manager's own minimum, on both axes, as a share of the picture at
+ *   its display fit — `compactWindowMinimumScale`. It is a physical statement
+ *   about the frame about to be requested, and the term that binds for a very
+ *   wide or very tall image, where the fixed padding and drag bar are a large
+ *   share of a small window: a 4000x500 panorama stops at a 160px-tall frame
+ *   whatever 40% of the display would allow, because a shorter one cannot hold
+ *   the top bar.
+ *
+ * Read against the picture at its display fit — scale 1, no factor — so the floor
+ * is a *fixed rectangle on the screen* as the gesture moves. Read against the
+ * current, already-shrunk picture instead it would be scale-invariant in the
+ * wrong way: each step would raise the floor by the factor it just applied, and
+ * the gesture would stop after one step.
+ *
+ * @returns the floor, or 1 when the inputs cannot describe a fit.
+ */
+export function compactMinUserScale(
+  imgWidth: number,
+  imgHeight: number,
+  availWidth: number,
+  availHeight: number,
+): number {
+  return Math.min(
+    1,
+    Math.max(
+      COMPACT_MIN_FRACTION,
+      compactWindowMinimumScale(imgWidth, imgHeight, availWidth, availHeight),
+    ),
+  );
+}
+
+/**
+ * The window manager's own floor: the smallest size factor a compact frame may
+ * hold and still be a frame the OS will actually make, as a share of the picture
+ * at its display fit.
+ *
+ * Electron *takes* a request below `COMPACT_MIN_WINDOW_WIDTH`/`_HEIGHT`; it is
+ * the window manager that quietly widens the frame to its minimum, which leaves
+ * the frame larger than the picture — the background this mode exists to keep out
+ * of sight. So this is not a nicety but the invariant's outer edge: at or above
+ * it, the requested frame is one Electron can be asked for and get.
+ *
+ * Read against the picture at its **display fit** — the window a fresh image
+ * would be given, a factor of 1 — because that is the frame a remembered size
+ * has to produce on whatever image comes next. A size below it is not one the
+ * next image could honour without painting background.
+ *
+ * The same units as the stored factor (a share of the screen), so the answer can
+ * be compared with a drag reading directly.
+ *
+ * @returns the floor, or 1 when the inputs cannot describe a fit.
+ */
+export function compactWindowMinimumScale(
+  imgWidth: number,
+  imgHeight: number,
+  availWidth: number,
+  availHeight: number,
+): number {
+  if (
+    !Number.isFinite(imgWidth) ||
+    !Number.isFinite(imgHeight) ||
+    !Number.isFinite(availWidth) ||
+    !Number.isFinite(availHeight) ||
+    imgWidth <= 0 ||
+    imgHeight <= 0 ||
+    availWidth <= 0 ||
+    availHeight <= 0
+  ) {
+    return 1;
+  }
+
+  const { width: maxWidth, height: maxHeight } = compactDisplayCaps(
+    availWidth,
+    availHeight,
+  );
+  const displayFit = Math.min(maxWidth / imgWidth, maxHeight / imgHeight);
+  if (!(displayFit > 0)) return 1;
+
+  // The picture at its display fit, which is what a share of the screen is
+  // measured against — the same base `userScaleFromResize` reads a drag against.
+  const largestWidth = imgWidth * displayFit;
+  const largestHeight = imgHeight * displayFit;
+
+  const width = (COMPACT_MIN_WINDOW_WIDTH - COMPACT_PADDING * 2) / largestWidth;
+  const height =
+    (COMPACT_MIN_WINDOW_HEIGHT - COMPACT_PADDING * 2 - COMPACT_BAR_HEIGHT) /
+    largestHeight;
+
+  const floor = Math.max(width, height);
+  return Number.isFinite(floor) ? Math.min(1, floor) : 1;
 }
 
 /**
@@ -343,9 +604,8 @@ export function compactPanAxes(
 }
 
 /**
- * The factor a hand-resized window implies, read as an absolute fraction of the
- * best fit for the image on screen rather than as a multiple of the last size we
- * applied.
+ * The factor a resized window implies, read as an absolute share of the screen
+ * rather than as a multiple of the last size we applied.
  *
  * Absolute is the whole point. A multiplied factor compounds — each drag is
  * measured from the previous one, so a couple of DIPs of frame rounding per pass
@@ -353,8 +613,14 @@ export function compactPanAxes(
  * used to be permanent: a window the OS had maximised (a double-click on the
  * drag bar does it) looked like "four times the fit", the factor was raised to
  * match, and from then on every image came back at full size with no way down.
- * Measured against the fit, a single honest drag re-derives the true fraction,
- * so any such value heals itself.
+ * Measured against a base the image cannot move, a single honest resize
+ * re-derives the true share, so any such value heals itself.
+ *
+ * That base is the picture at the **display fit** — the largest it may be on
+ * this screen — which is the same base `compactFitContentSize` multiplies the
+ * factor by. The two have to agree or the mode oscillates: read against anything
+ * else, the share stored here is one the sizing rule answers with a different
+ * window, and the resize that follows re-reads a third value.
  *
  * Compared in image areas, not content sizes: the padding and bar are a fixed
  * cost, so a 70% drag of the *content* is a larger fraction of the picture, and
@@ -365,8 +631,11 @@ export function compactPanAxes(
  * `zoom` is the magnification the window was showing, and it comes out of the
  * reading first. A compact window at 3x is three times the fit before the user
  * touches it, so the raw ratio says 3 — remember that and the next image would
- * open at the fit times nine. Dividing it out leaves a statement about the
- * window alone, which is what a size preference is, and it has to happen before
+ * open at the fit times nine. Magnification is the only thing it ever is: the
+ * viewer shows no compact window below 1x, the shrink being the size factor's job
+ * rather than the zoom's, so the division only ever divides by 1 or more. What it
+ * leaves is a statement about the window alone, which is what a size preference
+ * is, and that has to happen before
  * the dominant axis is picked: the zoom moves both axes, so leaving it in would
  * let it decide which edge the user dragged. An axis the magnification has since
  * pushed against the display is dropped too — there the frame is the work area
@@ -384,20 +653,43 @@ export function userScaleFromResize(
   observedHeight: number,
   zoom = 1,
 ): number {
-  const fit = computeCompactContentSize(
-    imgWidth,
-    imgHeight,
-    availWidth,
-    availHeight,
-  );
-  if (!fit || !Number.isFinite(observedWidth) || !Number.isFinite(observedHeight)) {
+  const caps = compactDisplayCaps(availWidth, availHeight);
+  if (
+    !Number.isFinite(observedWidth) ||
+    !Number.isFinite(observedHeight) ||
+    !(imgWidth > 0) ||
+    !(imgHeight > 0) ||
+    !(caps.width > 0) ||
+    !(caps.height > 0)
+  ) {
     return 1;
   }
-  const fitted = compactImageArea(fit.contentWidth, fit.contentHeight);
+  const displayFit = Math.min(caps.width / imgWidth, caps.height / imgHeight);
   const observed = compactImageArea(observedWidth, observedHeight);
   const factor = compactZoomFactor(zoom);
-  const scaleW = observed.width / fitted.width / factor;
-  const scaleH = observed.height / fitted.height / factor;
+
+  // Which of the two readings the frame on screen belongs to, decided by the
+  // picture rather than by the factor: a window drawn larger than the file's own
+  // pixels is the enlarge gesture, and one at or below them is a share of the
+  // screen. Measured on the picture **with the magnification taken out**, because
+  // that is the size the sizing rule's two readings are defined on — the frame is
+  // `pinned x zoom`, so a 3x frame dragged down to the file's own size is a *fit*
+  // the user asked for. With the zoom still in it, that same window reads as an
+  // enlargement, and the fit it asked for is stored as a multiple of the fit
+  // where the rule will read a share of the screen — a window several times the
+  // size the user made, on every image that follows.
+  const shown =
+    Math.max(observed.width / imgWidth, observed.height / imgHeight) / factor;
+  // At 1 the two bases give the same picture — the answer is the file's own
+  // pixels either way — so which side the boundary falls on changes nothing.
+  const base = shown >= 1 ? 1 : displayFit;
+  const largest = {
+    width: imgWidth * base,
+    height: imgHeight * base,
+  };
+
+  const scaleW = observed.width / largest.width / factor;
+  const scaleH = observed.height / largest.height / factor;
 
   // An axis held against the display says nothing about the user's preference:
   // there the frame is the work area, not the size they chose, and the
@@ -407,12 +699,11 @@ export function userScaleFromResize(
   // are needed: the axis has to be able to reach the cap at this magnification
   // *and* actually be sitting at it, so a user who has pulled the window in
   // below the cap is still read.
-  const caps = compactDisplayCaps(availWidth, availHeight);
   const boundW =
-    fitted.width * factor >= caps.width - 1 &&
+    largest.width * factor >= caps.width - 1 &&
     observed.width >= caps.width - COMPACT_CAP_SLACK;
   const boundH =
-    fitted.height * factor >= caps.height - 1 &&
+    largest.height * factor >= caps.height - 1 &&
     observed.height >= caps.height - COMPACT_CAP_SLACK;
   // One bound axis, one free: the free one is the statement. A frame against the
   // display on *both* axes has not been resized at all — there is nowhere to drag

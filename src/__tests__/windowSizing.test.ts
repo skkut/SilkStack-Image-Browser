@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   computeCompactContentSize,
   compactPinnedSize,
+  compactMinUserScale,
+  compactWindowMinimumScale,
+  compactDisplayCaps,
   compactPanAxes,
   parseDimensionsString,
   compactImageArea,
@@ -10,8 +13,11 @@ import {
   COMPACT_BAR_HEIGHT,
   COMPACT_PADDING,
   COMPACT_MAX_FRACTION,
+  COMPACT_MIN_FRACTION,
   COMPACT_MIN_USER_SCALE,
   COMPACT_MAX_USER_SCALE,
+  COMPACT_MIN_WINDOW_WIDTH,
+  COMPACT_MIN_WINDOW_HEIGHT,
 } from '../utils/windowSizing';
 
 /**
@@ -135,20 +141,44 @@ describe('computeCompactContentSize with a zoom', () => {
     });
   });
 
-  it('treats an omitted, sub-1 or nonsensical zoom as no magnification', () => {
-    // The fit is the smallest a compact window goes: below 1x the picture could
-    // no longer fill it, so those values are the fit's own answer.
+  it('treats an omitted or nonsensical zoom as no magnification', () => {
+    // Zoom is a multiplier, so only a positive one means anything: NaN, zero and
+    // negatives are a caller that has no magnification to declare, and the fit is
+    // the answer that changes nothing.
     const fit = computeCompactContentSize(...SMALL);
     expect(computeCompactContentSize(...SMALL, 1, 1)).toEqual(fit);
-    expect(computeCompactContentSize(...SMALL, 1, 0.5)).toEqual(fit);
+    expect(computeCompactContentSize(...SMALL, 1, 0)).toEqual(fit);
     expect(computeCompactContentSize(...SMALL, 1, NaN)).toEqual(fit);
     expect(computeCompactContentSize(...SMALL, 1, -3)).toEqual(fit);
   });
 
+  it('shrinks the frame below the fit for a zoom under 1', () => {
+    // The fit stopped being a floor when the frame and the picture both started
+    // from the pinned size. The viewer lays the picture out at that pinned 200x100
+    // and magnifies it with a transform, so at 0.5x a 100x50 frame is covered by
+    // it exactly as a 400x200 one is at 2x — zooming out takes the window down
+    // with the picture rather than running out of room at the fit. The viewer asks
+    // for this shape no longer — it shrinks a window through the size factor, so
+    // the size survives into the next image — but a frame smaller than the picture
+    // is a size this rule has to answer for either way.
+    expect(computeCompactContentSize(...SMALL, 1, 0.5)).toEqual({
+      contentWidth: 100 + COMPACT_PADDING * 2,
+      contentHeight: 50 + COMPACT_PADDING * 2 + COMPACT_BAR_HEIGHT,
+    });
+    expect(computeCompactContentSize(...SMALL, 1, 0.25)).toEqual({
+      contentWidth: 50 + COMPACT_PADDING * 2,
+      contentHeight: 25 + COMPACT_PADDING * 2 + COMPACT_BAR_HEIGHT,
+    });
+  });
+
   it('multiplies the zoom with the user size factor', () => {
-    // 0.5 x 4 is the fit at 2x, the same window as a plain 4x of this image.
-    expect(computeCompactContentSize(...SMALL, 0.5, 4)).toEqual(
-      computeCompactContentSize(...SMALL, 1, 2),
+    // The frame is the pinned size times the magnification and the pin is the
+    // factor's own size, so a factor and a zoom with the same product are the same
+    // window: half the factor and twice the zoom cancel exactly. On a
+    // screen-filling file, because a factor below 1 is capped at the display fit
+    // and the product only survives below that cap.
+    expect(computeCompactContentSize(1000, 500, 1000, 1000, 0.25, 2)).toEqual(
+      computeCompactContentSize(1000, 500, 1000, 1000, 0.5, 1),
     );
   });
 
@@ -173,7 +203,9 @@ describe('computeCompactContentSize with a zoom', () => {
     // viewer lays the picture out at the 1x fit and scales it by the zoom, so a
     // frame no larger than that on each axis is always covered by it. Rounding
     // down is what keeps the guarantee to the pixel.
-    for (const zoom of [1, 1.5, 2, 4, 4.92, 8, 50]) {
+    // …and it holds below the fit for the same reason: a frame a quarter the size
+    // of the picture is covered by a picture drawn at a quarter scale.
+    for (const zoom of [0.25, 0.5, 0.75, 1, 1.5, 2, 4, 4.92, 8, 50]) {
       const size = computeCompactContentSize(...SMALL, 1, zoom)!;
       const area = compactImageArea(size.contentWidth, size.contentHeight);
       expect(area.width).toBeLessThanOrEqual(200 * zoom);
@@ -274,6 +306,179 @@ describe('compactPinnedSize', () => {
   });
 });
 
+describe('compactMinUserScale', () => {
+  // The display the report came from, and the image area it allows: 2032 x 1136
+  // once the padding and the drag bar are paid for.
+  const DISPLAY = [2048, 1152] as const;
+
+  it('never forbids the fit itself', () => {
+    // A small picture sits inside the share the floor names, and no longer needs a
+    // clamp to protect it: a factor below 1 is capped at the display fit, so at the
+    // floor such a file is still laid out at 100%. The floor bounds the shrink and
+    // nothing else — which is the whole of what "never forbid the fit" means now.
+    const CASES = [
+      [200, 100, 1000, 1000],
+      [50, 50, 4000, 4000],
+    ] as const;
+    for (const [w, h, availW, availH] of CASES) {
+      const floor = compactMinUserScale(w, h, availW, availH);
+      expect(computeCompactContentSize(w, h, availW, availH, floor)).toEqual(
+        computeCompactContentSize(w, h, availW, availH),
+      );
+    }
+  });
+
+  it('stops where the window is 40% of the screen', () => {
+    // The user's rule, asserted as the rule rather than as its arithmetic — and
+    // below 1 the rule is *literally* the stored factor, so the floor is this
+    // constant with no conversion in between. What the constant means on screen is
+    // a share of the picture at its display fit, the largest it may be here: a
+    // 2048x1152 file on a 2048x1152 work area is 2019x1136 of that, so 40% of it is
+    // the 808x454 window this file now opens at, where a quarter gave 505x284.
+    const floor = compactMinUserScale(2048, 1152, ...DISPLAY);
+    const pin = compactPinnedSize(2048, 1152, ...DISPLAY, floor)!;
+    const { width: capW, height: capH } = compactDisplayCaps(...DISPLAY);
+    const largest = Math.max(2048, 1152) * Math.min(capW / 2048, capH / 1152);
+    expect(floor).toBeCloseTo(COMPACT_MIN_FRACTION, 5);
+    expect(Math.max(pin.width, pin.height) / largest).toBeCloseTo(
+      COMPACT_MIN_FRACTION,
+      3, // three digits: 808 is 2019.6 rounded to a whole pixel
+    );
+    // …and it is the binding term here, not one of the window minimums.
+    expect(floor).toBeGreaterThan(
+      (COMPACT_MIN_WINDOW_WIDTH - COMPACT_PADDING * 2) / pin.width,
+    );
+  });
+
+  it('gives pictures of different sizes the same share of the screen', () => {
+    // The point of reading the factor as a share below 1: it means the same
+    // *window* on the next image rather than the same multiple of a fit that
+    // differs per file. Two files that reach the display caps exactly both stop at
+    // 40% of the cap their own dominant axis answers to — and the edge they share,
+    // the height, is the same 454px in both.
+    const { width: capW, height: capH } = compactDisplayCaps(...DISPLAY);
+    const landscape = compactPinnedSize(capW, capH, ...DISPLAY, COMPACT_MIN_FRACTION)!;
+    const square = compactPinnedSize(capH, capH, ...DISPLAY, COMPACT_MIN_FRACTION)!;
+    expect(landscape.width).toBe(Math.round(capW * COMPACT_MIN_FRACTION));
+    expect(landscape.height).toBe(Math.round(capH * COMPACT_MIN_FRACTION));
+    expect(square.width).toBe(Math.round(capH * COMPACT_MIN_FRACTION));
+    expect(square.height).toBe(square.width);
+  });
+
+  it('stops sooner when the window minimum will not let it go smaller', () => {
+    // A 4000x500 panorama fits at 1984x248, so 40% of it would be a 99 DIP tall
+    // window — below the 160 the window manager will make. The height term binds
+    // instead, and the frame stops at 112 DIP of picture.
+    const pin = compactPinnedSize(4000, 500, 2000, 1000)!;
+    const floor = compactMinUserScale(4000, 500, 2000, 1000);
+    expect(floor).toBeCloseTo(
+      (COMPACT_MIN_WINDOW_HEIGHT - COMPACT_PADDING * 2 - COMPACT_BAR_HEIGHT) / pin.height,
+      5,
+    );
+    // Which matters, because a naive "it stopped at the 40% rule" reading of the
+    // same window would be wrong about what stopped it — that term is lower.
+    expect(floor).toBeGreaterThan((COMPACT_MIN_WINDOW_WIDTH - COMPACT_PADDING * 2) / pin.width);
+    expect(floor).toBeGreaterThan(COMPACT_MIN_FRACTION);
+  });
+
+  it('stands down on a display too small for the window minimum', () => {
+    // Both window-minimum terms come out above 1 on a 240x140 display, and a floor
+    // above 1 would forbid the fit itself — a compact mode that could not show the
+    // whole image at 100%. The clamp is what makes "no shrink to give" the answer
+    // there, so the gesture behaves as it did before there is room for it. Nothing
+    // else can push the floor up: it is a share of the display, read against the
+    // picture at its display fit rather than at the size the window is showing, so
+    // it is a fixed rectangle as the gesture runs and a hand-drag inside it is not
+    // undone by the next scroll.
+    expect(compactMinUserScale(200, 100, 240, 140)).toBe(1);
+  });
+
+  it('leaves a frame at the floor still covered by the picture', () => {
+    // The invariant the floor exists to respect: whatever it allows, the frame is
+    // never larger than the picture drawn into it. Asserted at the floor itself,
+    // the smallest frame the gesture can ask for — where the frame *is* the shrunk
+    // picture, so a floor that ever allowed less than the picture covers would show
+    // up here as a frame with the background showing through it.
+    const CASES: Array<[number, number, number, number]> = [
+      [2048, 1152, 2048, 1152],
+      [4000, 500, 2000, 1000],
+      [200, 100, 1000, 1000],
+    ];
+    for (const [w, h, availW, availH] of CASES) {
+      const floor = compactMinUserScale(w, h, availW, availH);
+      const pin = compactPinnedSize(w, h, availW, availH, floor)!;
+      const size = computeCompactContentSize(w, h, availW, availH, floor)!;
+      const area = compactImageArea(size.contentWidth, size.contentHeight);
+      expect(area.width).toBeLessThanOrEqual(pin.width);
+      expect(area.height).toBeLessThanOrEqual(pin.height);
+    }
+  });
+
+  it('reads unusable input as no shrink at all', () => {
+    // No fit to measure against, so the answer that cannot band the frame.
+    expect(compactMinUserScale(0, 10, 100, 100)).toBe(1);
+    expect(compactMinUserScale(200, 100, 0, 0)).toBe(1);
+    expect(compactMinUserScale(200, 100, Number.NaN, 100)).toBe(1);
+  });
+});
+
+describe('compactWindowMinimumScale', () => {
+  const CASES: Array<[number, number, number, number]> = [
+    [2048, 1152, 2048, 1152],
+    [4000, 500, 2000, 1000],
+    [1000, 500, 1000, 1000],
+    [200, 100, 1000, 1000],
+  ];
+
+  it('names the share at which the picture still covers the window minimum', () => {
+    // Unlike the gesture's floor this one is not a matter of taste: below it the
+    // OS takes the request and widens the frame, so the frame stops being the
+    // picture. Both axes are covered at the floor, and the binding one is at its
+    // minimum exactly — which is what makes this the *smallest* share that can be
+    // honoured rather than merely a safe one.
+    for (const [w, h, availW, availH] of CASES) {
+      const { width: capW, height: capH } = compactDisplayCaps(availW, availH);
+      const displayFit = Math.min(capW / w, capH / h);
+      const floor = compactWindowMinimumScale(w, h, availW, availH);
+      expect(floor).toBeLessThan(1);
+
+      const coveredWidth = w * displayFit * floor;
+      const coveredHeight = h * displayFit * floor;
+      const minWidth = COMPACT_MIN_WINDOW_WIDTH - COMPACT_PADDING * 2;
+      const minHeight =
+        COMPACT_MIN_WINDOW_HEIGHT - COMPACT_PADDING * 2 - COMPACT_BAR_HEIGHT;
+
+      expect(coveredWidth).toBeGreaterThanOrEqual(minWidth - 1e-9);
+      expect(coveredHeight).toBeGreaterThanOrEqual(minHeight - 1e-9);
+      expect(
+        Math.abs(coveredWidth - minWidth) < 1e-9 ||
+          Math.abs(coveredHeight - minHeight) < 1e-9,
+      ).toBe(true);
+    }
+  });
+
+  it('is never above the floor the shrink gesture stops at', () => {
+    // What the refusal in ImageModal rests on: a size the *gesture* can leave
+    // behind is always one the next image can honour, because the gesture's floor
+    // is this one or the 40% rule, whichever is larger. So the refusal can only
+    // ever fire on a hand-drag, and the two rules cannot deadlock — a stored size
+    // the mode itself would produce and then refuse to use.
+    for (const [w, h, availW, availH] of CASES) {
+      expect(compactMinUserScale(w, h, availW, availH)).toBeGreaterThanOrEqual(
+        compactWindowMinimumScale(w, h, availW, availH),
+      );
+    }
+  });
+
+  it('reads unusable input as no floor at all', () => {
+    // 1 is "no shrink", the same answer the gesture's floor gives: neither may
+    // forbid the fit itself.
+    expect(compactWindowMinimumScale(0, 10, 100, 100)).toBe(1);
+    expect(compactWindowMinimumScale(200, 100, 0, 0)).toBe(1);
+    expect(compactWindowMinimumScale(200, 100, Number.NaN, 100)).toBe(1);
+  });
+});
+
 describe('compactPanAxes', () => {
   // The display the report came from: 2048 x 1104 of work area, which is
   // 2032 x 1056 of image area once the padding and the drag bar are paid for.
@@ -348,9 +553,11 @@ describe('compactPanAxes', () => {
     });
   });
 
-  it('treats an omitted or below-1 zoom as no magnification', () => {
-    // The frame never goes below the fit, so a zoom under 1 is not a
-    // magnification and cannot make pannable an axis the fit left whole.
+  it('finds nothing to pan when the frame is at or below the fit', () => {
+    // Below the fit the frame is *smaller* than the picture, so the picture sits
+    // entirely inside it — there is no part outside to bring into view. At exactly
+    // the fit the two are the same size. Neither is a crop, and this guard is a
+    // condition rather than a floor: it reads the same either way.
     expect(compactPanAxes(984, 952, 1000, 1000, 1, 0.5)).toEqual({
       width: false,
       height: false,
@@ -483,21 +690,39 @@ describe('userScaleFromResize', () => {
   // picture, then the padding and bar).
   const SMALL = [200, 100, 1000, 1000] as const;
 
-  it('reads a drag of a zoomed window as a fraction of the fit', () => {
-    // 70% of the 3x frame: the raw ratio says 2.1, which is the frame's
-    // magnification and not the user's preference. Remembering it would open
-    // every later image at 3x of their own fit, for ever.
-    expect(userScaleFromResize(...SMALL, 436, 258, 3)).toBeCloseTo(0.7, 5);
+  it('reads a drag of a zoomed window as the share of the screen it asked for', () => {
+    // The 2x frame is the whole display, and the user drags it in to 700x350 of
+    // picture. The raw ratio says 0.7 — that is where the file's own pixels are,
+    // not what the user asked for, and its magnification is not a size preference
+    // at all. Taken against the display fit it is 700/1968: the share of the
+    // screen the window would be with the zoom off, which is what the sizing rule
+    // multiplies by, so the value reproduces exactly the window the user made.
+    expect(userScaleFromResize(...FIT, 716, 398, 2)).toBeCloseTo(700 / 1968, 6);
+  });
+
+  it('reads a zoomed drag of a small image as the share it asked for', () => {
+    // A 200x100 file is drawn at its own pixels on a display that could show it
+    // five times over. Its 3x frame is dragged in to 436x258 of window, which is
+    // the picture at 420x210 — 140x70 of it at the fit, the frame the sizing rule
+    // would rebuild from 140/984 of the screen. Read the zoom-in ratio instead —
+    // 2.1 raw, or 0.7 with the magnification divided out but the base still the
+    // file's own pixels — and the same drag stores five times the share the
+    // window occupies, which every image that follows would open at.
+    //
+    // Small shares are read here like any other: whether one can be *honoured* is
+    // a question about the image that comes next, and it is refused there, in
+    // ImageModal, not clamped into a wrong answer here.
+    expect(userScaleFromResize(...SMALL, 436, 258, 3)).toBeCloseTo(140 / 984, 6);
   });
 
   it('ignores an axis the magnification has pushed against the display', () => {
-    // A 10x frame is 984x952 of picture — the display, since 2000x1000 of
-    // picture is more than it holds — and the user drags the height in to 600
-    // DIP. Read raw, the width says 0.492: that is the cap divided by the zoom,
-    // not a window anybody chose. The height says 0.552, which is the honest
+    // The 2x frame is 1968x984 of picture — more than the display holds, so it
+    // sits at the cap on both axes — and the user drags the height in to 452
+    // DIP. Read raw, the width says 0.5: that is the cap divided by the zoom, not
+    // a window anybody chose. The height says 0.4593, which is the honest
     // statement about the window. One shared reading would have remembered the
     // first and shrunk every later window.
-    expect(userScaleFromResize(...SMALL, 1000, 600, 10)).toBeCloseTo(0.552, 3);
+    expect(userScaleFromResize(...FIT, 1000, 500, 2)).toBeCloseTo(452 / 984, 6);
   });
 
   it('reads a frame against the display on both axes as no preference', () => {
@@ -518,8 +743,14 @@ describe('userScaleFromResize', () => {
     // zoom to declare — or a broken one — is saying.
     expect(userScaleFromResize(...SMALL, 616, 348)).toBeCloseTo(3, 5);
     expect(userScaleFromResize(...SMALL, 616, 348, NaN)).toBeCloseTo(3, 5);
-    expect(userScaleFromResize(...SMALL, 616, 348, 0.5)).toBeCloseTo(3, 5);
+    expect(userScaleFromResize(...SMALL, 616, 348, 0)).toBeCloseTo(3, 5);
   });
+
+  // There is no case here for a zoom *below* 1, and deliberately so: shrinking a
+  // compact window is the size factor's job now, precisely so that the size
+  // survives into the next image, and the viewer never shows one below 1x. A
+  // sub-1 zoom would be a state this mode cannot be in, so a reading of it would
+  // pin an expectation the code has no way to be wrong about.
 
   it('ignores unusable input', () => {
     // No fit to compare against: 1 is the neutral answer, and the caller only

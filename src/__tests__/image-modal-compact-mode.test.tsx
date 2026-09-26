@@ -49,6 +49,8 @@ import {
   COMPACT_GROW_SETTLE_MS,
   COMPACT_GROW_MAX_STEP,
   COMPACT_GROW_STEP_MS,
+  COMPACT_MIN_WINDOW_WIDTH,
+  COMPACT_MIN_WINDOW_HEIGHT,
 } from '../utils/windowSizing';
 import type { IndexedImage } from '../types';
 
@@ -185,12 +187,15 @@ const stubPaintedSizes = (
  * rect as all zeros, so the offsets below are the pointer's own coordinates —
  * which is all the anchoring needs, since it exists to magnify about wherever
  * the cursor is.
+ *
+ * `deltaY` defaults to a detent upwards, which is a magnification; pass a
+ * positive value for the scroll that takes the frame back down.
  */
-const wheelStep = (clientX: number, clientY: number) => {
+const wheelStep = (clientX: number, clientY: number, deltaY = -100) => {
   act(() => {
     document.getElementById('image-zoom-container')!.dispatchEvent(
       new WheelEvent('wheel', {
-        deltaY: -100,
+        deltaY,
         clientX,
         clientY,
         bubbles: true,
@@ -199,6 +204,17 @@ const wheelStep = (clientX: number, clientY: number) => {
     );
   });
 };
+
+/** The last payload the viewer sent the main process. */
+const lastCompactRequest = () =>
+  setViewerCompactMode.mock.calls[setViewerCompactMode.mock.calls.length - 1][0] as {
+    contentWidth?: number;
+    contentHeight?: number;
+  };
+
+const zoomOutButton = () => screen.getByTitle('Zoom Out') as HTMLButtonElement;
+const resetButton = () => screen.getByTitle('Reset Zoom') as HTMLButtonElement;
+const zoomSlider = () => screen.getByTitle('Adjust zoom') as HTMLInputElement;
 
 beforeEach(() => {
   setViewerCompactMode.mockReset();
@@ -698,7 +714,10 @@ describe('ImageModal compact mode — the maximise gesture', () => {
       fillScreenCallback?.();
     });
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'keep'));
+    // Re-centred rather than held by its corner: Windows parks a maximised window
+    // at the work area's top-left, and a frame told to keep its position would
+    // settle into that corner instead of coming back where it was.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
     // The reduction is forgotten, not multiplied — so the next image opens at
     // its own maximum rather than at half of it.
     expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
@@ -725,7 +744,7 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     // process's backstop unmaximised it. The request counter is what forces the
     // re-apply that unmaximises *and* restores the image's shape in one step.
     expect(setViewerCompactMode).toHaveBeenCalledTimes(2);
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'keep'));
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
   });
 
   it('takes a zoomed frame back to 1x, where the maximum is defined', () => {
@@ -1123,22 +1142,28 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         compactPayload(316, 198, 'center', [216, 148]),
       );
 
+      const beforeDrag = setViewerCompactMode.mock.calls.length;
+
       // Dragged to 70% of the 1.5x frame: 210x105 of picture, content 226x153.
       // Read raw that is 1.05x of the file — a number that says nothing about
       // the user's window, and one that would open the next image at 1.05 times
-      // its own fit *and* its own zoom on top.
+      // its own fit *and* its own zoom on top. With the magnification taken out
+      // it is 0.7 of the file's own pixels — but this file is drawn at 4.92 times
+      // them on this display, so the share of the screen the drag leaves is
+      // 0.1423: under the smallest share whose frame the window manager will
+      // make (256/984, the file's fit being the display's width). A size no next
+      // image could be opened at without showing background is not one to
+      // remember, and refusing it beats clamping it: the factor stays where it
+      // was, so nothing re-fits the window and the hand that dragged it keeps
+      // the size it gave.
       setWindowSize(226, 153);
       act(() => {
         window.dispatchEvent(new Event('resize'));
         vi.advanceTimersByTime(500);
       });
 
-      expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.7, 2);
-      // The frame is re-fitted to the image at that size, and left where the
-      // hand that dragged it put it.
-      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-        compactPayload(226, 153, 'keep', [216, 148]),
-      );
+      expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBe(1);
+      expect(setViewerCompactMode).toHaveBeenCalledTimes(beforeDrag);
     } finally {
       vi.useRealTimers();
     }
@@ -1263,6 +1288,249 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('shrinking the window at the fit', () => {
+    // Everything here uses a 1000x500 file on the 1000x1000 work area the
+    // harness pins. Its display fit is 984x492 of picture — 0.984 of the file's
+    // own pixels, the width being what runs out — and its floor is 0.4: 40% of
+    // the display on the axis this file fills, with the window manager's own
+    // minimum well below that at 0.26 x 0.23 of it. So the gesture has room, and
+    // every frame it asks for is 984u x 492u plus the same fixed chrome.
+    const open = () => {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '1000x500' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+    };
+
+    it('takes the window down with the gesture', () => {
+      open();
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(1000, 540, 'center'),
+      );
+
+      // One detent back from the fit: ÷1.2, not the absolute 0.25 the growth
+      // side subtracts — 0.25 off 1x would ask for a ÷1.33 in one commit, past
+      // the ceiling the paced growth keeps. The step writes the *size factor*,
+      // which the next image will open at, so it is 984x492 of picture at 0.8333
+      // — 820x410 — plus the same fixed chrome. Anchored "center", not "keep":
+      // the step is the viewer's own doing, so the frame shrinks about its centre
+      // — a corner held here would walk the window towards the top-left on every
+      // detent — and "center" still respects a window the user moved by hand.
+      wheelStep(200, 100, 100);
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(836, 458, 'center', [1000, 540]),
+      );
+
+      // …and every step after it is the same proportion, so the gesture keeps
+      // its shape as it descends. 0.6944: 683x342 of picture.
+      wheelStep(200, 100, 100);
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(699, 390, 'center', [1000, 540]),
+      );
+    });
+
+    it('shrinks as one resize per step, never as a coalesced jump', () => {
+      // A growth is allowed to arrive late — the frame catching up a moment
+      // after the picture is invisible, because an oversized frame is only ever
+      // a frame with room to spare. A shrink cannot be deferred at all: until
+      // the window follows, the frame is larger than the picture meant to fill
+      // it, which is the band. So every step of the wheel is sent at once, and
+      // the thing that has to bound the flash is the size of a single step.
+      vi.useFakeTimers();
+      try {
+        open();
+        for (let step = 0; step < 12; step += 1) {
+          wheelStep(200, 100, 100);
+        }
+
+        const widths = setViewerCompactMode.mock.calls
+          .map(([payload]) => payload.contentWidth)
+          .filter((width): width is number => typeof width === 'number');
+        // One request per detent, none of them held back.
+        expect(widths[0]).toBe(1000);
+        expect(widths.length).toBeGreaterThan(2);
+        for (let i = 1; i < widths.length; i += 1) {
+          // Each step is a shrink, and a small one — never further than the
+          // ceiling the paced growth keeps, with a hair of slack for the
+          // whole-pixel rounding of a frame.
+          expect(widths[i]).toBeLessThan(widths[i - 1]);
+          expect(widths[i - 1] / widths[i]).toBeLessThan(
+            COMPACT_GROW_MAX_STEP + 0.02,
+          );
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stops at the floor, and stops asking', () => {
+      open();
+      // Far past any floor a 1000x1000 work area can have.
+      for (let step = 0; step < 30; step += 1) {
+        wheelStep(200, 100, 100);
+      }
+
+      // The floor is COMPACT_MIN_FRACTION of the display on the axis this file
+      // fills: 40% of the 984px it fits at is 394x197 of picture, and 410x245 of
+      // window once the padding and the drag bar are paid for. A quarter — where
+      // this used to stop — was 505x284, which is what the report called "25% of
+      // 25%".
+      const stopped = lastCompactRequest();
+      expect(stopped).toEqual(compactPayload(410, 245, 'center', [1000, 540]));
+      wheelStep(200, 100, 100);
+      // Not one pixel further: the size factor is on the floor, so the step is a
+      // no-op and nothing is sent.
+      expect(lastCompactRequest()).toEqual(stopped);
+      expect(zoomOutButton().disabled).toBe(true);
+    });
+
+    it('keeps the frame at a size the window manager will actually make', () => {
+      // The floor's last two terms are main.mjs's own window minimums: below
+      // them Electron takes the request and the window manager quietly widens
+      // the frame instead, which is the band again. So the frame the gesture
+      // stops at is never smaller than the window can be.
+      open();
+      for (let step = 0; step < 30; step += 1) {
+        wheelStep(200, 100, 100);
+      }
+
+      const stopped = lastCompactRequest();
+      expect(stopped.contentWidth).toBeGreaterThanOrEqual(COMPACT_MIN_WINDOW_WIDTH);
+      expect(stopped.contentHeight).toBeGreaterThanOrEqual(COMPACT_MIN_WINDOW_HEIGHT);
+    });
+
+    it('offers the way back up from below the fit', () => {
+      vi.useFakeTimers();
+      try {
+        open();
+        expect(resetButton().disabled).toBe(true);
+
+        wheelStep(200, 100, 100);
+        // Reset goes back *to* the fit rather than being governed by the floor,
+        // so it is live exactly when it is the only control that can get there.
+        expect(resetButton().disabled).toBe(false);
+
+        act(() => {
+          resetButton().click();
+        });
+        // Going back up is a growth, so it waits for the gesture to settle — and
+        // it is one step, since the whole way back is under the ceiling.
+        settleGrow();
+        expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+          compactPayload(1000, 540, 'center', [1000, 540]),
+        );
+        expect(resetButton().disabled).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('lets the zoom buttons shrink the frame, while the slider magnifies', () => {
+      // The slider is the magnification and nothing else, in every mode: a
+      // compact window's *size* is not a zoom, it is the factor the wheel and the
+      // window's own edge write, and a slider that reached below the fit would be
+      // setting a number the mode no longer keeps its size in. The buttons are
+      // gestures, so at the fit they shrink the window — one press is one detent,
+      // which is why the frame lands where a single wheel step lands.
+      open();
+      expect(Number(zoomSlider().min)).toBe(1);
+      expect(zoomOutButton().disabled).toBe(false);
+
+      act(() => {
+        zoomOutButton().click();
+      });
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(836, 458, 'center', [1000, 540]),
+      );
+    });
+
+    it('leaves the ordinary modal floored at 1x', () => {
+      // No window to shrink: the pane is whatever the layout gives it, and
+      // zooming out of it would only shrink the picture inside the same box. The
+      // slider's own `min` is the floor in both modes — 1 outside, the frame's
+      // floor inside — so this is the same control everywhere else.
+      render(<ImageModal image={makeImage({ dimensions: '1000x500' })} onClose={() => {}} />);
+
+      expect(Number(zoomSlider().min)).toBe(1);
+      expect(zoomOutButton().disabled).toBe(true);
+    });
+
+    it('comes back up through the fit without overshooting it', () => {
+      vi.useFakeTimers();
+      try {
+        open();
+        wheelStep(200, 100, 100);
+        expect(Number(lastCompactRequest().contentWidth)).toBe(836);
+
+        // And back. The step up from below the fit is the same proportion, so it
+        // lands on the fit rather than near it, and the frame is the fit's own
+        // size again — the window the mode opened with.
+        wheelStep(200, 100);
+        settleGrow();
+        expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+          compactPayload(1000, 540, 'center', [1000, 540]),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('opens the next image at the window the gesture left', () => {
+      // The reason the shrink writes a size factor rather than lowering the zoom:
+      // the factor outlives the image it was made for, so the window the user
+      // left is the window the next image opens in. And below 1 the factor is a
+      // share of the display, which is what makes it the same *window* for a file
+      // of any shape instead of the same multiple of a fit that differs per file.
+      const navigation = {
+        onClose: () => {},
+        isStandaloneWindow: true,
+        totalImages: 2,
+        onNavigateNext: () => {},
+        onNavigatePrevious: () => {},
+      } as const;
+
+      const { rerender } = render(
+        <ImageModal
+          image={makeImage({ id: 'dir::a.png', dimensions: '1000x500' })}
+          currentIndex={0}
+          {...navigation}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      wheelStep(200, 100, 100);
+      wheelStep(200, 100, 100);
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(699, 390, 'center', [1000, 540]),
+      );
+      // Written through as the user's own preference, which is what makes it the
+      // next window's size rather than this one's alone.
+      expect(Number(stored(COMPACT_SCALE_STORAGE_KEY))).toBeCloseTo(0.6944, 3);
+
+      // A portrait file next, whose own fit is 476x952 of picture: the same 0.6944
+      // opens it at 331x661 of picture — 347x709 of window — rather than at its
+      // own 100%, and rather than the 505x284 that a quarter of the *fit* would
+      // have made of it.
+      rerender(
+        <ImageModal
+          image={makeImage({ id: 'dir::b.png', dimensions: '500x1000' })}
+          currentIndex={1}
+          {...navigation}
+        />,
+      );
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(347, 709, 'center', [492, 1000]),
+      );
+    });
   });
 
 });

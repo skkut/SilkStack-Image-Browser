@@ -35,6 +35,8 @@ import hotkeyManager from "../services/hotkeyManager";
 import {
   computeCompactContentSize,
   compactPinnedSize,
+  compactMinUserScale,
+  compactWindowMinimumScale,
   compactPanAxes,
   clampUserScale,
   userScaleFromResize,
@@ -172,6 +174,60 @@ const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mkv", ".mov", ".avi"];
 
 const MAX_ZOOM = 10;
 const MIN_ZOOM = 1;
+
+// A wheel event's own unit. `deltaY` is ~100 a detent on every mouse this has
+// been tried on, which is what makes 100 the natural denominator for a step
+// expressed per detent.
+const WHEEL_DETENT = 100;
+
+// What one detent does to the magnification *below the fit*: ×1.2 in, ÷1.2 out.
+// Chosen to sit inside COMPACT_GROW_MAX_STEP, the largest single resize the paced
+// growth will draw, because a shrink has no pacing to fall back on. It also
+// lands close to the 1.11–1.24 a detent measures on the growth side, so the
+// gesture does not change shape as it crosses the fit.
+const COMPACT_ZOOM_OUT_RATE = 1.2;
+
+/**
+ * One step of the shrink gesture, as a proportion of the size it is applied to
+ * (positive `notches` to enlarge). Used for the step that resizes the window.
+ *
+ * Proportional, and deliberately so: an absolute 0.25 the buttons use above the
+ * fit would ask a 40%-of-screen window for half its width in a single commit,
+ * the largest resize this mode can draw, while a growth of that size would have
+ * been split across a flick by the paced growth. A shrink cannot be paced — a
+ * frame left larger than the picture it holds is the band this mode exists to
+ * prevent — so the only lever left on the way down is how far one step goes. A
+ * ratio also keeps the steps feeling even as the size falls, and stays inside
+ * `COMPACT_GROW_MAX_STEP`, the largest resize a paced growth will draw.
+ *
+ * A fast flick arrives as one event with a delta well past a detent, and 1.2^1.5
+ * is over that ceiling, so a step counts one detent at most.
+ */
+const compactStepRate = (notches: number): number =>
+  Math.pow(COMPACT_ZOOM_OUT_RATE, Math.max(-1, Math.min(1, notches)));
+
+/**
+ * The magnification one step away from `zoom`, a step being `notches` detents of
+ * the wheel (positive to zoom in). Floored at the fit, because below it the
+ * *window* is what shrinks and that is not the magnification's business.
+ *
+ * Above the fit the step is the absolute one the mode has always had — half a
+ * magnification a button press, a quarter a detent — because that is the feel
+ * that has been lived with. Approaching the fit from above it turns proportional,
+ * so the step that lands on 1 is not the largest resize of the gesture.
+ */
+const stepZoom = (zoom: number, notches: number): number => {
+  // Decided by where the step lands, not by where it starts: an absolute 0.25
+  // off anything below COMPACT_GROW_MAX_STEP moves the frame further than the
+  // paced growth is ever allowed to move it. The ceiling exists because the cost
+  // of a resize is how far it moved, and it has to hold at the boundary too.
+  const proportional =
+    zoom < 1 || (notches < 0 && zoom < COMPACT_GROW_MAX_STEP);
+  const next = proportional
+    ? zoom * compactStepRate(notches)
+    : zoom + notches * 0.25;
+  return Math.min(Math.max(1, next), MAX_ZOOM);
+};
 
 const isVideoFileName = (
   fileName: string,
@@ -1277,6 +1333,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // frame has to grow about its centre rather than from a corner.
   const compactZoomRef = useRef(1);
 
+  // Whether the window's current size is one the user's own hand set. A re-fit
+  // that follows a hand-drag keeps the frame where they put it, while any size
+  // the viewer's controls produced — a wheel step, the reset, a fill-the-screen
+  // request — is a fresh fit and re-centres. Needed as its own flag because a
+  // size step writes the same remembered factor a drag does, which leaves the two
+  // indistinguishable by the time the re-fit is sent.
+  const compactHandSizedRef = useRef(false);
+
   // The last thing we asked the main process for. A capped window computes the
   // same size at every step of a wheel flick or a slider drag — the frame has
   // stopped growing and only the picture is moving — and the main process is on
@@ -1296,12 +1360,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const compactGrowTimerRef = useRef<number | undefined>(undefined);
   const compactGrowSendRef = useRef<(() => void) | null>(null);
 
-  // The magnification the frame should hold. Flattened to 1 outside the mode so
-  // that wheeling the ordinary modal does not re-run the reshape effect for an
-  // answer that never changes — it would tell the main process the compact mode
-  // is off once per wheel tick.
-  const compactZoom = isCompactMode ? zoom : 1;
-
   // The size the picture is laid out at while the frame is compact — the fixed
   // shape the window grows around, with the zoom left out of it for the
   // transform to supply. Null in every other mode, where the image sizes itself.
@@ -1317,6 +1375,36 @@ const ImageModal: React.FC<ImageModalProps> = ({
       )
     : null;
 
+  // The smallest the remembered window size may be left at, for this image on
+  // this display: 40% of the screen on the frame's longest side, or the window
+  // manager's own floor, whichever is larger. Below it the window would be
+  // smaller than the window manager will make it, and the frame it actually got
+  // would be larger than the picture meant to fill it — the band this whole mode
+  // is built to avoid.
+  //
+  // A floor on the *gesture*, never on the sizing: `computeCompactContentSize` is
+  // handed whatever size factor it is given and answers honestly, because
+  // clamping there would size a frame the picture cannot cover.
+  //
+  // 1 wherever there is no compact frame to shrink — outside the mode, in
+  // fullscreen (where the window is the screen and its size is not the picture's
+  // business), and before the image has loaded.
+  const minUserScale =
+    compactAvail && naturalWidth && naturalHeight
+      ? compactMinUserScale(
+          naturalWidth,
+          naturalHeight,
+          compactAvail.width,
+          compactAvail.height,
+        )
+      : 1;
+
+  // The magnification the frame should hold. Flattened to 1 outside the mode so
+  // that wheeling the ordinary modal does not re-run the reshape effect for an
+  // answer that never changes — it would tell the main process the compact mode
+  // is off once per wheel tick.
+  const compactZoom = isCompactMode ? zoom : 1;
+
   // Bumped when the user asks the OS to maximise the compact window. It is a
   // request to re-apply at the maximum, not merely to change the remembered
   // size: at the maximum already, the size is unchanged, and the window still
@@ -1328,6 +1416,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // The main process converts the OS's fill-the-screen gesture into this,
     // because a window shaped to its image has no screen-filling shape.
     return window.electronAPI?.onViewerCompactFillScreen?.(() => {
+      compactHandSizedRef.current = false;
       setCompactUserScale(1);
       // The gesture lands the window on the compact maximum, which is the fit at
       // 1x — a magnification on top of that has no frame to live in, and the
@@ -1359,6 +1448,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       compactAppliedRef.current = null;
       compactFitKeyRef.current = null;
       compactZoomRef.current = 1;
+      compactHandSizedRef.current = false;
       compactRequestKeyRef.current = null;
       setViewerCompactMode({ enabled: false });
       return;
@@ -1435,18 +1525,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
     if (compactRequestKeyRef.current === requestKey) return;
     compactRequestKeyRef.current = requestKey;
 
-    // Centre a fresh fit — a new image, entering the mode, or the user
-    // magnifying — but leave a window the user has just dragged where they put
-    // it. The re-fit that follows a drag is the same image at the same zoom, and
-    // pulling the frame back to the middle a moment later would make hand-sizing
-    // feel like it undoes itself. A zoom change is the case that must not keep
-    // the corner: the frame is growing, and a window held by its top-left would
-    // crawl the picture across the screen as the user scrolls — while the wheel
-    // anchors its magnification on a centre it takes to be standing still. (The
-    // main process reads "center" as "grow around the centre you are showing",
-    // so a window the user moved by hand is not pulled back to the app window.)
+    // Centre everything the viewer itself asked for, and leave a window the
+    // user's hand sized where their hand left it. "keep" holds the frame's
+    // top-left, which is right for the re-fit that follows a hand-drag and only
+    // for it: the window is already where they put it, while the anchor the main
+    // process holds for it is the *previous* fit's centre, so re-centring would
+    // visibly undo the drag a moment later. Everything else is a fresh fit — a
+    // new image, entering the mode, the wheel's magnification, or a size one of
+    // the viewer's own controls set. The magnification is the one that must not
+    // keep the corner: the frame is growing, and a window held by its top-left
+    // would crawl the picture across the screen as the user scrolls. (Nor does
+    // "center" mean "back to the app window" — the main process anchors on where
+    // a window the user moved by hand is *now*, so a size step keeps that.)
     const anchor: "center" | "keep" =
-      previousFit === image.id && previousZoom === requestedZoom
+      previousFit === image.id &&
+      previousZoom === requestedZoom &&
+      compactHandSizedRef.current
         ? "keep"
         : "center";
 
@@ -1627,11 +1721,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
         // statement about this window alone: it cannot compound over successive
         // drags, and a value spoiled by a maximised window is corrected by the
         // next drag instead of pinning every image to full size for good.
+        const availWidth = window.screen?.availWidth || window.innerWidth;
+        const availHeight = window.screen?.availHeight || window.innerHeight;
         const next = userScaleFromResize(
           naturalWidth,
           naturalHeight,
-          window.screen?.availWidth || window.innerWidth,
-          window.screen?.availHeight || window.innerHeight,
+          availWidth,
+          availHeight,
           observedWidth,
           observedHeight,
           // Read from the ref rather than the state: this runs on a debounce,
@@ -1641,7 +1737,26 @@ const ImageModal: React.FC<ImageModalProps> = ({
           // "three times as large" and open the next image at nine.
           compactZoomRef.current,
         );
+        // Refused, not clamped, when it falls under the smallest frame the
+        // window manager will make: a remembered size that small would have the
+        // next image opened at the OS minimum — a frame wider than its picture,
+        // which is the background this mode exists to keep out of sight.
+        // Refusing leaves the factor alone, so nothing here re-fits anything:
+        // the window the user dragged keeps the size their hand gave it, and the
+        // preference stays at the last size both images could honour.
+        if (
+          next <
+          compactWindowMinimumScale(
+            naturalWidth,
+            naturalHeight,
+            availWidth,
+            availHeight,
+          )
+        ) {
+          return;
+        }
         if (Math.abs(next - compactUserScale) < COMPACT_SCALE_EPSILON) return;
+        compactHandSizedRef.current = true;
         setCompactUserScale(next);
       }, 400);
     };
@@ -1812,6 +1927,42 @@ const ImageModal: React.FC<ImageModalProps> = ({
     setIsMinimapDragging(false);
   }, [image.id]);
 
+  /**
+   * Resizes the compact window by one step, for a gesture at the fit.
+   *
+   * The magnification is floored at the fit, so a step *out* from there has
+   * nothing to move but the window — and what that leaves behind is the
+   * remembered size, which is the whole point: a size the gesture merely visited
+   * would be forgotten the moment the viewer moved on to the next image, and the
+   * user would be back to a full-size window the next time they pressed an arrow
+   * key. A step *in* from a shrunk window grows it back, and once it is at the
+   * fit the magnification takes over again — so the two are one gesture, not two
+   * controls that meet.
+   *
+   * @returns true when the step was a window resize, leaving the caller nothing
+   * to do.
+   */
+  const stepCompactSize = useCallback(
+    (notches: number): boolean => {
+      if (!isCompactMode || isFullscreen || zoom !== 1 || notches === 0) {
+        return false;
+      }
+      // Clamped at both ends: at the floor the window stops, and at the fit the
+      // magnification is what grows instead.
+      const next = Math.min(
+        1,
+        Math.max(minUserScale, compactUserScale * compactStepRate(notches)),
+      );
+      if (next === compactUserScale) return false;
+      // A step is the viewer's own doing, not the hand's: the window shrinks or
+      // grows about its centre, the way the magnification does.
+      compactHandSizedRef.current = false;
+      setCompactUserScale(next);
+      return true;
+    },
+    [isCompactMode, isFullscreen, zoom, compactUserScale, minUserScale],
+  );
+
   // Zoom handlers
   const handleWheel = useCallback(
     (e: WheelEvent) => {
@@ -1827,14 +1978,21 @@ const ImageModal: React.FC<ImageModalProps> = ({
         my = e.clientY - cy;
       }
 
+      // Cap max deltaY to ensure fast scrolls don't skip entirely out of bounds.
+      const normalizedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150);
+      // Scrolling up is a negative deltaY and a positive step. `deltaY` is only
+      // ever read to decide the direction and the size of a step now, so the
+      // -0.0025 that used to turn it into a magnification lives in `stepZoom`.
+      const notches = -normalizedDeltaY / WHEEL_DETENT;
+
+      // At the fit the wheel resizes the window rather than magnifying the
+      // picture. Handled out here rather than inside the updater below, because
+      // it is a write to a different piece of state and an updater may be re-run.
+      if (stepCompactSize(notches)) return;
+
       setZoom((prevZoom) => {
-        // Slow down the zoom speed significantly
-        // Standard mouse wheel delta is ~100.
-        // Cap max deltaY to ensure fast scrolls don't skip entirely out of bounds.
-        const normalizedDeltaY = Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 150);
-        const delta = normalizedDeltaY * -0.0025; // Zoom by 0.25x max per standard click
-        
-        const newZoom = Math.min(Math.max(MIN_ZOOM, prevZoom + delta), MAX_ZOOM); // Min 1x, Max 10x
+        // Floored at the fit (1), capped at 10x.
+        const newZoom = stepZoom(prevZoom, notches);
 
         if (newZoom === prevZoom) return prevZoom;
 
@@ -1868,7 +2026,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
         // Schedule pan correctly based on exact prev values
         setPan((prevPan) => {
-          if (newZoom === 1) {
+          // At or below 1x the whole picture is inside the pane, so there is
+          // nowhere left for a pan to have carried it — below the fit, where the
+          // frame is now allowed to go, there is less than that.
+          if (newZoom <= 1) {
             return { x: 0, y: 0 };
           }
           const ratio = newZoom / prevZoom;
@@ -1894,6 +2055,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       naturalWidth,
       naturalHeight,
       compactUserScale,
+      stepCompactSize,
     ],
   );
 
@@ -1987,11 +2149,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
   );
 
   const handleZoomIn = () => {
-    const newZoom = Math.min(zoom + 0.5, MAX_ZOOM);
+    // At the fit a press grows the *window* back out of a shrink, and only past
+    // the fit does it magnify — see `stepCompactSize`.
+    if (stepCompactSize(2)) return;
+
+    // Half a magnification a press, as it has always been.
+    const newZoom = stepZoom(zoom, 2);
     if (newZoom === zoom) return;
 
     setZoom(newZoom);
-    if (newZoom === 1) {
+    if (newZoom <= 1) {
       setPan({ x: 0, y: 0 });
     } else {
       const ratio = newZoom / zoom;
@@ -2000,11 +2167,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
   };
 
   const handleZoomOut = () => {
-    const newZoom = Math.max(zoom - 0.5, 1);
+    if (stepCompactSize(-2)) return;
+
+    const newZoom = stepZoom(zoom, -2);
     if (newZoom === zoom) return;
 
     setZoom(newZoom);
-    if (newZoom === 1) {
+    if (newZoom <= 1) {
       setPan({ x: 0, y: 0 });
     } else {
       const ratio = newZoom / zoom;
@@ -2015,6 +2184,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const handleResetZoom = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    // The remembered size *is* this window's size, so going back to 100% takes
+    // it back too — otherwise the next image would open shrunk again with
+    // nothing on screen to explain why. An explicit reset is the viewer's own
+    // doing, so the frame grows about its centre rather than from a corner.
+    if (isCompactMode) {
+      compactHandSizedRef.current = false;
+      setCompactUserScale(1);
+    }
   };
 
   // Old useEffect removed. Logic moved to the main loading/preloading effect.
@@ -2457,7 +2634,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       }
                     : {}),
                 }}
-                draggable={canDragExternally && zoom === 1}
+                // At or below the fit: the whole picture is inside the window, so
+                // there is nothing a pan gesture could reach and dragging the file
+                // out is as valid as it is at 100%.
+                draggable={canDragExternally && zoom <= 1}
               />
             )
           ) : (
@@ -2523,7 +2703,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
               >
                 <button
                   onClick={handleZoomOut}
-                  disabled={zoom <= 1}
+                  // Dead only when neither half of the gesture has anywhere to go:
+                  // the magnification is at the fit *and* the window is at its
+                  // floor. Outside the mode the second half is always at 1, so
+                  // this reads as the plain "already at 1x" it always did.
+                  disabled={zoom <= 1 && compactUserScale <= minUserScale}
                   className="text-gray-50 p-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   title="Zoom Out"
                 >
@@ -2531,16 +2715,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 </button>
                 <input
                   type="range"
+                  // The slider is the magnification and nothing else, so it stops
+                  // at the fit. The shrink gesture reads as "past the end of the
+                  // slider", which a slider cannot express — the wheel and the
+                  // buttons have it, and they are where the gesture was asked for.
                   min={MIN_ZOOM}
                   max={MAX_ZOOM}
                   step="0.1"
                   value={zoom}
                   onMouseDown={(e) => e.stopPropagation()}
                   onChange={(e) => {
-                    const newZoom = parseFloat(e.target.value);
+                    const newZoom = Math.max(MIN_ZOOM, parseFloat(e.target.value));
                     if (newZoom === zoom) return;
                     setZoom(newZoom);
-                    if (newZoom === MIN_ZOOM) {
+                    if (newZoom <= 1) {
                       setPan({ x: 0, y: 0 });
                     } else {
                       const ratio = newZoom / zoom;
@@ -2563,7 +2751,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 </div>
                 <button
                   onClick={handleResetZoom}
-                  disabled={zoom <= 1}
+                  // Reset goes back *to* the fit, from either side of it — which
+                  // includes a window that has been shrunk, so it is live whenever
+                  // either half of the gesture has something to undo. It must not
+                  // be dead exactly when it is the way back out of a shrink.
+                  disabled={zoom === 1 && !(isCompactMode && compactUserScale < 1)}
                   className="text-gray-50 px-2 py-1 hover:bg-gray-50/20 rounded disabled:opacity-30 disabled:cursor-not-allowed transition-all text-xs font-medium"
                   title="Reset Zoom"
                 >
