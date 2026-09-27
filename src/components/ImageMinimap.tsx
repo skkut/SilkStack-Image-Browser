@@ -17,7 +17,10 @@ import {
  *
  * Measures nothing itself — every size arrives as a prop — so the mapping is
  * exercised in tests without a layout engine. Visibility belongs to the caller:
- * this draws whatever its props describe (ImageModal mounts it only above 1x).
+ * this draws whatever its props describe, and has nothing to draw only when the
+ * props say the picture fits its pane (ImageModal mounts it above 1x, and in
+ * compact mode whenever the pane is smaller than the picture — a docked panel
+ * can crop it at 1x).
  */
 export interface ImageMinimapProps {
   /** Whole-image pixels. The 512px-capped thumbnail is plenty and is already cached. */

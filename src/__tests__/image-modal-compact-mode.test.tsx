@@ -299,10 +299,14 @@ describe('ImageModal compact mode', () => {
     expect(stored('image_modal_sidebar_collapsed')).toBe('false');
   });
 
-  it('leaves compact mode when the sidebar is expanded from the compact bar', () => {
+  it('opens the sidebar inside the compact window', async () => {
+    // The press used to hand the image back to the desktop — the mode was left
+    // so the app's own viewer could show the panel, throwing away the window the
+    // user had shaped to their image. It now docks the panel in the compact
+    // window instead, which grows by the panel's width to hold it.
     render(
       <ImageModal
-        image={makeImage({ dimensions: '1000x500' })}
+        image={makeImage({ dimensions: '400x300' })}
         onClose={() => {}}
         isStandaloneWindow={true}
       />,
@@ -312,28 +316,41 @@ describe('ImageModal compact mode', () => {
       screen.getByLabelText('Fit window to image').click();
     });
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
+    // 400x300 is not upscaled by the fit, so the window is the picture at its
+    // own pixels: 400x300 of image area, the padding, and the drag bar.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+      compactPayload(416, 348, 'center'),
+    );
 
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
     });
+    await act(async () => {});
 
-    // One press: the window hands the image back to the desktop and the panel
-    // comes with it, rather than leaving a window that is still shaped to the
-    // image with its metadata hidden.
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({ enabled: false });
-    expect(screen.getByTestId('metadata-panel').className).not.toContain('hidden');
+    // The same window, plus the panel: 400 of picture, 16 of padding, 320 of
+    // panel. The anchor is "keep" because a panel toggle is the one resize that
+    // must hold the frame's left edge — the panel hangs off the right, so
+    // growing about the centre would slide the picture sideways by half of it.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+      compactPayload(736, 348, 'keep'),
+    );
+    const panel = screen.getByTestId('metadata-panel');
+    expect(panel.className).not.toContain('hidden');
+    expect(panel.style.width).toBe('320px');
     expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy();
+    // Still compact, with the panel it just docked.
+    expect(screen.getByLabelText('Exit compact mode')).toBeTruthy();
   });
 
-  it('expands the panel even when the sidebar was collapsed before compact', () => {
-    // Compact hides the panel regardless of this flag, so the button shows
-    // "Expand" either way — and pressing it has to deliver the panel the
-    // button promises, not merely leave the mode.
+  it('expands the panel even when the sidebar was collapsed before compact', async () => {
+    // Compact's panel is its own state, and the button describes it: with the
+    // mode's panel shut it reads "Expand" whatever the persisted flag says, and
+    // pressing it has to deliver the panel the button promises.
     (global.localStorage as any).__store.set('image_modal_sidebar_collapsed', 'true');
 
     render(
       <ImageModal
-        image={makeImage({ dimensions: '1000x500' })}
+        image={makeImage({ dimensions: '400x300' })}
         onClose={() => {}}
         isStandaloneWindow={true}
       />,
@@ -345,8 +362,13 @@ describe('ImageModal compact mode', () => {
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
     });
+    await act(async () => {});
 
-    expect(setViewerCompactMode).toHaveBeenLastCalledWith({ enabled: false });
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+      compactPayload(736, 348, 'keep'),
+    );
+    // Mirrored into the persisted flag, so the ordinary viewer the user returns
+    // to shows what was last on screen.
     expect(stored('image_modal_sidebar_collapsed')).toBe('false');
     expect(screen.getByTestId('metadata-panel').className).not.toContain('hidden');
   });
@@ -685,6 +707,256 @@ describe('ImageModal compact mode — user-resized windows', () => {
       });
 
       expect(stored(COMPACT_SCALE_STORAGE_KEY)).toBe('1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('ImageModal compact mode — the metadata panel docked in the window', () => {
+  // The harness's work area is 1000x1000 and the pane keeps the window manager's
+  // 272px minimum under it, so the panel is the app's own 320 — the whole of it.
+  const PANEL = 320;
+  /** Past the collapse fade: 200ms of fade, and the panel follows 40ms after. */
+  const PAST_THE_COLLAPSE_FADE = 400;
+
+  const body = () => screen.getByTestId('metadata-panel-body');
+  const panel = () => screen.getByTestId('metadata-panel');
+
+  /** A compact window on `dimensions`, with the panel open and its reply in. */
+  const compactWithPanel = async (dimensions: string) => {
+    render(
+      <ImageModal
+        image={makeImage({ dimensions, thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+    await act(async () => {});
+  };
+
+  it('holds the picture while the window grows around it', async () => {
+    await compactWithPanel('400x300');
+
+    // The load-bearing rule as the user feels it: the picture is pinned in
+    // pixels and the window is grown around it, so docking the panel adds a
+    // window's worth of panel and moves the picture not at all. The pin is
+    // `compactPinnedSize`, which is never told the panel exists — that is what
+    // makes this hold rather than merely nearly hold.
+    expect(picture().style.width).toBe('400px');
+    expect(picture().style.height).toBe('300px');
+    // 400 of picture + 16 of padding + 320 of panel; the height is untouched.
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+      compactPayload(736, 348, 'keep'),
+    );
+  });
+
+  it('holds the contents back until the window has taken its size', async () => {
+    // The motion contract: the panel is rendered in the commit that asks for the
+    // resize, and waits — transparent — until the reply says the frame has it,
+    // so what the user sees is one resize with the panel fading in behind it
+    // rather than a panel drawn in a window that has not grown yet.
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+
+    // Hold the reply to the panel's resize, and look at the frame while it is
+    // in flight: the panel is docked at its width, and nothing in it is shown.
+    let reply: ((result: unknown) => void) | null = null;
+    setViewerCompactMode.mockImplementation(
+      () => new Promise((resolve) => { reply = resolve; }),
+    );
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+
+    expect(panel().style.width).toBe(`${PANEL}px`);
+    expect(body().className).toContain('opacity-0');
+    expect(body().className).toContain('-translate-x-2');
+
+    await act(async () => {
+      reply?.({ success: true, contentWidth: 736, contentHeight: 348 });
+    });
+
+    expect(body().className).toContain('opacity-100');
+    expect(body().className).not.toContain('opacity-0');
+  });
+
+  it('takes the window back to the picture when the panel is closed', async () => {
+    vi.useFakeTimers();
+    try {
+      await compactWithPanel('400x300');
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(736, 348, 'keep'),
+      );
+
+      act(() => {
+        screen.getByLabelText('Collapse sidebar').click();
+      });
+
+      // Fade first, then shrink: taking the frame in before the panel has gone
+      // would eat it from its right edge while the contents sat still.
+      expect(body().className).toContain('opacity-0');
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(736, 348, 'keep'),
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(PAST_THE_COLLAPSE_FADE);
+      });
+
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(416, 348, 'keep'),
+      );
+      expect(panel().className).toContain('hidden');
+      // The picture is where it was throughout: 400x300 either way.
+      expect(picture().style.width).toBe('400px');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('brings the panel back when a collapse is undone mid-fade', async () => {
+    vi.useFakeTimers();
+    try {
+      await compactWithPanel('400x300');
+
+      act(() => {
+        screen.getByLabelText('Collapse sidebar').click();
+      });
+      expect(body().className).toContain('opacity-0');
+
+      // Undone by Ctrl+F, because during the fade the toggle still reads
+      // "Collapse sidebar" — the panel is on screen until the timer takes it off,
+      // so the button is not the way back. What matters here is the timer: the
+      // panel never left the window and the frame never shrank, so this is not a
+      // second resize — the contents come straight back, and the collapse that
+      // was waiting must not take the panel off behind them.
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'f', ctrlKey: true, metaKey: false });
+      });
+      act(() => {
+        vi.advanceTimersByTime(PAST_THE_COLLAPSE_FADE);
+      });
+
+      expect(body().className).toContain('opacity-100');
+      expect(panel().className).not.toContain('hidden');
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(736, 348, 'keep'),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pans the picture the panel has cropped, at 1x', async () => {
+    // The no-room case the mode has to have an answer for: a picture whose fit
+    // already fills the display has nowhere to grow, so the panel takes its
+    // width out of the pane and crops the picture. At 1x, with no magnification
+    // in it at all — so the pan is not the zoom's doing, it is the panel's.
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '4000x3000', thumbnailUrl: 'blob:thumb' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      // The fit is the whole work area: 984x738 of picture in a 1000x754 pane
+      // (the padding, and the drag bar the pane does not include).
+      stubPaintedSizes(1000, 754, 984, 738);
+      act(() => {
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      });
+      // Nothing is cropped, so there is nothing to pan and no map to pan with.
+      expect(screen.queryByTestId('image-minimap')).toBeNull();
+
+      act(() => {
+        screen.getByLabelText('Expand sidebar').click();
+      });
+      await act(async () => {});
+
+      // The window is the work area either way — there is no room to grow — so
+      // the panel's 320 comes off the pane: 680 wide, holding a 984px picture.
+      stubPaintedSizes(1000 - PANEL, 754, 984, 738);
+      act(() => {
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      });
+      expect(screen.getByTestId('image-minimap')).toBeTruthy();
+
+      // …and a drag reaches the rest of it. The pane's travel is half the
+      // difference — (984 - 680) / 2 — so 100px of drag is 100px of picture.
+      const pane = document.getElementById('image-zoom-container')!;
+      fireEvent.mouseDown(pane, { button: 0, clientX: 300, clientY: 300 });
+      fireEvent.mouseMove(pane, { button: 0, clientX: 400, clientY: 300 });
+      fireEvent.mouseUp(pane, { button: 0, clientX: 400, clientY: 300 });
+
+      expect(picture().style.transform).toBe('translate(100px, 0px) scale(1)');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens the find-in-prompt panel inside the compact window', async () => {
+    // Find-in-prompt lives in the metadata panel, which a compact window now
+    // carries, so Ctrl+F docks the panel rather than handing the picture back to
+    // the desktop — and closing the search takes it off again, on the same terms
+    // as the ordinary viewer's sidebar: only when the search was what opened it.
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+      expect(panel().className).toContain('hidden');
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'f', ctrlKey: true, metaKey: false });
+      });
+      await act(async () => {});
+
+      expect(panel().className).not.toContain('hidden');
+      expect(screen.getByLabelText('Find in prompt')).toBeTruthy();
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(736, 348, 'keep'),
+      );
+
+      act(() => {
+        fireEvent.keyDown(screen.getByLabelText('Find in prompt'), {
+          key: 'Escape',
+        });
+      });
+      act(() => {
+        vi.advanceTimersByTime(PAST_THE_COLLAPSE_FADE);
+      });
+
+      expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+        compactPayload(416, 348, 'keep'),
+      );
     } finally {
       vi.useRealTimers();
     }

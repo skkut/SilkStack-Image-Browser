@@ -101,9 +101,50 @@ describe('computeViewBox', () => {
     layout: MinimapLayout = LANDSCAPE_LAYOUT,
   ) => computeViewBox({ ...metrics, pan, layout });
 
-  it('has nothing to say at 1x, where the whole image is already on screen', () => {
-    expect(at({ x: 0, y: 0 }, { ...LANDSCAPE, zoom: 1 })).toBeNull();
-    expect(at({ x: 0, y: 0 }, { ...LANDSCAPE, zoom: 0.5 })).toBeNull();
+  it('has nothing to say while the pane already shows the whole picture', () => {
+    // The fit: the image is no bigger than the pane, so a box would be the map.
+    // A different image means a different map, hence the matching layout.
+    expect(
+      at(
+        { x: 0, y: 0 },
+        {
+          imageWidth: 400,
+          imageHeight: 300,
+          viewportWidth: 400,
+          viewportHeight: 300,
+          zoom: 1,
+        },
+        fitMinimap(400, 300)!,
+      ),
+    ).toBeNull();
+    // Magnified, but the pane is large enough that even the zoomed image is
+    // inside it — a compact window grown to follow the zoom reads like this.
+    expect(
+      at(
+        { x: 0, y: 0 },
+        {
+          imageWidth: 200,
+          imageHeight: 150,
+          viewportWidth: 400,
+          viewportHeight: 300,
+          zoom: 2,
+        },
+        fitMinimap(200, 150)!,
+      ),
+    ).toBeNull();
+  });
+
+  it('draws a box at 1x when the pane is only part of the picture', () => {
+    // The compact window's docked panel: the picture keeps the size it had and
+    // the pane is what the panel left, so there is somewhere to travel without
+    // any zoom at all. 400x300 of 1000x800 display is 70x52.5 map px, centred on
+    // the map: (87.5, 70) is the pane's centre, so the box starts 35 and 26.25
+    // before it.
+    const box = at({ x: 0, y: 0 }, { ...LANDSCAPE, zoom: 1 })!;
+    expect(box.width).toBeCloseTo(70, 10);
+    expect(box.height).toBeCloseTo(52.5, 10);
+    expect(box.left).toBeCloseTo(52.5, 10);
+    expect(box.top).toBeCloseTo(43.75, 10);
   });
 
   it('reports nothing while the pane or the image is unmeasured', () => {

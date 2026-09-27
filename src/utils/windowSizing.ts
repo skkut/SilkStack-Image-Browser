@@ -170,9 +170,56 @@ export const COMPACT_MIN_FRACTION = 0.4;
 export const COMPACT_MIN_WINDOW_WIDTH = 272;
 export const COMPACT_MIN_WINDOW_HEIGHT = 160;
 
+/**
+ * The width of the metadata panel when it is docked inside a compact window —
+ * the same width the app's own sidebar uses, so the panel does not change shape
+ * when the viewer it is in does.
+ */
+export const COMPACT_SIDEBAR_WIDTH = 320;
+
 export interface CompactContentSize {
   contentWidth: number;
   contentHeight: number;
+}
+
+/**
+ * A reserved width read as a number of pixels to keep for the panel.
+ *
+ * Three rules in one place, because every caller has to agree about them: a
+ * reservation is never negative, never unusable (a NaN would poison every sum it
+ * enters), and never the whole pane — at least one pixel of picture is left,
+ * which is also what keeps the content width this produces inside the work area.
+ */
+function reservedWidthOf(reservedWidth: number, maxWidth: number): number {
+  if (!Number.isFinite(reservedWidth) || reservedWidth <= 0) return 0;
+  return Math.min(reservedWidth, Math.max(0, maxWidth - 1));
+}
+
+/**
+ * The width the metadata panel takes in a compact window.
+ *
+ * The panel is docked to the right of the picture at a fixed width, so the
+ * window it lives in is `picture + padding + panel` — and this is the one number
+ * the layout (the panel's own `width`) and the sizing rule (the `reservedWidth`
+ * parameter below) both read. A panel laid out at one width inside a window
+ * shaped for another is the picture and the frame disagreeing about where the
+ * pane is.
+ *
+ * Capped, and only on a display too narrow to hold both without squeezing the
+ * picture: what is left for the pane then keeps the width the window manager's
+ * own minimum is stated in (minus the padding the frame pays anyway), so the
+ * picture the mode exists for is not the thing that gives way — the panel is. On
+ * any display that can hold both — every real one: the cap only bites under
+ * 592px of work area — the panel is simply this constant.
+ */
+export function compactSidebarWidth(availWidth: number): number {
+  if (!Number.isFinite(availWidth) || availWidth <= 0) {
+    return COMPACT_SIDEBAR_WIDTH;
+  }
+  return Math.min(
+    COMPACT_SIDEBAR_WIDTH,
+    Math.max(0, availWidth - COMPACT_MIN_WINDOW_WIDTH),
+  );
 }
 
 /** Keep a user factor inside its sane range. */
@@ -221,13 +268,28 @@ export function compactDisplayCaps(
   };
 }
 
-/** The image area inside a compact window: the content minus padding and bar. */
+/**
+ * The image area inside a compact window: the content minus padding and bar, and
+ * minus anything reserved along the width for a docked panel.
+ *
+ * The reservation is a width and only a width: the panel is a right-hand column,
+ * so the height pays the same padding and the same drag bar whether it is there
+ * or not. Keeping the two in one function is what makes this the single
+ * definition of "the picture's pane" — every reader that measures an observed
+ * window goes through here, so none of them can forget the panel.
+ */
 export function compactImageArea(
   contentWidth: number,
   contentHeight: number,
+  reservedWidth = 0,
 ): { width: number; height: number } {
   return {
-    width: Math.max(1, contentWidth - COMPACT_PADDING * 2),
+    width: Math.max(
+      1,
+      contentWidth -
+        COMPACT_PADDING * 2 -
+        (Number.isFinite(reservedWidth) && reservedWidth > 0 ? reservedWidth : 0),
+    ),
     height: Math.max(
       1,
       contentHeight - COMPACT_PADDING * 2 - COMPACT_BAR_HEIGHT,
@@ -357,6 +419,18 @@ function compactFitContentSize(
  * here — see `compactZoomFactor`. Applying it would make this function produce a
  * frame larger than the picture, which is the one thing it exists to prevent.
  *
+ * `reservedWidth` is the metadata panel docked inside the window, and it is the
+ * one input that does **not** reach the picture. The picture's fit, its pinned
+ * size and the zoom clamps are all computed from the full work area either way —
+ * so the same image at the same factor is the same pixels whether the panel is
+ * open or not, which is what makes "the window grows by the panel's width" true
+ * rather than approximate. What the reservation changes is the *pane*: the frame
+ * is the pane plus the panel, and a pane too narrow for the picture crops it (at
+ * the pinned size, for the viewer's panning to reach the rest) rather than
+ * shrinking it. A panel that fits therefore grows the window by exactly its own
+ * width; one that does not leaves the window at the work area, with the pane
+ * taking what is left.
+ *
  * @returns the content size, or null when any input is unusable.
  */
 export function computeCompactContentSize(
@@ -366,6 +440,7 @@ export function computeCompactContentSize(
   availHeight: number,
   userScale = 1,
   zoom = 1,
+  reservedWidth = 0,
 ): CompactContentSize | null {
   const fit = compactFitContentSize(
     imgWidth,
@@ -395,8 +470,21 @@ export function computeCompactContentSize(
     Math.min(Math.floor(base.height * zoomFactor), Math.floor(maxHeight)),
   );
 
+  const reserved = reservedWidthOf(reservedWidth, maxWidth);
+  // The pane the frame has to hold the picture in, once the panel has taken its
+  // width. The picture is the size it always was — `displayWidth` above, which
+  // knows nothing about the panel — so where the two disagree the picture is
+  // cropped by its pane rather than scaled to it. Floored out of the reduced cap
+  // rather than subtracted from the floored one, so this and `compactPanAxes`
+  // are the same expression: a pane of picture a pixel wider than the frame is a
+  // hairline of background, a pixel narrower is nothing.
+  const paneWidth = Math.max(
+    1,
+    Math.min(displayWidth, Math.floor(maxWidth - reserved)),
+  );
+
   return {
-    contentWidth: displayWidth + COMPACT_PADDING * 2,
+    contentWidth: paneWidth + COMPACT_PADDING * 2 + reserved,
     contentHeight: displayHeight + COMPACT_PADDING * 2 + COMPACT_BAR_HEIGHT,
   };
 }
@@ -408,6 +496,11 @@ export function computeCompactContentSize(
  * One definition, used twice, which is the point: this is the size the viewer
  * pins its `<img>` to, and it is also the base every frame size is grown from —
  * so the picture and the frame can never disagree about what "1x" is.
+ *
+ * There is deliberately **no** reservation parameter here. A docked panel may
+ * narrow the pane the picture is shown in, but it must never change the picture:
+ * the whole reason the window can be grown by exactly the panel's width is that
+ * this size is a function of the image and the screen and nothing else.
  *
  * @returns the pinned size, or null when the inputs cannot describe a fit.
  */
@@ -560,6 +653,11 @@ export function compactWindowMinimumScale(
  *
  * A fit that cannot be read reports neither axis as pannable — with no evidence
  * that the picture is cropped, the picture is better left where it is.
+ *
+ * The axes are asked of the **pane**, which is why a docked panel (`reservedWidth`)
+ * belongs here: a panel can crop the picture at a magnification the display alone
+ * would have held whole, and an axis it has eaten is one the wheel must stop
+ * anchoring its panning on.
  */
 export function compactPanAxes(
   imgWidth: number,
@@ -568,6 +666,7 @@ export function compactPanAxes(
   availHeight: number,
   userScale = 1,
   zoom = 1,
+  reservedWidth = 0,
 ): { width: boolean; height: boolean } {
   const pin = compactPinnedSize(
     imgWidth,
@@ -580,6 +679,12 @@ export function compactPanAxes(
 
   const caps = compactDisplayCaps(availWidth, availHeight);
   const factor = compactZoomFactor(zoom);
+  // The pane's own caps: the panel is a right-hand column, so it narrows the
+  // width and leaves the height alone.
+  const paneCaps = {
+    width: caps.width - reservedWidthOf(reservedWidth, caps.width),
+    height: caps.height,
+  };
 
   // The pane the pan is clamped against, once the window has taken the size this
   // magnification asks for: the frame's image area (`min(floor(base x zoom),
@@ -598,8 +703,8 @@ export function compactPanAxes(
     paneOf(base, cap) < base * factor - 1;
 
   return {
-    width: cropped(pin.width, caps.width),
-    height: cropped(pin.height, caps.height),
+    width: cropped(pin.width, paneCaps.width),
+    height: cropped(pin.height, paneCaps.height),
   };
 }
 
@@ -642,6 +747,13 @@ export function compactPanAxes(
  * rather than the user's choice — which leaves the reading to the axis that
  * still had room to be dragged.
  *
+ * `reservedWidth` is a docked metadata panel, and it is read out of the observed
+ * window for the same reason the padding is: what the user's hand said is about
+ * the *picture*, and the panel is a fixed cost the next window may not be paying.
+ * Left in, a drag made with the panel open would be remembered as a window the
+ * panel's own width wider — a preference several times the size the user made,
+ * on every image that followed.
+ *
  * @returns the factor to remember, or 1 when the inputs cannot describe a fit.
  */
 export function userScaleFromResize(
@@ -652,6 +764,7 @@ export function userScaleFromResize(
   observedWidth: number,
   observedHeight: number,
   zoom = 1,
+  reservedWidth = 0,
 ): number {
   const caps = compactDisplayCaps(availWidth, availHeight);
   if (
@@ -664,8 +777,16 @@ export function userScaleFromResize(
   ) {
     return 1;
   }
+  const paneCaps = {
+    width: caps.width - reservedWidthOf(reservedWidth, caps.width),
+    height: caps.height,
+  };
   const displayFit = Math.min(caps.width / imgWidth, caps.height / imgHeight);
-  const observed = compactImageArea(observedWidth, observedHeight);
+  const observed = compactImageArea(
+    observedWidth,
+    observedHeight,
+    reservedWidth,
+  );
   const factor = compactZoomFactor(zoom);
 
   // Which of the two readings the frame on screen belongs to, decided by the
@@ -699,12 +820,17 @@ export function userScaleFromResize(
   // are needed: the axis has to be able to reach the cap at this magnification
   // *and* actually be sitting at it, so a user who has pulled the window in
   // below the cap is still read.
+  //
+  // The cap is the *pane's*, not the display's: with a panel docked, the width
+  // the frame stops at is the panel's worth short of the display, and reading it
+  // against the display's would call that axis free — and remember the panel as
+  // part of the window the user asked for.
   const boundW =
-    largest.width * factor >= caps.width - 1 &&
-    observed.width >= caps.width - COMPACT_CAP_SLACK;
+    largest.width * factor >= paneCaps.width - 1 &&
+    observed.width >= paneCaps.width - COMPACT_CAP_SLACK;
   const boundH =
-    largest.height * factor >= caps.height - 1 &&
-    observed.height >= caps.height - COMPACT_CAP_SLACK;
+    largest.height * factor >= paneCaps.height - 1 &&
+    observed.height >= paneCaps.height - COMPACT_CAP_SLACK;
   // One bound axis, one free: the free one is the statement. A frame against the
   // display on *both* axes has not been resized at all — there is nowhere to drag
   // it — and the neutral answer is the fit, which is what it is sitting at.

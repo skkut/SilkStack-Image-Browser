@@ -38,6 +38,7 @@ import {
   compactMinUserScale,
   compactWindowMinimumScale,
   compactPanAxes,
+  compactSidebarWidth,
   clampUserScale,
   userScaleFromResize,
   COMPACT_MODE_STORAGE_KEY,
@@ -623,6 +624,41 @@ const cancelCompactGrow = (
   sendRef.current = null;
 };
 
+/**
+ * How long the docked panel's contents take to fade in and out, in ms.
+ *
+ * Two things keep to it: the transition on the panel's contents and the wait
+ * before a closing panel is taken off the window. Skipping the fade on the way
+ * out and shrinking at once would take the panel's right edge away while its
+ * contents sat still, which reads as the panel being eaten rather than
+ * withdrawn. Keep in sync with the `duration-200` on those contents.
+ */
+const COMPACT_PANEL_FADE_MS = 200;
+/** The same fade, plus a beat, so the panel outlives its own contents. */
+const COMPACT_PANEL_COLLAPSE_MS = COMPACT_PANEL_FADE_MS + 40;
+
+/**
+ * Drop a panel collapse that is still waiting, and forget the panel with it.
+ *
+ * Called where the wait has lost its meaning — the mode was left, so there is no
+ * compact frame to shrink and nothing for the fade to be about. The panel has to
+ * go *now* rather than when the timer would have fired, because the next compact
+ * window is shaped around the picture and only the picture.
+ *
+ * Takes the ref and the two setters structurally rather than as React types, so
+ * it can live outside the component the way `cancelCompactGrow` does.
+ */
+const resetCompactPanel = (
+  timerRef: { current: number | undefined },
+  setOpen: (open: boolean) => void,
+  setReady: (ready: boolean) => void,
+): void => {
+  window.clearTimeout(timerRef.current);
+  timerRef.current = undefined;
+  setOpen(false);
+  setReady(false);
+};
+
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
   onClose,
@@ -858,6 +894,32 @@ const ImageModal: React.FC<ImageModalProps> = ({
     return clampUserScale(Number(localStorage.getItem(COMPACT_SCALE_STORAGE_KEY)));
   });
 
+  // Whether the metadata panel is docked inside the compact window. Deliberately
+  // not persisted: entering the mode starts as the image alone — there has to be
+  // a window shaped to the picture before there is anything to dock beside it —
+  // and the persisted sidebar flag stays the ordinary viewer's business. The
+  // button presses that do write it are made while compact, and mirror into that
+  // flag so leaving the mode agrees with what was on screen.
+  const [compactPanelOpen, setCompactPanelOpen] = useState(false);
+
+  // Whether the docked panel's contents may be shown yet. The panel is rendered
+  // in the same commit that asks the window to grow, and the window takes an IPC
+  // round trip to do it; until the reply says it has, the contents are held
+  // transparent — so what fades in is a panel already sitting in a frame of its
+  // own size, rather than one that jumps sideways as the frame grows under it.
+  const [compactPanelReady, setCompactPanelReady] = useState(false);
+
+  // A collapse waiting for its fade to finish. Its presence doubles as "a
+  // collapse is in flight", which is what tells a reply landing meanwhile not to
+  // fade the contents back in.
+  const compactPanelTimerRef = useRef<number | undefined>(undefined);
+
+  // The panel width the last size request was shaped for. A change here is a
+  // panel toggle — the one resize that has to keep the frame's left edge, since
+  // the panel is docked on the right and growing about the centre would slide the
+  // picture sideways by half the panel's width.
+  const compactReservedRef = useRef(0);
+
   // ---- Find-in-prompt (Ctrl+F) state ----
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -867,23 +929,67 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const promptSectionRef = useRef<HTMLDivElement>(null); // wraps the Prompt item
   const sidebarAutoExpandedRef = useRef(false); // Ctrl+F expanded the sidebar
   const sidebarUserToggledRef = useRef(false); // user toggled sidebar mid-search
+  // The same record for a compact window, whose panel is its own state: Ctrl+F
+  // docked the panel, so closing the search takes it back off.
+  const compactPanelAutoOpenedRef = useRef(false);
+
+  /**
+   * Dock or undock the metadata panel inside the compact window.
+   *
+   * Opening is immediate: the panel is rendered, and the size request that grows
+   * the window to hold it goes out, in the same commit — the contents stay
+   * transparent until the reply says the frame has taken its new size (see
+   * `compactPanelReady`).
+   *
+   * Closing is sequenced, and the order is the whole point. Shrinking first would
+   * take the panel's right edge away while its contents sat still, which reads as
+   * the panel being eaten rather than withdrawn; so the contents fade out, and
+   * only then is the panel taken off the window and the frame shrunk back to the
+   * picture.
+   */
+  const setCompactPanel = useCallback((open: boolean) => {
+    window.clearTimeout(compactPanelTimerRef.current);
+    // A collapse caught before its fade finished. Nothing was ever taken off the
+    // window: the panel is still docked and the frame is still the one shaped
+    // for it, so the contents may come straight back. Waiting for a reply to
+    // "make room" would wait forever — the request it would make is the size
+    // already in force, which the sizing rule recognises and does not resend.
+    const collapseCancelled = compactPanelTimerRef.current !== undefined;
+    compactPanelTimerRef.current = undefined;
+    if (open) {
+      setCompactPanelOpen(true);
+      if (collapseCancelled) setCompactPanelReady(true);
+      return;
+    }
+    setCompactPanelReady(false);
+    compactPanelTimerRef.current = window.setTimeout(() => {
+      compactPanelTimerRef.current = undefined;
+      setCompactPanelOpen(false);
+    }, COMPACT_PANEL_COLLAPSE_MS);
+  }, []);
 
   // Manual sidebar toggle (buttons) — remembers user intent so closeSearch
   // doesn't undo a manual collapse/expand made while the search was open.
   const toggleSidebar = useCallback(() => {
     sidebarUserToggledRef.current = true;
     // Compact hides the panel whatever the flag says, so the button reads
-    // "Expand" there. That makes the press it offers "leave compact mode and
-    // show the panel" rather than a flip of a flag with nothing on screen to
-    // show for it. The flag itself is only written to when it would be
-    // visible, so entering compact cannot rewrite the user's preference.
+    // "Expand" there. What it offers is now the panel *in* the compact window:
+    // the picture keeps the size it has and the window grows by the panel's
+    // width to hold it, which is the one thing the press used to undo by leaving
+    // the mode and re-fitting the window to the app's ordinary viewer.
+    //
+    // The persisted flag is mirrored rather than left alone, so the ordinary
+    // viewer the user returns to shows what was last on screen. Entering the mode
+    // still writes nothing — see the init above — so the preference itself is
+    // never rewritten by a mode the user only visited.
     if (isCompactMode) {
-      setIsCompactMode(false);
-      setIsSidebarCollapsed(false);
+      const open = !compactPanelOpen;
+      setCompactPanel(open);
+      setIsSidebarCollapsed(!open);
       return;
     }
     setIsSidebarCollapsed((c) => !c);
-  }, [isCompactMode]);
+  }, [isCompactMode, compactPanelOpen, setCompactPanel]);
 
   useEffect(() => {
     // Only the standalone viewer owns this preference — see the init above.
@@ -915,39 +1021,73 @@ const ImageModal: React.FC<ImageModalProps> = ({
   }, [isCompactMode, isFullscreen]);
 
   // A window sized for a 100%-scale image cannot hold a zoomed one — start
-  // each compact session from a clean 1x view.
+  // each compact session from a clean 1x view, and from the image alone: the
+  // window has to be shaped to the picture before there is anything to dock
+  // beside it. A collapse still waiting from the last session is dropped with
+  // it, or it would hide a panel this render has not opened yet.
   useEffect(() => {
-    if (isCompactMode) {
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-    }
+    if (!isCompactMode) return;
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    resetCompactPanel(
+      compactPanelTimerRef,
+      setCompactPanelOpen,
+      setCompactPanelReady,
+    );
   }, [isCompactMode]);
 
+  // A collapse still waiting when the viewer goes away would fire against a
+  // panel that is no longer there.
+  useEffect(
+    () => () =>
+      resetCompactPanel(
+        compactPanelTimerRef,
+        setCompactPanelOpen,
+        setCompactPanelReady,
+      ),
+    [],
+  );
+
   const openSearch = useCallback(() => {
-    // Find-in-prompt lives in the metadata panel, which compact mode hides —
-    // so searching implies leaving compact mode.
-    setIsCompactMode(false);
+    sidebarUserToggledRef.current = false;
+    // Find-in-prompt lives in the metadata panel — which a compact window now
+    // carries too, so searching opens the panel rather than leaving the mode.
+    if (isCompactMode) {
+      compactPanelAutoOpenedRef.current = !compactPanelOpen;
+      setCompactPanel(true);
+      setIsSearchOpen(true);
+      return;
+    }
     // Expand only when we're the one doing it; recorded for restore-on-close.
     setIsSidebarCollapsed((collapsed) => {
       sidebarAutoExpandedRef.current = collapsed;
       return false;
     });
-    sidebarUserToggledRef.current = false;
     setIsSearchOpen(true);
-  }, []);
+  }, [isCompactMode, compactPanelOpen, setCompactPanel]);
 
   const closeSearch = useCallback(() => {
     setIsSearchOpen(false);
     setSearchQuery("");
     setActiveMatch(0);
     setMatchCount(0);
+    // The panel the search was opened in goes back to what it was, on the same
+    // terms as the ordinary viewer's sidebar: only if we were the one who
+    // expanded it.
+    if (
+      compactPanelAutoOpenedRef.current &&
+      !sidebarUserToggledRef.current
+    ) {
+      setCompactPanel(false);
+    }
+    compactPanelAutoOpenedRef.current = false;
     // Restore the pre-search collapsed state unless the user toggled manually.
     if (sidebarAutoExpandedRef.current && !sidebarUserToggledRef.current) {
       setIsSidebarCollapsed(true);
     }
     sidebarAutoExpandedRef.current = false;
     sidebarUserToggledRef.current = false;
-  }, []);
+  }, [setCompactPanel]);
 
   // Cycle with wrap-around; no-op when there is nothing to cycle.
   const goToMatch = (delta: number) => {
@@ -1034,13 +1174,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
     !viewMetrics ||
     viewMetrics.imageWidth * zoom > viewMetrics.viewportWidth + 1 ||
     viewMetrics.imageHeight * zoom > viewMetrics.viewportHeight + 1;
-  // Panning moves the picture inside the pane, so it needs both a magnification
-  // and somewhere to move it to.
-  const canPan = zoom > 1 && (!isCompactMode || imageOverflowsPane);
+  // Panning moves the picture inside the pane, so what it needs is somewhere to
+  // move it to — and in a compact window that is the *pane*, which the docked
+  // panel can crop the picture to even at 1x. So the mode reads the pane's own
+  // answer, where a bare `zoom > 1` would refuse to pan a picture the user can
+  // only half see. (Outside the mode the pane is a fixed share of the app window,
+  // so a magnified picture is always bigger than it and the two readings agree.)
+  const canPan = isCompactMode ? imageOverflowsPane : zoom > 1;
 
-  // The minimap earns its place only once the image is zoomed past its fit (below
-  // that the box would cover the whole map) and only once the pane and image have
-  // both been measured — which is what keeps it off the pre-load skeleton.
+  // The minimap earns its place only once the picture is bigger than the pane
+  // holding it — a picture the pane fits draws a box that is the whole map — and
+  // only once the pane and image have both been measured, which is what keeps it
+  // off the pre-load skeleton. `canPan` is that statement in both its meanings,
+  // including a compact pane the docked panel has cropped at 1x, where the map
+  // is the only thing that says where the part that is off-screen went.
   const showMinimap =
     !isVideo &&
     canPan &&
@@ -1123,12 +1270,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // than the container) for per-axis accuracy.
   const clampPan = useCallback(
     (x: number, y: number, currentZoom: number): { x: number; y: number } => {
-      if (!containerRef.current || !imgRef.current || currentZoom <= 1)
-        return { x: 0, y: 0 };
+      if (!containerRef.current || !imgRef.current) return { x: 0, y: 0 };
       const { clientWidth: cw, clientHeight: ch } = containerRef.current;
       const { clientWidth: iw, clientHeight: ih } = imgRef.current;
       // The scaled image must stay large enough to fill the viewport edge-to-edge.
       // maxPan = half of (scaled image size - container size), floored at 0.
+      //
+      // A picture no bigger than its pane has nowhere to go, and the two lines
+      // below already say so — they come out at 0 exactly then. The `zoom <= 1`
+      // test that used to stand in front of them was reading the same thing in
+      // the ordinary viewer, where the pane is a fixed share of the app window
+      // and so a magnified picture is always the bigger of the two. A compact
+      // pane is the case where the two part: the metadata panel crops it, and
+      // the picture overflowing it at 1x is the whole point of docking one.
       const maxX = Math.max(0, (iw * currentZoom - cw) / 2);
       const maxY = Math.max(0, (ih * currentZoom - ch) / 2);
       return {
@@ -1363,6 +1517,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // The size the picture is laid out at while the frame is compact — the fixed
   // shape the window grows around, with the zoom left out of it for the
   // transform to supply. Null in every other mode, where the image sizes itself.
+  //
+  // Deliberately measured against the *whole* work area, panel or no panel: this
+  // is the picture, and the picture is not a function of the metadata panel. That
+  // one decision is what makes the window grow by exactly the panel's width to
+  // hold it, and what makes a display with no room left crop the pane rather than
+  // rescale the file.
   const compactAvail =
     isCompactMode && !isFullscreen ? compactAvailSize() : null;
   const compactPin = compactAvail
@@ -1374,6 +1534,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
         compactUserScale,
       )
     : null;
+
+  // The width the docked panel takes from the compact frame — the same number
+  // the panel is laid out at and the sizing rule reserves, and 0 whenever there
+  // is no panel to make room for. It is read rather than written into
+  // `compactPin`: the panel never resizes the picture.
+  const compactPanelWidth =
+    compactAvail && compactPanelOpen ? compactSidebarWidth(compactAvail.width) : 0;
+  const compactPanelDocked = compactPanelWidth > 0;
 
   // The smallest the remembered window size may be left at, for this image on
   // this display: 40% of the screen on the frame's longest side, or the window
@@ -1473,6 +1641,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
     const requestedZoom =
       compactFitKeyRef.current === image.id ? compactZoom : 1;
 
+    // The panel the window is shaped around, read from the same place the layout
+    // reads it. A panel whose width changed since the last request is a toggle,
+    // which decides the anchor further down.
+    const reserved = compactPanelDocked
+      ? compactSidebarWidth(availWidth)
+      : 0;
+
     const size = computeCompactContentSize(
       naturalWidth,
       naturalHeight,
@@ -1480,20 +1655,25 @@ const ImageModal: React.FC<ImageModalProps> = ({
       availHeight,
       compactUserScale,
       requestedZoom,
+      reserved,
     );
     if (!size) return;
 
-    // The largest this window may ever be: the fit at scale 1. The main process
-    // hands it to the window manager as the window's maximum, and Windows
-    // consults that maximum *before* it commits a maximise — so the OS's own
-    // maximise gesture lands on the compact maximum directly, and the
-    // work-area-sized frame it would otherwise paint on the way is never drawn.
+    // The largest this window may ever be: the fit at scale 1, plus whatever the
+    // docked panel takes — the maximum has to cover the panel too, or the OS's
+    // own maximise would land on a frame the panel no longer fits in. The main
+    // process hands it to the window manager as the window's maximum, and Windows
+    // consults that maximum *before* it commits a maximise — so the maximise
+    // gesture lands on the compact maximum directly, and the work-area-sized
+    // frame it would otherwise paint on the way is never drawn.
     const ceiling = computeCompactContentSize(
       naturalWidth,
       naturalHeight,
       availWidth,
       availHeight,
       1,
+      1,
+      reserved,
     );
 
     // Everything this request would say, as one value. A window that has already
@@ -1504,6 +1684,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // because the same numbers for another picture are a fresh fit, and the
     // counter because a fill-the-screen request has to go out even when the size
     // it asks for is the one already in force.
+    // The reservation is in the key as well as the sizes it produces: on a
+    // display with no room to grow, docking the panel leaves the window exactly
+    // the size it already is — and that request still has to go out, because the
+    // reply is what tells the panel its frame is ready (see `compactPanelReady`).
     const requestKey = [
       image.id,
       size.contentWidth,
@@ -1511,6 +1695,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       ceiling?.contentWidth,
       ceiling?.contentHeight,
       compactFillRequest,
+      reserved,
     ].join(":");
 
     // Recorded whether or not the message goes out: what the next re-fit has to
@@ -1522,7 +1707,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
     compactFitKeyRef.current = image.id;
     compactZoomRef.current = requestedZoom;
 
-    if (compactRequestKeyRef.current === requestKey) return;
+    if (compactRequestKeyRef.current === requestKey) {
+      // Nothing to send — the frame already has the size this asks for. A docked
+      // panel is still owed the "your frame is ready" the reply would have
+      // brought, or it would sit transparent until something else moved. (The
+      // mode's own paths all send a request when a panel appears, so this is the
+      // net under them rather than a route it takes: a panel left invisible has
+      // no other way back.)
+      if (reserved > 0 && compactPanelTimerRef.current === undefined) {
+        setCompactPanelReady(true);
+      }
+      return;
+    }
     compactRequestKeyRef.current = requestKey;
 
     // Centre everything the viewer itself asked for, and leave a window the
@@ -1537,10 +1733,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // would crawl the picture across the screen as the user scrolls. (Nor does
     // "center" mean "back to the app window" — the main process anchors on where
     // a window the user moved by hand is *now*, so a size step keeps that.)
+    //
+    // Docking or undocking the panel joins the hand-drag on the "keep" side, and
+    // for a sharper reason than any of the above: the panel hangs off the frame's
+    // right-hand side, so a window grown about its centre moves the *picture*
+    // sideways by half the panel's width. Holding the left edge is what keeps a
+    // panel toggle from touching a single pixel of the picture.
+    const panelToggled = compactReservedRef.current !== reserved;
+    compactReservedRef.current = reserved;
     const anchor: "center" | "keep" =
-      previousFit === image.id &&
-      previousZoom === requestedZoom &&
-      compactHandSizedRef.current
+      panelToggled ||
+      (previousFit === image.id &&
+        previousZoom === requestedZoom &&
+        compactHandSizedRef.current)
         ? "keep"
         : "center";
 
@@ -1572,6 +1777,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
         // the work area it caps a large one. Left uncorrected, a size we never
         // took is the one thing the resize effect below reads as a hand-drag.
         if (!result?.success) return;
+        // A docked panel is owed the frame this reply describes before its own
+        // contents are allowed in: the panel is rendered transparent until the
+        // window has taken the size that holds it, so what the user sees is one
+        // resize with the contents fading in behind it, rather than a panel
+        // drawn in a window that has not grown yet. Skipped while a collapse is
+        // in flight — the pending timer means the panel is on its way out, and a
+        // slow reply landing mid-fade must not bring it back.
+        if (reserved > 0 && compactPanelTimerRef.current === undefined) {
+          setCompactPanelReady(true);
+        }
         if (!result.contentWidth || !result.contentHeight) return;
         // Holding an arrow key down can outrun the round-trip, and a reply that
         // lands after the viewer has moved on describes a window that is no
@@ -1676,6 +1891,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
     naturalWidth,
     naturalHeight,
     compactUserScale,
+    // Docking or undocking the panel is a resize like any other, and the only
+    // thing that changes in this effect for it — the sizes it computes are a
+    // function of the reservation, so leaving this out would dock a panel into a
+    // window that was never asked to make room for it.
+    compactPanelDocked,
     compactFillRequest,
     image.id,
     // Through `compactZoom`, not `zoom`: outside the mode the magnification is
@@ -1723,6 +1943,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
         // next drag instead of pinning every image to full size for good.
         const availWidth = window.screen?.availWidth || window.innerWidth;
         const availHeight = window.screen?.availHeight || window.innerHeight;
+        // A docked panel is a cost the *next* window may not be paying, so it
+        // comes out of the observation the same way the padding does: what the
+        // user's hand said is about the picture they were looking at, and the
+        // window they were looking at was a panel's width wider for it.
+        const reserved = compactPanelDocked
+          ? compactSidebarWidth(availWidth)
+          : 0;
         const next = userScaleFromResize(
           naturalWidth,
           naturalHeight,
@@ -1736,6 +1963,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           // user touches anything, so without it a drag at 3x would remember
           // "three times as large" and open the next image at nine.
           compactZoomRef.current,
+          reserved,
         );
         // Refused, not clamped, when it falls under the smallest frame the
         // window manager will make: a remembered size that small would have the
@@ -1744,6 +1972,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
         // Refusing leaves the factor alone, so nothing here re-fits anything:
         // the window the user dragged keeps the size their hand gave it, and the
         // preference stays at the last size both images could honour.
+        //
+        // That floor is read *without* the panel, deliberately. A docked panel
+        // widens the frame the floor is about, so the true floor with one open is
+        // a little lower than this — and the error is in the direction that costs
+        // nothing: the drag the user made still stands, only the memory of a size
+        // this small is dropped. Read with the panel it would have to be stored
+        // as a share that no panel-less window could honour later.
         if (
           next <
           compactWindowMinimumScale(
@@ -1773,14 +2008,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
     naturalWidth,
     naturalHeight,
     compactUserScale,
+    compactPanelDocked,
   ]);
 
-  // The metadata panel is hidden in compact mode without touching the user's
-  // persisted sidebar preference (which the Ctrl+F flow reads and restores).
-  // The sidebar buttons read this rather than the flag alone: while compact the
-  // panel is hidden either way, so they show "Expand" — the state the panel is
-  // actually in — instead of claiming there is something to collapse.
-  const sidebarHidden = isCompactMode || isSidebarCollapsed;
+  // Whether the metadata panel is off screen. Compact mode has its own answer,
+  // because its panel is per-window and starts closed: the mode is entered as the
+  // picture alone, and the panel then opens *inside* the compact window (which
+  // grows for it) rather than by leaving the mode for the app's own viewer size.
+  // The persisted preference is still the normal view's business — the compact
+  // toggle mirrors its own state into it, so what is on screen agrees with it
+  // when the mode ends — and the sidebar buttons read this rather than the flag
+  // alone, so they describe the panel the user can actually see.
+  const sidebarHidden = isCompactMode ? !compactPanelOpen : isSidebarCollapsed;
 
   const videoInfo = (nMeta as any)?.video;
   const motionModel = (nMeta as any)?.motion_model;
@@ -2021,6 +2260,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
             avail.height,
             compactUserScale,
             newZoom,
+            // The docked panel crops the picture the same way the display's edge
+            // does, so its width is part of the frame the pan is clamped against
+            // — an axis it has eaten is one the wheel must not anchor on.
+            compactPanelDocked ? compactSidebarWidth(avail.width) : 0,
           );
         }
 
@@ -2055,6 +2298,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
       naturalWidth,
       naturalHeight,
       compactUserScale,
+      compactPanelDocked,
       stepCompactSize,
     ],
   );
@@ -2539,10 +2783,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
             >
               <Trash2 size={14} />
             </button>
-            {/* Kept while compact, where it reads "Expand": pressing it leaves
-                the mode and hands the panel back, so the bar keeps the same
-                buttons in both states. The content width it costs is why the
-                compact floor is as wide as it is — see COMPACT_MIN_WIDTH. */}
+            {/* Kept while compact, and it keeps the same meaning there: the
+                panel opens *inside* the compact window. It docks to the right of
+                the picture, the window grows by its width to hold it, and the
+                picture keeps every pixel it had — the mode is not left, so the
+                window the user shaped to their image is not thrown away. The
+                content width it costs is why the compact floor is as wide as it
+                is — see COMPACT_MIN_WIDTH. */}
             <button
               onClick={(e) => { e.stopPropagation(); toggleSidebar(); }}
               className="text-gray-400 hover:text-gray-50 hover:bg-gray-500/10 rounded-full p-1.5 transition-colors"
@@ -2566,7 +2813,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
             ? "w-full h-full rounded-none"
             : isStandaloneWindow ? "flex-1 w-full rounded-none overflow-hidden"
             : "w-full h-full max-w-[98vw] max-h-[98vh] bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden ring-1 ring-gray-50/10"
-        } relative group/modal flex flex-col md:flex-row animate-in fade-in zoom-in-95`}
+        } relative group/modal flex ${
+          // A compact window is the picture's own size and can be narrower than
+          // the `md` breakpoint, where the ordinary layout stacks the two — but
+          // the pane and the panel here are a row by construction: the panel is a
+          // right-hand column the window was measured around, so it has to stay
+          // beside the picture whatever the window's width.
+          isCompactMode ? "flex-row" : "flex-col md:flex-row"
+        } animate-in fade-in zoom-in-95`}
         onClick={(e) => {
           e.stopPropagation();
           hideContextMenu();
@@ -2576,7 +2830,17 @@ const ImageModal: React.FC<ImageModalProps> = ({
         <div
           id="image-zoom-container"
           ref={containerRef}
-          className={`w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"} bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode ? "" : "transition-[width] duration-300"}`}
+          // While compact the pane takes whatever the docked panel leaves, and
+          // its width is never animated: the *window* is what moves, so an eased
+          // pane would trail the frame it is in. `min-w-0` is what lets it be
+          // narrower than the picture — without it a flex item refuses to shrink
+          // past its content, and the pinned picture would hold the pane open
+          // instead of being cropped by it.
+          className={`${
+            isCompactMode && !isFullscreen
+              ? "flex-1 min-w-0 h-full"
+              : `w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"}`
+          } bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode ? "" : "transition-[width] duration-300"}`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
@@ -2636,8 +2900,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 }}
                 // At or below the fit: the whole picture is inside the window, so
                 // there is nothing a pan gesture could reach and dragging the file
-                // out is as valid as it is at 100%.
-                draggable={canDragExternally && zoom <= 1}
+                // out is as valid as it is at 100%. A pane the metadata panel has
+                // cropped is the exception the pan test catches — the picture does
+                // overflow it, the two gestures would be fighting over the same
+                // pointer, and the pan is the one the mode is for.
+                draggable={canDragExternally && !canPan}
               />
             )
           ) : (
@@ -2838,12 +3105,37 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Metadata Panel */}
         <div
           data-testid="metadata-panel"
-          className={`w-full ${sidebarHidden ? "hidden" : "md:w-1/4 h-1/2 md:h-full"} flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
+          // Docked in a compact window, the panel is the fixed column the window
+          // was measured around, so its width is the same number the sizing rule
+          // reserved — set here rather than in a class, because the two have to
+          // be one value and a class cannot hold one. Closed, it is `hidden`
+          // outright: a panel taking up room the window was not sized for is the
+          // picture and the frame disagreeing about where the pane is.
+          style={compactPanelDocked ? { width: compactPanelWidth } : undefined}
+          className={`${
+            isCompactMode && compactPanelDocked
+              ? "shrink-0 h-full border-l border-gray-800/60"
+              : `w-full ${sidebarHidden ? "hidden" : "md:w-1/4 h-1/2 md:h-full"}`
+          } flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
         >
           {isSearchOpen && (
             <div
               data-search-bar
-              className="shrink-0 px-3 pt-3 pb-2 border-b border-gray-800/80 bg-gray-900/70 flex items-center gap-2 z-10"
+              // Docked, the contents wait for the window to take the size that
+              // holds them: held transparent and a couple of pixels left, so the
+              // fade that follows is into a frame already the right size rather
+              // than a panel jumping sideways as the frame grows under it. The
+              // class is on both of the panel's children, so they arrive as one
+              // thing — see the body below.
+              className={`shrink-0 px-3 pt-3 pb-2 border-b border-gray-800/80 bg-gray-900/70 flex items-center gap-2 z-10 ${
+                compactPanelDocked
+                  ? `transition duration-200 ease-out ${
+                      compactPanelReady
+                        ? "opacity-100 translate-x-0"
+                        : "opacity-0 -translate-x-2"
+                    }`
+                  : ""
+              }`}
             >
               <Search className="w-3.5 h-3.5 text-gray-500 shrink-0" />
               <input
@@ -2897,7 +3189,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </button>
             </div>
           )}
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-4 p-6">
+          <div
+            data-testid="metadata-panel-body"
+            className={`flex-1 min-h-0 overflow-y-auto space-y-4 p-6 ${
+              compactPanelDocked
+                ? `transition duration-200 ease-out ${
+                    compactPanelReady
+                      ? "opacity-100 translate-x-0"
+                      : "opacity-0 -translate-x-2"
+                  }`
+                : ""
+            }`}
+          >
             {isRenaming ? (
               <div className="flex gap-2">
                 <input

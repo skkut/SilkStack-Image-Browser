@@ -109,8 +109,15 @@ export interface ViewBoxInput extends MinimapMetrics {
 /**
  * The pane's visible window, expressed in minimap px.
  *
- * At scale 1 the whole image is on screen and the box would cover the whole map,
- * so this reports null: the map has nothing to say until the user zooms in.
+ * Reports null when the pane already shows the whole picture — a box that covers
+ * the map is not a map — and when anything it would be drawn from is missing.
+ *
+ * That first condition is stated as what it is rather than as "the user has not
+ * zoomed in": the two agree everywhere the map has been mounted so far (the pane
+ * is a fixed share of the app window, and the picture at 100% is laid out to fit
+ * it), but a compact window's docked panel can crop the picture at 1x, and there
+ * the box is a real rectangle and the map is the only thing that says where the
+ * hidden part is.
  */
 export function computeViewBox(input: ViewBoxInput): ViewBox | null {
   const { imageWidth, imageHeight, pan, layout } = input;
@@ -119,9 +126,17 @@ export function computeViewBox(input: ViewBoxInput): ViewBox | null {
   if (!isPositive(input.viewportWidth) || !isPositive(input.viewportHeight))
     return null;
   if (!layout || !isPositive(layout.scale)) return null;
-  if (!Number.isFinite(input.zoom) || input.zoom <= 1) return null;
+  // A positive zoom is a divisor below (`viewportWidth / zoom`, `pan.x / zoom`).
+  if (!Number.isFinite(input.zoom) || input.zoom <= 0) return null;
 
   const extent = visibleExtent(input, layout);
+  // `visibleExtent` never exceeds the image, so an extent that reaches the map on
+  // both axes means the picture fits its pane and there is nothing to travel to.
+  // The comparison is exact: when the min picks the image, both sides are that
+  // same product with `layout.scale`.
+  if (extent.width >= layout.width && extent.height >= layout.height) {
+    return null;
+  }
 
   // Where the pane's centre sits on the image. Panning the image right (+x)
   // reveals what was to the left of the previous centre, hence the minus.

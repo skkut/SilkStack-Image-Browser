@@ -8,6 +8,7 @@ import {
   compactPanAxes,
   parseDimensionsString,
   compactImageArea,
+  compactSidebarWidth,
   clampUserScale,
   userScaleFromResize,
   COMPACT_BAR_HEIGHT,
@@ -18,6 +19,7 @@ import {
   COMPACT_MAX_USER_SCALE,
   COMPACT_MIN_WINDOW_WIDTH,
   COMPACT_MIN_WINDOW_HEIGHT,
+  COMPACT_SIDEBAR_WIDTH,
 } from '../utils/windowSizing';
 
 /**
@@ -758,6 +760,148 @@ describe('userScaleFromResize', () => {
     expect(userScaleFromResize(0, 0, 1000, 1000, 704, 392)).toBe(1);
     expect(userScaleFromResize(1000, 500, 10, 10, 704, 392)).toBe(1);
     expect(userScaleFromResize(...FIT, NaN, 392)).toBe(1);
+  });
+});
+
+/**
+ * The metadata panel docked inside a compact window, as one reservation
+ * (`reservedWidth`) threaded through the sizing rule.
+ *
+ * The contract it rests on: **the picture is not a function of the panel**. Its
+ * pinned size, its fit and its zoom clamps are all read from the whole work area
+ * either way, so the same image at the same factor is the same pixels with the
+ * panel open as with it shut. What the reservation changes is the *pane* — the
+ * frame is the pane plus the panel — which is what makes the window grow by
+ * exactly the panel's width when there is room for it, and crop the picture when
+ * there is not.
+ */
+describe('a docked metadata panel', () => {
+  // A 1000x1000 work area, whose own caps are 984 x 952 of image area — and a
+  // panel of the app's own sidebar width, which on a display this size is more
+  // than a third of everything the picture had.
+  const DISPLAY = [1000, 1000] as const;
+  const PANEL = COMPACT_SIDEBAR_WIDTH;
+
+  it('grows the window by the panel and leaves the picture alone', () => {
+    // The load-bearing rule, asserted as an identity: the pane a panel-framed
+    // window leaves is `compactPinnedSize` to the pixel — the size the viewer
+    // pins its <img> to — and the window is exactly that plus the panel. It is
+    // why the picture's pixels are identical whether the panel is open or shut,
+    // and why no caller has to feed the panel into the pinned size.
+    const closed = computeCompactContentSize(400, 300, ...DISPLAY)!;
+    const open = computeCompactContentSize(400, 300, ...DISPLAY, 1, 1, PANEL)!;
+
+    expect(open.contentWidth).toBe(closed.contentWidth + PANEL);
+    expect(open.contentHeight).toBe(closed.contentHeight);
+    expect(
+      compactImageArea(open.contentWidth, open.contentHeight, PANEL),
+    ).toEqual(compactPinnedSize(400, 300, ...DISPLAY));
+  });
+
+  it('stops at the work area and crops the pane when there is no room', () => {
+    // A file whose fit already fills the display: the window has nowhere to
+    // grow, so the panel takes its width out of the *pane*. The picture stays
+    // the size it was pinned to and is cropped by it — which is the case the
+    // viewer's panning is for — rather than being scaled down to fit.
+    const closed = computeCompactContentSize(4000, 3000, ...DISPLAY)!;
+    const open = computeCompactContentSize(4000, 3000, ...DISPLAY, 1, 1, PANEL)!;
+    const pane = compactImageArea(open.contentWidth, open.contentHeight, PANEL);
+    const pinned = compactPinnedSize(4000, 3000, ...DISPLAY)!;
+
+    expect(open.contentWidth).toBe(DISPLAY[0]);
+    expect(open.contentHeight).toBe(closed.contentHeight);
+    expect(pane.width).toBe(closed.contentWidth - COMPACT_PADDING * 2 - PANEL);
+    expect(pane.width).toBeLessThan(pinned.width);
+    expect(pane.height).toBe(pinned.height);
+  });
+
+  it('never asks for a window wider than the work area', () => {
+    const IMAGES = [
+      [400, 300],
+      [4000, 3000],
+      [200, 200],
+      [3000, 500],
+      [500, 3000],
+      [10, 10],
+    ] as const;
+    // Including reservations no display could honour, and nonsense ones: a
+    // panel is a width like any other and the rule has to survive all of them.
+    const PANELS = [PANEL, 1, 5000, Number.NaN, -20];
+
+    for (const [w, h] of IMAGES) {
+      const pinned = compactPinnedSize(w, h, ...DISPLAY)!;
+      for (const panel of PANELS) {
+        const size = computeCompactContentSize(w, h, ...DISPLAY, 1, 1, panel)!;
+        const pane = compactImageArea(size.contentWidth, size.contentHeight, panel);
+        expect(size.contentWidth).toBeLessThanOrEqual(DISPLAY[0]);
+        // The panel can only ever take room from the pane, never from the
+        // picture: with one docked the pane is at most the pinned size, and at
+        // least the whole of it whenever the display has room for both.
+        expect(pane.width).toBeLessThanOrEqual(pinned.width);
+        if (panel === PANEL && pinned.width + COMPACT_PADDING * 2 + PANEL <= DISPLAY[0]) {
+          expect(pane.width).toBe(pinned.width);
+        }
+      }
+    }
+  });
+
+  it('makes the wheel pan a picture the panel has cropped', () => {
+    // At 1x on this display the frame holds the whole picture and the middle is
+    // the only place it can be, so the wheel must not anchor a pan there — a fit
+    // that cannot be moved. The panel crops it, so the width becomes an axis
+    // with something to move along, at the same magnification.
+    expect(compactPanAxes(4000, 3000, ...DISPLAY)).toEqual({
+      width: false,
+      height: false,
+    });
+    expect(compactPanAxes(4000, 3000, ...DISPLAY, 1, 1, PANEL)).toEqual({
+      width: true,
+      height: false,
+    });
+  });
+
+  it('reads a drag made with the panel open as the picture the user sized', () => {
+    // One drag, described both ways. The panel is a fixed cost the next window
+    // may not be paying, so it comes out of the observation the way the padding
+    // does: 536x198 of window here is a 200x150 picture, and 200/984 of the
+    // screen is the preference it implies — which rebuilds this very window.
+    const factor = userScaleFromResize(400, 300, ...DISPLAY, 536, 198, 1, PANEL);
+    expect(factor).toBeCloseTo(200 / 984, 6);
+    expect(
+      computeCompactContentSize(400, 300, ...DISPLAY, factor, 1, PANEL),
+    ).toEqual({ contentWidth: 536, contentHeight: 198 });
+
+    // Read without the reservation the same window says 0.5 — the panel
+    // remembered as part of the size the user asked for, on every image that
+    // followed. That is the reading this parameter exists to prevent.
+    expect(userScaleFromResize(400, 300, ...DISPLAY, 536, 198)).toBeCloseTo(0.5, 5);
+  });
+
+  it('drops the panel, not the picture, on a display too small for both', () => {
+    expect(compactSidebarWidth(2048)).toBe(COMPACT_SIDEBAR_WIDTH);
+    // Under 592px of work area there is no room for both at their own sizes, and
+    // the panel is what gives way: what it leaves the pane is the width the
+    // window manager's minimum is stated in, so the picture still gets a
+    // window's worth of screen.
+    expect(compactSidebarWidth(500)).toBe(500 - COMPACT_MIN_WINDOW_WIDTH);
+    expect(compactSidebarWidth(500)).toBeLessThan(COMPACT_SIDEBAR_WIDTH);
+    expect(compactSidebarWidth(200)).toBe(0);
+    expect(compactSidebarWidth(Number.NaN)).toBe(COMPACT_SIDEBAR_WIDTH);
+  });
+
+  it('reads the pane out of a window that has a panel in it', () => {
+    // The single definition of "the picture's pane": every reader that measures
+    // an observed window goes through here, so none of them can forget the
+    // panel. Reserved out of the width only — the panel is a right-hand column,
+    // so the height pays the same padding and the same drag bar either way.
+    expect(compactImageArea(1000, 540, PANEL)).toEqual({
+      width: 1000 - COMPACT_PADDING * 2 - PANEL,
+      height: 540 - COMPACT_PADDING * 2 - COMPACT_BAR_HEIGHT,
+    });
+    // A reservation can never take the whole pane, and a nonsense one is none.
+    expect(compactImageArea(100, 540, 500).width).toBe(1);
+    expect(compactImageArea(1000, 540, Number.NaN)).toEqual(compactImageArea(1000, 540));
+    expect(compactImageArea(1000, 540, -20)).toEqual(compactImageArea(1000, 540));
   });
 });
 
