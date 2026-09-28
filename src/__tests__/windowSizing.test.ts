@@ -863,18 +863,37 @@ describe('a docked metadata panel', () => {
   it('reads a drag made with the panel open as the picture the user sized', () => {
     // One drag, described both ways. The panel is a fixed cost the next window
     // may not be paying, so it comes out of the observation the way the padding
-    // does: 536x198 of window here is a 200x150 picture, and 200/984 of the
-    // screen is the preference it implies — which rebuilds this very window.
-    const factor = userScaleFromResize(400, 300, ...DISPLAY, 536, 198, 1, PANEL);
-    expect(factor).toBeCloseTo(200 / 984, 6);
+    // does: this window is a 200x150 picture, and 200/984 of the screen is the
+    // preference it implies — which rebuilds this very window.
+    //
+    // The window is built from the picture rather than written out, because the
+    // panel is in it and the panel's width is the thing being tuned here. The
+    // 200x150 is what the assertions are about; the window is arithmetic.
+    const PICTURE = { width: 200, height: 150 };
+    const WINDOW = {
+      width: PICTURE.width + COMPACT_PADDING * 2 + PANEL,
+      height: PICTURE.height + COMPACT_PADDING * 2 + COMPACT_BAR_HEIGHT,
+    };
+    const factor = userScaleFromResize(
+      400,
+      300,
+      ...DISPLAY,
+      WINDOW.width,
+      WINDOW.height,
+      1,
+      PANEL,
+    );
+    expect(factor).toBeCloseTo(PICTURE.width / 984, 6);
     expect(
       computeCompactContentSize(400, 300, ...DISPLAY, factor, 1, PANEL),
-    ).toEqual({ contentWidth: 536, contentHeight: 198 });
+    ).toEqual({ contentWidth: WINDOW.width, contentHeight: WINDOW.height });
 
     // Read without the reservation the same window says 0.5 — the panel
     // remembered as part of the size the user asked for, on every image that
     // followed. That is the reading this parameter exists to prevent.
-    expect(userScaleFromResize(400, 300, ...DISPLAY, 536, 198)).toBeCloseTo(0.5, 5);
+    expect(
+      userScaleFromResize(400, 300, ...DISPLAY, WINDOW.width, WINDOW.height),
+    ).toBeCloseTo(0.5, 5);
   });
 
   it('drops the panel, not the picture, on a display too small for both', () => {

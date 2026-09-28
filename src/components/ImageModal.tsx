@@ -10,7 +10,6 @@ import {
   Pencil,
   Trash2,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Folder,
   Star,
@@ -30,7 +29,13 @@ import {
   Minimize,
   ExternalLink,
   Frame,
+  Tag,
+  Info,
+  MessageSquare,
+  SlidersHorizontal,
+  Code,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import hotkeyManager from "../services/hotkeyManager";
 import {
   computeCompactContentSize,
@@ -291,14 +296,46 @@ const createImageUrlFromFileData = (
   throw new Error("Unknown file data format.");
 };
 
-// Helper component for consistently rendering metadata items
-const MetadataItem: FC<{
+// ── Metadata sidebar primitives ─────────────────────────────────────────────
+// The panel is a stack of collapsible group cards; each card is one surface
+// holding flat label/value rows. The rows replaced a bordered tile per item,
+// which nested a card inside a card once the groups existed and read as noise.
+//
+// Colour rule for the whole panel: src/styles/themes.css remaps the gray scale
+// per theme and INVERTS it for light (gray-900 is near-black in dark, a light
+// surface in light), so a gray token over a gray token is correct in both
+// themes by construction. A gray token over a FIXED colour is not — there the
+// text has to be literal, which is why the search hit below sets text-black.
+//
+// Type rule: the panel reads at text-sm, a step up from the app's dense 12px
+// chrome, and is set entirely in the UI font — the monospace the values and
+// prompts used to carry read as a console dump rather than a panel. The four
+// <pre> blocks (two prompts, two raw-JSON views) each need an explicit
+// `font-sans` to get there: deleting the `font-mono` class is NOT enough,
+// because Tailwind's preflight sets a monospace family on the `pre` ELEMENT,
+// and that element rule outlives every class removed from it. They wrap to the
+// card's width, so the column alignment monospace would have bought is already
+// spent anyway.
+// Labels are gray-400 rather than gray-500 because the card surface puts
+// gray-500 at about 3.6:1 in dark, under the 4.5:1 floor for body text, where
+// gray-400 reaches about 6.8:1 dark and 7.6:1 light — the inverted scale makes
+// the one token the better choice on both themes at once.
+
+/** The uniform hover/focus reveal for a row's copy button. */
+const COPY_REVEAL =
+  "opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 transition-opacity text-gray-500 hover:text-gray-200";
+
+/**
+ * One label/value line in a group card. Renders nothing at all without a
+ * value — callers rely on absent fields disappearing rather than leaving an
+ * empty row, and the container's `divide-y` counts only rendered children, so
+ * a skipped row leaves no stray divider.
+ */
+const MetaRow: FC<{
   label: string;
   value?: string | number | any[];
-  isPrompt?: boolean;
   onCopy?: (value: string) => void;
-  highlight?: string; // literal phrase to highlight (Prompt only, for now)
-}> = ({ label, value, isPrompt = false, onCopy, highlight }) => {
+}> = ({ label, value, onCopy }) => {
   if (
     value === null ||
     value === undefined ||
@@ -310,58 +347,216 @@ const MetadataItem: FC<{
 
   const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
 
+  return (
+    <div className="group/row flex items-start justify-between gap-3 px-3 py-1.5 hover:bg-gray-700/20 transition-colors">
+      <span className="text-sm text-gray-400 shrink-0 pt-px">{label}</span>
+      <span className="flex items-start gap-1.5 min-w-0 justify-end">
+        <span className="text-sm text-gray-200 break-words text-right min-w-0">
+          {displayValue}
+        </span>
+        {onCopy && (
+          <button
+            onClick={() => onCopy(displayValue)}
+            className={`shrink-0 ${COPY_REVEAL}`}
+            title={`Copy ${label}`}
+            aria-label={`Copy ${label}`}
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </span>
+    </div>
+  );
+};
+
+/**
+ * A prompt, given the full width of the card rather than a label/value row —
+ * it is prose, not a value. Owns the search-hit highlighting that Ctrl+F
+ * counts, so its <pre> must stay mounted whenever the Prompt group is open.
+ */
+const PromptBlock: FC<{
+  label: string;
+  value?: string;
+  onCopy?: (value: string) => void;
+  highlight?: string; // literal phrase to highlight (Prompt only, for now)
+}> = ({ label, value, onCopy, highlight }) => {
+  if (!value) return null;
+
   // Split on the literal (case-insensitive) phrase, keeping the matched
   // substrings via the capture group — odd indexes are matches, so text is
   // reproduced verbatim with no whitespace/case loss. A zero-match or empty
   // query leaves the plain-text path intact (an empty "" capture regex would
   // split every single character).
-  const matchParts =
-    isPrompt && highlight && displayValue
-      ? displayValue.split(new RegExp(`(${escapeRegExp(highlight)})`, "gi"))
-      : null;
+  const matchParts = highlight
+    ? value.split(new RegExp(`(${escapeRegExp(highlight)})`, "gi"))
+    : null;
   const hasMatches = matchParts !== null && matchParts.length > 1;
 
   return (
-    <div className="bg-gray-900/50 p-3 rounded-md border border-gray-700/50 relative group">
-      <div className="flex justify-between items-start">
-        <p className="font-semibold text-gray-400 text-xs uppercase tracking-wider">
+    <div className="group/row px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-gray-400">
           {label}
-        </p>
+        </span>
         {onCopy && (
           <button
-            onClick={() => onCopy(displayValue)}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-gray-50"
+            onClick={() => onCopy(value)}
+            className={COPY_REVEAL}
             title={`Copy ${label}`}
+            aria-label={`Copy ${label}`}
           >
-            <Copy className="w-4 h-4" />
+            <Copy className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
-      {isPrompt ? (
-        <pre className="text-gray-200 whitespace-pre-wrap break-words font-mono text-sm mt-1">
-          {/* The mark's text-black is literal, not a gray token: the gray scale
-              is theme-inverted (gray-900 is near-white in light mode), so no gray
-              token stays readable on this fixed yellow. */}
-          {hasMatches
-            ? matchParts!.map((part, i) =>
-                i % 2 === 1 ? (
-                  <mark
-                    key={`m${i}`}
-                    className="search-hit bg-yellow-300 text-black rounded-[2px] px-px"
-                  >
-                    {part}
-                  </mark>
-                ) : (
-                  part
-                ),
-              )
-            : displayValue}
-        </pre>
-      ) : (
-        <p className="text-gray-200 break-words font-mono text-sm mt-1">
-          {displayValue}
-        </p>
-      )}
+      <pre className="text-sm text-gray-200 whitespace-pre-wrap break-words font-sans mt-1">
+        {/* The mark's text-black is literal, not a gray token: the gray scale
+            is theme-inverted (gray-900 is near-white in light mode), so no gray
+            token stays readable on this fixed yellow. */}
+        {hasMatches
+          ? matchParts!.map((part, i) =>
+              i % 2 === 1 ? (
+                <mark
+                  key={`m${i}`}
+                  className="search-hit bg-yellow-300 text-black rounded-[2px] px-px"
+                >
+                  {part}
+                </mark>
+              ) : (
+                part
+              ),
+            )
+          : value}
+      </pre>
+    </div>
+  );
+};
+
+/** The six metadata groups, in the order the panel renders them. */
+type MetadataGroupKey =
+  | "tags"
+  | "imageInfo"
+  | "prompt"
+  | "generation"
+  | "performance"
+  | "raw";
+
+const METADATA_GROUPS_STORAGE_KEY = "image_modal_metadata_groups";
+
+/** How the Raw data group displays the file's unparsed metadata. */
+type MetadataViewMode = "parsed" | "json" | "fulljson";
+
+/** The raw-data views, in the order the group's segmented control shows them. */
+const METADATA_VIEW_MODES: ReadonlyArray<readonly [MetadataViewMode, string]> = [
+  ["parsed", "Parsed"],
+  ["json", "JSON"],
+  ["fulljson", "Full JSON"],
+];
+
+/** Before it had groups the panel showed everything, so that is the default. */
+const DEFAULT_METADATA_GROUPS: Record<MetadataGroupKey, boolean> = {
+  tags: true,
+  imageInfo: true,
+  prompt: true,
+  generation: true,
+  performance: true,
+  raw: true,
+};
+
+/**
+ * Read the persisted group state, merged key by key over the defaults.
+ *
+ * Merging rather than replacing means a record written by an older build — or
+ * truncated — can neither hide a group nor leave one `undefined`, which React
+ * would render as closed. A missing key, unparseable JSON (a bare `getItem`
+ * mock returns `undefined`, and `JSON.parse(undefined)` throws) or absent
+ * storage all fall back to all-open.
+ */
+const readExpandedGroups = (): Record<MetadataGroupKey, boolean> => {
+  const fallback = { ...DEFAULT_METADATA_GROUPS };
+  try {
+    const raw = localStorage.getItem(METADATA_GROUPS_STORAGE_KEY);
+    if (!raw) return fallback;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return fallback;
+    const merged = { ...fallback };
+    for (const key of Object.keys(fallback) as MetadataGroupKey[]) {
+      const stored = (parsed as Record<string, unknown>)[key];
+      if (typeof stored === "boolean") merged[key] = stored;
+    }
+    return merged;
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * One collapsible group: a header that is the whole disclosure control, and a
+ * body that animates open. Mirrors the Models/LoRAs/Schedulers sections in
+ * Sidebar.tsx, with `initial={false}` so opening the viewer does not fire six
+ * simultaneous expand animations behind the image.
+ */
+const MetadataGroup: FC<{
+  title: string;
+  icon?: React.ReactNode;
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}> = ({ title, icon, count, open, onToggle, children }) => {
+  return (
+    <div className="bg-gray-900/50 rounded-lg border border-gray-700/50">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        // The accessible name is the visible text — deliberately no aria-label,
+        // which would collide with the icon buttons' labels the tests query by.
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left rounded-lg hover:bg-gray-700/30 transition-colors"
+      >
+        {icon}
+        <span className="text-sm font-semibold uppercase tracking-wide text-gray-400">
+          {title}
+        </span>
+        {count !== undefined && count > 0 && (
+          <span className="text-xs leading-none bg-gray-700/60 text-gray-400 px-1.5 py-0.5 rounded-full">
+            {count}
+          </span>
+        )}
+        <ChevronDown
+          size={14}
+          className={`ml-auto shrink-0 text-gray-500 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          // The clip belongs to the animation, not to a class. AnimatePresence
+          // renders the exiting child from the element it cached at removal, so
+          // a className keyed on `open` never updates on the way out — the rows
+          // would spill past the shrinking card for the whole collapse. Driving
+          // overflow through initial/exit/animate applies it inline instead,
+          // and `transitionEnd` releases it only once the box has settled open.
+          //
+          // Releasing it is not cosmetic: the tag autocomplete is absolutely
+          // positioned below a body that, on an image with no tags, is a single
+          // row tall, and a clip that outlived the animation would slice the
+          // suggestions to a sliver.
+          <motion.div
+            initial={{ height: 0, opacity: 0, overflow: "hidden" }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              transitionEnd: { overflow: "visible" },
+            }}
+            exit={{ height: 0, opacity: 0, overflow: "hidden" }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <div className="pb-1.5">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -659,6 +854,24 @@ const resetCompactPanel = (
   setReady(false);
 };
 
+/**
+ * The picture and the metadata panel, as one width split in two.
+ *
+ * The viewer body is a flex row, so these are not two independent sizes: they
+ * have to sum to 1 between them or the pair overflows the frame and pushes the
+ * picture past the edge of the window it was sized for. They are named and
+ * kept together because their two edit sites are ~300 lines apart, and
+ * widening the panel by hand means finding both — bumping the panel alone is
+ * the easy mistake, and the one that breaks the layout rather than merely
+ * looking wrong.
+ *
+ * The `md:` variants carry the split; below `md` the body stacks instead, the
+ * panel going full-width beneath the picture. Compact mode sizes its docked
+ * panel from the frame's own rule (`compactSidebarWidth`) and ignores these.
+ */
+const SIDEBAR_WIDTH = "md:w-[30%]";
+const PANE_WIDTH = "md:w-[70%]";
+
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
   onClose,
@@ -685,9 +898,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [newName, setNewName] = useState(
     image.name.replace(/\.(png|jpg|jpeg|webp|mp4|webm|mkv|mov|avi)$/i, ""),
   );
-  const [metadataViewMode, setMetadataViewMode] = useState<
-    "parsed" | "json" | "fulljson"
-  >("parsed");
+  const [metadataViewMode, setMetadataViewMode] =
+    useState<MetadataViewMode>("parsed");
   const [fullRawMetadata, setFullRawMetadata] = useState<any>(null);
   const [isLoadingFullJson, setIsLoadingFullJson] = useState(false);
 
@@ -859,8 +1071,28 @@ const ImageModal: React.FC<ImageModalProps> = ({
     y: number;
     visible: boolean;
   }>({ x: 0, y: 0, visible: false });
-  const [showDetails, setShowDetails] = useState(true);
-  const [showPerformance, setShowPerformance] = useState(true);
+  // Which metadata groups are open. Persisted so the panel comes back as it was
+  // left; all-open by default, which is what the panel showed before it had
+  // groups. Replaces the two single-purpose flags the old Generation details
+  // and Performance sections carried.
+  const [expandedGroups, setExpandedGroups] = useState<
+    Record<MetadataGroupKey, boolean>
+  >(readExpandedGroups);
+
+  // Writes through on the click rather than in an effect. An effect would also
+  // fire for the auto-expand Ctrl+F performs, persisting a state the user never
+  // chose — quitting mid-search would then forget their layout. It also keeps
+  // this write on the click path only, so the sidebar flag's setItem remains
+  // the last one in the commit Ctrl+F triggers (find-in-prompt asserts that).
+  const toggleMetadataGroup = (key: MetadataGroupKey) => {
+    const next = { ...expandedGroups, [key]: !expandedGroups[key] };
+    setExpandedGroups(next);
+    try {
+      localStorage.setItem(METADATA_GROUPS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* storage full or unavailable — the panel still works, it just forgets */
+    }
+  };
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem("image_modal_sidebar_collapsed");
     return saved === "true";
@@ -929,6 +1161,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const promptSectionRef = useRef<HTMLDivElement>(null); // wraps the Prompt item
   const sidebarAutoExpandedRef = useRef(false); // Ctrl+F expanded the sidebar
   const sidebarUserToggledRef = useRef(false); // user toggled sidebar mid-search
+  // Ctrl+F reopens the Prompt group too: the <mark> hits it counts live in that
+  // group's <pre>, so a collapsed group would leave the counter reading 0 / 0.
+  // Recorded only so closeSearch can put it back — and never persisted, since
+  // the stored value is the user's own choice, not the search's.
+  const promptGroupWasClosedRef = useRef(false);
   // The same record for a compact window, whose panel is its own state: Ctrl+F
   // docked the panel, so closing the search takes it back off.
   const compactPanelAutoOpenedRef = useRef(false);
@@ -1050,6 +1287,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   const openSearch = useCallback(() => {
     sidebarUserToggledRef.current = false;
+    // The Prompt group holds the marks the search counts, so it has to be open
+    // for the counter to mean anything. Done before the compact window's early
+    // return below, because that window carries the same panel. The functional
+    // form keeps this callback identity-stable — the keydown effect's deps
+    // document that requirement.
+    setExpandedGroups((prev) => {
+      if (prev.prompt) {
+        promptGroupWasClosedRef.current = false; // open already: no restore owed
+        return prev;
+      }
+      promptGroupWasClosedRef.current = true;
+      return { ...prev, prompt: true };
+    });
     // Find-in-prompt lives in the metadata panel — which a compact window now
     // carries too, so searching opens the panel rather than leaving the mode.
     if (isCompactMode) {
@@ -1087,6 +1337,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
     sidebarAutoExpandedRef.current = false;
     sidebarUserToggledRef.current = false;
+    // Same for the Prompt group. No user-toggled guard is needed: the only
+    // restore we owe is "close it", and a user who closed it mid-search has
+    // already arrived there. A user who opened it cannot have — we opened it.
+    if (promptGroupWasClosedRef.current) {
+      promptGroupWasClosedRef.current = false;
+      setExpandedGroups((prev) =>
+        prev.prompt ? { ...prev, prompt: false } : prev,
+      );
+    }
   }, [setCompactPanel]);
 
   // Cycle with wrap-around; no-op when there is nothing to cycle.
@@ -2024,6 +2283,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const videoInfo = (nMeta as any)?.video;
   const motionModel = (nMeta as any)?.motion_model;
 
+  const analytics = nMeta?._analytics;
+  // Whether the Performance group has anything to show. The section it replaces
+  // gated on `_analytics` merely being present, which renders an empty box —
+  // every field it reads is optional and most generators set only some.
+  const hasPerformanceData = Boolean(
+    analytics &&
+      ((analytics.generation_time_ms != null &&
+        analytics.generation_time_ms > 0) ||
+        analytics.vram_peak_mb != null ||
+        analytics.gpu_device ||
+        analytics.steps_per_second != null ||
+        analytics.comfyui_version ||
+        analytics.torch_version ||
+        analytics.python_version),
+  );
+
   const copyToClipboard = (text: string, type: string) => {
     if (!text) {
       alert(`No ${type} to copy.`);
@@ -2574,6 +2849,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
     matchCount,
     effectiveMetadata?.prompt,
     image.id,
+    // Re-counts when the Prompt group is expanded: collapsed, the <pre> is
+    // unmounted and there is nothing to count, which would strand the counter
+    // at 0 / 0 until the query changed. The effect only writes when the count
+    // differs, so this cannot loop.
+    expandedGroups.prompt,
   ]);
 
   // Navigating to another image while searching resets to the first match.
@@ -2726,6 +3006,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
     image.name,
   ]);
 
+  // The Raw data group's segmented control. `handleLoadFullJson` is itself a
+  // toggle — it falls back to "parsed" when already showing full JSON — so it
+  // is only handed the selection when that is actually the change being made,
+  // or picking "Full JSON" while already there would flip the view off.
+  const selectMetadataView = (mode: MetadataViewMode) => {
+    if (mode === "fulljson") {
+      if (metadataViewMode !== "fulljson") void handleLoadFullJson();
+      return;
+    }
+    setMetadataViewMode(mode);
+  };
+
   return (
     <div
       className={`${
@@ -2839,7 +3131,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           className={`${
             isCompactMode && !isFullscreen
               ? "flex-1 min-w-0 h-full"
-              : `w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : "md:w-3/4 h-1/2 md:h-full"}`
+              : `w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : `${PANE_WIDTH} h-1/2 md:h-full`}`
           } bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode ? "" : "transition-[width] duration-300"}`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
@@ -3115,7 +3407,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
           className={`${
             isCompactMode && compactPanelDocked
               ? "shrink-0 h-full border-l border-gray-800/60"
-              : `w-full ${sidebarHidden ? "hidden" : "md:w-1/4 h-1/2 md:h-full"}`
+              : `w-full ${sidebarHidden ? "hidden" : `${SIDEBAR_WIDTH} h-1/2 md:h-full`}`
           } flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
         >
           {isSearchOpen && (
@@ -3146,18 +3438,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 onKeyDown={handleSearchKeyDown}
                 placeholder="Find in prompt"
                 aria-label="Find in prompt"
-                className="flex-1 min-w-0 bg-gray-800/70 text-gray-100 text-xs border border-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400/70 placeholder-gray-500"
+                className="flex-1 min-w-0 bg-gray-800/70 text-gray-100 text-sm border border-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400/70 placeholder-gray-500"
               />
               {searchQuery.trim() !== "" && (
                 <span
                   data-testid="search-counter"
-                  className="text-[11px] text-gray-500 tabular-nums whitespace-nowrap shrink-0"
+                  className="text-xs text-gray-400 tabular-nums whitespace-nowrap shrink-0"
                 >
                   {matchCount > 0 ? activeMatch + 1 : 0} / {matchCount}
                 </span>
               )}
               {searchQuery.trim() !== "" && !effectiveMetadata?.prompt && (
-                <span className="text-[11px] italic text-yellow-500/90 whitespace-nowrap shrink-0">
+                <span className="text-xs italic text-yellow-500/90 whitespace-nowrap shrink-0">
                   no prompt
                 </span>
               )}
@@ -3241,14 +3533,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 </button>
               </h2>
             )}
-            <p className="text-xs text-blue-400 font-mono break-all">
+            <p className="text-sm text-accent break-all">
               {new Date(image.lastModified).toLocaleString()}
             </p>
 
-          {/* Annotations Section */}
-          <div className="bg-gray-900/50 p-3 rounded-lg border border-gray-700/50 space-y-2">
+          {/* Tags. The star, input and pills stay one composition rather than
+              becoming label/value rows — this is an editor, not a readout, and
+              the star is the primary favourite affordance. */}
+          <MetadataGroup
+            title="Tags"
+            icon={<Tag size={13} className="shrink-0 text-gray-500" />}
+            count={currentTags?.length}
+            open={expandedGroups.tags}
+            onToggle={() => toggleMetadataGroup("tags")}
+          >
             {/* Favorite and Tags Row */}
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 px-3 pt-1">
               {/* Favorite Star - Discrete */}
               <button
                 onClick={handleToggleFavorite}
@@ -3294,7 +3594,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     onBlur={() =>
                       setTimeout(() => setShowTagAutocomplete(false), 200)
                     }
-                    className="w-full bg-gray-700/50 text-gray-200 border border-gray-600 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
+                    className="w-full bg-gray-700/50 text-gray-200 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder-gray-500"
                   />
 
                   {/* Autocomplete Dropdown */}
@@ -3312,10 +3612,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
                             setTagInput("");
                             setShowTagAutocomplete(false);
                           }}
-                          className="w-full text-left px-2 py-1.5 text-xs text-gray-200 hover:bg-gray-700 flex justify-between items-center"
+                          className="w-full text-left px-2 py-1.5 text-sm text-gray-200 hover:bg-gray-700 flex justify-between items-center"
                         >
                           <span>{tag.name}</span>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-400">
                             ({tag.count})
                           </span>
                         </button>
@@ -3337,13 +3637,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       return (
                         <span
                           key={tag}
-                          className={`flex items-center gap-1 ${colors} px-2 py-0.5 rounded-full text-xs transition-all`}
+                          className={`flex items-center gap-1 ${colors} px-2 py-0.5 rounded-full text-sm transition-all`}
                           title={`${tag} (${source})`}
                         >
                           {tag}
                           <button
                             onClick={() => handleRemoveTag(tag)}
-                            className="hover:text-red-300 transition-colors"
+                            className="hover:text-red-600 dark:hover:text-red-300 transition-colors"
                             title="Remove tag"
                           >
                             <X size={12} />
@@ -3356,286 +3656,337 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
               </div>
             </div>
-          </div>
+          </MetadataGroup>
 
-          {/* File parameters — always visible. Resolution/megapixels/aspect
-              ratio come from the file itself (actual dimensions), not from
-              generation metadata, so they must not depend on nMeta. */}
-          <div className="grid grid-cols-2 gap-3">
-            <MetadataItem
-              label="Dimensions"
-              value={fileWidth && fileHeight ? `${fileWidth}x${fileHeight}` : undefined}
-            />
-            <MetadataItem
-              label="Megapixels"
-              value={
-                fileWidth && fileHeight
-                  ? `${((fileWidth * fileHeight) / 1_000_000).toFixed(2)} MP`
-                  : undefined
-              }
-            />
-            <MetadataItem
-              label="Aspect Ratio"
-              value={
-                getAspectRatio(fileWidth ?? undefined, fileHeight ?? undefined) ||
-                undefined
-              }
-            />
-            <MetadataItem
-              label="File Size"
-              value={formatFileSize(image.fileSize)}
-            />
-          </div>
+          {/* Image info — always visible. Resolution/megapixels/aspect ratio come
+              from the file itself (actual dimensions), not from generation
+              metadata, so they must not depend on nMeta. */}
+          <MetadataGroup
+            title="Image info"
+            icon={<Info size={13} className="shrink-0 text-gray-500" />}
+            open={expandedGroups.imageInfo}
+            onToggle={() => toggleMetadataGroup("imageInfo")}
+          >
+            <div className="divide-y divide-gray-700/40">
+              <MetaRow
+                label="Dimensions"
+                value={fileWidth && fileHeight ? `${fileWidth}x${fileHeight}` : undefined}
+              />
+              <MetaRow
+                label="Megapixels"
+                value={
+                  fileWidth && fileHeight
+                    ? `${((fileWidth * fileHeight) / 1_000_000).toFixed(2)} MP`
+                    : undefined
+                }
+              />
+              <MetaRow
+                label="Aspect Ratio"
+                value={
+                  getAspectRatio(fileWidth ?? undefined, fileHeight ?? undefined) ||
+                  undefined
+                }
+              />
+              <MetaRow label="File Size" value={formatFileSize(image.fileSize)} />
+            </div>
+          </MetadataGroup>
 
           {nMeta ? (
-            <div className="space-y-4">
-              {/* Prompt Section - Always Visible */}
-              <div className="space-y-3" ref={promptSectionRef}>
-                <MetadataItem
-                  label="Prompt"
-                  value={effectiveMetadata?.prompt}
-                  isPrompt
-                  highlight={
-                    isSearchOpen && searchQuery !== ""
-                      ? searchQuery
-                      : undefined
-                  }
-                  onCopy={() =>
-                    copyToClipboard(effectiveMetadata?.prompt || "", "Prompt")
-                  }
-                />
-                <MetadataItem
-                  label="Negative Prompt"
-                  value={effectiveMetadata?.negativePrompt}
-                  isPrompt
-                  onCopy={() =>
-                    copyToClipboard(
-                      effectiveMetadata?.negativePrompt || "",
-                      "Negative Prompt",
-                    )
-                  }
-                />
-              </div>
+            <>
+              {/* Prompt. The ref stays on the wrapper holding both blocks:
+                  Ctrl+F counts every mark under it, and only the positive
+                  prompt gets the highlight — the count has to stay exactly the
+                  matches in one prompt. */}
+              <MetadataGroup
+                title="Prompt"
+                icon={<MessageSquare size={13} className="shrink-0 text-gray-500" />}
+                open={expandedGroups.prompt}
+                onToggle={() => toggleMetadataGroup("prompt")}
+              >
+                <div className="divide-y divide-gray-700/40" ref={promptSectionRef}>
+                  <PromptBlock
+                    label="Prompt"
+                    value={effectiveMetadata?.prompt}
+                    highlight={
+                      isSearchOpen && searchQuery !== ""
+                        ? searchQuery
+                        : undefined
+                    }
+                    onCopy={() =>
+                      copyToClipboard(effectiveMetadata?.prompt || "", "Prompt")
+                    }
+                  />
+                  <PromptBlock
+                    label="Negative Prompt"
+                    value={effectiveMetadata?.negativePrompt}
+                    onCopy={() =>
+                      copyToClipboard(
+                        effectiveMetadata?.negativePrompt || "",
+                        "Negative Prompt",
+                      )
+                    }
+                  />
+                </div>
+              </MetadataGroup>
 
-              {/* Details Section - Collapsible */}
-              <div>
-                <button
-                  onClick={() => setShowDetails(!showDetails)}
-                  className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-gray-50 transition-colors"
-                >
-                  <span className="font-semibold">Generation Details</span>
-                  {showDetails ? (
-                    <ChevronDown size={16} />
-                  ) : (
-                    <ChevronRight size={16} />
-                  )}
-                </button>
-                {showDetails && (
-                  <div className="space-y-3 mt-3">
-                    <MetadataItem
-                      label="Model"
-                      value={nMeta.model}
-                      onCopy={(v) => copyToClipboard(v, "Model")}
+              {/* Generation details — the model and the sampling parameters. */}
+              <MetadataGroup
+                title="Generation details"
+                icon={
+                  <SlidersHorizontal size={13} className="shrink-0 text-gray-500" />
+                }
+                open={expandedGroups.generation}
+                onToggle={() => toggleMetadataGroup("generation")}
+              >
+                <div className="divide-y divide-gray-700/40">
+                  <MetaRow
+                    label="Model"
+                    value={nMeta.model}
+                    onCopy={(v) => copyToClipboard(v, "Model")}
+                  />
+                  {((nMeta as any).vae || (nMeta as any).vaes?.[0]?.name) && (
+                    <MetaRow
+                      label="VAE"
+                      value={(nMeta as any).vae || (nMeta as any).vaes?.[0]?.name}
                     />
-                    {nMeta.generator && (
-                      <MetadataItem label="Generator" value={nMeta.generator} />
-                    )}
-                    {((nMeta as any).vae || (nMeta as any).vaes?.[0]?.name) && (
-                      <MetadataItem
-                        label="VAE"
+                  )}
+                  {/* MetaRow drops an empty value, so the old explicit guards are
+                      not needed for these two — `[].join()` is "" and undefined
+                      passes through. */}
+                  <MetaRow label="Generator" value={nMeta.generator} />
+                  <MetaRow
+                    label="LoRAs"
+                    value={nMeta.loras?.map(formatLoRA).join(", ")}
+                  />
+                  <MetaRow label="Steps" value={effectiveMetadata?.steps} />
+                  <MetaRow
+                    label="CFG Scale"
+                    value={effectiveMetadata?.cfg_scale}
+                  />
+                  <MetaRow
+                    label="Clip Skip"
+                    value={
+                      nMeta.clip_skip && nMeta.clip_skip > 1
+                        ? nMeta.clip_skip
+                        : undefined
+                    }
+                  />
+                  <MetaRow
+                    label="Seed"
+                    value={nMeta.seed}
+                    onCopy={(v) => copyToClipboard(v, "Seed")}
+                  />
+                  <MetaRow label="Sampler" value={nMeta.sampler} />
+                  <MetaRow
+                    label="Scheduler"
+                    value={effectiveMetadata?.scheduler}
+                  />
+                  <MetaRow
+                    label="Denoise"
+                    value={
+                      (nMeta as any).denoise != null &&
+                      (nMeta as any).denoise < 1
+                        ? (nMeta as any).denoise
+                        : undefined
+                    }
+                  />
+                  {/* A fragment, so the rows stay direct children of the
+                      divide-y container and are divided like the rest. */}
+                  {videoInfo && (
+                    <>
+                      <MetaRow label="Frames" value={videoInfo.frame_count} />
+                      <MetaRow
+                        label="FPS"
                         value={
-                          (nMeta as any).vae || (nMeta as any).vaes?.[0]?.name
+                          videoInfo.frame_rate != null
+                            ? Number(videoInfo.frame_rate).toFixed(2)
+                            : undefined
                         }
                       />
-                    )}
-                    {nMeta.loras && nMeta.loras.length > 0 && (
-                      <MetadataItem
-                        label="LoRAs"
-                        value={nMeta.loras.map(formatLoRA).join(", ")}
+                      <MetaRow
+                        label="Duration"
+                        value={
+                          effectiveDuration != null
+                            ? formatDurationSeconds(Number(effectiveDuration))
+                            : undefined
+                        }
                       />
-                    )}
-                    <div className="grid grid-cols-2 gap-2">
-                      <MetadataItem
-                        label="Steps"
-                        value={effectiveMetadata?.steps}
+                      <MetaRow label="Video Codec" value={videoInfo.codec} />
+                      <MetaRow
+                        label="Video Format"
+                        value={(() => {
+                          if (!videoInfo.format) return undefined;
+                          const formats = videoInfo.format.split(",");
+                          const ext = image.name.split(".").pop()?.toLowerCase();
+                          if (ext && formats.includes(ext)) return ext;
+                          return formats[0];
+                        })()}
                       />
-                      <MetadataItem
-                        label="CFG Scale"
-                        value={effectiveMetadata?.cfg_scale}
-                      />
-                      {nMeta.clip_skip && nMeta.clip_skip > 1 && (
-                        <MetadataItem
-                          label="Clip Skip"
-                          value={nMeta.clip_skip}
-                        />
-                      )}
-                      <MetadataItem
-                        label="Seed"
-                        value={nMeta.seed}
-                        onCopy={(v) => copyToClipboard(v, "Seed")}
-                      />
-                      <MetadataItem label="Sampler" value={nMeta.sampler} />
-                      <MetadataItem
-                        label="Scheduler"
-                        value={effectiveMetadata?.scheduler}
-                      />
-                      {(nMeta as any).denoise != null &&
-                        (nMeta as any).denoise < 1 && (
-                          <MetadataItem
-                            label="Denoise"
-                            value={(nMeta as any).denoise}
-                          />
-                        )}
-                    </div>
-                    {videoInfo && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <MetadataItem
-                          label="Frames"
-                          value={videoInfo.frame_count}
-                        />
-                        <MetadataItem
-                          label="FPS"
-                          value={
-                            videoInfo.frame_rate != null
-                              ? Number(videoInfo.frame_rate).toFixed(2)
-                              : undefined
-                          }
-                        />
-                        {effectiveDuration != null && (
-                          <MetadataItem
-                            label="Duration"
-                            value={formatDurationSeconds(
-                              Number(effectiveDuration),
-                            )}
-                          />
-                        )}
-                        <MetadataItem
-                          label="Video Codec"
-                          value={videoInfo.codec}
-                        />
-                        <MetadataItem
-                          label="Video Format"
-                          value={(() => {
-                            if (!videoInfo.format) return undefined;
-                            const formats = videoInfo.format.split(",");
-                            const ext = image.name
-                              .split(".")
-                              .pop()
-                              ?.toLowerCase();
-                            if (ext && formats.includes(ext)) return ext;
-                            return formats[0];
-                          })()}
-                        />
-                      </div>
-                    )}
-                    {motionModel?.name && (
-                      <MetadataItem
-                        label="Motion Model"
-                        value={motionModel.name}
-                      />
-                    )}
-                    {motionModel?.hash && (
-                      <MetadataItem
-                        label="Motion Model Hash"
-                        value={motionModel.hash}
-                      />
-                    )}
-
-                  </div>
-                )}
-              </div>
-
-              {/* Performance Section - Collapsible */}
-              {nMeta && nMeta._analytics && (
-                <div>
-                  <button
-                    onClick={() => setShowPerformance(!showPerformance)}
-                    className="text-gray-300 text-sm w-full text-left py-2 border-t border-gray-700 flex items-center justify-between hover:text-gray-50 transition-colors"
-                  >
-                    <span className="font-semibold flex items-center gap-2">
-                      <Zap
-                        size={16}
-                        className="text-yellow-400"
-                      />
-                      Performance
-                    </span>
-                    {showPerformance ? (
-                      <ChevronDown size={16} />
-                    ) : (
-                      <ChevronRight size={16} />
-                    )}
-                  </button>
-
-                  {showPerformance && (
-                    <div className="space-y-3 mt-3">
-                      {/* Tier 1: CRITICAL */}
-                      <div className="grid grid-cols-2 gap-2">
-                        {nMeta._analytics.generation_time_ms != null &&
-                          nMeta._analytics.generation_time_ms > 0 && (
-                            <MetadataItem
-                              label="Generation Time"
-                              value={formatGenerationTime(
-                                nMeta._analytics.generation_time_ms,
-                              )}
-                            />
-                          )}
-                        {nMeta._analytics.vram_peak_mb != null && (
-                          <MetadataItem
-                            label="VRAM Peak"
-                            value={formatVRAM(
-                              nMeta._analytics.vram_peak_mb,
-                              nMeta._analytics.gpu_device,
-                            )}
-                          />
-                        )}
-                      </div>
-
-                      {nMeta._analytics.gpu_device && (
-                        <MetadataItem
-                          label="GPU Device"
-                          value={nMeta._analytics.gpu_device}
-                        />
-                      )}
-
-                      {/* Tier 2: VERY USEFUL */}
-                      <div className="grid grid-cols-2 gap-2">
-                        {nMeta._analytics.steps_per_second != null && (
-                          <MetadataItem
-                            label="Speed"
-                            value={`${nMeta._analytics.steps_per_second.toFixed(2)} steps/s`}
-                          />
-                        )}
-                        {nMeta._analytics.comfyui_version && (
-                          <MetadataItem
-                            label="ComfyUI"
-                            value={nMeta._analytics.comfyui_version}
-                          />
-                        )}
-                      </div>
-
-                      {/* Tier 3: NICE-TO-HAVE (small text) */}
-                      {(nMeta._analytics.torch_version ||
-                        nMeta._analytics.python_version) && (
-                        <div className="text-xs text-gray-400 border-t border-gray-700/50 pt-2 space-y-1">
-                          {nMeta._analytics.torch_version && (
-                            <div>PyTorch: {nMeta._analytics.torch_version}</div>
-                          )}
-                          {nMeta._analytics.python_version && (
-                            <div>Python: {nMeta._analytics.python_version}</div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    </>
                   )}
-                </div>
+                    <MetaRow label="Motion Model" value={motionModel?.name} />
+                    <MetaRow
+                      label="Motion Model Hash"
+                      value={motionModel?.hash}
+                    />
+                  </div>
+                </MetadataGroup>
+
+              {/* Performance — hardware and timing, when the file carries any. */}
+              {analytics && hasPerformanceData && (
+                <MetadataGroup
+                  title="Performance"
+                  icon={
+                    <Zap
+                      size={13}
+                      className="shrink-0 text-yellow-600 dark:text-yellow-400"
+                    />
+                  }
+                  open={expandedGroups.performance}
+                  onToggle={() => toggleMetadataGroup("performance")}
+                >
+                  <div className="divide-y divide-gray-700/40">
+                    <MetaRow
+                      label="Generation Time"
+                      value={
+                        analytics.generation_time_ms != null &&
+                        analytics.generation_time_ms > 0
+                          ? formatGenerationTime(analytics.generation_time_ms)
+                          : undefined
+                      }
+                    />
+                    <MetaRow
+                      label="VRAM Peak"
+                      value={
+                        analytics.vram_peak_mb != null
+                          ? formatVRAM(
+                              analytics.vram_peak_mb,
+                              analytics.gpu_device,
+                            )
+                          : undefined
+                      }
+                    />
+                    <MetaRow label="GPU Device" value={analytics.gpu_device} />
+                    <MetaRow
+                      label="Speed"
+                      value={
+                        analytics.steps_per_second != null
+                          ? `${analytics.steps_per_second.toFixed(2)} steps/s`
+                          : undefined
+                      }
+                    />
+                    <MetaRow label="ComfyUI" value={analytics.comfyui_version} />
+                    <MetaRow label="PyTorch" value={analytics.torch_version} />
+                    <MetaRow label="Python" value={analytics.python_version} />
+                  </div>
+                </MetadataGroup>
               )}
-            </div>
+            </>
           ) : (
-            <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-4 py-3 rounded-lg text-sm">
+            // The yellow is a FIXED wash, so its text is paired per theme with a
+            // `dark:` variant rather than a gray token — the gray scale inverts
+            // in light mode and would leave pale-on-pale here.
+            <div className="bg-yellow-500/10 border border-yellow-500/40 text-yellow-700 dark:text-yellow-300 px-4 py-3 rounded-lg text-sm">
               No normalized metadata available.
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2 pt-2">
+          {/* Raw data — the file's unparsed metadata. Deliberately outside the
+              nMeta branch: a file whose metadata failed to normalize is exactly
+              when reading it raw is worth something. */}
+          <MetadataGroup
+            title="Raw data"
+            icon={<Code size={13} className="shrink-0 text-gray-500" />}
+            open={expandedGroups.raw}
+            onToggle={() => toggleMetadataGroup("raw")}
+          >
+            <div className="px-3">
+              {/* A segmented control rather than the two underline links this
+                  replaced: with the section collapsed to a header, three named
+                  views say which one is showing; "Show Parsed" said only what
+                  the other button would do. */}
+              <div className="inline-flex rounded-lg bg-gray-800/60 p-0.5">
+                {METADATA_VIEW_MODES.map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => selectMetadataView(mode)}
+                    aria-pressed={metadataViewMode === mode}
+                    className={`px-2.5 py-1 rounded-md text-sm font-medium transition-colors ${
+                      metadataViewMode === mode
+                        ? "bg-gray-700 text-gray-100"
+                        : "text-gray-500 hover:text-gray-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {metadataViewMode === "parsed" && (
+                <p className="mt-2 text-sm text-gray-400">
+                  The parsed metadata is in the sections above. Choose JSON for
+                  the raw file metadata.
+                </p>
+              )}
+            </div>
+            {metadataViewMode === "json" && (
+              <div className="relative px-3 pt-2">
+                {/* bg-gray-950, not bg-black/50: this well has to invert with
+                    the theme. black/50 over a light panel leaves text-gray-300
+                    (dark slate there) dark-on-dark. gray-950 is the deepest
+                    surface of whichever theme is active, so the token pair
+                    stays readable both ways. */}
+                <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                  {JSON.stringify(image.metadata, null, 2)}
+                </pre>
+                <button
+                  onClick={() =>
+                    copyToClipboard(
+                      JSON.stringify(image.metadata, null, 2),
+                      "JSON",
+                    )
+                  }
+                  className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
+                  title="Copy JSON"
+                >
+                  <Copy className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            {metadataViewMode === "fulljson" && (
+              <>
+                {isLoadingFullJson ? (
+                  <div className="mx-3 mt-2 bg-gray-950/70 border border-gray-800/60 p-4 rounded-lg text-sm text-gray-400 text-center animate-pulse">
+                    Loading raw metadata from file...
+                  </div>
+                ) : fullRawMetadata ? (
+                  <div className="relative px-3 pt-2">
+                    <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                      {JSON.stringify(fullRawMetadata, null, 2)}
+                    </pre>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          JSON.stringify(fullRawMetadata, null, 2),
+                          "Full JSON",
+                        )
+                      }
+                      className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
+                      title="Copy Full JSON"
+                    >
+                      <Copy className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="mx-3 mt-2 bg-yellow-500/10 border border-yellow-500/40 text-yellow-700 dark:text-yellow-300 px-3 py-2 rounded-lg text-sm">
+                    Unable to load raw metadata. The file may not contain
+                    embedded metadata, or the format is not supported.
+                  </div>
+                )}
+              </>
+            )}
+          </MetadataGroup>
+
+          {/* File actions — not metadata, so not a group: always reachable. */}
+          <div className="grid grid-cols-2 gap-2">
             <button
               onClick={() =>
                 copyToClipboard(
@@ -3643,7 +3994,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   "Raw Metadata",
                 )
               }
-              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-200 flex items-center gap-2"
+              // text-accent, not text-blue-300: accent is remapped per theme,
+              // blue-300 is a raw palette value that goes near-white on the
+              // pale wash this button uses in light mode.
+              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-accent border border-blue-500/30 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
             >
               Copy Raw Metadata
             </button>
@@ -3657,98 +4011,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 }
                 await showInExplorer(`${directoryPath}/${image.name}`);
               }}
-              className="w-full justify-center bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2"
+              className="w-full justify-center bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               Show in Folder
             </button>
-
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-lg flex items-center gap-2">
-                Generation Data
-              </h3>
-              <div className="flex gap-3">
-                <button
-                  onClick={() =>
-                    setMetadataViewMode(
-                      metadataViewMode === "json" ? "parsed" : "json",
-                    )
-                  }
-                  className={`text-xs hover:text-gray-50 underline transition-colors ${
-                    metadataViewMode === "json"
-                      ? "text-blue-400"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {metadataViewMode === "json" ? "Show Parsed" : "JSON"}
-                </button>
-                <button
-                  onClick={handleLoadFullJson}
-                  className={`text-xs hover:text-gray-50 underline transition-colors ${
-                    metadataViewMode === "fulljson"
-                      ? "text-blue-400"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {metadataViewMode === "fulljson"
-                    ? "Show Parsed"
-                    : "Full JSON"}
-                </button>
-              </div>
-            </div>
-            {metadataViewMode === "json" && (
-              <div className="relative mt-2">
-                <pre className="bg-black/50 p-2 pr-8 rounded-lg text-xs text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-                  {JSON.stringify(image.metadata, null, 2)}
-                </pre>
-                <button
-                  onClick={() =>
-                    copyToClipboard(
-                      JSON.stringify(image.metadata, null, 2),
-                      "JSON",
-                    )
-                  }
-                  className="absolute top-2 right-2 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-white p-1 rounded transition-all duration-200"
-                  title="Copy JSON"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-            {metadataViewMode === "fulljson" && (
-              <>
-                {isLoadingFullJson ? (
-                  <div className="bg-black/50 p-4 rounded-lg text-xs text-gray-400 text-center mt-2 animate-pulse">
-                    Loading raw metadata from file...
-                  </div>
-                ) : fullRawMetadata ? (
-                  <div className="relative mt-2">
-                    <pre className="bg-black/50 p-2 pr-8 rounded-lg text-xs text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-                      {JSON.stringify(fullRawMetadata, null, 2)}
-                    </pre>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(
-                          JSON.stringify(fullRawMetadata, null, 2),
-                          "Full JSON",
-                        )
-                      }
-                      className="absolute top-2 right-2 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-white p-1 rounded transition-all duration-200"
-                      title="Copy Full JSON"
-                    >
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-300 px-3 py-2 rounded-lg text-xs mt-2">
-                    Unable to load raw metadata. The file may not contain
-                    embedded metadata, or the format is not supported.
-                  </div>
-                )}
-              </>
-            )}
           </div>
           </div>
         </div>

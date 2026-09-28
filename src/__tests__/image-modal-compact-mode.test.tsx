@@ -51,8 +51,24 @@ import {
   COMPACT_GROW_STEP_MS,
   COMPACT_MIN_WINDOW_WIDTH,
   COMPACT_MIN_WINDOW_HEIGHT,
+  COMPACT_SIDEBAR_WIDTH,
 } from '../utils/windowSizing';
 import type { IndexedImage } from '../types';
+
+/**
+ * The docked panel's width, read from the constant rather than written out.
+ *
+ * These suites are about the arithmetic *around* the panel — picture + padding
+ * + panel, and the picture not moving when it arrives — so retyping the number
+ * here would only mean this file failing every time the panel is retuned,
+ * which says nothing about whether the layout rule is right. The cap in
+ * `compactSidebarWidth` never bites in this harness: its work area is
+ * 1000x1000 and the pane keeps 272px under it, well over the panel's own
+ * width, so the panel is always the whole constant.
+ */
+const PANEL = COMPACT_SIDEBAR_WIDTH;
+/** A 400x300 picture, its padding, and the panel docked beside it. */
+const PANEL_OPEN_WIDTH = 400 + 16 + PANEL;
 
 /**
  * Compact ("frame the image") window mode.
@@ -327,16 +343,16 @@ describe('ImageModal compact mode', () => {
     });
     await act(async () => {});
 
-    // The same window, plus the panel: 400 of picture, 16 of padding, 320 of
-    // panel. The anchor is "keep" because a panel toggle is the one resize that
+    // The same window, plus the panel: 400 of picture, 16 of padding, and the
+    // panel's own width. The anchor is "keep" because a panel toggle is the one resize that
     // must hold the frame's left edge — the panel hangs off the right, so
     // growing about the centre would slide the picture sideways by half of it.
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-      compactPayload(736, 348, 'keep'),
+      compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
     );
     const panel = screen.getByTestId('metadata-panel');
     expect(panel.className).not.toContain('hidden');
-    expect(panel.style.width).toBe('320px');
+    expect(panel.style.width).toBe(`${PANEL}px`);
     expect(screen.getByLabelText('Collapse sidebar')).toBeTruthy();
     // Still compact, with the panel it just docked.
     expect(screen.getByLabelText('Exit compact mode')).toBeTruthy();
@@ -365,7 +381,7 @@ describe('ImageModal compact mode', () => {
     await act(async () => {});
 
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-      compactPayload(736, 348, 'keep'),
+      compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
     );
     // Mirrored into the persisted flag, so the ordinary viewer the user returns
     // to shows what was last on screen.
@@ -714,9 +730,6 @@ describe('ImageModal compact mode — user-resized windows', () => {
 });
 
 describe('ImageModal compact mode — the metadata panel docked in the window', () => {
-  // The harness's work area is 1000x1000 and the pane keeps the window manager's
-  // 272px minimum under it, so the panel is the app's own 320 — the whole of it.
-  const PANEL = 320;
   /** Past the collapse fade: 200ms of fade, and the panel follows 40ms after. */
   const PAST_THE_COLLAPSE_FADE = 400;
 
@@ -751,9 +764,9 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
     // makes this hold rather than merely nearly hold.
     expect(picture().style.width).toBe('400px');
     expect(picture().style.height).toBe('300px');
-    // 400 of picture + 16 of padding + 320 of panel; the height is untouched.
+    // 400 of picture + 16 of padding + the panel; the height is untouched.
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-      compactPayload(736, 348, 'keep'),
+      compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
     );
   });
 
@@ -788,7 +801,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
     expect(body().className).toContain('-translate-x-2');
 
     await act(async () => {
-      reply?.({ success: true, contentWidth: 736, contentHeight: 348 });
+      reply?.({ success: true, contentWidth: PANEL_OPEN_WIDTH, contentHeight: 348 });
     });
 
     expect(body().className).toContain('opacity-100');
@@ -800,7 +813,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
     try {
       await compactWithPanel('400x300');
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-        compactPayload(736, 348, 'keep'),
+        compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
       );
 
       act(() => {
@@ -811,7 +824,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       // would eat it from its right edge while the contents sat still.
       expect(body().className).toContain('opacity-0');
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-        compactPayload(736, 348, 'keep'),
+        compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
       );
 
       act(() => {
@@ -855,7 +868,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       expect(body().className).toContain('opacity-100');
       expect(panel().className).not.toContain('hidden');
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-        compactPayload(736, 348, 'keep'),
+        compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
       );
     } finally {
       vi.useRealTimers();
@@ -895,15 +908,18 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       await act(async () => {});
 
       // The window is the work area either way — there is no room to grow — so
-      // the panel's 320 comes off the pane: 680 wide, holding a 984px picture.
+      // the panel's width comes off the pane, which goes on holding a 984px
+      // picture and so now has to crop it.
       stubPaintedSizes(1000 - PANEL, 754, 984, 738);
       act(() => {
         resizeObserverCallback?.([], {} as ResizeObserver);
       });
       expect(screen.getByTestId('image-minimap')).toBeTruthy();
 
-      // …and a drag reaches the rest of it. The pane's travel is half the
-      // difference — (984 - 680) / 2 — so 100px of drag is 100px of picture.
+      // …and a drag reaches the rest of it. The pane travels half the
+      // difference between the picture and the pane it is cropped by, which is
+      // comfortably more than the 100px asked for here — so the drag is 1:1
+      // against the picture rather than clamped short of it.
       const pane = document.getElementById('image-zoom-container')!;
       fireEvent.mouseDown(pane, { button: 0, clientX: 300, clientY: 300 });
       fireEvent.mouseMove(pane, { button: 0, clientX: 400, clientY: 300 });
@@ -942,7 +958,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       expect(panel().className).not.toContain('hidden');
       expect(screen.getByLabelText('Find in prompt')).toBeTruthy();
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
-        compactPayload(736, 348, 'keep'),
+        compactPayload(PANEL_OPEN_WIDTH, 348, 'keep'),
       );
 
       act(() => {

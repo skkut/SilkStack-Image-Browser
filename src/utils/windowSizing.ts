@@ -171,11 +171,18 @@ export const COMPACT_MIN_WINDOW_WIDTH = 272;
 export const COMPACT_MIN_WINDOW_HEIGHT = 160;
 
 /**
- * The width of the metadata panel when it is docked inside a compact window —
- * the same width the app's own sidebar uses, so the panel does not change shape
- * when the viewer it is in does.
+ * The width of the metadata panel when it is docked inside a compact window.
+ *
+ * Fixed, where the ordinary viewer's panel is a share of its own body. A
+ * compact window is the *picture's* size, so a share of it would make the
+ * panel as narrow as the file is small — and the panel holds text, whose needs
+ * do not shrink along with the picture beside it. This number is that share
+ * read at a typical window rather than at every one, which is what keeps the
+ * panel close to the same shape when the viewer around it changes; a fixed
+ * width and a share can only agree exactly at one window size. It moved with
+ * the share (25% → 30%) so that "close" stays close.
  */
-export const COMPACT_SIDEBAR_WIDTH = 320;
+export const COMPACT_SIDEBAR_WIDTH = 384;
 
 export interface CompactContentSize {
   contentWidth: number;
@@ -210,7 +217,7 @@ function reservedWidthOf(reservedWidth: number, maxWidth: number): number {
  * own minimum is stated in (minus the padding the frame pays anyway), so the
  * picture the mode exists for is not the thing that gives way — the panel is. On
  * any display that can hold both — every real one: the cap only bites under
- * 592px of work area — the panel is simply this constant.
+ * 656px of work area — the panel is simply this constant.
  */
 export function compactSidebarWidth(availWidth: number): number {
   if (!Number.isFinite(availWidth) || availWidth <= 0) {

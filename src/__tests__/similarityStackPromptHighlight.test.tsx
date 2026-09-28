@@ -80,11 +80,15 @@ describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)(
   () => {
     beforeEach(() => {
       captured.subGroups = [];
+      // One timestamp for both fields — see the note in SmartLibrary.test.tsx:
+      // a stamp whose Date.now() straddles a millisecond boundary never
+      // verifies, and the wrapper then renders nothing.
+      const now = Date.now();
       useSettingsStore.setState({
         licenseStatus: 'valid',
         licenseKey: 'TEST-KEY',
-        licenseLastValidated: Date.now(),
-        licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
+        licenseLastValidated: now,
+        licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', now),
         displayStarredFirst: false,
         disableThumbnails: true,
         stackGroupByDimensions: ['prompt'],

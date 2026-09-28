@@ -17,6 +17,42 @@ import Stacks from '../components/SmartLibrary';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeLicenseStamp } from '../services/aiFeatureAccess';
+import type { LicenseStatus } from '../services/licenseService';
+
+/**
+ * A verifiable premium license for the settings store.
+ *
+ * The timestamp must be captured ONCE. The stamp is a hash over
+ * (key, status, timestamp) and checkPremiumStatus recomputes it from
+ * `licenseLastValidated`, so calling Date.now() separately for the two fields
+ * yields a stamp that can never verify whenever the pair straddles a
+ * millisecond boundary — rare when idle (~0.005% of calls), roughly 4x that
+ * under the CPU contention of a parallel vitest run, which is why this only
+ * ever failed in the full suite and never in isolation.
+ *
+ * A mismatch is not merely "no premium", either: isAiFeaturesEnabled()
+ * auto-heals by resetting the license, so stacking silently switches off,
+ * useImageStacking returns ungrouped images, SmartLibrary filters them all
+ * out and the grid container never mounts.
+ *
+ * The return type is spelled out because the store only accepts the
+ * LicenseStatus union: an inline literal is checked against it contextually,
+ * but returned from an unannotated function the field widens to `string`.
+ */
+const validLicense = (): {
+  licenseStatus: LicenseStatus;
+  licenseKey: string;
+  licenseLastValidated: number;
+  licenseStamp: string;
+} => {
+  const now = Date.now();
+  return {
+    licenseStatus: 'valid',
+    licenseKey: 'TEST-KEY',
+    licenseLastValidated: now,
+    licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', now),
+  };
+};
 
 // Mock the ai-intelligence package — provides stub components that mirror
 // the originals' DOM output for integration tests of the wrapper layer.
@@ -94,12 +130,7 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
 
     // Stack UI is premium-gated: a valid license is required for
     // StackCardWrapper to render the card contents.
-    useSettingsStore.setState({
-      licenseStatus: 'valid',
-      licenseKey: 'TEST-KEY',
-      licenseLastValidated: Date.now(),
-      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
-    });
+    useSettingsStore.setState(validLicense());
 
     const { container } = render(<Stacks />);
 
@@ -140,12 +171,7 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
       scanSubfolders: false,
     });
 
-    useSettingsStore.setState({
-      licenseStatus: 'valid',
-      licenseKey: 'TEST-KEY',
-      licenseLastValidated: Date.now(),
-      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
-    });
+    useSettingsStore.setState(validLicense());
 
     const { container } = render(<Stacks />);
 
@@ -209,13 +235,7 @@ describe('Stacks view — sort by number of images', () => {
       sortOrder,
     });
     // Stack UI is premium-gated — without a license the cards stay empty.
-    useSettingsStore.setState({
-      licenseStatus: 'valid',
-      licenseKey: 'TEST-KEY',
-      licenseLastValidated: Date.now(),
-      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
-      displayStarredFirst: false,
-    });
+    useSettingsStore.setState({ ...validLicense(), displayStarredFirst: false });
   };
 
   const cardOrder = async (container: HTMLElement) => {

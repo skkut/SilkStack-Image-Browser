@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/x-icon" href="/icon.ico" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- No webfont link here, deliberately: the app renders in the platform UI
+         font (tailwind.config.js fontFamily.sans), and a third-party stylesheet
+         used to be requested on every launch that nothing ever applied. Keep
+         this file free of external requests — the app is privacy-first. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SilkStack Image Browser</title>
   </head>

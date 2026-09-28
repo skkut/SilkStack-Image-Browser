@@ -46,12 +46,17 @@ const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
 // false) the stacking engine is absent by design, so the suite is skipped.
 describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking Hook', () => {
   // Stacking is premium-gated: the hook must see an active license to group.
+  // The timestamp is captured once — the stamp hashes over it and
+  // checkPremiumStatus recomputes from licenseLastValidated, so two separate
+  // Date.now() calls that straddle a millisecond boundary produce a stamp that
+  // can never verify and silently disable grouping under parallel load.
   beforeEach(() => {
+    const now = Date.now();
     useSettingsStore.setState({
       licenseStatus: 'valid',
       licenseKey: 'TEST-KEY',
-      licenseLastValidated: Date.now(),
-      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', Date.now()),
+      licenseLastValidated: now,
+      licenseStamp: computeLicenseStamp('TEST-KEY', 'valid', now),
     });
   });
 
