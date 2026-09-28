@@ -45,9 +45,16 @@ import {
   compactPanAxes,
   compactSidebarWidth,
   clampUserScale,
+  clampSidebarShare,
+  boundSidebarShare,
+  roundSidebarShare,
   userScaleFromResize,
   COMPACT_MODE_STORAGE_KEY,
   COMPACT_SCALE_STORAGE_KEY,
+  DEFAULT_SIDEBAR_SHARE,
+  MIN_SIDEBAR_SHARE,
+  MAX_SIDEBAR_SHARE,
+  SIDEBAR_SHARE_STORAGE_KEY,
   COMPACT_SCALE_EPSILON,
   COMPACT_RESIZE_TOLERANCE,
   COMPACT_GROW_SETTLE_MS,
@@ -857,20 +864,33 @@ const resetCompactPanel = (
 /**
  * The picture and the metadata panel, as one width split in two.
  *
- * The viewer body is a flex row, so these are not two independent sizes: they
- * have to sum to 1 between them or the pair overflows the frame and pushes the
- * picture past the edge of the window it was sized for. They are named and
- * kept together because their two edit sites are ~300 lines apart, and
- * widening the panel by hand means finding both — bumping the panel alone is
- * the easy mistake, and the one that breaks the layout rather than merely
- * looking wrong.
+ * The split is read from `--sidebar-share`, a custom property the viewer body
+ * sets inline from the user's stored share. A custom property rather than a
+ * plain inline width because an inline style cannot be responsive, and the
+ * split is `md:`-only: below `md` the body stacks, with the panel full-width
+ * beneath the picture.
  *
- * The `md:` variants carry the split; below `md` the body stacks instead, the
- * panel going full-width beneath the picture. Compact mode sizes its docked
- * panel from the frame's own rule (`compactSidebarWidth`) and ignores these.
+ * The pane takes `100% - share` rather than a second number, so the two cannot
+ * disagree. They used to be a hand-typed pair that had to sum to 1 — a mistake
+ * that overflows the frame and pushes the picture past the edge of the window,
+ * rather than merely looking wrong. Deriving one from the other retires it.
+ *
+ * The fallback is the net under that. An unresolved custom property makes the
+ * declaration invalid at computed-value time, so the width falls back to `auto`
+ * and the panel sizes to its own text; the fallback turns that into a panel of
+ * roughly the right shape. It is read *only* if the body's style has gone
+ * missing, so keep it in step with `DEFAULT_SIDEBAR_SHARE` — a stale one is
+ * invisible rather than wrong, which is exactly why it is worth a comment.
+ *
+ * Compact mode sizes its docked panel from the frame's own rule
+ * (`compactSidebarWidth`) and ignores these.
+ *
+ * Written as plain strings, never template literals: Tailwind finds candidate
+ * classes by scanning this file's raw text, so a class assembled at runtime is a
+ * class that never gets generated.
  */
-const SIDEBAR_WIDTH = "md:w-[30%]";
-const PANE_WIDTH = "md:w-[70%]";
+const SIDEBAR_WIDTH = "md:w-[var(--sidebar-share,30%)]";
+const PANE_WIDTH = "md:w-[calc(100%_-_var(--sidebar-share,30%))]";
 
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
@@ -1078,6 +1098,62 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const [expandedGroups, setExpandedGroups] = useState<
     Record<MetadataGroupKey, boolean>
   >(readExpandedGroups);
+
+  /**
+   * The share of its room the metadata panel takes, dragged by its inner edge.
+   *
+   * One number for both viewers — the ordinary one reads it against the modal
+   * body, a compact window against the display's work area — and one number is
+   * the point: "the panel gets a third of the room" is a statement each mode can
+   * keep on its own terms, even though the two rectangles are not the same. The
+   * alternative, a share of the compact *frame*, would size the panel to the
+   * picture and hand a small file a panel too narrow to read.
+   *
+   * Persisted and read the way the sidebar flag is, so a viewer opens at the
+   * width it was left. `Number(null)` is 0, which `clampSidebarShare` reads as
+   * "never chosen" and answers with the default.
+   */
+  const [sidebarShare, setSidebarShare] = useState(() =>
+    clampSidebarShare(Number(localStorage.getItem(SIDEBAR_SHARE_STORAGE_KEY))),
+  );
+
+  // The share the panel is being dragged towards, or null when no drag is
+  // running. Kept apart from the stored one so the layout can follow the pointer
+  // while the committed value stands still. Committing per mousemove would write
+  // to localStorage per frame and, in compact mode, send a window resize per
+  // frame across an IPC round trip — the flicker the mode's pacing exists to
+  // avoid. A drag ends by committing once.
+  //
+  // React state rather than a DOM write, because the pane's ResizeObserver
+  // re-renders mid-drag and would lay the panel back out from the old value.
+  const [dragShare, setDragShare] = useState<number | null>(null);
+
+  // A drag in flight, holding the measurement base captured at mousedown. Read
+  // once and held: in compact mode this gesture is resizing the very container
+  // the base comes from, so re-measuring mid-drag would have the panel chasing
+  // its own tail.
+  const [sidebarDrag, setSidebarDrag] = useState<{
+    startX: number;
+    startShare: number;
+    base: number;
+  } | null>(null);
+
+  // What the panel is laid out at. Only the *layout* reads this; every reader
+  // that describes the window reads `sidebarShare` itself, because a window
+  // sized from a value still under the pointer would be reshaped per frame.
+  const resolvedSidebarShare = dragShare ?? sidebarShare;
+
+  // Written when a drag ends, which is the only time the stored share moves.
+  // Declared above the sidebar flag's write so that flag stays the last setItem
+  // in any commit that changes both — find-in-prompt asserts the ordering of the
+  // commit Ctrl+F triggers.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_SHARE_STORAGE_KEY, String(sidebarShare));
+    } catch {
+      /* storage full or unavailable — the panel still resizes, it just forgets */
+    }
+  }, [sidebarShare]);
 
   // Writes through on the click rather than in an effect. An effect would also
   // fire for the auto-expand Ctrl+F performs, persisting a state the user never
@@ -1794,12 +1870,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
       )
     : null;
 
-  // The width the docked panel takes from the compact frame — the same number
-  // the panel is laid out at and the sizing rule reserves, and 0 whenever there
-  // is no panel to make room for. It is read rather than written into
+  // The width the docked panel is laid out at inside a compact frame — 0
+  // whenever there is no panel to make room for. Read rather than written into
   // `compactPin`: the panel never resizes the picture.
+  //
+  // Measured against the *work area* rather than the frame, which is what keeps
+  // the panel readable for a small file. The resolved share, so the panel
+  // follows the pointer for the length of a drag; the frame itself is shaped
+  // from the committed share instead, because a window resized once per
+  // mousemove is a window resized faster than it can be drawn.
   const compactPanelWidth =
-    compactAvail && compactPanelOpen ? compactSidebarWidth(compactAvail.width) : 0;
+    compactAvail && compactPanelOpen
+      ? compactSidebarWidth(compactAvail.width, resolvedSidebarShare)
+      : 0;
   const compactPanelDocked = compactPanelWidth > 0;
 
   // The smallest the remembered window size may be left at, for this image on
@@ -1900,11 +1983,17 @@ const ImageModal: React.FC<ImageModalProps> = ({
     const requestedZoom =
       compactFitKeyRef.current === image.id ? compactZoom : 1;
 
-    // The panel the window is shaped around, read from the same place the layout
-    // reads it. A panel whose width changed since the last request is a toggle,
-    // which decides the anchor further down.
+    // The panel the window is shaped around. The **committed** share, not the
+    // resolved one: this effect reshapes the window across an IPC round trip,
+    // and a drag runs at pointer speed, so reading the live value here would
+    // send a resize per frame and tear down the listener rebuilding with it.
+    // The layout reads the resolved share; this deliberately does not, and the
+    // two meet at the mousedown that commits.
+    //
+    // A panel whose width changed since the last request is a toggle or a
+    // finished drag, and either way decides the anchor further down.
     const reserved = compactPanelDocked
-      ? compactSidebarWidth(availWidth)
+      ? compactSidebarWidth(availWidth, sidebarShare)
       : 0;
 
     const size = computeCompactContentSize(
@@ -2155,6 +2244,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // function of the reservation, so leaving this out would dock a panel into a
     // window that was never asked to make room for it.
     compactPanelDocked,
+    // The reservation is read *inside* this effect and is not otherwise visible
+    // to it. While the panel's width was a constant that was safe — the value
+    // could not change without `compactPanelDocked` changing with it — but it is
+    // user state now, and a width this effect cannot see is a window shaped for
+    // the panel the user used to have. It is the *committed* share on purpose:
+    // the live one belongs to the layout, and reshaping the window at pointer
+    // speed is the flicker the pacing above exists to prevent.
+    sidebarShare,
     compactFillRequest,
     image.id,
     // Through `compactZoom`, not `zoom`: outside the mode the magnification is
@@ -2206,8 +2303,14 @@ const ImageModal: React.FC<ImageModalProps> = ({
         // comes out of the observation the same way the padding does: what the
         // user's hand said is about the picture they were looking at, and the
         // window they were looking at was a panel's width wider for it.
+        //
+        // The committed share, and this listener has to be rebuilt when it
+        // changes (it is listed in the deps below). A stale panel width here is
+        // not a cosmetic error: the factor it produces is stored, so reading the
+        // window against a panel the user has since resized would put the size
+        // of every following window out by the difference, permanently.
         const reserved = compactPanelDocked
-          ? compactSidebarWidth(availWidth)
+          ? compactSidebarWidth(availWidth, sidebarShare)
           : 0;
         const next = userScaleFromResize(
           naturalWidth,
@@ -2268,7 +2371,99 @@ const ImageModal: React.FC<ImageModalProps> = ({
     naturalHeight,
     compactUserScale,
     compactPanelDocked,
+    // The panel's width is subtracted from what this listener observes, and the
+    // factor it derives is *stored*. Rebuilt when the width moves, so the
+    // measurement is never taken against a panel the user has since resized —
+    // which would put the remembered size of every following window out by the
+    // difference, permanently.
+    sidebarShare,
   ]);
+
+  // The row the picture and the panel divide, measured as the base for a drag.
+  const modalBodyRef = useRef<HTMLDivElement>(null);
+  // The share the pointer is currently at, mirrored out of state so the mouseup
+  // can read it without the listener being rebuilt on every move (which is what
+  // keeping it only in state would cost, since the effect is keyed on the drag).
+  const dragShareRef = useRef<number | null>(null);
+
+  const endSidebarDrag = () => {
+    const dragged = dragShareRef.current;
+    // A drag that never moved commits nothing, so a stray click on the handle
+    // leaves the stored width alone.
+    if (dragged !== null) setSidebarShare(dragged);
+    dragShareRef.current = null;
+    setDragShare(null);
+    setSidebarDrag(null);
+  };
+
+  const handleSidebarResizeStart = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    // Stops the browser starting a text selection, which would otherwise run
+    // away with the gesture; the effect below also parks `user-select` for the
+    // length of the drag.
+    e.preventDefault();
+    // The share is a fraction of *something*, and which something depends on the
+    // mode. A compact window is the picture's size, so the panel is read against
+    // the screen; the ordinary viewer's panel is read against the row it sits
+    // in, which is why this needs the body's measured width and the compact path
+    // does not.
+    const base =
+      isCompactMode && compactAvail
+        ? compactAvail.width
+        : modalBodyRef.current?.clientWidth ?? 0;
+    if (!base) return;
+    dragShareRef.current = null;
+    setSidebarDrag({ startX: e.clientX, startShare: sidebarShare, base });
+  };
+
+  // Double-click puts the panel back to the width a fresh install gets. Both
+  // modes: one stored number means one default to return to.
+  const resetSidebarShare = () => {
+    dragShareRef.current = null;
+    setDragShare(null);
+    setSidebarShare(DEFAULT_SIDEBAR_SHARE);
+  };
+
+  // The drag itself. The listeners live on the document rather than the handle,
+  // because the pointer leaves a four-pixel strip immediately and the gesture
+  // has to survive that — the column resize in ImageTable is the same shape.
+  //
+  // `mouseleave` and `blur` end the drag as well as `mouseup` does. Neither is
+  // decoration: a compact window is only the picture and the panel wide, so
+  // dragging the edge past the picture's far side takes the pointer out of the
+  // window altogether, and a drag with no end would follow the cursor back in.
+  useEffect(() => {
+    if (!sidebarDrag) return;
+    const { startX, startShare, base } = sidebarDrag;
+
+    const onMove = (e: MouseEvent) => {
+      // Left widens the panel, so the pointer's travel is subtracted. Bounded
+      // rather than clamped: dragged past the floor this arithmetic goes
+      // negative, and `clampSidebarShare` would read that as "never chosen" and
+      // send the panel back to the default under the pointer.
+      const next = roundSidebarShare(
+        boundSidebarShare(startShare - (e.clientX - startX) / base),
+      );
+      dragShareRef.current = next;
+      setDragShare(next);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", endSidebarDrag);
+    document.addEventListener("mouseleave", endSidebarDrag);
+    window.addEventListener("blur", endSidebarDrag);
+
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", endSidebarDrag);
+      document.removeEventListener("mouseleave", endSidebarDrag);
+      window.removeEventListener("blur", endSidebarDrag);
+    };
+  }, [sidebarDrag]);
 
   // Whether the metadata panel is off screen. Compact mode has its own answer,
   // because its panel is per-window and starts closed: the mode is entered as the
@@ -2537,8 +2732,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
             newZoom,
             // The docked panel crops the picture the same way the display's edge
             // does, so its width is part of the frame the pan is clamped against
-            // — an axis it has eaten is one the wheel must not anchor on.
-            compactPanelDocked ? compactSidebarWidth(avail.width) : 0,
+            // — an axis it has eaten is one the wheel must not anchor on. The
+            // committed share, with the listener rebuilt when it moves: a wheel
+            // read against a panel that has since been resized would anchor on
+            // an axis the picture can no longer move along.
+            compactPanelDocked ? compactSidebarWidth(avail.width, sidebarShare) : 0,
           );
         }
 
@@ -2574,6 +2772,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
       naturalHeight,
       compactUserScale,
       compactPanelDocked,
+      // Read through `compactPanAxes`: the pan a wheel anchors on is bounded by
+      // the pane, and the pane's width depends on the panel's.
+      sidebarShare,
       stepCompactSize,
     ],
   );
@@ -3100,6 +3301,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
         </div>
       )}
       <div
+        data-testid="image-modal-body"
+        ref={modalBodyRef}
+        // The panel's share of this row, handed to both halves as a custom
+        // property rather than as two widths. The panel reads it directly and
+        // the pane reads `100% - share`, so the split has one edit site and the
+        // two can no longer be typed out of step — they used to be a pair of
+        // hand-written percentages that had to sum to 1. Declared here because
+        // this element *is* the row they divide, so both inherit it and nothing
+        // outside the modal can see it.
+        style={
+          {
+            "--sidebar-share": `${(resolvedSidebarShare * 100).toFixed(2)}%`,
+          } as React.CSSProperties
+        }
         className={`${
           isFullscreen
             ? "w-full h-full rounded-none"
@@ -3128,18 +3343,27 @@ const ImageModal: React.FC<ImageModalProps> = ({
           // narrower than the picture — without it a flex item refuses to shrink
           // past its content, and the pinned picture would hold the pane open
           // instead of being cropped by it.
+          //
+          // No transition while the panel is being dragged either. A drag sets
+          // the share per mousemove, so an eased width would lag the pointer by
+          // up to the full duration and the handle would not sit under the
+          // cursor that is holding it.
           className={`${
             isCompactMode && !isFullscreen
               ? "flex-1 min-w-0 h-full"
               : `w-full ${isFullscreen ? "h-full" : sidebarHidden ? "h-full md:w-full" : `${PANE_WIDTH} h-1/2 md:h-full`}`
-          } bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode ? "" : "transition-[width] duration-300"}`}
+          } bg-gray-950 flex items-center justify-center ${isFullscreen ? "p-0" : "p-2"} relative group overflow-hidden ${isCompactMode || sidebarDrag ? "" : "transition-[width] duration-300"}`}
           onMouseDown={isVideo ? undefined : handleMouseDown}
           onMouseMove={isVideo ? undefined : handleMouseMove}
           onMouseUp={isVideo ? undefined : handleMouseUp}
           onMouseLeave={isVideo ? undefined : handleMouseLeaveContainer}
           style={{
-            cursor:
-              !isVideo && canPan
+            // Wins over `body.style.cursor` while the panel is dragged: this is
+            // an inline style on the element under the pointer for most of the
+            // gesture, and the body's cursor is only what shows in the gaps.
+            cursor: sidebarDrag
+              ? "col-resize"
+              : !isVideo && canPan
                 ? isDragging
                   ? "grabbing"
                   : "grab"
@@ -3397,19 +3621,66 @@ const ImageModal: React.FC<ImageModalProps> = ({
         {/* Metadata Panel */}
         <div
           data-testid="metadata-panel"
-          // Docked in a compact window, the panel is the fixed column the window
-          // was measured around, so its width is the same number the sizing rule
-          // reserved — set here rather than in a class, because the two have to
-          // be one value and a class cannot hold one. Closed, it is `hidden`
-          // outright: a panel taking up room the window was not sized for is the
-          // picture and the frame disagreeing about where the pane is.
+          // Docked in a compact window the panel is the column the window was
+          // measured around, so its width is set here rather than in a class:
+          // it is a number the sizing rule also reads, and a class cannot hold
+          // one. Read against the screen and not the frame, and at the resolved
+          // share so it follows the pointer during a drag; the frame catches up
+          // on the mouseup. Closed, the panel is `hidden` outright: a panel
+          // taking up room the window was not sized for is the picture and the
+          // frame disagreeing about where the pane is.
           style={compactPanelDocked ? { width: compactPanelWidth } : undefined}
           className={`${
             isCompactMode && compactPanelDocked
               ? "shrink-0 h-full border-l border-gray-800/60"
               : `w-full ${sidebarHidden ? "hidden" : `${SIDEBAR_WIDTH} h-1/2 md:h-full`}`
-          } flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
+          } relative flex flex-col ${isFullscreen ? "bg-gray-900/80 backdrop-blur-md" : ""}`}
         >
+          {/* The panel's inner edge, and the one thing in the viewer that is
+              neither picture nor metadata: a four-pixel strip of pointer. It
+              carries no visible line at rest — the panel and the picture are
+              already different tones and compact mode already draws a border
+              here — so what it advertises itself with is the cursor and the
+              highlight on hover.
+
+              `z-20`, above the search bar's `z-10`: that bar is a later sibling
+              of this handle inside the panel, so at equal depth it would paint
+              over the handle's top and swallow the mousedown that starts a drag
+              from up there.
+
+              In a compact window it fades in with the rest of the panel's
+              contents, because until the window has taken its size this strip
+              would otherwise sit over a panel that is not there yet. Outside
+              compact it is `md:`-only, since below `md` the body stacks and
+              there is no vertical edge left to drag. */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize metadata panel"
+            aria-valuenow={Math.round(resolvedSidebarShare * 100)}
+            aria-valuemin={Math.round(MIN_SIDEBAR_SHARE * 100)}
+            aria-valuemax={Math.round(MAX_SIDEBAR_SHARE * 100)}
+            onMouseDown={handleSidebarResizeStart}
+            onDoubleClick={resetSidebarShare}
+            className={`${
+              isCompactMode
+                ? `transition duration-200 ease-out ${
+                    compactPanelReady
+                      ? "opacity-100 translate-x-0"
+                      : "opacity-0 -translate-x-2 pointer-events-none"
+                  }`
+                : "hidden md:block"
+            } absolute left-0 top-0 bottom-0 w-[4px] cursor-col-resize z-20 group/resize`}
+          >
+            <div
+              className={`absolute inset-y-0 left-0 w-px transition-colors ${
+                sidebarDrag
+                  ? "bg-blue-500"
+                  : "bg-transparent group-hover/resize:bg-blue-500/70"
+              }`}
+            />
+          </div>
+
           {isSearchOpen && (
             <div
               data-search-bar

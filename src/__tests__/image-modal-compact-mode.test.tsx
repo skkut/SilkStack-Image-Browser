@@ -51,22 +51,27 @@ import {
   COMPACT_GROW_STEP_MS,
   COMPACT_MIN_WINDOW_WIDTH,
   COMPACT_MIN_WINDOW_HEIGHT,
-  COMPACT_SIDEBAR_WIDTH,
+  compactSidebarWidth,
+  DEFAULT_SIDEBAR_SHARE,
+  SIDEBAR_SHARE_STORAGE_KEY,
 } from '../utils/windowSizing';
 import type { IndexedImage } from '../types';
 
 /**
- * The docked panel's width, read from the constant rather than written out.
+ * The docked panel's width, derived from the rule rather than written out.
  *
  * These suites are about the arithmetic *around* the panel — picture + padding
  * + panel, and the picture not moving when it arrives — so retyping the number
  * here would only mean this file failing every time the panel is retuned,
- * which says nothing about whether the layout rule is right. The cap in
- * `compactSidebarWidth` never bites in this harness: its work area is
- * 1000x1000 and the pane keeps 272px under it, well over the panel's own
- * width, so the panel is always the whole constant.
+ * which says nothing about whether the layout rule is right.
+ *
+ * Derived through `compactSidebarWidth` because the panel is a share of the
+ * work area now, and the harness work area is what `setScreen` sets below. The
+ * cap inside it never bites here: at the default share a 1000px work area
+ * leaves the panel 300px, well inside the 728px the cap allows.
  */
-const PANEL = COMPACT_SIDEBAR_WIDTH;
+const WORK_AREA = 1000;
+const PANEL = compactSidebarWidth(WORK_AREA);
 /** A 400x300 picture, its padding, and the panel docked beside it. */
 const PANEL_OPEN_WIDTH = 400 + 16 + PANEL;
 

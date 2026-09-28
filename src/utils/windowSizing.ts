@@ -171,18 +171,107 @@ export const COMPACT_MIN_WINDOW_WIDTH = 272;
 export const COMPACT_MIN_WINDOW_HEIGHT = 160;
 
 /**
- * The width of the metadata panel when it is docked inside a compact window.
+ * The share of the room the metadata panel takes when it is docked.
  *
- * Fixed, where the ordinary viewer's panel is a share of its own body. A
- * compact window is the *picture's* size, so a share of it would make the
- * panel as narrow as the file is small — and the panel holds text, whose needs
- * do not shrink along with the picture beside it. This number is that share
- * read at a typical window rather than at every one, which is what keeps the
- * panel close to the same shape when the viewer around it changes; a fixed
- * width and a share can only agree exactly at one window size. It moved with
- * the share (25% → 30%) so that "close" stays close.
+ * One number for both viewers, which is the whole point: the ordinary viewer
+ * reads it against its own body, and a compact window reads it against the
+ * display's work area (`compactSidebarWidth` below). Those are different
+ * rectangles — a compact window *is* the picture's size — but the same
+ * statement fits both, and "the panel gets a third of the room" is a sentence
+ * each mode can keep on its own terms.
+ *
+ * What it replaced was a fixed width, which is only right at one window size.
+ * It was written as "a share read at a typical window", and the reading is the
+ * part that survived; the typical window is what a display of unknown size
+ * could not supply.
+ *
+ * Note the two modes can disagree about the *pixels* while agreeing about the
+ * share — deliberately. A compact panel is a share of the screen rather than of
+ * the frame it sits in, because a shared frame would shrink the panel along
+ * with the picture, and the panel holds text whose needs do not follow the
+ * size of the file beside it.
  */
-export const COMPACT_SIDEBAR_WIDTH = 384;
+export const DEFAULT_SIDEBAR_SHARE = 0.3;
+
+/**
+ * Bounds on that share. The two ends fail differently, so they are argued
+ * separately.
+ *
+ * The **floor** is legibility: under a fifth of the room the panel is a column
+ * of broken words. It doubles as a guard for the smallest pictures — a compact
+ * frame is `picture + padding + panel`, and a frame that falls under
+ * `COMPACT_MIN_WINDOW_WIDTH` is not refused by the OS but quietly *widened*,
+ * which leaves background on screen. A floor above zero keeps that out of reach
+ * for every picture big enough to be worth opening in this mode.
+ *
+ * The **ceiling** is the picture's, and it is set by where the cap below starts
+ * biting: `share * avail > avail - COMPACT_MIN_WINDOW_WIDTH` is `avail < 680`
+ * at 0.6. Below that the panel stops following the pointer, because the work
+ * area has become the constraint instead. Keeping the ceiling here means a drag
+ * and the panel agree everywhere the display is not genuinely too small.
+ */
+export const MIN_SIDEBAR_SHARE = 0.2;
+export const MAX_SIDEBAR_SHARE = 0.6;
+
+/**
+ * Persisted share of the room the metadata panel takes: written when a drag
+ * ends, read when the viewer opens. See `clampSidebarShare`.
+ */
+export const SIDEBAR_SHARE_STORAGE_KEY = "image_modal_sidebar_share";
+
+/**
+ * Hold a share inside its range.
+ *
+ * The range and nothing else, for a value that is already *known* to be a
+ * share: the arithmetic behind a drag, which divides a distance by a width and
+ * goes negative the moment the pointer is dragged past the panel's narrowest
+ * point. There the negative means "further than allowed", and the answer is the
+ * floor.
+ */
+export function boundSidebarShare(share: number): number {
+  // Total on the numbers, and on the one that is not. `Math.min` and `Math.max`
+  // propagate `NaN`, and this result is written straight into a CSS width — a
+  // drag fed a malformed event would put `NaN%` on the row and take the layout
+  // with it. The floor is the answer for a layout: a panel as narrow as it is
+  // allowed to be, rather than a row that does not know its own width. (The drag
+  // refuses to start on a zero base, so this is a backstop.) The infinities need
+  // no case of their own: they mean exactly what they say — further than
+  // allowed — and the range takes them to the ends it already has.
+  if (Number.isNaN(share)) return MIN_SIDEBAR_SHARE;
+  return Math.min(MAX_SIDEBAR_SHARE, Math.max(MIN_SIDEBAR_SHARE, share));
+}
+
+/**
+ * Read a stored share, or a dragged one that has been through storage.
+ *
+ * Same shape as `clampUserScale`, and for the same reason: a missing, corrupt
+ * or nonsensical value means "never chosen", so it becomes the default rather
+ * than a bound. `Number(null)` — what a key that was never written reads as —
+ * is 0, and only this reading turns that into the default; forcing it to the
+ * floor would open the viewer narrow for every user who has never dragged.
+ *
+ * Kept apart from `boundSidebarShare` because the two disagree about exactly
+ * that case, and routing a drag through this one would have the panel spring
+ * back to the default under a pointer dragging past the floor, rather than
+ * stopping at it.
+ */
+export function clampSidebarShare(share: number): number {
+  if (!Number.isFinite(share) || share <= 0) return DEFAULT_SIDEBAR_SHARE;
+  return boundSidebarShare(share);
+}
+
+/**
+ * A share rounded to four decimals — two decimals of a percentage.
+ *
+ * A drag divides pixels by a width, which carries far more digits than the
+ * width it describes can express, and the result is written to storage and
+ * compared in tests. Rounding at the source rather than at the write means the
+ * value being dragged and the value being stored are the same number, so the
+ * panel does not shift under the pointer at the moment the drag ends.
+ */
+export function roundSidebarShare(share: number): number {
+  return Math.round(share * 10000) / 10000;
+}
 
 export interface CompactContentSize {
   contentWidth: number;
@@ -205,27 +294,48 @@ function reservedWidthOf(reservedWidth: number, maxWidth: number): number {
 /**
  * The width the metadata panel takes in a compact window.
  *
- * The panel is docked to the right of the picture at a fixed width, so the
- * window it lives in is `picture + padding + panel` — and this is the one number
- * the layout (the panel's own `width`) and the sizing rule (the `reservedWidth`
- * parameter below) both read. A panel laid out at one width inside a window
- * shaped for another is the picture and the frame disagreeing about where the
- * pane is.
+ * The panel is docked to the right of the picture, so the window it lives in is
+ * `picture + padding + panel` — and this is the one number the layout (the
+ * panel's own `width`) and the sizing rule (the `reservedWidth` parameter below)
+ * both read. A panel laid out at one width inside a window shaped for another is
+ * the picture and the frame disagreeing about where the pane is.
+ *
+ * Read against the **work area**, not against the window. The window is the
+ * picture's size, so a share of it would hand a small file a panel too narrow to
+ * read — the panel holds text, and text does not shrink to match the picture
+ * next to it. The screen is the one measurement that means the same thing for
+ * every file, so it is the one the panel is sized from.
  *
  * Capped, and only on a display too narrow to hold both without squeezing the
  * picture: what is left for the pane then keeps the width the window manager's
  * own minimum is stated in (minus the padding the frame pays anyway), so the
- * picture the mode exists for is not the thing that gives way — the panel is. On
- * any display that can hold both — every real one: the cap only bites under
- * 656px of work area — the panel is simply this constant.
+ * picture the mode exists for is not the thing that gives way — the panel is.
+ * `MAX_SIDEBAR_SHARE` sits below the point where that cap would start biting on
+ * a normal display, so in practice the panel is just the share.
+ *
+ * Rounded to whole pixels: this is a width the viewer lays out *and* a term in
+ * the frame's arithmetic, and a frame is measured in whole ones.
+ *
+ * A work area that cannot be read reserves nothing. There is no error to fall
+ * back to here — the panel's width is a share *of* something, and with no screen
+ * to take it from there is no width to name. Reserving none is the honest
+ * answer and the safe one: a reservation is room taken from a real frame.
  */
-export function compactSidebarWidth(availWidth: number): number {
-  if (!Number.isFinite(availWidth) || availWidth <= 0) {
-    return COMPACT_SIDEBAR_WIDTH;
-  }
-  return Math.min(
-    COMPACT_SIDEBAR_WIDTH,
-    Math.max(0, availWidth - COMPACT_MIN_WINDOW_WIDTH),
+export function compactSidebarWidth(
+  availWidth: number,
+  share: number = DEFAULT_SIDEBAR_SHARE,
+): number {
+  if (!Number.isFinite(availWidth) || availWidth <= 0) return 0;
+  // Guarded rather than clamped, so a value outside the range still reaches the
+  // cap below as written: the range is a policy the callers apply through
+  // `clampSidebarShare`, and a rule that silently corrected its own inputs could
+  // not be asked what it does with a share it was never meant to see.
+  const readable = Number.isFinite(share) && share > 0 ? share : DEFAULT_SIDEBAR_SHARE;
+  return Math.round(
+    Math.min(
+      readable * availWidth,
+      Math.max(0, availWidth - COMPACT_MIN_WINDOW_WIDTH),
+    ),
   );
 }
 

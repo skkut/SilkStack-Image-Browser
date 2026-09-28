@@ -19,7 +19,12 @@ import {
   COMPACT_MAX_USER_SCALE,
   COMPACT_MIN_WINDOW_WIDTH,
   COMPACT_MIN_WINDOW_HEIGHT,
-  COMPACT_SIDEBAR_WIDTH,
+  DEFAULT_SIDEBAR_SHARE,
+  MIN_SIDEBAR_SHARE,
+  MAX_SIDEBAR_SHARE,
+  clampSidebarShare,
+  boundSidebarShare,
+  roundSidebarShare,
 } from '../utils/windowSizing';
 
 /**
@@ -777,10 +782,14 @@ describe('userScaleFromResize', () => {
  */
 describe('a docked metadata panel', () => {
   // A 1000x1000 work area, whose own caps are 984 x 952 of image area — and a
-  // panel of the app's own sidebar width, which on a display this size is more
-  // than a third of everything the picture had.
+  // panel at the default share, which on a display this size is 300px, more than
+  // a third of everything the picture had.
+  //
+  // Derived rather than written out: every assertion below is about the
+  // relationship between the panel and the picture, so pinning the panel to a
+  // literal would make this block a test of the arithmetic that produced it.
   const DISPLAY = [1000, 1000] as const;
-  const PANEL = COMPACT_SIDEBAR_WIDTH;
+  const PANEL = compactSidebarWidth(DISPLAY[0]);
 
   it('grows the window by the panel and leaves the picture alone', () => {
     // The load-bearing rule, asserted as an identity: the pane a panel-framed
@@ -896,16 +905,56 @@ describe('a docked metadata panel', () => {
     ).toBeCloseTo(0.5, 5);
   });
 
+  it('sizes the panel from the work area, not from the frame', () => {
+    // The panel is the share of the *screen*, which is what keeps it readable
+    // for a small file: a share of the frame would hand a 300px picture a 90px
+    // panel. Rounded to whole pixels, because this is a width the viewer lays
+    // out and a term in the frame's arithmetic both.
+    expect(compactSidebarWidth(2048)).toBe(614);
+    expect(compactSidebarWidth(2048)).toBe(
+      Math.round(DEFAULT_SIDEBAR_SHARE * 2048),
+    );
+    expect(compactSidebarWidth(1000)).toBe(300);
+    // The work area decides, so two frames of the same size on the same screen
+    // reserve the same panel — this function is not told which picture is in it.
+    expect(compactSidebarWidth(1000)).toBe(compactSidebarWidth(1000));
+  });
+
   it('drops the panel, not the picture, on a display too small for both', () => {
-    expect(compactSidebarWidth(2048)).toBe(COMPACT_SIDEBAR_WIDTH);
-    // Under 592px of work area there is no room for both at their own sizes, and
-    // the panel is what gives way: what it leaves the pane is the width the
+    // Under 389px of work area at the default share there is no room for both,
+    // and the panel is what gives way: what it leaves the pane is the width the
     // window manager's minimum is stated in, so the picture still gets a
-    // window's worth of screen.
-    expect(compactSidebarWidth(500)).toBe(500 - COMPACT_MIN_WINDOW_WIDTH);
-    expect(compactSidebarWidth(500)).toBeLessThan(COMPACT_SIDEBAR_WIDTH);
+    // window's worth of screen. The cap is exercised with a share past
+    // MAX_SIDEBAR_SHARE, because at the default it does not bite on any display
+    // a viewer would actually be opened on — which is the point of that ceiling.
+    expect(compactSidebarWidth(500, 0.8)).toBe(500 - COMPACT_MIN_WINDOW_WIDTH);
+    expect(compactSidebarWidth(500, 0.8)).toBeLessThan(
+      compactSidebarWidth(2048),
+    );
+    // Still the share's side of the cap on a display with room for both.
+    expect(compactSidebarWidth(500, 0.3)).toBe(150);
     expect(compactSidebarWidth(200)).toBe(0);
-    expect(compactSidebarWidth(Number.NaN)).toBe(COMPACT_SIDEBAR_WIDTH);
+  });
+
+  it('reserves nothing for a work area it cannot read', () => {
+    // A share needs something to be a share *of*, so with no screen to measure
+    // there is no width to name. Reserving none is the safe reading rather than
+    // the convenient one: a reservation is room taken from a real frame, and
+    // inventing one would shape a window around a display never observed.
+    expect(compactSidebarWidth(Number.NaN)).toBe(0);
+    expect(compactSidebarWidth(0)).toBe(0);
+    expect(compactSidebarWidth(-100)).toBe(0);
+  });
+
+  it('takes a nonsensical share as no share rather than as no panel', () => {
+    // The guard is not a clamp: a value outside the range is still applied as
+    // written, because the range is a policy the callers apply and this rule
+    // should be askable about shares it was never meant to see. What it will not
+    // do is let a NaN through — that would poison the frame's whole arithmetic.
+    expect(compactSidebarWidth(1000, Number.NaN)).toBe(300);
+    expect(compactSidebarWidth(1000, 0)).toBe(300);
+    expect(compactSidebarWidth(1000, -1)).toBe(300);
+    expect(compactSidebarWidth(1000, 0.9)).toBe(728);
   });
 
   it('reads the pane out of a window that has a panel in it', () => {
@@ -921,6 +970,97 @@ describe('a docked metadata panel', () => {
     expect(compactImageArea(100, 540, 500).width).toBe(1);
     expect(compactImageArea(1000, 540, Number.NaN)).toEqual(compactImageArea(1000, 540));
     expect(compactImageArea(1000, 540, -20)).toEqual(compactImageArea(1000, 540));
+  });
+});
+
+/**
+ * The stored share of the room the metadata panel takes.
+ *
+ * The distinction this guard exists to make: *never chosen* and *chosen as
+ * something extreme* are different states, and only the second is a bound. A
+ * clamp that collapsed the two would turn one corrupt byte in localStorage into
+ * a panel pinned at the minimum, which reads to the user as the setting having
+ * been ignored.
+ */
+describe('clampSidebarShare', () => {
+  it('reads a value that was never chosen as the default', () => {
+    expect(clampSidebarShare(Number.NaN)).toBe(DEFAULT_SIDEBAR_SHARE);
+    expect(clampSidebarShare(0)).toBe(DEFAULT_SIDEBAR_SHARE);
+    expect(clampSidebarShare(-0.5)).toBe(DEFAULT_SIDEBAR_SHARE);
+    expect(clampSidebarShare(Number.POSITIVE_INFINITY)).toBe(DEFAULT_SIDEBAR_SHARE);
+  });
+
+  it('holds a chosen value inside the range rather than discarding it', () => {
+    expect(clampSidebarShare(0.01)).toBe(MIN_SIDEBAR_SHARE);
+    expect(clampSidebarShare(5)).toBe(MAX_SIDEBAR_SHARE);
+    expect(clampSidebarShare(MIN_SIDEBAR_SHARE)).toBe(MIN_SIDEBAR_SHARE);
+    expect(clampSidebarShare(MAX_SIDEBAR_SHARE)).toBe(MAX_SIDEBAR_SHARE);
+  });
+
+  it('passes a value in the range through untouched', () => {
+    expect(clampSidebarShare(0.42)).toBe(0.42);
+    expect(clampSidebarShare(DEFAULT_SIDEBAR_SHARE)).toBe(DEFAULT_SIDEBAR_SHARE);
+  });
+
+  it('rounds a dragged share to the precision it is stored at', () => {
+    // A drag divides pixels by a width, so the raw result carries more digits
+    // than a panel width can express. Rounding at the source is what keeps the
+    // dragged value and the stored value the same number, so the panel does not
+    // shift under the pointer at the moment the drag ends.
+    expect(roundSidebarShare(0.3 * 100 / 100)).toBe(0.3);
+    expect(roundSidebarShare(1 / 3)).toBe(0.3333);
+    expect(roundSidebarShare(0.123456789)).toBe(0.1235);
+    expect(roundSidebarShare(0.30000000000000004)).toBe(0.3);
+    // Idempotent: rounding an already-rounded share changes nothing, which is
+    // what lets it be applied on every mousemove.
+    expect(roundSidebarShare(roundSidebarShare(1 / 3))).toBe(roundSidebarShare(1 / 3));
+  });
+
+  it('ships a default that is already inside the range', () => {
+    // Otherwise a fresh install would sit at a value a drag could never reach,
+    // and the first drag would jump.
+    expect(DEFAULT_SIDEBAR_SHARE).toBeGreaterThanOrEqual(MIN_SIDEBAR_SHARE);
+    expect(DEFAULT_SIDEBAR_SHARE).toBeLessThanOrEqual(MAX_SIDEBAR_SHARE);
+  });
+});
+
+/**
+ * The range on its own, for a share that is already known to be one — the
+ * arithmetic behind a drag.
+ *
+ * The two functions disagree about exactly one case, and it is the case a drag
+ * produces constantly: `startShare - travel/base` goes negative the moment the
+ * pointer is pulled past the panel's narrowest point. Read through the storage
+ * policy that negative is "never chosen" and the panel springs back to a third
+ * of the row under a pointer that has stopped moving; read through the range it
+ * is "further than allowed" and the panel stops at its floor.
+ */
+describe('boundSidebarShare', () => {
+  it('stops an over-drag at the floor instead of sending it to the default', () => {
+    expect(boundSidebarShare(-0.2)).toBe(MIN_SIDEBAR_SHARE);
+    expect(boundSidebarShare(0)).toBe(MIN_SIDEBAR_SHARE);
+    expect(clampSidebarShare(-0.2)).toBe(DEFAULT_SIDEBAR_SHARE);
+  });
+
+  it('stops an over-drag at the ceiling', () => {
+    expect(boundSidebarShare(1.5)).toBe(MAX_SIDEBAR_SHARE);
+    expect(boundSidebarShare(MAX_SIDEBAR_SHARE)).toBe(MAX_SIDEBAR_SHARE);
+  });
+
+  it('passes a value in the range through untouched', () => {
+    expect(boundSidebarShare(0.42)).toBe(0.42);
+    expect(boundSidebarShare(MIN_SIDEBAR_SHARE)).toBe(MIN_SIDEBAR_SHARE);
+    expect(boundSidebarShare(DEFAULT_SIDEBAR_SHARE)).toBe(DEFAULT_SIDEBAR_SHARE);
+  });
+
+  it('answers a value that is not a number with the floor, not with NaN', () => {
+    // The reason this needs saying: `Math.min`/`Math.max` propagate `NaN`, and
+    // whatever this returns is written straight into a CSS width. Left to
+    // propagate, a malformed drag event would put `NaN%` on the row and the
+    // layout would lose its width entirely — where the floor is a panel that is
+    // merely narrow, which is recoverable and visible.
+    expect(boundSidebarShare(Number.NaN)).toBe(MIN_SIDEBAR_SHARE);
+    expect(boundSidebarShare(Number.POSITIVE_INFINITY)).toBe(MAX_SIDEBAR_SHARE);
   });
 });
 
