@@ -55,7 +55,7 @@ export function concatTextExtractor(
  * Used by nodes like ImpactWildcardEncode.
  */
 export function extractLorasFromText(text: string): string[] {
-  const loraMatches = text.matchAll(/<lora:([^>]+)>/gi);
+  const loraMatches = text.matchAll(/<lora:([^>]{1,200})>/gi);
   const loras: string[] = [];
 
   for (const match of loraMatches) {
@@ -80,7 +80,7 @@ export function extractLorasFromText(text: string): string[] {
  * Used by nodes like ImpactWildcardEncode.
  */
 export function removeLoraTagsFromText(text: string): string {
-  return text.replace(/<lora:[^>]+>/gi, '').trim();
+  return text.replace(/<lora:[^>]{1,200}>/gi, '').trim();
 }
 
 /**

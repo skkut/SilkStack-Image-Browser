@@ -101,7 +101,7 @@ export function extractLorasFromInvokeAI(metadata: InvokeAIMetadata): string[] {
       ? metadata.prompt.map(p => typeof p === 'string' ? p : p.prompt).join(' ')
       : '';
 
-  const loraPatterns = [/<lora:([^:>]+):[^>]*>/gi, /<lyco:([^:>]+):[^>]*>/gi];
+  const loraPatterns = [/<lora:([^:>]{1,200}):[^>]{0,200}>/gi, /<lyco:([^:>]{1,200}):[^>]{0,200}>/gi];
   loraPatterns.forEach(pattern => {
     let match;
     while ((match = pattern.exec(promptText)) !== null) {

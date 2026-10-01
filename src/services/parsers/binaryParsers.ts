@@ -903,14 +903,20 @@ export async function parseJPEGMetadata(buffer: ArrayBuffer): Promise<ImageMetad
  * and numeric character references (&#xNNNN;, &#NNNN;) back to plain text.
  */
 function decodeXmlEntities(xml: string): string {
+  // `&amp;` is decoded LAST on purpose. Decoding it earlier would let an
+  // entity that was escaped in the source be decoded twice: `&amp;#60;`
+  // (the literal text "&#60;") would become `&#60;` here and then `<` in
+  // the numeric pass below. Going last keeps every entity at exactly one
+  // decode. The numeric quantifiers are bounded so a long run of digits
+  // with no closing `;` can't backtrack quadratically.
   return xml
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)));
+    .replace(/&#x([0-9a-fA-F]{1,16});/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d{1,10});/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&amp;/g, '&');
 }
 
 /**

@@ -35,7 +35,7 @@ export function parseDrawThingsMetadata(parameters: string, userComment?: string
   let width = 0;
   let height = 0;
   if (size) {
-    const sizeMatch = size.match(/(\d+)x(\d+)/);
+    const sizeMatch = size.match(/(\d{1,6})x(\d{1,6})/);
     if (sizeMatch) {
       width = parseInt(sizeMatch[1]);
       height = parseInt(sizeMatch[2]);
@@ -44,7 +44,7 @@ export function parseDrawThingsMetadata(parameters: string, userComment?: string
   // Override with JSON data if available (more accurate)
   if (jsonData) {
     if (jsonData.size && typeof jsonData.size === 'string') {
-      const jsonSizeMatch = jsonData.size.match(/(\d+)x(\d+)/);
+      const jsonSizeMatch = jsonData.size.match(/(\d{1,6})x(\d{1,6})/);
       if (jsonSizeMatch) {
         width = parseInt(jsonSizeMatch[1]);
         height = parseInt(jsonSizeMatch[2]);

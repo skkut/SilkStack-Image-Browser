@@ -116,7 +116,7 @@ export function extractLorasFromInvokeAI(metadata: InvokeAIMetadata): (string | 
     });
 
     // Also check for <lyco:...> format (LyCORIS)
-    const lycoPattern = /<lyco:([^:>]+):([^>]+)>/gi;
+    const lycoPattern = /<lyco:([^:>]{1,200}):([^>]{1,200})>/gi;
     let match;
     while ((match = lycoPattern.exec(promptText)) !== null) {
       const name = match[1].trim();

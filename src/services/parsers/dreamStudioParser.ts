@@ -39,7 +39,7 @@ export function parseDreamStudioMetadata(metadata: any): BaseMetadata | null {
   let width = 0;
   let height = 0;
   if (size) {
-    const sizeMatch = size.match(/(\d+)x(\d+)/);
+    const sizeMatch = size.match(/(\d{1,6})x(\d{1,6})/);
     if (sizeMatch) {
       width = parseInt(sizeMatch[1]);
       height = parseInt(sizeMatch[2]);
@@ -128,7 +128,7 @@ function extractPrompts(parameters: string): { positivePrompt: string; negativeP
     negativePrompt = parts[1].trim();
   } else {
     // Fallback: look for "Negative prompt:" within the text
-    const negMatch = parameters.match(/Negative prompt:\s*(.+)$/i);
+    const negMatch = parameters.match(/Negative prompt:\s{0,50}(.{0,100000})$/i);
     if (negMatch) {
       positivePrompt = parameters.substring(0, negMatch.index).trim();
       negativePrompt = negMatch[1].trim();

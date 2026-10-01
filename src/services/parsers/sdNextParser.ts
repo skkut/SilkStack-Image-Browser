@@ -61,7 +61,7 @@ export function parseSDNextMetadata(parameters: string): BaseMetadata {
     result.steps = parseInt(stepsMatch[1], 10);
   }
 
-  const sizeMatch = parameters.match(/Size:\s*(\d+)x(\d+)/i);
+  const sizeMatch = parameters.match(/Size:\s*(\d{1,6})x(\d{1,6})/i);
   if (sizeMatch) {
     result.width = parseInt(sizeMatch[1], 10);
     result.height = parseInt(sizeMatch[2], 10);

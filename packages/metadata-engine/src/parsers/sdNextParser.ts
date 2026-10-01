@@ -20,7 +20,7 @@ export function extractLorasFromSDNext(metadata: SDNextMetadata): string[] {
   const params = metadata.parameters;
 
   // Extract from <lora:name:weight> format
-  const loraPatterns = /<lora:([^:>]+):[^>]*>/gi;
+  const loraPatterns = /<lora:([^:>]{1,200}):[^>]{0,200}>/gi;
   let match;
   while ((match = loraPatterns.exec(params)) !== null) {
     if (match[1]) loras.add(match[1].trim());
@@ -78,7 +78,7 @@ export function parseSDNextMetadata(parameters: string): BaseMetadata {
     result.steps = parseInt(stepsMatch[1], 10);
   }
 
-  const sizeMatch = parameters.match(/Size:\s*(\d+)x(\d+)/i);
+  const sizeMatch = parameters.match(/Size:\s*(\d{1,6})x(\d{1,6})/i);
   if (sizeMatch) {
     result.width = parseInt(sizeMatch[1], 10);
     result.height = parseInt(sizeMatch[2], 10);

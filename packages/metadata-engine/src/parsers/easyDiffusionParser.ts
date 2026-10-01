@@ -15,7 +15,7 @@ export function extractLorasFromEasyDiffusion(metadata: EasyDiffusionMetadata): 
   const loras: Set<string> = new Set();
   const params = metadata.parameters;
   // Easy Diffusion might use similar LoRA syntax as A1111
-  const loraPatterns = /<lora:([^:>]+):[^>]*>/gi;
+  const loraPatterns = /<lora:([^:>]{1,200}):[^>]{0,200}>/gi;
   let match;
   while ((match = loraPatterns.exec(params)) !== null) {
     if (match[1]) loras.add(match[1].trim());
@@ -55,7 +55,7 @@ export function parseEasyDiffusionMetadata(parameters: string): BaseMetadata {
   if (samplerMatch) result.sampler = samplerMatch[1].trim();
 
   // Parse size
-  const sizeMatch = parameters.match(/Size: (\d+)x(\d+)/);
+  const sizeMatch = parameters.match(/Size: (\d{1,6})x(\d{1,6})/);
   if (sizeMatch) {
     result.width = parseInt(sizeMatch[1], 10);
     result.height = parseInt(sizeMatch[2], 10);

@@ -6,7 +6,7 @@ export function extractModelsFromAutomatic1111(metadata: Automatic1111Metadata):
   const params = metadata.parameters;
 
   // Try to extract model from Civitai resources JSON first
-  const civitaiMatch = params.match(/Civitai resources:\s*(\[[\s\S]*?\])/);
+  const civitaiMatch = params.match(/Civitai resources:\s{0,50}(\[[\s\S]{0,20000}?\])/);
   if (civitaiMatch) {
     try {
       const resources = JSON.parse(civitaiMatch[1]);
@@ -42,7 +42,7 @@ export function extractLorasFromAutomatic1111(metadata: Automatic1111Metadata): 
   const params = metadata.parameters;
 
   // Try to extract LoRAs from Civitai resources JSON first
-  const civitaiMatch = params.match(/Civitai resources:\s*(\[[\s\S]*?\])/);
+  const civitaiMatch = params.match(/Civitai resources:\s{0,50}(\[[\s\S]{0,20000}?\])/);
   if (civitaiMatch) {
     try {
       const resources = JSON.parse(civitaiMatch[1]);
@@ -60,7 +60,7 @@ export function extractLorasFromAutomatic1111(metadata: Automatic1111Metadata): 
 
   // Fall back to standard <lora:...> pattern if no Civitai resources found
   if (loras.size === 0) {
-    const loraPatterns = /<lora:([^:>]+):[^>]*>/gi;
+    const loraPatterns = /<lora:([^:>]{1,200}):[^>]{0,200}>/gi;
     let match;
     while ((match = loraPatterns.exec(params)) !== null) {
       if (match[1]) loras.add(match[1].trim());
@@ -151,7 +151,7 @@ export function parseA1111Metadata(parameters: string): BaseMetadata {
   const seedMatch = parameters.match(/Seed: (\d+)/);
   if (seedMatch) result.seed = parseInt(seedMatch[1], 10);
 
-  const sizeMatch = parameters.match(/Size: (\d+)x(\d+)/);
+  const sizeMatch = parameters.match(/Size: (\d{1,6})x(\d{1,6})/);
   if (sizeMatch) {
     result.width = parseInt(sizeMatch[1], 10);
     result.height = parseInt(sizeMatch[2], 10);

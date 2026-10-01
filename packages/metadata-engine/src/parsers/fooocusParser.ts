@@ -27,7 +27,7 @@ export function parseFooocusMetadata(metadata: FooocusMetadata): BaseMetadata | 
     }
 
     // Extract negative prompt
-    const negativePromptMatch = params.match(/Negative prompt:\s*(\S[\s\S]*?)(?=Steps:|Sampler:|Model:|Version:|Size:|Seed:|CFG scale:|$)/i);
+    const negativePromptMatch = params.match(/Negative prompt:\s{0,50}(\S[\s\S]{0,100000}?)(?=Steps:|Sampler:|Model:|Version:|Size:|Seed:|CFG scale:|$)/i);
     const negativePrompt = negativePromptMatch ? negativePromptMatch[1].trim() : '';
 
     // Extract parameters using regex
@@ -45,13 +45,13 @@ export function parseFooocusMetadata(metadata: FooocusMetadata): BaseMetadata | 
     const module = params.match(/Module 1:\s*([A-Za-z0-9_.-]+)/i)?.[1] || '';
 
     // Extract dimensions
-    const sizeMatch = params.match(/Size:\s*(\d+)x(\d+)/i);
+    const sizeMatch = params.match(/Size:\s*(\d{1,6})x(\d{1,6})/i);
     const width = sizeMatch ? parseInt(sizeMatch[1]) : 0;
     const height = sizeMatch ? parseInt(sizeMatch[2]) : 0;
 
     // Extract LoRAs
     const loras: string[] = [];
-    const loraMatches = [...params.matchAll(/<lora:([^:>]+):?([\d.]*)>/gi)];
+    const loraMatches = [...params.matchAll(/<lora:([^:>]{1,200}):?([\d.]{0,50})>/gi)];
     for (const match of loraMatches) {
       loras.push(match[2] ? `${match[1]}:${match[2]}` : match[1]);
     }

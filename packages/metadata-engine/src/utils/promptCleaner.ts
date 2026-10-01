@@ -9,7 +9,7 @@ export function cleanPrompt(text: string | null | undefined): string {
     .replace(/__[a-zA-Z0-9/_-]+__/g, '')
     
     // Remove tags de LoRA (já extraídas separadamente)
-    .replace(/<lora:[^>]+>/gi, '')
+    .replace(/<lora:[^>]{1,200}>/gi, '')
     
     // Limpa pontuação duplicada
     .replace(/,\s*,/g, ',')

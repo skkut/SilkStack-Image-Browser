@@ -48,7 +48,9 @@ export function extractLoRAsWithWeights(text: string): (string | { name: string;
   const loras: (string | { name: string; weight: number })[] = [];
   const loraNames = new Set<string>();
 
-  const loraPattern = /<lora:([^:>]+):([^>]+)>/gi;
+  // Quantifiers are bounded so a run of '<lora:x:' with no closing '>' cannot
+  // make [^>]+ backtrack to the end of the string at every start position.
+  const loraPattern = /<lora:([^:>]{1,200}):([^>]{1,200})>/gi;
   let match;
 
   while ((match = loraPattern.exec(text)) !== null) {
