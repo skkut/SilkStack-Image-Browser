@@ -299,6 +299,16 @@ describe('the metadata panel in a compact window', () => {
     await act(async () => {});
   };
 
+  /** A compact window on `dimensions`, before any gesture. */
+  const openCompact = (dimensions: string) =>
+    render(
+      <ImageModal
+        image={makeImage({ dimensions, thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+
   const lastRequest = () =>
     setViewerCompactMode.mock.calls[setViewerCompactMode.mock.calls.length - 1][0] as {
       contentWidth: number;
@@ -389,6 +399,37 @@ describe('the metadata panel in a compact window', () => {
 
     expect(setViewerCompactMode.mock.calls.length).toBe(requestsDuring + 1);
     expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+  });
+
+  it('opens the next window at the width this one was dragged to', async () => {
+    // The two halves of the memory together, which is how the user meets them:
+    // the panel was docked *and* at a width they chose, and the window after
+    // this one opens on both. A window that remembered only one would open with
+    // a panel at the wrong width, or at the right width and no panel to put it
+    // on.
+    const first = openCompact('400x300');
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+    await act(async () => {});
+
+    // A third of the screen to two fifths of it.
+    act(() => startDrag(600));
+    act(() => moveDrag(500));
+    act(() => endDrag());
+    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+
+    first.unmount();
+
+    openCompact('400x300');
+
+    const panelWidth = compactSidebarWidth(WORK_AREA, 0.4);
+    expect(panel().style.width).toBe(`${panelWidth}px`);
+    expect(panel().className).not.toContain('hidden');
+    expect(picture().style.width).toBe('400px');
   });
 
   it('measures a hand-dragged window against the panel the user has now', async () => {

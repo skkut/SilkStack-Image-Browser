@@ -219,6 +219,28 @@ export const MAX_SIDEBAR_SHARE = 0.6;
  */
 export const SIDEBAR_SHARE_STORAGE_KEY = "image_modal_sidebar_share";
 
+/** The ordinary viewer's sidebar, collapsed or not. */
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = "image_modal_sidebar_collapsed";
+
+/**
+ * Whether the metadata panel was left docked in a *compact* window.
+ *
+ * Its own key rather than the sidebar flag above, because the two have
+ * different defaults and one key cannot hold both. That flag defaults to "not
+ * collapsed" — the ordinary viewer's sidebar being visible — so reading it here
+ * would open a panel in every compact window for every user who never touched
+ * their sidebar, where the mode's whole promise is that it starts as the
+ * picture alone. It would also disagree with itself: entering the mode by the
+ * button starts undocked, while an image opened into a remembered-compact
+ * window would arrive docked, with no choice made in between.
+ *
+ * Absent reads as "never asked", which is undocked. Written on the panel
+ * button's click and nowhere else — not by entering the mode, and not by the
+ * auto-dock Ctrl+F performs, which is the search's doing rather than the
+ * user's.
+ */
+export const COMPACT_PANEL_STORAGE_KEY = "image_modal_compact_panel_open";
+
 /**
  * Hold a share inside its range.
  *

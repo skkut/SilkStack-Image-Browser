@@ -45,6 +45,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import ImageModal from '../components/ImageModal';
 import {
   COMPACT_MODE_STORAGE_KEY,
+  COMPACT_PANEL_STORAGE_KEY,
   COMPACT_SCALE_STORAGE_KEY,
   COMPACT_GROW_SETTLE_MS,
   COMPACT_GROW_MAX_STEP,
@@ -978,6 +979,169 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
         compactPayload(416, 348, 'keep'),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /** A compact window on `dimensions`, as a *new* window would open it. */
+  const openCompactWindow = (dimensions: string = '400x300') => {
+    render(
+      <ImageModal
+        image={makeImage({ dimensions, thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+  };
+
+  it('opens with the panel docked when a compact window was left that way', () => {
+    // The ask, and the whole point of the key: the panel is on screen in the
+    // first commit — no click, no gesture — because nothing about it is a
+    // gesture the user has to repeat. The window is already the size to hold it,
+    // by the same path that pre-sizes any compact window, so the panel does not
+    // arrive by growing the frame a moment after it is shown.
+    (global.localStorage as any).__store.set(COMPACT_MODE_STORAGE_KEY, 'true');
+    (global.localStorage as any).__store.set(COMPACT_PANEL_STORAGE_KEY, 'true');
+
+    openCompactWindow();
+
+    expect(panel().className).not.toContain('hidden');
+    expect(panel().style.width).toBe(`${PANEL}px`);
+    // "center" and not "keep": this is a fresh window with nothing to hold a
+    // left edge for, and the size it is asking for is the one it was opened at
+    // rather than a change to one already in force.
+    expect(setViewerCompactMode).toHaveBeenCalledWith(
+      compactPayload(PANEL_OPEN_WIDTH, 348, 'center'),
+    );
+  });
+
+  it('opens as the picture alone when the panel was left closed', () => {
+    // The other half of the memory, and the state a user who has never expanded
+    // the panel is in — including one who has never touched their ordinary
+    // viewer's sidebar either, which is why this is not that flag.
+    (global.localStorage as any).__store.set(COMPACT_MODE_STORAGE_KEY, 'true');
+    (global.localStorage as any).__store.set(COMPACT_PANEL_STORAGE_KEY, 'false');
+
+    openCompactWindow();
+
+    expect(panel().className).toContain('hidden');
+    expect(setViewerCompactMode).toHaveBeenCalledWith(
+      compactPayload(416, 348, 'center'),
+    );
+  });
+
+  it('carries the panel into the next window, and the collapse back again', async () => {
+    // The round trip as the user described it: expand the panel, close that
+    // window, open another image — it comes up expanded. Press Collapse there
+    // and the window after that is the picture alone. Neither gesture is
+    // repeated, and neither needs the ordinary viewer in between.
+    const first = render(
+      <ImageModal
+        image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    act(() => {
+      screen.getByLabelText('Expand sidebar').click();
+    });
+    await act(async () => {});
+    expect(stored(COMPACT_PANEL_STORAGE_KEY)).toBe('true');
+
+    first.unmount();
+    setViewerCompactMode.mockClear();
+
+    // The next window, opened on the same remembered mode.
+    const second = render(
+      <ImageModal
+        image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    expect(panel().className).not.toContain('hidden');
+
+    act(() => {
+      screen.getByLabelText('Collapse sidebar').click();
+    });
+    await act(async () => {});
+    expect(stored(COMPACT_PANEL_STORAGE_KEY)).toBe('false');
+
+    second.unmount();
+    setViewerCompactMode.mockClear();
+
+    render(
+      <ImageModal
+        image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+        onClose={() => {}}
+        isStandaloneWindow={true}
+      />,
+    );
+    expect(panel().className).toContain('hidden');
+  });
+
+  it('still starts as the picture alone when the mode is entered by the button', async () => {
+    // The mode's own rule, unchanged: the toggle starts each compact session on
+    // the picture, because there has to be a window shaped to the image before
+    // there is anything to dock beside it. The remembered panel is for a window
+    // that *opens* in the mode, not for one that arrives in it.
+    (global.localStorage as any).__store.set(COMPACT_PANEL_STORAGE_KEY, 'true');
+
+    openCompactWindow();
+
+    // Ordinary viewer first: the panel is the sidebar's, and the key has no
+    // say in it.
+    expect(panel().className).not.toContain('hidden');
+
+    act(() => {
+      screen.getByLabelText('Fit window to image').click();
+    });
+    await act(async () => {});
+
+    expect(panel().className).toContain('hidden');
+    expect(setViewerCompactMode).toHaveBeenLastCalledWith(
+      compactPayload(416, 348, 'center'),
+    );
+  });
+
+  it('does not remember a panel Ctrl+F docked on its own', async () => {
+    // The reason the key is written on the click path rather than in an effect
+    // over `compactPanelOpen`. The search docks the panel so the hits it counts
+    // are on screen, and takes it away again when it closes; that is the
+    // search's doing, not a preference. Persisting it would turn "I searched
+    // once and hit Escape" into a standing choice about every window after.
+    vi.useFakeTimers();
+    try {
+      render(
+        <ImageModal
+          image={makeImage({ dimensions: '400x300', thumbnailUrl: 'blob:thumb' })}
+          onClose={() => {}}
+          isStandaloneWindow={true}
+        />,
+      );
+      act(() => {
+        screen.getByLabelText('Fit window to image').click();
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'f', ctrlKey: true, metaKey: false });
+      });
+      await act(async () => {});
+      expect(panel().className).not.toContain('hidden');
+
+      act(() => {
+        fireEvent.keyDown(screen.getByLabelText('Find in prompt'), {
+          key: 'Escape',
+        });
+        vi.advanceTimersByTime(PAST_THE_COLLAPSE_FADE);
+      });
+
+      expect(panel().className).toContain('hidden');
+      expect(stored(COMPACT_PANEL_STORAGE_KEY)).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }

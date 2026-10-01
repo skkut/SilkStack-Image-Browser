@@ -4,8 +4,12 @@ import { IndexedImage } from '../types';
 import { FileOperations } from '../services/fileOperations';
 import {
     COMPACT_MODE_STORAGE_KEY,
+    COMPACT_PANEL_STORAGE_KEY,
     COMPACT_SCALE_STORAGE_KEY,
+    SIDEBAR_SHARE_STORAGE_KEY,
+    clampSidebarShare,
     clampUserScale,
+    compactSidebarWidth,
     computeCompactContentSize,
     parseDimensionsString,
 } from '../utils/windowSizing';
@@ -13,26 +17,71 @@ import {
 import { useSettingsStore } from '../store/useSettingsStore';
 
 /**
+ * What the open-hint contributes to the viewer payload. Every field is optional
+ * because the common case contributes nothing at all — see below — and readers
+ * spread this into the payload rather than branching on it.
+ */
+export type CompactOpenHint = {
+    /** Set only when a remembered compact mode says the window opens in it. */
+    compact?: true;
+    /**
+     * The window's content size, when the stored dimensions allowed one. Absent
+     * for a file the indexer could not measure: the window still opens compact,
+     * it just opens at the default size and lets the viewer apply the fit once
+     * it has the decoded bitmap.
+     */
+    compactContentWidth?: number;
+    compactContentHeight?: number;
+};
+
+/**
  * When compact mode was left on, size the viewer window before it is ever
  * shown — otherwise it flashes at full size until the first image decodes.
  * The stored "WxH" string is enough to compute the shape; the viewer re-applies
  * the real size once it has the decoded bitmap. Returns `{}` in the common
  * (non-compact) case, so the payload is unchanged.
+ *
+ * The size carries the metadata panel when one was left docked, so a window
+ * that is going to have a panel opens *with* it rather than opening as the
+ * picture alone and widening a moment later. The viewer derives its own panel
+ * state from the same flag, so the two agree about the frame without either
+ * telling the other.
  */
-function compactOpenHint(image: IndexedImage) {
+export function compactOpenHint(image: IndexedImage): CompactOpenHint {
     if (localStorage.getItem(COMPACT_MODE_STORAGE_KEY) !== 'true') return {};
 
     const dimensions = parseDimensionsString(image.dimensions);
     const userScale = clampUserScale(
         Number(localStorage.getItem(COMPACT_SCALE_STORAGE_KEY)),
     );
+    const availWidth = window.screen?.availWidth || window.innerWidth;
+    const availHeight = window.screen?.availHeight || window.innerHeight;
+    // Reserved against the *work area*, matching the viewer, which measures a
+    // compact panel against the screen rather than the frame — the frame is the
+    // picture's size, and the panel holds text whose needs do not follow it.
+    //
+    // Only an explicit 'true' reserves, matching the viewer: a key that was
+    // never written reads as absent, which is "never asked" and means the panel
+    // stays off. A share that was never dragged reads as `Number(null)` = 0,
+    // which `clampSidebarShare` turns into the default rather than the floor.
+    const reserved =
+        localStorage.getItem(COMPACT_PANEL_STORAGE_KEY) === 'true'
+            ? compactSidebarWidth(
+                  availWidth,
+                  clampSidebarShare(
+                      Number(localStorage.getItem(SIDEBAR_SHARE_STORAGE_KEY)),
+                  ),
+              )
+            : 0;
     const size = dimensions
         ? computeCompactContentSize(
               dimensions.width,
               dimensions.height,
-              window.screen?.availWidth || window.innerWidth,
-              window.screen?.availHeight || window.innerHeight,
+              availWidth,
+              availHeight,
               userScale,
+              1,
+              reserved,
           )
         : null;
 

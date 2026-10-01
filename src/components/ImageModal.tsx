@@ -55,6 +55,8 @@ import {
   MIN_SIDEBAR_SHARE,
   MAX_SIDEBAR_SHARE,
   SIDEBAR_SHARE_STORAGE_KEY,
+  SIDEBAR_COLLAPSED_STORAGE_KEY,
+  COMPACT_PANEL_STORAGE_KEY,
   COMPACT_SCALE_EPSILON,
   COMPACT_RESIZE_TOLERANCE,
   COMPACT_GROW_SETTLE_MS,
@@ -1170,13 +1172,13 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
   };
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    const saved = localStorage.getItem("image_modal_sidebar_collapsed");
+    const saved = localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
     return saved === "true";
   });
 
   useEffect(() => {
     localStorage.setItem(
-      "image_modal_sidebar_collapsed",
+      SIDEBAR_COLLAPSED_STORAGE_KEY,
       String(isSidebarCollapsed),
     );
   }, [isSidebarCollapsed]);
@@ -1202,13 +1204,22 @@ const ImageModal: React.FC<ImageModalProps> = ({
     return clampUserScale(Number(localStorage.getItem(COMPACT_SCALE_STORAGE_KEY)));
   });
 
-  // Whether the metadata panel is docked inside the compact window. Deliberately
-  // not persisted: entering the mode starts as the image alone — there has to be
-  // a window shaped to the picture before there is anything to dock beside it —
-  // and the persisted sidebar flag stays the ordinary viewer's business. The
-  // button presses that do write it are made while compact, and mirror into that
-  // flag so leaving the mode agrees with what was on screen.
-  const [compactPanelOpen, setCompactPanelOpen] = useState(false);
+  // Whether the metadata panel is docked inside the compact window.
+  //
+  // Restored from its own key, and only by a window *born* in the mode — which
+  // is exactly what `isCompactMode` says at init, since its own initialiser is
+  // `isStandaloneWindow && stored === 'true'`. A window that switches *into* the
+  // mode starts as the image alone either way: there has to be a window shaped
+  // to the picture before there is anything to dock beside it, and that is the
+  // gesture's whole point.
+  //
+  // Deliberately *not* the sidebar flag, which defaults to "not collapsed" and
+  // would therefore dock a panel in every compact window for every user who
+  // never touched their sidebar. See COMPACT_PANEL_STORAGE_KEY.
+  const [compactPanelOpen, setCompactPanelOpen] = useState(() => {
+    if (!isCompactMode) return false;
+    return localStorage.getItem(COMPACT_PANEL_STORAGE_KEY) === "true";
+  });
 
   // Whether the docked panel's contents may be shown yet. The panel is rendered
   // in the same commit that asks the window to grow, and the window takes an IPC
@@ -1226,7 +1237,12 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // panel toggle — the one resize that has to keep the frame's left edge, since
   // the panel is docked on the right and growing about the centre would slide the
   // picture sideways by half the panel's width.
-  const compactReservedRef = useRef(0);
+  //
+  // Null, not 0, for "no request has gone out yet". A window born with the panel
+  // already docked would otherwise read its *first* size request as a toggle —
+  // 0 to something — and take "keep" where a fresh window wants "center",
+  // holding a left edge that was never anywhere in particular.
+  const compactReservedRef = useRef<number | null>(null);
 
   // ---- Find-in-prompt (Ctrl+F) state ----
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -1299,6 +1315,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
       const open = !compactPanelOpen;
       setCompactPanel(open);
       setIsSidebarCollapsed(!open);
+      // The compact panel's own memory, written here rather than in an effect.
+      // `setCompactPanel` is also how Ctrl+F docks and undocks the panel, and an
+      // effect would persist that too — turning a search the user closed into a
+      // standing preference. This is the click path only, the same shape as
+      // `toggleMetadataGroup` above.
+      try {
+        localStorage.setItem(COMPACT_PANEL_STORAGE_KEY, String(open));
+      } catch {
+        /* storage full or unavailable — the panel still docks, it just forgets */
+      }
       return;
     }
     setIsSidebarCollapsed((c) => !c);
@@ -1338,8 +1364,19 @@ const ImageModal: React.FC<ImageModalProps> = ({
   // window has to be shaped to the picture before there is anything to dock
   // beside it. A collapse still waiting from the last session is dropped with
   // it, or it would hide a panel this render has not opened yet.
+  //
+  // On the *transition* into the mode, and only on it. Effects run after the
+  // first render, so a window born compact would otherwise run this on mount and
+  // close the panel the init above had just restored — the memory would be
+  // written and never seen. Mount is not a transition: the ref starts null, so
+  // the first run is recognised and skipped however the mode was initialised.
+  // Skipping it costs nothing else, since zoom already starts at 1 and pan at
+  // {x: 0, y: 0} — the mount run had nothing to reset.
+  const prevCompactModeRef = useRef<boolean | null>(null);
   useEffect(() => {
-    if (!isCompactMode) return;
+    const entering = prevCompactModeRef.current === false;
+    prevCompactModeRef.current = isCompactMode;
+    if (!entering) return;
     setZoom(1);
     setPan({ x: 0, y: 0 });
     resetCompactPanel(
@@ -2087,7 +2124,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
     // right-hand side, so a window grown about its centre moves the *picture*
     // sideways by half the panel's width. Holding the left edge is what keeps a
     // panel toggle from touching a single pixel of the picture.
-    const panelToggled = compactReservedRef.current !== reserved;
+    const panelToggled =
+      compactReservedRef.current !== null && compactReservedRef.current !== reserved;
     compactReservedRef.current = reserved;
     const anchor: "center" | "keep" =
       panelToggled ||
