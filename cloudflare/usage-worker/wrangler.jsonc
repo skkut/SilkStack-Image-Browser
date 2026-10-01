@@ -1,0 +1,26 @@
+{
+  // SilkStack anonymous usage ping endpoint.
+  // Deploy from this folder:  npx wrangler deploy
+  // The `name` must match the Worker in the Cloudflare dashboard so the
+  // deploy updates it instead of creating a second Worker at a new URL.
+  "name": "silkstack",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+
+  // Analytics Engine may need to be enabled once per account: if `wrangler
+  // deploy` refuses, create a blank dataset named below in the dashboard
+  // (Workers & Pages → Analytics Engine) — blank is correct, the schema is
+  // implicit. Once it exists, the first write uses it; a dataset that does
+  // not exist yet is created by the first write.
+  //   binding  = env.SILKSTACK_USAGE in src/index.js
+  //   dataset  = the table name in SQL (SELECT ... FROM silkstack_usage)
+  "analytics_engine_datasets": [
+    { "binding": "SILKSTACK_USAGE", "dataset": "silkstack_usage" }
+  ],
+
+  // Workers Logs are off: the Worker logs nothing, and keeping request data
+  // out of logs is part of the privacy contract in ../README.md.
+  "observability": {
+    "enabled": false
+  }
+}

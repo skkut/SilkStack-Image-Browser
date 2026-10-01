@@ -19,6 +19,7 @@ import crypto from "crypto";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import * as fileWatcher from "./fileWatcher.mjs";
+import { maybeSendUsagePing } from "./usagePing.mjs";
 import archiver from "archiver";
 import ffprobeStatic from "ffprobe-static";
 import { createRequire } from "module";
@@ -945,6 +946,26 @@ app.whenReady().then(async () => {
   setupFileOperationHandlers();
 
   createWindow(startupDirectory);
+
+  // Anonymous usage ping — one fire-and-forget POST per 24h, from packaged
+  // builds only (dev runs would pollute the data; dev also uses a separate
+  // userData folder). Delayed past startup so it never competes with the
+  // first paint, never awaited, and silent on every failure. What is (and is
+  // not) sent is documented in electron/usagePing.mjs and the README.
+  if (app.isPackaged) {
+    setTimeout(() => {
+      readSettings()
+        .then((settings) =>
+          maybeSendUsagePing({
+            userDataPath: app.getPath("userData"),
+            appVersion: app.getVersion(),
+            platform: process.platform,
+            licenseStatus: settings?.licenseStatus,
+          }),
+        )
+        .catch(() => {});
+    }, 5000);
+  }
 });
 
 // Setup IPC handlers for file operations

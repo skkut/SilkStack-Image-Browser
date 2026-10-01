@@ -11,7 +11,7 @@ When working on this codebase:
 - Always ensure MPL compliance, warn for MPL violations
 - Maintain backward compatibility with cached data
 - Consider performance impact on large collections
-- Keep privacy-first approach (no external connections)
+- Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, model downloads, update checks - and any new one must be documented in README and here)
 - Follow TypeScript best practices
 - Write tests for new functionality
 - Do not auto commit to git
@@ -82,7 +82,7 @@ See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known got
 
 ## Key Features to Maintain
 
-1. **Privacy**: All processing is local, no external connections
+1. **Privacy**: All processing is local; the only outbound calls are the documented ones (anonymous usage ping, license activation, model downloads, update checks)
 2. **Performance**: Optimized for 18,000+ images with smart caching
 3. **Metadata Search**: Full-text search across all metadata fields
 4. **Multi-Format Support**: Handle various AI generator formats

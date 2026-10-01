@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Anonymous usage ping** — the packaged app sends one ping per day with a random install ID, the app version, the operating system, and whether a premium license is active. Nothing from your library is included, and the country is derived from the connection with the IP discarded. It runs only in packaged builds, and the server side is one small Cloudflare Worker (`cloudflare/usage-worker/`).
+
 ### Changed
 
 - **The metadata panel is six collapsible groups** — Tags, Image info, Prompt, Generation details, Performance and Raw data each fold away behind their own header, so a long prompt or a forty-row generation block no longer buries the tags and the dimensions under it. All six open by default, and each remembers its own state the way the sidebar's own collapse does. Fields are flat label/value rows sharing one card per group rather than a bordered tile each, with the copy button on the row it copies, and the raw-metadata views sit in a well that inverts with the theme — light mode used to draw dark text onto a panel that stayed dark, in the JSON view and in both banners. **Performance** is drawn only for files that carry analytics, and **Raw data** stays available for a file whose metadata failed to parse, which is when reading it raw is worth the most. **Ctrl+F** reopens the Prompt group by itself if you had folded it away — the matches its counter reads live inside it — and puts the group back the way you left it when the search closes, without overwriting what the panel remembers.

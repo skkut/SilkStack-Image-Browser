@@ -3,7 +3,7 @@
 > _A beautiful image browser built specially for viewing and organizing ComfyUI generated images._
 
 **SilkStack Image Browser** is a **local image browser and manager** focused on viewing AI-generated images.
-It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111) and lets you search, filter and organize your images by prompt, model, and more - all offline, on your machine.
+It scans your folders, parses metadata from popular tools (ComfyUI, Automatic1111) and lets you search, filter and organize your images by prompt, model, and more - running entirely on your machine, with your images never leaving it.
 
 ![SilkStack Image Browser main UI](docs/screenshot-hero-grid.webp)
 
@@ -13,7 +13,7 @@ It scans your folders, parses metadata from popular tools (ComfyUI, Automatic111
 
 ## Key features (overview)
 
-- **Fast local browser** for AI images (no accounts, no cloud, no telemetry)
+- **Fast local browser** for AI images (no accounts, no cloud, your library never leaves your machine)
 - **Rich metadata parsing** for ComfyUI and other tools, including WebP format.
 - **Beautiful Image Grid** with adaptive layout and smooth scrolling.
 - **Auto-Watch functionality** for real-time monitoring of output folders during generation.
@@ -91,7 +91,9 @@ Near-identical generations are grouped into **stacks**, so a folder full of 40 v
 
 - The AI section is gated behind a premium license. Once activated, the license state is cryptographically stamped and verified locally.
 - Activation contacts the license server once. After that SilkStack keeps working offline (the license shows as trusted while offline).
-- Your images, prompts, tags and search queries never leave your machine - all AI processing happens locally. Network access is limited to downloading model files on first use.
+- Your images, prompts, tags and search queries never leave your machine - all AI processing happens locally.
+- **Anonymous usage ping** - once a day the packaged app sends a random install ID, the app version, the OS and whether a license is active. Nothing from your library is included; the country comes from the connection and the IP is discarded.
+- Network access is limited to the ping above, license activation, model downloads on first use and update checks.
 
 ---
 
