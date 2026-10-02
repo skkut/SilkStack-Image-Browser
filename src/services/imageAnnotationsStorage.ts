@@ -227,6 +227,83 @@ export async function bulkSaveAnnotations(annotations: ImageAnnotations[]): Prom
   }
 }
 
+/** Chunk size for the relocation re-key — mirrors bulkSaveAnnotations' yield. */
+const REKEY_CHUNK_SIZE = 50;
+
+/**
+ * Re-key annotation records from an image's old path-derived id to its new
+ * one (in-app move/rename). Copy → put(new) → delete(old) inside one
+ * transaction per chunk; the in-memory map is updated synchronously first so
+ * no reader ever observes the id gap, even if the DB write fails.
+ *
+ * Real deletions still go through deleteAnnotation — this only ever runs for
+ * files that still exist, at their new path.
+ *
+ * Returns the number of records moved (0 when none existed).
+ */
+export async function rekeyAnnotations(
+  moves: Array<{ oldImageId: string; newImageId: string }>,
+): Promise<number> {
+  if (moves.length === 0) return 0;
+
+  let moved = 0;
+  const pending: ImageAnnotations[] = [];
+  const rekeyedAt = Date.now();
+  for (const move of moves) {
+    const annotation = inMemoryAnnotations.get(move.oldImageId);
+    if (!annotation) continue;
+    const rewritten: ImageAnnotations = {
+      ...annotation,
+      imageId: move.newImageId,
+      updatedAt: rekeyedAt,
+    };
+    inMemoryAnnotations.delete(move.oldImageId);
+    inMemoryAnnotations.set(move.newImageId, rewritten);
+    pending.push(rewritten);
+    moved += 1;
+  }
+
+  if (pending.length === 0 || getIsPersistenceDisabled()) return moved;
+
+  const db = await openDatabase();
+  if (!db) {
+    console.warn('[Annotations] ⚠️ Cannot open database — relocated annotations may not be persisted.');
+    return moved;
+  }
+
+  try {
+    for (let i = 0; i < moves.length; i += REKEY_CHUNK_SIZE) {
+      const chunk = moves.slice(i, i + REKEY_CHUNK_SIZE);
+      await new Promise<void>((resolve) => {
+        const transaction = db.transaction(STORE_NAME, 'readwrite');
+        // Resolve on every terminal event — a re-key failure must never throw
+        // into the move flow. The move then degrades to "reprocessed later".
+        transaction.oncomplete = transaction.onabort = transaction.onerror = () => resolve();
+        const store = transaction.objectStore(STORE_NAME);
+        for (const move of chunk) {
+          const request = store.get(move.oldImageId);
+          request.onsuccess = () => {
+            const record = request.result as ImageAnnotations | undefined;
+            if (!record) return;
+            store.put({ ...record, imageId: move.newImageId, updatedAt: rekeyedAt });
+            store.delete(move.oldImageId);
+          };
+        }
+      });
+      if (i + REKEY_CHUNK_SIZE < moves.length) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  } finally {
+    try {
+      db.close();
+    } catch (error) {
+      console.warn('Failed to close image annotations storage after re-key', error);
+    }
+  }
+  return moved;
+}
+
 /**
  * Get a single annotation by imageId
  */

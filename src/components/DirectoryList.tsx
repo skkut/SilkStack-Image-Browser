@@ -14,6 +14,11 @@ import {
 } from "lucide-react";
 import { normalizePath } from "../utils/pathUtils";
 import { EMOJI_CATEGORIES } from "../utils/emojiData";
+import {
+  buildRelocationMoves,
+  collectRelocationSources,
+  type DraggedItemRef,
+} from "../services/imageRelocation";
 
 interface DirectoryListProps {
   directories: Directory[];
@@ -305,7 +310,7 @@ export default function DirectoryList({
         return;
       }
 
-      let filesToMove: { sourcePath: string; name: string }[] = [];
+      let filesToMove: DraggedItemRef[] = [];
 
       // Check for internal drag data (Store State - Preferred for robustness)
       const draggedItems = useImageStore.getState().draggedItems;
@@ -363,23 +368,51 @@ export default function DirectoryList({
 
         if (result.success) {
           console.log("[DirectoryList] Move successful, refreshing...");
-          // Check if we need to refresh the current view (if source or target is current)
-          // Since we don't know the current view here easily without props,
-          // we at least refresh the target folder if it's the one currently selected?
-          // Actually onUpdateDirectory triggers a scan.
-          // Refresh target directory
-          onUpdateDirectory(rootId, targetPath);
 
-          // Remove moved images from store to update specific thumbnail view immediately
-          const movedPaths = result.results
-            .filter((r: any) => r.success)
-            .map((r: any) => r.sourcePath);
-
-          if (movedPaths.length > 0) {
-            useImageStore.getState().removeImagesByPaths(movedPaths);
+          // Preserve derived data (metadata cache, auto-tags, semantic and
+          // prompt vectors, favorites, manual tags, thumbnails) across the
+          // move: the re-key runs BEFORE the folder refreshes below, so their
+          // diff/delete paths find nothing to reprocess. External (non-store)
+          // drops resolve to no source image and are skipped by the builder.
+          const store = useImageStore.getState();
+          const sources = collectRelocationSources(
+            filesToMove,
+            store.images,
+            store.directories,
+          );
+          if (sources.length > 0) {
+            // Same rule the loader uses for a root's cache id: the folder's
+            // own preference, else the global include-subfolders default.
+            const scanSubfoldersByRoot = new Map<string, boolean>();
+            for (const directory of store.directories) {
+              const key = normalizePath(directory.path);
+              scanSubfoldersByRoot.set(
+                key,
+                store.folderPreferences.get(key)?.scanSubfolders ??
+                  store.scanSubfolders,
+              );
+            }
+            const moves = buildRelocationMoves({
+              results: result.results ?? [],
+              targetRootId: rootId,
+              targetRootName: store.directories.find((d) => d.id === rootId)?.name,
+              sources,
+              scanSubfoldersByRoot,
+            });
+            if (moves.length > 0) {
+              await useImageStore.getState().relocateImages(moves);
+            }
           }
 
-          // For now, this is a good start.
+          // Refresh the target root (the drop folder may be a subfolder of it)
+          // and each SOURCE root so its listing drops the moved files.
+          onUpdateDirectory(rootId, targetPath);
+          const sourceRoots = new Set(sources.map((source) => source.directoryId));
+          for (const sourceRoot of sourceRoots) {
+            if (normalizePath(sourceRoot) !== normalizePath(rootId)) {
+              onUpdateDirectory(sourceRoot);
+            }
+          }
         } else {
           console.error("Move failed:", result.error);
           alert(`Failed to move files: ${result.error}`);

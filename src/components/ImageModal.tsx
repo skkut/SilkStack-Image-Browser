@@ -74,7 +74,16 @@ interface ImageModalProps {
   image: IndexedImage;
   onClose: () => void;
   onImageDeleted?: (imageId: string) => void;
-  onImageRenamed?: (imageId: string, newName: string) => void;
+  /**
+   * `newName` is the display basename; `renameInfo` carries the authoritative
+   * paths from the rename IPC so the caller can re-key the image's derived
+   * data (see the relocateImages store action) without re-deriving them.
+   */
+  onImageRenamed?: (
+    imageId: string,
+    newName: string,
+    renameInfo?: { newRelativePath?: string; oldAbsolutePath?: string; newAbsolutePath?: string },
+  ) => void;
   currentIndex?: number;
   totalImages?: number;
   onNavigateNext?: () => void;
@@ -3160,7 +3169,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
     const result = await FileOperations.renameFile(image, newName);
     if (result.success) {
-      onImageRenamed?.(image.id, `${newName}.${image.name.split(".").pop()}`);
+      onImageRenamed?.(
+        image.id,
+        `${newName}.${image.name.split(".").pop()}`,
+        {
+          newRelativePath: result.newRelativePath,
+          oldAbsolutePath: result.oldAbsolutePath,
+          newAbsolutePath: result.newAbsolutePath,
+        },
+      );
       setIsRenaming(false);
     } else {
       alert(`Failed to rename file: ${result.error}`);

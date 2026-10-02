@@ -7,6 +7,12 @@ const isElectron = typeof window !== 'undefined' && (window as any).electronAPI;
 export interface FileOperationsResult {
   success: boolean;
   error?: string;
+  /** Absolute path the file no longer has (renameFile, on success). */
+  oldAbsolutePath?: string;
+  /** Absolute path the file now has (renameFile, on success). */
+  newAbsolutePath?: string;
+  /** Root-relative path (forward slashes) the file now has (renameFile). */
+  newRelativePath?: string;
 }
 
 export class FileOperations {
@@ -77,7 +83,15 @@ export class FileOperations {
         }
 
         const result = await window.electronAPI.renameFile(oldPathResult.path, newPathResult.path);
-        return { success: result.success, error: result.error };
+        return {
+          success: result.success,
+          error: result.error,
+          // Returned so the caller can re-key the image's derived data from
+          // the old path-derived id to the new one (see relocateImages).
+          oldAbsolutePath: oldPathResult.path,
+          newAbsolutePath: newPathResult.path,
+          newRelativePath,
+        };
       } else {
         // For browser environment, we can't rename files directly
         // File System Access API doesn't support rename operations

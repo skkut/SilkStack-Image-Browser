@@ -5,6 +5,10 @@ import { cacheManager, IncrementalCacheWriter } from "../services/cacheManager";
 import { IndexedImage, Directory } from "../types";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { normalizePath } from "../utils/pathUtils";
+import {
+  filterRelocatedTargetIds,
+  isRelocatedPath,
+} from "../services/imageRelocation";
 
 // Configure logging level
 const DEBUG = false;
@@ -1064,10 +1068,12 @@ export function useImageLoader() {
         if (shouldHydratePreloadedImages) {
           clearImages(directory.id);
         } else if (diff.newAndModifiedFiles.length > 0) {
-          const changedIds = Array.from(
-            new Set(
-              diff.newAndModifiedFiles.map(
-                (file) => `${directory.id}::${file.name}`,
+          const changedIds = filterRelocatedTargetIds(
+            Array.from(
+              new Set(
+                diff.newAndModifiedFiles.map(
+                  (file) => `${directory.id}::${file.name}`,
+                ),
               ),
             ),
           );
@@ -1607,9 +1613,14 @@ export function useImageLoader() {
         // and the replacement is silently never indexed.
         const forceReindexFiles = normalizedFiles.filter((file) => file.forceReindex === true);
         if (forceReindexFiles.length > 0) {
-          const staleIds = forceReindexFiles
-            .map((file) => `${directory.id}::${file.relativePath || file.normalizedName}`)
-            .filter((id) => existingIdsLower.has(id.toLowerCase()));
+          // Relocated targets are excluded: a move can surface at the target
+          // as a 'change', but their entry is the freshly re-keyed one — the
+          // drop would destroy exactly what the relocation preserved.
+          const staleIds = filterRelocatedTargetIds(
+            forceReindexFiles
+              .map((file) => `${directory.id}::${file.relativePath || file.normalizedName}`)
+              .filter((id) => existingIdsLower.has(id.toLowerCase())),
+          );
           if (staleIds.length > 0) {
             log('[auto-watch] Force re-index — dropping stale entries:', staleIds.length);
             useImageStore.getState().removeImages(staleIds);
@@ -1771,22 +1782,30 @@ export function useImageLoader() {
     async (directory: Directory, paths: string[]) => {
       if (!paths || paths.length === 0) return;
 
+      // A relocated file's 'unlink' is the source half of a move: its store
+      // entry (and every derived record) now lives under the new id, so
+      // removing by the old path would be at best a no-op and at worst — if
+      // the watcher beat the relocation — the destruction of exactly what the
+      // relocation is about to preserve.
+      const removedPaths = paths.filter((path) => !isRelocatedPath(path));
+      if (removedPaths.length === 0) return;
+
       const { removeImagesByPaths } = useImageStore.getState();
-      
+
       // Update UI state immediately by removing images from store
-      removeImagesByPaths(paths);
-      
+      removeImagesByPaths(removedPaths);
+
       // Optional: Cleanup thumbnails in background
       if (getIsElectron()) {
         try {
           // We need to derive image IDs for thumbnail cleanup
           // imageId format is ${directory.id}::${relativePath}
-          const imageIds = paths.map(filePath => {
+          const imageIds = removedPaths.map(filePath => {
             const relativePath = toRelativeWatchPath(filePath, directory.path);
             const fileName = filePath.split(/[\\/]/).pop() || filePath;
             return `${directory.id}::${relativePath || fileName}`;
           });
-          
+
           await cacheManager.deleteThumbnails(imageIds);
         } catch (err) {
           console.error("Failed to cleanup thumbnails for deleted images:", err);

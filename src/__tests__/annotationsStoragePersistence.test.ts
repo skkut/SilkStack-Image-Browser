@@ -6,6 +6,7 @@ import {
   saveAnnotation,
   loadAllAnnotations,
   clearAllAnnotations,
+  rekeyAnnotations,
 } from '../services/imageAnnotationsStorage';
 import type { ImageAnnotations } from '../types';
 
@@ -128,5 +129,91 @@ describe('annotation persistence — enrichment stamp round-trip', () => {
     // (the pre-stamp migration), and the next run stamps it.
     expect(loaded.get('img3')?.isSemanticIndexed).toBeUndefined();
     expect(loaded.get('img3')?.searchTagVersion).toBe(2);
+  });
+});
+
+// ── Relocation re-key (in-app move / rename) ────────────────────────────────
+// A relocation copies the record from the old path-derived id to the new one.
+// The copy must carry EVERY field (notably both enrichment stamps), and the
+// old record must be gone from both the DB and the module's memory cache —
+// the gate checks read memory, and a stale old-id record in the DB would
+// resurface as a duplicate if the old path is ever re-indexed.
+
+const readRawAnnotation = async (imageId: string): Promise<ImageAnnotations | undefined> => {
+  const db = await openDatabase();
+  expect(db).not.toBeNull();
+  const record = await new Promise<ImageAnnotations | undefined>((resolve) => {
+    const request = db!
+      .transaction('imageAnnotations', 'readonly')
+      .objectStore('imageAnnotations')
+      .get(imageId);
+    request.onsuccess = () => resolve(request.result as ImageAnnotations | undefined);
+    request.onerror = () => resolve(undefined);
+  });
+  db!.close();
+  return record;
+};
+
+describe('annotation persistence — relocation re-key', () => {
+  beforeEach(async () => {
+    await clearAllAnnotations();
+  });
+
+  it('rekeyAnnotations moves the record to the new id in memory AND on disk, stamps intact', async () => {
+    const NEW_ID = 'C:\\libs\\B::sub/img1.png';
+    await bulkSaveAnnotations([ENRICHED]);
+
+    const moved = await rekeyAnnotations([{ oldImageId: ENRICHED.imageId, newImageId: NEW_ID }]);
+    expect(moved).toBe(1);
+
+    // Raw DB read — the re-key must be persisted, not just cached.
+    expect(await readRawAnnotation(ENRICHED.imageId)).toBeUndefined();
+    const persisted = await readRawAnnotation(NEW_ID);
+    expect(persisted?.imageId).toBe(NEW_ID);
+    expect(persisted?.isFavorite).toBe(false);
+    expect(persisted?.tags).toEqual(['manual']);
+    expect(persisted?.autoTags).toEqual(['dragon']);
+    expect(persisted?.synonymTags).toEqual(['wyvern', 'serpent']);
+    expect(persisted?.searchTagVersion).toBe(2);
+    expect(persisted?.isSemanticIndexed).toBe(true);
+
+    // The module's memory cache — what the pipeline gates consult — follows.
+    const loaded = await loadAllAnnotations();
+    expect(loaded.has(ENRICHED.imageId)).toBe(false);
+    expect(loaded.get(NEW_ID)?.searchTagVersion).toBe(2);
+  });
+
+  it('rekeyAnnotations leaves other records alone and is a no-op for unknown ids', async () => {
+    const OTHER: ImageAnnotations = { ...ENRICHED, imageId: 'img-other', isFavorite: true };
+    await bulkSaveAnnotations([ENRICHED, OTHER]);
+
+    const moved = await rekeyAnnotations([{ oldImageId: 'never-annotated', newImageId: 'target' }]);
+
+    expect(moved).toBe(0);
+    expect(await readRawAnnotation('never-annotated')).toBeUndefined();
+    expect(await readRawAnnotation('target')).toBeUndefined();
+    expect((await readRawAnnotation('img-other'))?.isFavorite).toBe(true);
+    expect((await readRawAnnotation(ENRICHED.imageId))?.searchTagVersion).toBe(2);
+  });
+
+  it('rekeyAnnotations carries a legacy unstamped record as-is (no invented stamps)', async () => {
+    const LEGACY: ImageAnnotations = {
+      imageId: 'img-legacy',
+      isFavorite: true,
+      tags: [],
+      autoTags: ['old-tags'],
+      metadataTags: [],
+      isAutoTagged: true, // tagged before versions existed
+      addedAt: 500,
+      updatedAt: 500,
+    };
+    await bulkSaveAnnotations([LEGACY]);
+
+    await rekeyAnnotations([{ oldImageId: 'img-legacy', newImageId: 'img-legacy-moved' }]);
+
+    const moved = await readRawAnnotation('img-legacy-moved');
+    expect(moved?.searchTagVersion).toBeUndefined(); // gate still re-includes it
+    expect(moved?.isSemanticIndexed).toBeUndefined();
+    expect(moved?.autoTags).toEqual(['old-tags']);
   });
 });

@@ -525,6 +525,25 @@ export class SemanticSearchCoordinator {
   }
 
   /**
+   * Re-restore the worker's in-memory vector index from the ACTIVE database.
+   *
+   * Used after an in-app move/rename re-keys vector records in IndexedDB:
+   * the worker heap still holds the old imageIds, and `indexImages`' Δ would
+   * skip the re-keyed records as "unchanged", so semantic search would never
+   * see the moved images. `switchStorageDb` is the module's supported
+   * wipe-and-restore path — reusing it with the SAME db name avoids touching
+   * the closed-source module. Cheap no-op when the worker was never
+   * initialized: its index is empty and the next `ensureInitialized()`
+   * restores the re-keyed records anyway.
+   *
+   * Never call while `indexImages` is running — a switch rejects pending
+   * embeds (SEMANTIC_INDEX_CANCELLED) and aborts the run's remaining chunks.
+   */
+  refreshIndex(): Promise<void> {
+    return this.withModule((coordinator) => coordinator.switchStorageDb(this.storageDbName));
+  }
+
+  /**
    * Abort an in-flight indexing run (Footer cancel button). No-op when the
    * module is absent or no run is active.
    */

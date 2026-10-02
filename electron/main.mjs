@@ -20,6 +20,7 @@ import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import * as fileWatcher from "./fileWatcher.mjs";
 import { maybeSendUsagePing } from "./usagePing.mjs";
+import { relocateCacheRecord } from "./cacheRelocation.mjs";
 import archiver from "archiver";
 import ffprobeStatic from "ffprobe-static";
 import { createRequire } from "module";
@@ -1606,6 +1607,11 @@ function setupFileOperationHandlers() {
 
   const CHUNK_SIZE = 5000; // Store 5000 images per chunk file
 
+  // Cache ids with an incremental write in flight (prepare → chunks → finalize).
+  // relocate-derived-files skips those caches so a relocation never interleaves
+  // with a writer that is rebuilding them from scratch.
+  const activeCacheWrites = new Set();
+
   ipcMain.handle("cache-data", async (event, { cacheId, data }) => {
     const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const { metadata, ...cacheRecord } = data;
@@ -1654,6 +1660,7 @@ function setupFileOperationHandlers() {
         }
       }
 
+      activeCacheWrites.add(cacheId); // cleared by finalize-cache-write
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -1692,6 +1699,8 @@ function setupFileOperationHandlers() {
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
+    } finally {
+      activeCacheWrites.delete(cacheId);
     }
   });
 
@@ -1713,6 +1722,7 @@ function setupFileOperationHandlers() {
     const rootPath = await getCacheRootPath();
     const cacheDir = path.join(rootPath, "json_cache");
     const mainCachePath = await getCacheFilePath(cacheId);
+    activeCacheWrites.delete(cacheId);
 
     try {
       // Delete main cache file
@@ -2202,6 +2212,152 @@ function setupFileOperationHandlers() {
       };
     } catch (error) {
       console.error("Error moving files:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Handle relocation of derived data after an in-app move/rename: renames the
+  // cached thumbnail and moves the JSON metadata-cache record to the target
+  // cache (rewriting its id/name/lastModified), so the file is neither
+  // re-parsed nor re-thumbnailed. Every failure is per-file and benign — the
+  // worst case is the pre-existing "reprocess from scratch" behavior.
+  ipcMain.handle("relocate-derived-files", async (event, args) => {
+    try {
+      const moves = args?.moves;
+      if (!Array.isArray(moves) || moves.length === 0) {
+        return { success: false, error: "Invalid arguments" };
+      }
+
+      const rootPath = await getCacheRootPath();
+      const cacheDir = path.join(rootPath, "json_cache");
+      await fs.mkdir(cacheDir, { recursive: true });
+
+      const chunkPathOf = (cacheId, index) =>
+        path.join(
+          cacheDir,
+          `${String(cacheId).replace(/[^a-zA-Z0-9-_]/g, "_")}_${index}.json`,
+        );
+
+      // IO port for the pure relocation module (electron/cacheRelocation.mjs).
+      const cacheIo = {
+        readMain: async (cacheId) => {
+          try {
+            const data = await fs.readFile(
+              await getCacheFilePath(cacheId),
+              "utf-8",
+            );
+            return JSON.parse(data);
+          } catch {
+            return null; // missing/unreadable — relocation degrades to re-parse
+          }
+        },
+        readChunk: async (cacheId, index) => {
+          try {
+            const data = await fs.readFile(chunkPathOf(cacheId, index), "utf-8");
+            return JSON.parse(data);
+          } catch {
+            return null;
+          }
+        },
+        writeMain: async (cacheId, record) => {
+          await fs.writeFile(
+            await getCacheFilePath(cacheId),
+            JSON.stringify(record, null, 2),
+          );
+        },
+        writeChunk: async (cacheId, index, records) => {
+          await fs.writeFile(
+            chunkPathOf(cacheId, index),
+            JSON.stringify(records),
+          );
+        },
+      };
+
+      const results = [];
+      for (const move of moves) {
+        const { oldImageId, newImageId } = move;
+        let newLastModified =
+          typeof move.newLastModified === "number"
+            ? move.newLastModified
+            : move.oldLastModified;
+        let thumbnailMoved = false;
+        let cacheMoved = false;
+        let error;
+
+        // The moved file's fresh mtime drives both the thumbnail cache key and
+        // the cache diff's lastModified comparison. Stat it here rather than
+        // trusting the renderer (an EXDEV copy+delete resets birthtime).
+        try {
+          if (isAllowedOrInternal(move.newAbsolutePath)) {
+            const stats = await fs.stat(move.newAbsolutePath);
+            newLastModified = stats.mtimeMs;
+          }
+        } catch {
+          // Gone/unreadable — keep the placeholder; thumbnail and cache simply
+          // miss and get rebuilt on the next index.
+        }
+
+        try {
+          const oldKey = `${oldImageId}-${move.oldLastModified}`;
+          const newKey = `${newImageId}-${newLastModified}`;
+          if (oldKey !== newKey) {
+            const oldThumbPath = await getThumbnailCachePath(oldKey);
+            const newThumbPath = await getThumbnailCachePath(newKey);
+            try {
+              await fs.access(oldThumbPath);
+              await fs.rename(oldThumbPath, newThumbPath);
+              thumbnailMoved = true;
+            } catch (err) {
+              if (err.code !== "ENOENT") throw err;
+            }
+          }
+        } catch (err) {
+          error = err.message;
+        }
+
+        const sourceCacheId = move.sourceCacheId;
+        const targetCacheId = move.targetCacheId || move.sourceCacheId;
+        const cacheWriteInFlight =
+          (sourceCacheId && activeCacheWrites.has(sourceCacheId)) ||
+          (targetCacheId && activeCacheWrites.has(targetCacheId));
+
+        if (sourceCacheId && targetCacheId && !cacheWriteInFlight) {
+          try {
+            const outcome = await relocateCacheRecord(cacheIo, {
+              move: { ...move, newLastModified },
+              parserVersion: PARSER_VERSION,
+              sourceCacheId,
+              targetCacheId,
+              targetDirectoryPath: move.targetRootId,
+              targetDirectoryName:
+                move.targetRootName || path.basename(move.targetRootId || ""),
+            });
+            cacheMoved = outcome.cacheMoved;
+            if (!cacheMoved && outcome.reason) error = error || outcome.reason;
+          } catch (err) {
+            console.error(
+              `Error relocating cache record for ${oldImageId}:`,
+              err,
+            );
+            error = error || err.message;
+          }
+        } else if (cacheWriteInFlight) {
+          error = error || "cache-write-in-progress";
+        }
+
+        results.push({
+          oldImageId,
+          newImageId,
+          newLastModified,
+          thumbnailMoved,
+          cacheMoved,
+          error,
+        });
+      }
+
+      return { success: true, results };
+    } catch (error) {
+      console.error("Error relocating derived files:", error);
       return { success: false, error: error.message };
     }
   });

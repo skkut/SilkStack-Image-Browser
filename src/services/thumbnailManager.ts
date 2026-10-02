@@ -433,6 +433,37 @@ class ThumbnailManager {
     return url;
   }
 
+  /**
+   * Re-key this manager's per-image bookkeeping after an in-app move/rename
+   * (the image id is path-derived, so the old key would leak/evict wrongly).
+   * The blob URL is path-independent, so it is carried over — the relocated
+   * image keeps rendering its thumbnail with no flash. Queued jobs for the old
+   * id are dropped; their `image` object carries the stale id.
+   */
+  renameEntry(oldImageId: string, newImageId: string): void {
+    if (!oldImageId || !newImageId || oldImageId === newImageId) return;
+
+    const url = this.activeUrls.get(oldImageId);
+    if (url) {
+      this.activeUrls.delete(oldImageId);
+      this.activeUrls.set(newImageId, url);
+    }
+
+    const token = this.requestTokens.get(oldImageId);
+    if (token !== undefined) {
+      this.requestTokens.delete(oldImageId);
+      this.requestTokens.set(newImageId, token);
+    }
+
+    const inflight = this.inflight.get(oldImageId);
+    if (inflight) {
+      this.inflight.delete(oldImageId);
+      this.inflight.set(newImageId, inflight);
+    }
+
+    this.dropQueuedJobs(oldImageId);
+  }
+
   clearAllUrls(): void {
     for (const url of this.activeUrls.values()) {
       URL.revokeObjectURL(url);

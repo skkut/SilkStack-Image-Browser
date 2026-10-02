@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, AutoTag, LibraryStackContext, SortOrder, EphemeralSortOrder } from '../types';
+import { IndexedImage, Directory, ThumbnailStatus, ImageAnnotations, TagInfo, AutoTag, LibraryStackContext, SortOrder, EphemeralSortOrder, ImageRelocationMove } from '../types';
 import { loadSelectedFolders, saveSelectedFolders, loadExcludedFolders, saveExcludedFolders } from '../services/folderSelectionStorage';
 import { loadFolderPreferences, saveFolderPreference, deleteFolderPreference, FolderPreference } from '../services/folderPreferencesStorage';
 import {
@@ -8,6 +8,7 @@ import {
   bulkSaveAnnotations,
   getAllTags,
   deleteAnnotation,
+  rekeyAnnotations,
 } from '../services/imageAnnotationsStorage';
 
 import { normalizePath } from '../utils/pathUtils';
@@ -21,6 +22,13 @@ import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 import cacheManager from '../services/cacheManager';
 import { thumbnailManager } from '../services/thumbnailManager';
+import {
+    beginRelocation,
+    endRelocation,
+    rebaseRelocatedImage,
+    rekeyImageVectors,
+    relocateDerivedFiles,
+} from '../services/imageRelocation';
 import { clearSemanticVectorsStore } from '../services/indexedDb';
 import { processingQueue } from '../services/processingQueue';
 
@@ -114,6 +122,14 @@ const resolveImagePrompt = (image: IndexedImage): string =>
     || image.metadata?.normalizedMetadata?.prompt
     || image.metadata?.positive_prompt
     || '';
+
+// Deferred old-id sweep window for in-app relocations (move/rename). The
+// re-key itself is immediate, but LATE WRITERS can still write the OLD id
+// afterwards: a running auto-tag round persists annotations it captured before
+// the move, and an in-flight semantic round persists vectors under old ids.
+// Sweeping once the processing queue has drained makes those writes harmless
+// without racing the re-key. Exported so tests can advance fake timers.
+export const RELOCATION_SWEEP_DELAY_MS = 15_000;
 
 // Module-level concurrency guards. Must be module-scoped (not on state) because
 // Zustand's get() returns a new snapshot after every set(), making state-attached
@@ -943,6 +959,19 @@ interface ImageState {
   removeImages: (imageIds: string[]) => void;
   removeImagesByPaths: (paths: string[]) => void;
   updateImage: (imageId: string, newName: string) => void;
+  /**
+   * Preserve an image's derived data across an in-app move/rename.
+   *
+   * Image identity is path-derived, so a move changes the id every derived
+   * record hangs off. This re-keys annotations, vectors, thumbnail
+   * bookkeeping and the main-process files (thumbnail + JSON metadata cache)
+   * from each move's old id to its new one BEFORE the watcher/rescan delete
+   * paths fire — they then find nothing to destroy, and the pipeline gates
+   * (`searchTagVersion`, `isSemanticIndexed`) make every phase skip the file.
+   * Real deletions keep their clearing behavior (see
+   * clearAnnotationsForRemovedImages).
+   */
+  relocateImages: (moves: ImageRelocationMove[]) => Promise<void>;
   updateImageDimensions: (imageId: string, dimensions: string) => void;
   clearImages: (directoryId?: string) => void;
   setImageThumbnail: (
@@ -1101,8 +1130,12 @@ interface ImageState {
   setStackingEnabled: (enabled: boolean) => void;
 
   // Drag and Drop State (Internal)
-  draggedItems: { sourcePath: string; name: string }[];
-  setDraggedItems: (items: { sourcePath: string; name: string }[]) => void;
+  //
+  // `id` + `directoryId` are carried so a drop on a folder can resolve each
+  // dragged file to its store image EXACTLY (relocation source resolution
+  // falls back to path matching, but ids survive case/separator differences).
+  draggedItems: { sourcePath: string; name: string; id?: string; directoryId?: string }[];
+  setDraggedItems: (items: { sourcePath: string; name: string; id?: string; directoryId?: string }[]) => void;
   clearDraggedItems: () => void;
 
   // Scroll Positions
@@ -2583,6 +2616,227 @@ export const useImageStore = create<ImageState>((set, get) => {
                 // No need to recalculate filters for a simple name change
                 return { ...state, ...filterAndSort({ ...state, images: updatedImages }), images: updatedImages };
             });
+        },
+
+        /**
+         * Preserve derived data across an in-app move/rename — see the
+         * ImageState doc block. Ordering is the design:
+         *
+         *  1. beginRelocation runs SYNCHRONOUSLY, before the first await, so
+         *     the watcher's debounced rename compound (unlink old + add new)
+         *     can never catch a half-registered batch.
+         *  2. The re-key completes BEFORE the in-memory remap: store images
+         *     and the annotations map stay mutually consistent (both still on
+         *     the old ids) across every await, so an intervening watcher or
+         *     timer update can never pair a new id with an old annotation.
+         *  3. The main-process IPC is awaited before the single set() so the
+         *     moved file's fresh mtime (stat'ed in main — an EXDEV copy+delete
+         *     resets birthtime, which the thumbnail key and cache diff both
+         *     rely on) folds into the same write.
+         */
+        relocateImages: async (moves) => {
+            if (!moves || moves.length === 0) return;
+
+            beginRelocation(moves);
+
+            // A semantic round in flight captured its payload BEFORE the move
+            // (old ids): its vectors land under the old ids, and its
+            // per-chunk stamping loop looks up annotations by the payload's
+            // old ids — which the re-key removes, so it silently stamps
+            // nothing. The moved images drop their stamp instead, and the
+            // follow-up round enqueued below re-embeds them under the new ids.
+            const semanticBusy = processingQueue.hasPendingOrRunning('semantic');
+            const preMoveAnnotations = new Map(get().annotations);
+            const unstamped: ImageAnnotations[] = [];
+            if (semanticBusy) {
+                const unstampedAt = Date.now();
+                for (const move of moves) {
+                    const annotation = preMoveAnnotations.get(move.oldImageId);
+                    if (!annotation) continue;
+                    unstamped.push({
+                        ...annotation,
+                        imageId: move.newImageId,
+                        isSemanticIndexed: false,
+                        updatedAt: unstampedAt,
+                    });
+                }
+            }
+
+            try {
+                await rekeyAnnotations(moves);
+                await rekeyImageVectors(moves);
+                // Persist the un-stamp as well as setting it in memory: if the
+                // app closes before the follow-up round, the surviving DB
+                // record must still carry the open gate (a stamped record with
+                // no vectors would otherwise never re-embed).
+                if (unstamped.length > 0) {
+                    await bulkSaveAnnotations(unstamped).catch((error) => {
+                        console.warn('[Relocation] Failed to persist semantic un-stamps:', error);
+                    });
+                }
+
+                for (const move of moves) {
+                    thumbnailManager.renameEntry(move.oldImageId, move.newImageId);
+                }
+
+                // Main-process artifacts: thumbnail .webp + JSON metadata-cache
+                // record. A miss is benign — the file just re-parses.
+                const results = await relocateDerivedFiles(moves);
+                const freshLastModified = new Map<string, number>();
+                for (const result of results) {
+                    if (typeof result.newLastModified === 'number') {
+                        freshLastModified.set(result.newImageId, result.newLastModified);
+                    }
+                    if (!result.cacheMoved) {
+                        console.warn(
+                            `[Relocation] Metadata cache not moved for ${result.newImageId}` +
+                            `${result.error ? ` (${result.error})` : ''} — the file will be re-parsed.`,
+                        );
+                    }
+                }
+
+                const byOldId = new Map<string, ImageRelocationMove>();
+                for (const move of moves) byOldId.set(move.oldImageId, move);
+                const remapId = (id: string) => byOldId.get(id)?.newImageId ?? id;
+
+                set(state => {
+                    const relocatedTargetIds = new Set(
+                        moves.map(move => move.newImageId.toLowerCase()),
+                    );
+                    const images: IndexedImage[] = [];
+                    for (const img of state.images) {
+                        const move = byOldId.get(img.id);
+                        if (move) {
+                            const rebased = rebaseRelocatedImage(img, move);
+                            const fresh = freshLastModified.get(move.newImageId);
+                            images.push(typeof fresh === 'number' ? { ...rebased, lastModified: fresh } : rebased);
+                            continue;
+                        }
+                        // A pre-existing entry for the new identity is either a
+                        // stale leftover for that path or a watcher 'add' that
+                        // raced the remap (dedupe saw the old ids). The re-keyed
+                        // entry replaces it — same rule the cache relocation uses.
+                        if (relocatedTargetIds.has(img.id.toLowerCase())) continue;
+                        images.push(img);
+                    }
+
+                    const annotations = new Map(state.annotations);
+                    for (const move of moves) {
+                        const annotation = annotations.get(move.oldImageId);
+                        if (!annotation) continue;
+                        annotations.delete(move.oldImageId);
+                        annotations.set(move.newImageId, semanticBusy
+                            ? { ...annotation, imageId: move.newImageId, isSemanticIndexed: false }
+                            : { ...annotation, imageId: move.newImageId });
+                    }
+
+                    const selectedImages = new Set<string>();
+                    for (const id of state.selectedImages) selectedImages.add(remapId(id));
+
+                    const selectedImage = state.selectedImage && byOldId.has(state.selectedImage.id)
+                        ? rebaseRelocatedImage(state.selectedImage, byOldId.get(state.selectedImage.id)!)
+                        : state.selectedImage;
+
+                    const libraryStackContext = state.libraryStackContext
+                        ? {
+                            ...state.libraryStackContext,
+                            imageIds: state.libraryStackContext.imageIds.map(remapId),
+                            subGroups: state.libraryStackContext.subGroups?.map(subGroup => ({
+                                ...subGroup,
+                                imageIds: subGroup.imageIds.map(remapId),
+                            })),
+                        }
+                        : state.libraryStackContext;
+
+                    const semanticHits = state.semanticHits
+                        ? state.semanticHits.map(hit => {
+                            const move = byOldId.get(hit.imageId);
+                            return move ? { ...hit, imageId: move.newImageId } : hit;
+                        })
+                        : state.semanticHits;
+
+                    const draggedItems = state.draggedItems.map(item => {
+                        const move = item.id ? byOldId.get(item.id) : undefined;
+                        return move
+                            ? { ...item, id: move.newImageId, name: move.newName, directoryId: move.targetRootId, sourcePath: move.newAbsolutePath }
+                            : item;
+                    });
+
+                    // Images already carry their merged annotation fields, but
+                    // re-apply anyway: it also catches an annotation that was
+                    // loaded from the DB without ever being merged onto its image.
+                    const imagesWithAnnotations = applyAnnotationsToImages(images, annotations);
+                    const next = {
+                        ...state,
+                        images: imagesWithAnnotations,
+                        annotations,
+                        selectedImages,
+                        selectedImage,
+                        selectionAnchorId: state.selectionAnchorId ? remapId(state.selectionAnchorId) : null,
+                        libraryStackContext,
+                        semanticHits,
+                        draggedItems,
+                    };
+                    // filterAndSort directly (the updateImage pattern), never
+                    // _updateState: the latter early-outs when
+                    // applyAnnotationsToImages reports "no changes" and would
+                    // leave filteredImages holding the OLD ids.
+                    return {
+                        ...next,
+                        ...filterAndSort(next),
+                        images: imagesWithAnnotations,
+                    };
+                });
+
+                if (semanticBusy) {
+                    // Re-embed the moved images under their new ids, after the
+                    // running round (enqueueOnce appends — a RUNNING job never
+                    // swallows a new enqueue).
+                    void get().semanticIndexImages();
+                }
+
+                // Late writers: a running auto-tag round persists annotations
+                // captured with the old ids, and the semantic round above can
+                // still persist old-id vectors. Sweep the old ids once the
+                // processing queue has drained, then realign the worker's
+                // vector heap with the re-keyed DB — only when the module was
+                // actually loaded; otherwise its next ensureInitialized()
+                // restores the re-keyed records anyway.
+                setTimeout(() => {
+                    void (async () => {
+                        await processingQueue.waitForIdle(120_000);
+                        const live = new Set(get().images.map(img => img.id.toLowerCase()));
+                        // Guard against a move-back: an old id that has become
+                        // live again must not be swept.
+                        const staleIds = moves
+                            .map(move => move.oldImageId)
+                            .filter(id => !live.has(id.toLowerCase()));
+                        try {
+                            const coordinator = await getSemanticCoordinator();
+                            if (staleIds.length > 0) {
+                                for (const id of staleIds) void deleteAnnotation(id);
+                                await coordinator.removeImages(staleIds);
+                            }
+                            if (
+                                staleIds.length > 0
+                                && !processingQueue.hasPendingOrRunning('semantic')
+                                && coordinator.getStatus().indexed > 0
+                            ) {
+                                await coordinator.refreshIndex();
+                            }
+                        } catch (error) {
+                            console.warn('[Relocation] Deferred cleanup failed:', error);
+                        }
+                    })();
+                }, RELOCATION_SWEEP_DELAY_MS);
+            } catch (error) {
+                // A failed relocation must never break the move flow — the
+                // files have already moved on disk; at worst the pipeline
+                // reprocesses them (the pre-refactor behaviour).
+                console.error('[Relocation] Failed to relocate derived data:', error);
+            } finally {
+                endRelocation(moves);
+            }
         },
 
         updateImageDimensions: (imageId, dimensions) => {

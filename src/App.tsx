@@ -5,7 +5,7 @@ import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
-import { Directory, IndexedImage, type SettingsTab } from './types';
+import { Directory, IndexedImage, ImageRelocationMove, type SettingsTab } from './types';
 import { X, ArrowLeft, Copy, ExternalLink, Folder } from 'lucide-react';
 
 import FolderSelector from './components/FolderSelector';
@@ -36,6 +36,7 @@ import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
 import { revalidateLicenseIfDue } from './services/licenseRevalidation';
 import { processingQueue } from './services/processingQueue';
+import { buildCacheId, isRelocatedPath } from './services/imageRelocation';
 
 export default function App() {
   // Runtime gate: AI features (Stacks view, smart stacking, auto-tag)
@@ -751,11 +752,16 @@ export default function App() {
 
       if (!directory || !paths || !directory) return;
 
+      // A relocated file's 'unlink' is the source half of an in-app move —
+      // never treat it as a deletion (its derived data lives under the new id).
+      const deletedPaths = paths.filter((filePath) => !isRelocatedPath(filePath));
+      if (deletedPaths.length === 0) return;
+
       // Process deleted files using the function from useImageLoader
-      await processDeletedWatchedFiles(directory, paths);
+      await processDeletedWatchedFiles(directory, deletedPaths);
 
       // Clean up deleted images from persistent library stacks
-      const deletedImageIds = paths.map(filePath => {
+      const deletedImageIds = deletedPaths.map(filePath => {
         const normalizedFilePath = normalizePath(filePath);
         const normalizedRootPath = normalizePath(directory.path);
         let relativePath = normalizedFilePath;
@@ -1060,8 +1066,50 @@ export default function App() {
     }
   }, [removeImage, setSelectedImage]);
 
-  const handleImageRenamed = useCallback((imageId: string, newName: string) => {
-    updateImage(imageId, newName);
+  const handleImageRenamed = useCallback((
+    imageId: string,
+    newName: string,
+    renameInfo?: { newRelativePath?: string; oldAbsolutePath?: string; newAbsolutePath?: string },
+  ) => {
+    // Re-key the image's derived data (annotation, vectors, thumbnail, cache
+    // record) instead of a bare name swap: the bytes did not change, so
+    // nothing should be reprocessed. The rename IPC reported the exact paths;
+    // without them (e.g. the viewer-window path) fall back to the plain
+    // in-memory update.
+    const store = useImageStore.getState();
+    const image = store.images.find(img => img.id === imageId);
+    const targetRootId = image?.directoryId;
+    const newRelativePath = renameInfo?.newRelativePath;
+    const newAbsolutePath = renameInfo?.newAbsolutePath;
+    const oldAbsolutePath = renameInfo?.oldAbsolutePath;
+
+    if (image && targetRootId && newRelativePath && newAbsolutePath && oldAbsolutePath) {
+      const directory = store.directories.find(d => d.id === targetRootId);
+      const rootPath = directory?.path ?? targetRootId;
+      const scanSubfolders =
+        store.folderPreferences.get(normalizePath(rootPath))?.scanSubfolders ??
+        store.scanSubfolders;
+      const cacheId = buildCacheId(rootPath, scanSubfolders);
+      const move: ImageRelocationMove = {
+        oldImageId: image.id,
+        newImageId: `${targetRootId}::${newRelativePath}`,
+        oldName: image.name,
+        newName: newRelativePath,
+        oldAbsolutePath: oldAbsolutePath,
+        newAbsolutePath,
+        oldLastModified: image.lastModified,
+        newLastModified: image.lastModified,
+        targetRootId,
+        targetRootName: directory?.name,
+        // A rename stays inside one root, so both ends share the cache id —
+        // the cache relocation then rewrites the record in place.
+        sourceCacheId: cacheId,
+        targetCacheId: cacheId,
+      };
+      void store.relocateImages([move]);
+    } else {
+      updateImage(imageId, newName);
+    }
     setSelectedImage(null);
   }, [updateImage, setSelectedImage]);
 

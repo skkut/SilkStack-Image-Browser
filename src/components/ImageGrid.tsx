@@ -8,6 +8,7 @@ import { type IndexedImage, type BaseMetadata, ImageStack, type LibraryStackCont
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useContextMenu } from '../hooks/useContextMenu';
+import type { DraggedItemRef } from '../services/imageRelocation';
 import { 
   Info, 
   Copy, 
@@ -72,7 +73,7 @@ interface ImageCardProps {
 
   registerCardRef?: (id: string, el: HTMLDivElement | null) => void;
   isBlurred?: boolean;
-  getDragPayload?: (image: IndexedImage) => { sourcePath: string; name: string }[];
+  getDragPayload?: (image: IndexedImage) => DraggedItemRef[];
   /** Image matched semantically for the active query — show the sparkle badge. */
   isSemanticMatch?: boolean;
 }
@@ -519,7 +520,7 @@ interface ImageGridRowData {
   handleImageLoad: (id: string, aspectRatio: number) => void;
   handleContextMenu: (image: IndexedImage, event: React.MouseEvent) => void;
   registerCardRef: (id: string, el: HTMLDivElement | null) => void;
-  getDragPayload: (image: IndexedImage) => { sourcePath: string; name: string }[];
+  getDragPayload: (image: IndexedImage) => DraggedItemRef[];
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
@@ -1461,26 +1462,32 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
             const [, relativeFromId] = img.id.split('::');
             const relativePath = relativeFromId || img.name;
             // Best effort path reconstruction using directoryId
-            const sourcePath = img.directoryId 
-              ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\') 
+            const sourcePath = img.directoryId
+              ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
               : img.id.includes('::') ? img.id.split('::')[1] : img.id;
 
             return {
+              // id + directoryId resolve the store image EXACTLY on drop
+              // (relocation source resolution; path matching is the fallback).
+              id: img.id,
+              directoryId: img.directoryId,
               sourcePath,
               name: img.name
             };
         });
       }
     }
-    
+
     // Fallback: if not selected or mapping failed, just drag the target image
     const [, relativeFromId] = targetImage.id.split('::');
     const relativePath = relativeFromId || targetImage.name;
-    const sourcePath = targetImage.directoryId 
-      ? `${targetImage.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\') 
+    const sourcePath = targetImage.directoryId
+      ? `${targetImage.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
       : targetImage.id.includes('::') ? targetImage.id.split('::')[1] : targetImage.id;
 
     return [{
+       id: targetImage.id,
+       directoryId: targetImage.directoryId,
        sourcePath,
        name: targetImage.name
     }];

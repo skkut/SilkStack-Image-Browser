@@ -8,6 +8,7 @@ import { buildSubGroups } from '../hooks/useImageStacking';
 import { withPromptVariationSegments } from '../utils/promptVariation';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import type { DraggedItemRef } from '../services/imageRelocation';
 
 interface SimilarityStackExpandedViewWrapperProps {
   images: IndexedImage[];
@@ -229,7 +230,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
     const currentImages = storeState.images;
 
     // If dragged image is part of selection, drag all selected images
-    let filesToDrag: { sourcePath: string; name: string }[];
+    let filesToDrag: DraggedItemRef[];
 
     if (currentSelectedImages.has(image.id)) {
       const selectedItems = currentImages.filter(img => currentSelectedImages.has(img.id));
@@ -239,7 +240,9 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
         const sourcePath = img.directoryId
           ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
           : img.id.includes('::') ? img.id.split('::')[1] : img.id;
-        return { sourcePath, name: img.name };
+        // id + directoryId let a folder drop resolve the store image exactly
+        // (relocation source resolution; path matching is the fallback).
+        return { id: img.id, directoryId: img.directoryId, sourcePath, name: img.name };
       });
     } else {
       const [, relativeFromId] = image.id.split('::');
@@ -247,7 +250,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
       const sourcePath = image.directoryId
         ? `${image.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
         : image.id.includes('::') ? image.id.split('::')[1] : image.id;
-      filesToDrag = [{ sourcePath, name: image.name }];
+      filesToDrag = [{ id: image.id, directoryId: image.directoryId, sourcePath, name: image.name }];
     }
 
     if (filesToDrag.length > 0) {

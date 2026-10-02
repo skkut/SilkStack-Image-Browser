@@ -121,6 +121,19 @@ export interface ElectronAPI {
     sourceDirectories?: string[];
     error?: string;
   }>;
+  /**
+   * Relocate the main-process-owned derived files for a set of in-app
+   * moves/renames: the thumbnail `.webp` (old key → new key) and the JSON
+   * metadata-cache record (source cacheId → target cacheId). Renderer-side
+   * stores (annotations, vectors) are re-keyed separately.
+   */
+  relocateDerivedFiles: (args: {
+    moves: ImageRelocationMove[];
+  }) => Promise<{
+    success: boolean;
+    results?: RelocateDerivedFilesResult[];
+    error?: string;
+  }>;
   deleteFile: (
     filePath: string,
   ) => Promise<{ success: boolean; error?: string }>;
@@ -1063,6 +1076,53 @@ export interface ImageAnnotations {
   isSimilarityAnalyzed?: boolean; // Whether similarity grouping has been computed for this image
   addedAt: number; // Timestamp when first annotated
   updatedAt: number; // Timestamp of last update
+}
+
+/**
+ * One image relocated by an app-initiated move or rename. Identity in this
+ * codebase is the path-derived imageId (`{directoryId}::{relativePath}`), so a
+ * relocation is described as an old-id → new-id pair plus the paths/names each
+ * derived store needs to be re-keyed (annotations + vectors in IndexedDB,
+ * metadata cache + thumbnails owned by the main process).
+ *
+ * Built by `buildRelocationMoves` (src/services/imageRelocation.ts) from the
+ * `move-files` IPC result; consumed by the store action `relocateImages` and
+ * the `relocate-derived-files` IPC.
+ */
+export interface ImageRelocationMove {
+  oldImageId: string;
+  newImageId: string;
+  /** Root-relative path (forward slashes) under the source root — cache `name`. */
+  oldName: string;
+  /** Root-relative path (forward slashes) under the target root. */
+  newName: string;
+  oldAbsolutePath: string;
+  newAbsolutePath: string;
+  /** Thumbnail cache key component (`{imageId}-{lastModified}`) for the old entry. */
+  oldLastModified: number;
+  /**
+   * New lastModified, filled in by the main process from the moved file's
+   * stat (an EXDEV copy+delete resets birthtime). Renderer-side builders set
+   * it to `oldLastModified` as the pre-IPC placeholder.
+   */
+  newLastModified: number;
+  /** Directory id (== root path) the file now belongs to. */
+  targetRootId: string;
+  targetRootName?: string;
+  /** Metadata-cache ids (`{directoryPath}-{recursive|flat}`), when known. */
+  sourceCacheId?: string;
+  targetCacheId?: string;
+}
+
+/** Per-file outcome of the `relocate-derived-files` IPC. */
+export interface RelocateDerivedFilesResult {
+  oldImageId: string;
+  newImageId: string;
+  /** Authoritative lastModified from the moved file's stat (undefined → stat failed). */
+  newLastModified?: number;
+  thumbnailMoved: boolean;
+  cacheMoved: boolean;
+  error?: string;
 }
 
 /**

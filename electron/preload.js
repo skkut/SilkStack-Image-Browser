@@ -135,6 +135,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (filePath, data) => ipcRenderer.invoke('write-file', filePath, data),
 
   moveFiles: (args) => ipcRenderer.invoke('move-files', args),
+  relocateDerivedFiles: (args) => ipcRenderer.invoke('relocate-derived-files', args),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
   ensureDirectory: (dirPath) => ipcRenderer.invoke('ensure-directory', dirPath),
   checkDirectoryConnection: (dirPath) => ipcRenderer.invoke('checkDirectoryConnection', dirPath),
