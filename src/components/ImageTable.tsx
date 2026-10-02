@@ -115,7 +115,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
   };
 
   // Column resize state
-  const DEFAULT_COLUMN_WIDTHS = [96, 280, 220, 110, 110, 100, 80, 70, 100, 160];
+  const DEFAULT_COLUMN_WIDTHS = [96, 280, 220, 110, 110, 100, 80, 70, 100, 160, 160];
   const MIN_COLUMN_WIDTH = 50;
 
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS);
@@ -337,11 +337,26 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
                   <div className={`absolute right-0 top-0 bottom-0 w-px transition-colors ${resizing?.index === 8 ? 'bg-blue-500' : 'bg-gray-700 group-hover:bg-blue-500'}`} />
                 </div>
               </div>
+              <div className="relative">
+                <button
+                  className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
+                  onClick={() => handleSort('seed')}
+                >
+                  <span className="flex items-center gap-1">Seed {getSortIcon('seed')}</span>
+                </button>
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
+                  onMouseDown={(e) => handleResizeStart(9, e)}
+                  onDoubleClick={() => handleResizeDoubleClick(9)}
+                >
+                  <div className={`absolute right-0 top-0 bottom-0 w-px transition-colors ${resizing?.index === 9 ? 'bg-blue-500' : 'bg-gray-700 group-hover:bg-blue-500'}`} />
+                </div>
+              </div>
               <button
                 className="px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                onClick={() => handleSort('seed')}
+                onClick={() => handleSort('created')}
               >
-                <span className="flex items-center gap-1">Seed {getSortIcon('seed')}</span>
+                <span className="flex items-center gap-1">Created {getSortIcon('created')}</span>
               </button>
             </div>
           </div>
@@ -655,6 +670,20 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
           const seed = image.seed || (image.metadata as any)?.seed || (image.metadata as any)?.normalizedMetadata?.seed;
           return seed || <span className="text-gray-600">—</span>;
         })()}
+      </div>
+      {/* Created — same value and same formatting as the modal's date line
+          under the filename (`new Date(lastModified).toLocaleString()`):
+          lastModified is the indexer's birthtime-with-mtime-fallback, i.e.
+          the file's creation time. */}
+      <div
+        className="px-3 py-2 text-gray-400 font-mono text-xs truncate"
+        title={image.lastModified ? new Date(image.lastModified).toLocaleString() : undefined}
+      >
+        {image.lastModified ? (
+          new Date(image.lastModified).toLocaleString()
+        ) : (
+          <span className="text-gray-600">—</span>
+        )}
       </div>
     </div>
   );

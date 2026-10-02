@@ -103,6 +103,20 @@ describe('applyTableSorting', () => {
     expect(sort(list, 'aspect', 'desc')).toEqual(['wide', 'big', 'small']);
   });
 
+  it('sorts by created date/time (lastModified) in both directions', () => {
+    // lastModified is the app's creation date — birthtime with an mtime
+    // fallback (fileIndexer "sortDate") — and is what the Created column
+    // displays, so sort and display read one field.
+    const list = [
+      img('a', { lastModified: 3000 }),
+      img('b', { lastModified: 1000 }),
+      img('c', { lastModified: 2000 }),
+    ];
+
+    expect(sort(list, 'created', 'asc')).toEqual(['b', 'c', 'a']);
+    expect(sort(list, 'created', 'desc')).toEqual(['a', 'c', 'b']);
+  });
+
   it('ties keep the incoming (header-sort) order — the sort is stable', () => {
     // The store hands over the header-sorted list; every value ties here, so
     // the column sort must leave that base order exactly as it found it.

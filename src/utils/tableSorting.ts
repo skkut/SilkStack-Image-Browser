@@ -18,7 +18,8 @@ export type TableSortField =
   | 'megapixel'
   | 'aspect'
   | 'seed'
-  | 'filesize';
+  | 'filesize'
+  | 'created';
 
 export type TableSortDirection = 'asc' | 'desc' | null;
 
@@ -112,6 +113,15 @@ export function applyTableSorting(
         bValue = bSeed;
         break;
       }
+      case 'created':
+        // `lastModified` is the app's creation date: the indexer stores
+        // birthtime with an mtime fallback (fileIndexer "sortDate"), the
+        // header's Newest/Oldest First sort and the modal's date line both
+        // read the same field, and the column displays it — so sort and
+        // display can never disagree.
+        aValue = a.lastModified || 0;
+        bValue = b.lastModified || 0;
+        break;
       default:
         return 0;
     }

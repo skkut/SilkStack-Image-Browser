@@ -137,6 +137,17 @@ describe('ImageTable column sort ownership', () => {
     expect(ids()).toEqual(['small', 'mid', 'big']);
   });
 
+  it('sorts by the Created column (the file-creation date/time)', () => {
+    renderTable();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Created/ }));
+
+    expect(useImageStore.getState().tableSortField).toBe('created');
+    // The seeded base order is date-desc (c, b, a) by the same lastModified
+    // values, so Created asc must come out as the exact reverse.
+    expect(ids()).toEqual(['a', 'b', 'c']);
+  });
+
   it('releases the sort on unmount so the replacement view comes back in header order', () => {
     const { unmount } = renderTable();
     fireEvent.click(stepsHeader());
