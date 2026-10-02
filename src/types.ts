@@ -1,5 +1,18 @@
 import type { MainProcessGpuReport } from './services/gpuPreference';
 
+/**
+ * Settings modal tabs. Single source of truth: SettingsModal renders them,
+ * App/TopMenuBar/CustomMenuBar route to them (the Help → "Try Premium" item
+ * opens 'license').
+ */
+export type SettingsTab =
+  | 'general'
+  | 'folders'
+  | 'hotkeys'
+  | 'license'
+  | 'about'
+  | 'ai';
+
 export interface ElectronAPI {
   trashFile: (
     filename: string,
@@ -206,6 +219,7 @@ export interface ElectronAPI {
   onMenuAddFolder: (callback: () => void) => () => void;
   onMenuOpenSettings: (callback: () => void) => () => void;
   onMenuOpenAbout: (callback: () => void) => () => void;
+  onMenuOpenLicense: (callback: () => void) => () => void;
   onMenuToggleView: (callback: () => void) => () => void;
   onMenuShowChangelog: (callback: () => void) => () => void;
   testUpdateDialog: () => Promise<{

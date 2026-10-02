@@ -45,7 +45,7 @@ I have added a lot of new features to this project, notably:
 
 Everything under **AI Intelligence** runs on your own machine via WebGPU - no cloud service, no account, no API keys, and external dependencies. Your images, prompts and tags are also never uploaded anywhere.
 
-The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License**.
+The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License** - either a **7-day free trial** that turns into a monthly subscription (cancel anytime, ends by itself if you cancel) or a **one-time lifetime license**. Both are sold on Gumroad and email you a key to paste in.
 
 ![Semantic search and AI features in SilkStack](docs/Semantic-Search-and-AI%20Features.jpg)
 
@@ -90,10 +90,10 @@ Near-identical generations are grouped into **stacks**, so a folder full of 40 v
 ### License, privacy & offline use
 
 - The AI section is gated behind a premium license. Once activated, the license state is cryptographically stamped and verified locally.
-- Activation contacts the license server once. After that SilkStack keeps working offline (the license shows as trusted while offline).
+- Activating a key contacts Gumroad once to verify it. After that, a **lifetime** license is trusted offline indefinitely; a **subscription** is re-verified at most once a day when the app starts and keeps working offline for up to 14 days between successful checks.
 - Your images, prompts, tags and search queries never leave your machine - all AI processing happens locally.
 - **Anonymous usage ping** - once a day the packaged app sends a random install ID, the app version, the OS and whether a license is active. Nothing from your library is included; the country comes from the connection and the IP is discarded.
-- Network access is limited to the ping above, license activation, model downloads on first use and update checks.
+- Network access is limited to the ping above, license activation and subscription re-validation, model downloads on first use and update checks.
 
 ---
 

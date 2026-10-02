@@ -5,10 +5,10 @@ import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw } 
 import { useAiFeaturesEnabled, useAiMasterEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { SortOrder } from '../types';
+import { SortOrder, type SettingsTab } from '../types';
 
 interface TopMenuBarProps {
-    onOpenSettings: (tab?: 'general' | 'hotkeys' | 'about') => void;
+    onOpenSettings: (tab?: SettingsTab) => void;
     onAddFolder: () => void;
     onToggleView: () => void;
     onUndo?: () => void;

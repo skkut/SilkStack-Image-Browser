@@ -15,10 +15,18 @@
  *   module absent │  any                │  false
  *   module present│  no license         │  false
  *   module present│  premium + stamp OK │  true
+ *
+ * OFFLINE RULES (per product):
+ *   lifetime     — trusted indefinitely (unchanged behavior).
+ *   subscription — trusted only while the last successful verification is
+ *                  within OFFLINE_GRACE_MS, and re-validated on launch.
+ *                  Expiry is Non-destructive: the state is kept so the next
+ *                  successful re-validation restores access without the
+ *                  customer re-entering the key.
  */
 
 import { useSettingsStore } from '../store/useSettingsStore';
-import { getDefaultLicenseState } from '../services/licenseService';
+import { getDefaultLicenseState, type LicenseProduct } from '../services/licenseService';
 
 // ── Secrets ───────────────────────────────────────────────────────────
 
@@ -32,20 +40,17 @@ export const AI_MODULE_AVAILABLE: boolean = import.meta.env.VITE_AI_FEATURES_AVA
 
 // ── Stamp (anti-tamper) ───────────────────────────────────────────────
 
+/** How long a subscription keeps working without a successful re-check. */
+export const OFFLINE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
+
 /**
- * Compute an HMAC-like stamp for the given license parameters.
- *
- * Uses the Web Crypto API for a proper HMAC-SHA-256 so the stamp can't be
- * forged without knowing VITE_IMH_LICENSE_SECRET.  Synchronous wrapper
- * around the async crypto call — the stamp is only computed at activation
- * time (not on every render), so we use a simple sync hash as a fallback
- * when crypto.subtle is unavailable (e.g. insecure context in dev).
+ * djb2 variant with the secret mixed in per-character, so the output
+ * depends irreducibly on the secret. Note this is NOT the Web Crypto
+ * HMAC the older comments promised — it is a keyed hash that is enough to
+ * stop hand-editing settings.json, and cheap enough to run synchronously
+ * on every render.
  */
-function computeStampSync(key: string, status: string, timestamp: number): string {
-  // The stamp binds the secret to the specific license data.  We use a
-  // djb2 variant with the secret mixed in per-character so the output
-  // depends irreducibly on the secret.
-  const payload = `${SECRET}:${key}:${status}:${timestamp}`;
+function hashPayload(payload: string): string {
   let hash = 5381;
   for (let i = 0; i < payload.length; i++) {
     hash = ((hash << 5) + hash) ^ payload.charCodeAt(i);
@@ -54,38 +59,124 @@ function computeStampSync(key: string, status: string, timestamp: number): strin
   return Math.abs(hash).toString(36);
 }
 
+/** Legacy payload: binds key + status + timestamp. */
+function payloadV1(key: string, status: string, timestamp: number): string {
+  return `${SECRET}:${key}:${status}:${timestamp}`;
+}
+
+/**
+ * Product-bound payload. Used ONLY for subscriptions, because the product
+ * decides the offline rule there: without this binding, deleting the
+ * `licenseProduct` field would downgrade the state to `null` → "legacy",
+ * i.e. lifetime's unlimited offline trust.
+ *
+ * Lifetime deliberately keeps the v1 payload: its rule is identical to
+ * legacy's, and an unchanged stamp means a version rollback cannot
+ * invalidate an existing customer's license (a mismatch would trip the
+ * auto-heal below and erase their key).
+ */
+function payloadV2(key: string, status: string, timestamp: number, product: string): string {
+  return `${SECRET}:${key}:${status}:${timestamp}:${product}:v2`;
+}
+
 /** Public: use this whenever you need to stamp newly-activated state. */
 export function computeLicenseStamp(
   licenseKey: string,
   licenseStatus: string,
   licenseLastValidated: number,
+  licenseProduct: LicenseProduct | null = null,
 ): string {
-  return computeStampSync(licenseKey, licenseStatus, licenseLastValidated);
+  return licenseProduct === 'subscription'
+    ? hashPayload(payloadV2(licenseKey, licenseStatus, licenseLastValidated, licenseProduct))
+    : hashPayload(payloadV1(licenseKey, licenseStatus, licenseLastValidated));
+}
+
+/** Does `stamp` prove this exact state was written by us? */
+function verifyLicenseStamp(
+  licenseKey: string,
+  licenseStatus: string,
+  licenseLastValidated: number,
+  licenseProduct: LicenseProduct | null,
+  stamp: string,
+): boolean {
+  if (!stamp) return false;
+  const expected =
+    licenseProduct === 'subscription'
+      ? hashPayload(payloadV2(licenseKey, licenseStatus, licenseLastValidated, licenseProduct))
+      : hashPayload(payloadV1(licenseKey, licenseStatus, licenseLastValidated));
+  return stamp === expected;
 }
 
 // ── Premium check ─────────────────────────────────────────────────────
 
-function checkPremiumStatus(status: string, stamp: string, key: string, timestamp: number): boolean {
-  if (status !== 'valid' && status !== 'offline-valid') return false;
-  if (!stamp) return false;
-  const expected = computeStampSync(key, status, timestamp);
-  return stamp === expected;
+/** The store fields the license checks read. */
+interface LicenseSnapshot {
+  licenseStatus: string;
+  licenseStamp: string;
+  licenseKey: string;
+  licenseLastValidated: number;
+  licenseProduct: LicenseProduct | null;
+}
+
+/** Tamper check: premium-looking status AND a stamp that verifies. */
+function isLicenseStampValid(s: LicenseSnapshot): boolean {
+  if (s.licenseStatus !== 'valid' && s.licenseStatus !== 'offline-valid') return false;
+  return verifyLicenseStamp(
+    s.licenseKey,
+    s.licenseStatus,
+    s.licenseLastValidated,
+    s.licenseProduct,
+    s.licenseStamp,
+  );
+}
+
+/**
+ * Has a subscription gone past the offline grace window? Lifetime licenses
+ * (and legacy states with no recorded product — historically lifetime)
+ * never do.
+ */
+function isBeyondOfflineGrace(s: LicenseSnapshot): boolean {
+  if (s.licenseProduct !== 'subscription') return false;
+  return Date.now() - s.licenseLastValidated > OFFLINE_GRACE_MS;
+}
+
+/** Full entitlement check: genuine stamp AND the product's offline rule. */
+function checkPremiumStatus(s: LicenseSnapshot): boolean {
+  if (!isLicenseStampValid(s)) return false;
+  if (isBeyondOfflineGrace(s)) return false;
+  return true;
+}
+
+/**
+ * React hook helper: subscribe to every field the license checks read.
+ * Kept in one place so a new field can't be wired into two hooks and
+ * forgotten in the third.
+ */
+function useLicenseSnapshot(): LicenseSnapshot {
+  return {
+    licenseStatus: useSettingsStore((st) => st.licenseStatus),
+    licenseStamp: useSettingsStore((st) => st.licenseStamp),
+    licenseKey: useSettingsStore((st) => st.licenseKey),
+    licenseLastValidated: useSettingsStore((st) => st.licenseLastValidated),
+    licenseProduct: useSettingsStore((st) => st.licenseProduct),
+  };
 }
 
 /** Imperative: true when the license is valid AND the stamp verifies. */
 export function isAiFeaturesEnabled(): boolean {
   if (!AI_MODULE_AVAILABLE) return false;
   const s = useSettingsStore.getState();
-  if (!checkPremiumStatus(s.licenseStatus, s.licenseStamp, s.licenseKey, s.licenseLastValidated)) {
-    // If we ever got into a state with a valid-looking status but bad
-    // stamp, auto-heal by resetting back to unchecked so the UI doesn't
-    // show stale premium indicators.
+  if (!isLicenseStampValid(s)) {
+    // Auto-heal ONLY on a failed stamp (hand-edited state), so the UI
+    // doesn't show stale premium indicators. A subscription that merely
+    // ran past its offline grace keeps its state: wiping the key here
+    // would force re-entry even though the subscription is still paid.
     if (s.licenseStatus === 'valid' || s.licenseStatus === 'offline-valid') {
       s.setLicenseState(getDefaultLicenseState());
     }
     return false;
   }
-  return true;
+  return !isBeyondOfflineGrace(s);
 }
 
 /**
@@ -127,13 +218,9 @@ export function isSemanticSearchEnabled(): boolean {
 
 /** React hook: re-renders when license status changes. */
 export function useAiFeaturesEnabled(): boolean {
-  const licenseStatus = useSettingsStore((s) => s.licenseStatus);
-  const licenseStamp = useSettingsStore((s) => s.licenseStamp);
-  const licenseKey = useSettingsStore((s) => s.licenseKey);
-  const licenseLastValidated = useSettingsStore((s) => s.licenseLastValidated);
-
+  const snapshot = useLicenseSnapshot();
   if (!AI_MODULE_AVAILABLE) return false;
-  return checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated);
+  return checkPremiumStatus(snapshot);
 }
 
 /**
@@ -163,13 +250,10 @@ export function useAiModelFeaturesEnabled(): boolean {
  */
 export function useStackingEnabled(): boolean {
   const userPref = useSettingsStore((s) => s.isStackingEnabled);
-  const licenseStatus = useSettingsStore((s) => s.licenseStatus);
-  const licenseStamp = useSettingsStore((s) => s.licenseStamp);
-  const licenseKey = useSettingsStore((s) => s.licenseKey);
-  const licenseLastValidated = useSettingsStore((s) => s.licenseLastValidated);
+  const snapshot = useLicenseSnapshot();
 
   if (!AI_MODULE_AVAILABLE) return false;
-  if (!checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated)) return false;
+  if (!checkPremiumStatus(snapshot)) return false;
   return userPref;
 }
 
@@ -180,13 +264,10 @@ export function useStackingEnabled(): boolean {
 export function useSemanticSearchEnabled(): boolean {
   const userPref = useSettingsStore((s) => s.isSemanticSearchEnabled);
   const masterEnabled = useSettingsStore((s) => s.aiFeaturesEnabled);
-  const licenseStatus = useSettingsStore((s) => s.licenseStatus);
-  const licenseStamp = useSettingsStore((s) => s.licenseStamp);
-  const licenseKey = useSettingsStore((s) => s.licenseKey);
-  const licenseLastValidated = useSettingsStore((s) => s.licenseLastValidated);
+  const snapshot = useLicenseSnapshot();
 
   if (!masterEnabled) return false;
   if (!AI_MODULE_AVAILABLE) return false;
-  if (!checkPremiumStatus(licenseStatus, licenseStamp, licenseKey, licenseLastValidated)) return false;
+  if (!checkPremiumStatus(snapshot)) return false;
   return userPref;
 }

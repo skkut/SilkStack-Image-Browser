@@ -674,6 +674,15 @@ function createApplicationMenu() {
       label: "Help",
       submenu: [
         {
+          label: "Try Premium",
+          click: () => {
+            if (mainWindow) {
+              mainWindow.webContents.send("menu-open-license");
+            }
+          },
+        },
+        { type: "separator" },
+        {
           label: "Documentation",
           click: async () => {
             await shell.openExternal(

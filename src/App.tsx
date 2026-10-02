@@ -5,7 +5,7 @@ import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
-import { Directory, IndexedImage } from './types';
+import { Directory, IndexedImage, type SettingsTab } from './types';
 import { X, ArrowLeft, Copy, ExternalLink, Folder } from 'lucide-react';
 
 import FolderSelector from './components/FolderSelector';
@@ -34,6 +34,7 @@ import { normalizePath } from './utils/pathUtils';
 import { clearStackingState } from './utils/stackingReset';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
+import { revalidateLicenseIfDue } from './services/licenseRevalidation';
 import { processingQueue } from './services/processingQueue';
 
 export default function App() {
@@ -202,7 +203,7 @@ export default function App() {
   // --- Local UI State ---
   const previousSearchQueryRef = useRef(searchQuery);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'folders' | 'hotkeys' | 'about'>('general');
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
@@ -219,7 +220,7 @@ export default function App() {
 
 
 
-  const handleOpenSettings = (tab: 'general' | 'folders' | 'hotkeys' | 'about' = 'general') => {
+  const handleOpenSettings = (tab: SettingsTab = 'general') => {
     setSettingsTab(tab);
     setIsSettingsModalOpen(true);
   };
@@ -367,6 +368,22 @@ export default function App() {
   useEffect(() => {
     if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return;
     fetchMainProcessGpuInfo();
+  }, []);
+
+  // Re-validate a subscription license at most once a day (a documented
+  // outbound call — same Gumroad endpoint as activation). Deferred until
+  // settings hydration finishes: before that the store still holds
+  // defaults and the check would silently no-op. Lifetime / unlicensed
+  // states no-op immediately; failures leave state untouched.
+  useEffect(() => {
+    if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return;
+    if (useSettingsStore.persist.hasHydrated()) {
+      revalidateLicenseIfDue();
+      return;
+    }
+    return useSettingsStore.persist.onFinishHydration(() => {
+      revalidateLicenseIfDue();
+    });
   }, []);
 
   // Dev tools: Ctrl+Y opens the dev-tools window (all testers switchable
@@ -859,6 +876,14 @@ export default function App() {
       handleOpenSettings('about');
     });
 
+    // Help → Try Premium (native menu). Guarded like the rest of the license
+    // surface: without the AI module the license tab renders nothing, so the
+    // event must not open an empty Settings panel.
+    const unsubscribeOpenLicense = window.electronAPI.onMenuOpenLicense(() => {
+      if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE) return;
+      handleOpenSettings('license');
+    });
+
     const unsubscribeToggleView = window.electronAPI.onMenuToggleView(() => {
       toggleViewMode();
     });
@@ -867,6 +892,7 @@ export default function App() {
       unsubscribeAddFolder();
       unsubscribeOpenSettings();
       unsubscribeOpenAbout();
+      unsubscribeOpenLicense();
       unsubscribeToggleView();
     };
   }, [handleSelectFolder, toggleViewMode]);

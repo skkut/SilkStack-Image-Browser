@@ -33,7 +33,7 @@ const electronStorage: StateStorage = {
 };
 
 import { Keymap, StackGroupByDimension } from '../types';
-import type { LicenseState, LicenseStatus } from '../services/licenseService';
+import type { LicenseState, LicenseStatus, LicenseProduct } from '../services/licenseService';
 import { getDefaultLicenseState } from '../services/licenseService';
 import { AI_DEVICE_PREFERENCES, type AiDevicePreference } from '../services/gpuPreference';
 
@@ -117,6 +117,12 @@ interface SettingsState {
   licensePurchaseDate: string | null;
   licenseLastValidated: number;
   licenseStamp: string;
+  /** Product the key was activated against; null = pre-field state (lifetime). */
+  licenseProduct: LicenseProduct | null;
+  /** Display-only free-trial end (ms); never gates. */
+  trialEndsAt: number | null;
+  /** Display-only: subscription cancelled inside a still-paid period. */
+  subscriptionCancelled: boolean;
 
   // Actions
   setSortOrder: (order: 'asc' | 'desc' | 'date-asc' | 'date-desc' | 'random') => void;
@@ -409,6 +415,15 @@ export const useSettingsStore = create<SettingsState>()(
           if (state.licensePurchaseDate === undefined) state.licensePurchaseDate = null;
           if (typeof state.licenseLastValidated !== 'number') state.licenseLastValidated = 0;
           if (typeof state.licenseStamp !== 'string') state.licenseStamp = '';
+          // null is correct for a pre-upgrade state: no product was recorded,
+          // and before the membership existed every key WAS lifetime. The
+          // offline rule and stamp verification both read null that way, so
+          // existing customers keep working without re-entering their key.
+          if (state.licenseProduct !== 'lifetime' && state.licenseProduct !== 'subscription') {
+            state.licenseProduct = null;
+          }
+          if (typeof state.trialEndsAt !== 'number') state.trialEndsAt = null;
+          if (typeof state.subscriptionCancelled !== 'boolean') state.subscriptionCancelled = false;
         }
       },
     }

@@ -11,11 +11,12 @@ When working on this codebase:
 - Always ensure MPL compliance, warn for MPL violations
 - Maintain backward compatibility with cached data
 - Consider performance impact on large collections
-- Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, model downloads, update checks - and any new one must be documented in README and here)
+- Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, subscription re-validation, model downloads, update checks - and any new one must be documented in README and here)
 - Follow TypeScript best practices
 - Write tests for new functionality
 - Do not auto commit to git
 - Do not run deploy scripts automatically
+- **NEVER add the project folder (`C:\Projects\AI-Images-Browser`) as a library folder in the app** — including in dev mode and including "just to try something". Use only `C:\Projects\TestImages` for test data (see [Test Data Folder Rule](#test-data-folder-rule-strict))
 
 ### Code Style
 
@@ -82,7 +83,7 @@ See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known got
 
 ## Key Features to Maintain
 
-1. **Privacy**: All processing is local; the only outbound calls are the documented ones (anonymous usage ping, license activation, model downloads, update checks)
+1. **Privacy**: All processing is local; the only outbound calls are the documented ones (anonymous usage ping, license activation, subscription re-validation, model downloads, update checks)
 2. **Performance**: Optimized for 18,000+ images with smart caching
 3. **Metadata Search**: Full-text search across all metadata fields
 4. **Multi-Format Support**: Handle various AI generator formats
@@ -138,6 +139,24 @@ See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known got
 - Integration tests for metadata extraction
 - Manual testing with various AI generator outputs
 - Performance testing with 10,000+ images
+
+### Test Data Folder Rule (strict)
+
+**Never, ever add `C:\Projects\AI-Images-Browser` itself as a library folder in the running app — not in dev mode, not in a smoke test, not "just to check one thing". The only folder to add when testing is `C:\Projects\TestImages`.**
+
+Why this matters:
+
+- The app persists the last-used library folder in its profile, so a folder added once during a test **sticks around** and is re-indexed and file-watched on every later dev launch.
+- Indexing the project root pulls in `node_modules/`, `dist/`, `.git/`, `tmp/` and the full source tree — tens of thousands of non-image files. That destroys dev-app performance (indexing, watcher, metadata cache) and buries real test results in noise.
+- `tmp/` being inside the project compounds this: temporary files created there become index entries too.
+
+Rules for testing:
+
+1. Add only `C:\Projects\TestImages` as a library folder.
+2. Create throwaway images for a test run in a per-run subfolder, e.g. `C:\Projects\TestImages\tmp-<purpose>\`, and delete them when done.
+3. For automated / smoke-test launches, point Electron at a throwaway profile (`--user-data-dir`) so the test can never write a folder into the real dev profile in the first place.
+4. Same rule for CLI runs: never pass the project root to `npm run cli:index`, `npm run comfy:batch`, or similar.
+5. If you find the project folder already added while testing, remove it from the app's folders before continuing.
 
 ## Browser vs Desktop Considerations
 

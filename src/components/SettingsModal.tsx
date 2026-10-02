@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, ExternalLink, Check, Info, Github, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, ExternalLink, Check, Info, Github, Globe, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { AiModelCacheSection } from './AiModelCacheSection';
 import { useImageStore } from '../store/useImageStore';
-import { Directory } from '../types';
+import { Directory, type SettingsTab } from '../types';
 import { EMOJI_CATEGORIES } from '../utils/emojiData';
 import { normalizePath } from '../utils/pathUtils';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled, useAiMasterEnabled, computeLicenseStamp } from '../services/aiFeatureAccess';
+import type { LicenseProduct } from '../services/licenseService';
 import { classifyGpuDevice, gpuClassLabel, gpuDeviceKey, type AiDevicePreference, type GpuDeviceReport } from '../services/gpuPreference';
 import { fetchMainProcessGpuInfo } from '../services/mainProcessGpu';
 import {
@@ -24,6 +25,11 @@ import {
 // visible in every build, independent of the license/AI-features surface.
 const MPL_SOURCE_URL =
   'https://github.com/skkut/SilkStack-Image-Browser/tree/main/mpl-covered-sources';
+
+// Product site (features, screenshots, pricing). Lives here rather than in the
+// closed ai-intelligence module — About must render in every build, including
+// the open-source one where that module is absent.
+const WEBSITE_URL = 'https://skkut.github.io/silkstack/';
 
 // ── License Tab — lazy-loaded from the closed-source module ───────────
 // When ai-intelligence is absent at build time, dead-code elimination
@@ -50,6 +56,9 @@ const LicenseSettingsPanel: React.FC = () => {
   const licenseKey = useSettingsStore((s) => s.licenseKey);
   const licenseStatus = useSettingsStore((s) => s.licenseStatus);
   const licenseEmail = useSettingsStore((s) => s.licenseEmail);
+  const licenseProduct = useSettingsStore((s) => s.licenseProduct);
+  const trialEndsAt = useSettingsStore((s) => s.trialEndsAt);
+  const subscriptionCancelled = useSettingsStore((s) => s.subscriptionCancelled);
   const setLicenseState = useSettingsStore((s) => s.setLicenseState);
   const clearLicense = useSettingsStore((s) => s.clearLicense);
 
@@ -60,6 +69,9 @@ const LicenseSettingsPanel: React.FC = () => {
     licensePurchaseDate: string | null;
     licenseLastValidated: number;
     licenseStamp: string;
+    licenseProduct: LicenseProduct | null;
+    trialEndsAt: number | null;
+    subscriptionCancelled: boolean;
   }>) => {
     // When transitioning to a premium status, compute and attach a stamp
     // so isPremiumUnlocked() can verify the state hasn't been tampered with.
@@ -67,7 +79,14 @@ const LicenseSettingsPanel: React.FC = () => {
     if (status === 'valid' || status === 'offline-valid') {
       const key = partial.licenseKey ?? licenseKey;
       const ts = partial.licenseLastValidated ?? Date.now();
-      (partial as Record<string, unknown>).licenseStamp = computeLicenseStamp(key, status, ts);
+      // The product is part of the stamped payload (v2 for subscriptions):
+      // it decides the offline rule, so leaving it unstamped would let a
+      // hand-edit delete it and claim lifetime's unlimited offline trust.
+      // The module always sends it on a premium transition; null (= legacy
+      // lifetime semantics) is the safe reading when it doesn't.
+      const product = partial.licenseProduct ?? null;
+      (partial as Record<string, unknown>).licenseStamp =
+        computeLicenseStamp(key, status, ts, product);
     }
     setLicenseState(partial as Record<string, unknown> as Parameters<typeof setLicenseState>[0]);
   };
@@ -82,6 +101,9 @@ const LicenseSettingsPanel: React.FC = () => {
       licenseKey={licenseKey}
       licenseStatus={licenseStatus}
       licenseEmail={licenseEmail}
+      licenseProduct={licenseProduct}
+      trialEndsAt={trialEndsAt}
+      subscriptionCancelled={subscriptionCancelled}
       onLicenseStateChange={handleLicenseStateChange}
       onClearLicense={clearLicense}
     />
@@ -91,7 +113,7 @@ const LicenseSettingsPanel: React.FC = () => {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: 'general' | 'folders' | 'hotkeys' | 'license' | 'about' | 'ai';
+  initialTab?: SettingsTab;
   directories?: Directory[];
   onAddFolder?: () => void;
   onRemoveFolder?: (directoryId: string) => void;
@@ -100,9 +122,6 @@ interface SettingsModalProps {
   /** True while a reprocess run is in flight (spinner + disabled state). */
   reprocessing?: boolean;
 }
-
-type Tab = 'general' | 'folders' | 'hotkeys' | 'license' | 'about' | 'ai';
-
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -114,7 +133,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onReprocessImages,
   reprocessing = false
 }) => {
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   const displayStarredFirst = useSettingsStore((state) => state.displayStarredFirst);
   const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
@@ -1159,7 +1178,17 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       </p>
                     </div>
 
-                    <div className="pt-4">
+                    <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+                      <button
+                        onClick={() =>
+                          window.electronAPI?.openExternal(WEBSITE_URL) ??
+                          window.open(WEBSITE_URL, '_blank')
+                        }
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-xl text-sm font-medium text-gray-200 transition-all shadow-sm hover:shadow-md"
+                      >
+                        <Globe size={18} />
+                        <span>Visit Website</span>
+                      </button>
                       <button
                         onClick={() => window.electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser')}
                         className="inline-flex items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-700 border border-gray-600 hover:border-gray-500 rounded-xl text-sm font-medium text-gray-200 transition-all shadow-sm hover:shadow-md"

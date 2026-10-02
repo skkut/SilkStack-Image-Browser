@@ -175,8 +175,8 @@ vi.mock('@ai-images-browser/ai-intelligence', () => {
 // Imported statically so we can control license state; aiBridge's internal
 // checkPremiumLicense() dynamic-imports the same module instance.
 import { useSettingsStore } from '../store/useSettingsStore';
-import { computeLicenseStamp } from '../services/aiFeatureAccess';
-import type { LicenseStatus } from '../services/licenseService';
+import { computeLicenseStamp, OFFLINE_GRACE_MS } from '../services/aiFeatureAccess';
+import { getDefaultLicenseState, type LicenseState, type LicenseStatus } from '../services/licenseService';
 
 const NON_PREMIUM_STATUSES: LicenseStatus[] = ['unchecked', 'invalid', 'expired', 'revoked'];
 const PREMIUM_STATUSES: LicenseStatus[] = ['valid', 'offline-valid'];
@@ -592,5 +592,153 @@ describe('aiBridge — master AI-features toggle', () => {
 
     useSettingsStore.setState({ aiFeaturesEnabled: true });
     expect(isSemanticSearchEnabled()).toBe(true);
+  });
+});
+
+// ── License products: subscription offline rule + stamp v2 ────────────
+//
+// Two products can now issue a key. The product decides the offline rule
+// (lifetime = indefinite, subscription = bounded by the grace window), so
+// it is part of the stamped payload for subscriptions — deleting or
+// editing it must LOCK the license, never upgrade its trust.
+
+const SUB_KEY = 'TRIAL-KEY-9999';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Seed a subscription whose stamp matches its stored state; `ageMs`
+ *  backdates the last successful check (stamp included). */
+const subscriptionState = (
+  ageMs = 0,
+  over: Partial<LicenseState> = {},
+): Partial<LicenseState> => {
+  const ts = Date.now() - ageMs;
+  return {
+    licenseKey: SUB_KEY,
+    licenseStatus: 'valid',
+    licenseEmail: 'trial@example.com',
+    licensePurchaseDate: '2026-10-01T00:00:00Z',
+    licenseLastValidated: ts,
+    licenseProduct: 'subscription',
+    licenseStamp: computeLicenseStamp(SUB_KEY, 'valid', ts, 'subscription'),
+    trialEndsAt: null,
+    subscriptionCancelled: false,
+    ...over,
+  };
+};
+
+describe('aiFeatureAccess — license products, stamps and offline grace', () => {
+  beforeEach(() => {
+    useSettingsStore.setState(getDefaultLicenseState());
+  });
+
+  it('a subscription inside the grace window is premium', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    expect(OFFLINE_GRACE_MS).toBe(14 * DAY_MS); // policy pin
+
+    useSettingsStore.setState(subscriptionState(13 * DAY_MS));
+    expect(isAiFeaturesEnabled()).toBe(true);
+  });
+
+  it('a subscription past the grace window loses premium but KEEPS its state', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    useSettingsStore.setState(subscriptionState(15 * DAY_MS));
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+
+    // NOT healed: the subscription is still paid, and the next successful
+    // re-validation must restore access without re-entering the key.
+    const s = useSettingsStore.getState();
+    expect(s.licenseKey).toBe(SUB_KEY);
+    expect(s.licenseStatus).toBe('valid');
+    expect(s.licenseProduct).toBe('subscription');
+  });
+
+  it('a lifetime license is premium however stale the timestamp', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    const ts = Date.now() - 400 * DAY_MS;
+    useSettingsStore.setState({
+      licenseKey: 'LIFE-KEY',
+      licenseStatus: 'valid',
+      licenseProduct: 'lifetime',
+      licenseLastValidated: ts,
+      licenseStamp: computeLicenseStamp('LIFE-KEY', 'valid', ts),
+    });
+
+    expect(isAiFeaturesEnabled()).toBe(true);
+  });
+
+  it('a legacy state (no product field, v1 stamp) is premium — existing customers unaffected', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    const ts = Date.now() - 400 * DAY_MS;
+    // Exactly what a pre-upgrade install has: a v1 stamp and no product.
+    useSettingsStore.setState({
+      licenseKey: 'OLD-KEY',
+      licenseStatus: 'valid',
+      licenseProduct: null,
+      licenseLastValidated: ts,
+      licenseStamp: computeLicenseStamp('OLD-KEY', 'valid', ts),
+    });
+
+    expect(isAiFeaturesEnabled()).toBe(true);
+  });
+
+  it('deleting the product from a subscription locks it and heals the state', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    // The v2 stamp no longer verifies under the v1 formula, so this is a
+    // forgery signal — not merely "no premium".
+    useSettingsStore.setState(subscriptionState(0, { licenseProduct: null }));
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+    expect(useSettingsStore.getState().licenseKey).toBe(''); // auto-healed
+  });
+
+  it('editing the product to lifetime does not buy lifetime trust', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    useSettingsStore.setState(subscriptionState(0, { licenseProduct: 'lifetime' }));
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+    expect(useSettingsStore.getState().licenseKey).toBe('');
+  });
+
+  it('promoting a legacy v1 state to a subscription does not verify', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    const ts = Date.now();
+    useSettingsStore.setState({
+      licenseKey: 'OLD-KEY',
+      licenseStatus: 'valid',
+      licenseProduct: 'subscription', // edited by hand
+      licenseLastValidated: ts,
+      licenseStamp: computeLicenseStamp('OLD-KEY', 'valid', ts), // v1 formula
+    });
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+    expect(useSettingsStore.getState().licenseKey).toBe('');
+  });
+
+  it('a subscription stamped with the legacy v1 formula does not verify', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    const ts = Date.now();
+    useSettingsStore.setState(subscriptionState(0, {
+      // Same inputs, but stamped WITHOUT the product (the pre-v2 formula).
+      licenseStamp: computeLicenseStamp(SUB_KEY, 'valid', ts),
+    }));
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+  });
+
+  it('a stale subscription stamp is rejected without touching the state', async () => {
+    const { isAiFeaturesEnabled } = await import('../services/aiFeatureAccess');
+    // Inside grace, but the stamp was made for a different timestamp.
+    const ts = Date.now() - 2 * DAY_MS;
+    useSettingsStore.setState(subscriptionState(2 * DAY_MS, {
+      licenseStamp: computeLicenseStamp(SUB_KEY, 'valid', ts - 1, 'subscription'),
+    }));
+
+    expect(isAiFeaturesEnabled()).toBe(false);
+    expect(useSettingsStore.getState().licenseKey).toBe('');
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState(getDefaultLicenseState());
   });
 });

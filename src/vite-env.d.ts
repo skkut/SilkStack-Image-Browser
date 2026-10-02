@@ -325,6 +325,68 @@ declare module '@ai-images-browser/ai-intelligence' {
     onDragEnd: (event: React.DragEvent<HTMLDivElement>) => void;
   }>;
 
+  // ── License (closed module) ─────────────────────────────────────────
+  // Only the surface the OPEN tree calls: the LicenseTab component is
+  // reached through safeLazy's `any` cast, and subscription re-validation
+  // (src/services/licenseRevalidation.ts) calls these two functions.
+
+  export type LicenseStatus =
+    | 'unchecked'
+    | 'valid'
+    | 'invalid'
+    | 'expired'
+    | 'revoked'
+    | 'offline-valid'
+    | 'verifying';
+
+  export type LicenseProduct = 'lifetime' | 'subscription';
+
+  export interface LicenseState {
+    licenseKey: string;
+    licenseStatus: LicenseStatus;
+    licenseEmail: string;
+    licensePurchaseDate: string | null;
+    licenseLastValidated: number;
+    licenseStamp: string;
+    licenseProduct: LicenseProduct | null;
+    trialEndsAt: number | null;
+    subscriptionCancelled: boolean;
+  }
+
+  export interface GumroadLicensePayload {
+    success: boolean;
+    message?: string;
+    purchase?: {
+      email: string;
+      sale_timestamp: string;
+      refunded: boolean;
+      [key: string]: unknown;
+    };
+  }
+
+  export interface LicenseVerifyOutcome {
+    payload: GumroadLicensePayload;
+    productKind: LicenseProduct | null;
+  }
+
+  export interface LicenseVerificationResult {
+    status: LicenseStatus;
+    email: string;
+    purchaseDate: string | null;
+    productKind: LicenseProduct | null;
+    cancelled: boolean;
+    trialEndsAt: number | null;
+  }
+
+  export function verifyStoredLicense(
+    licenseKey: string,
+    product: LicenseProduct,
+  ): Promise<LicenseVerifyOutcome>;
+
+  export function statusFromGumroadResponse(
+    outcome: LicenseVerifyOutcome,
+  ): LicenseVerificationResult;
+
   // The app's gpuPreference.ts is the open-source CONTRACT (the patch
   // implementation lives in the module); re-export its types so anything
   // importing them from the module path sees the same shape as the app.

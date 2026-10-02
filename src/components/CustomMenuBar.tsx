@@ -1,7 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { useAiFeaturesEnabled, AI_MODULE_AVAILABLE } from '../services/aiFeatureAccess';
+import type { SettingsTab } from '../types';
 
 interface MenuItem {
   label: string;
@@ -17,7 +18,7 @@ interface MenuSection {
 }
 
 interface CustomMenuBarProps {
-  onOpenSettings: (tab?: string) => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onAddFolder: () => void;
   onToggleView: () => void;
   onUndo?: () => void;
@@ -93,6 +94,17 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
     {
       label: 'Help',
       items: [
+        // License surface only exists when the AI module is in the build
+        // (SettingsModal hides the License tab otherwise) — same gate, so the
+        // item can never open an empty panel. Deliberately NOT gated on
+        // `aiFeaturesEnabled` (master ∧ license): that would hide the upsell
+        // from exactly the users who don't own a license yet.
+        ...(AI_MODULE_AVAILABLE
+          ? [
+              { label: 'Try Premium', onClick: () => onOpenSettings('license') } as MenuItem,
+              { type: 'separator' } as MenuItem,
+            ]
+          : []),
         { label: 'Documentation', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser#readme') },
         { label: 'Report Bug', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser/issues/new') },
         { label: 'View on GitHub', onClick: () => (window as any).electronAPI?.openExternal('https://github.com/skkut/SilkStack-Image-Browser') },
