@@ -119,6 +119,24 @@ describe('ImageTable column sort ownership', () => {
     expect(useImageStore.getState().tableSortDirection).toBe('asc');
   });
 
+  it('sorts by MP for ASCII-x dimensions — the separator the indexer writes', () => {
+    // Regression: the comparator used to split on '×' while the indexer
+    // writes `${width}x${height}`, so clicking MP (or Resolution / Aspect)
+    // re-ordered nothing at all on a real library.
+    const list = [
+      image('big', { dimensions: '2048x2048', lastModified: 1000 }),
+      image('small', { dimensions: '512x512', lastModified: 2000 }),
+      image('mid', { dimensions: '1024x1024', lastModified: 3000 }),
+    ];
+    useImageStore.setState({ images: list, filteredImages: list });
+
+    render(<ImageTable images={list} onImageClick={vi.fn()} selectedImages={new Set()} />);
+    fireEvent.click(screen.getByRole('button', { name: /^MP/ }));
+
+    expect(useImageStore.getState().tableSortField).toBe('megapixel');
+    expect(ids()).toEqual(['small', 'mid', 'big']);
+  });
+
   it('releases the sort on unmount so the replacement view comes back in header order', () => {
     const { unmount } = renderTable();
     fireEvent.click(stepsHeader());

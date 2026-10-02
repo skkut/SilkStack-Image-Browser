@@ -23,6 +23,25 @@ export type TableSortField =
 export type TableSortDirection = 'asc' | 'desc' | null;
 
 /**
+ * The pixel dimensions used by the resolution / megapixel / aspect columns.
+ *
+ * Parses the "WxH" string the indexer writes — ASCII 'x' (fileIndexer builds
+ * `${width}x${height}`), with '×' accepted too since display-built strings use
+ * it. When the string is absent or unusable, falls back to the metadata
+ * width/height fields, so cached records that carry only those still sort.
+ */
+const parseDimensions = (image: IndexedImage): [number, number] => {
+  const meta = image.metadata as any;
+  const [w, h] = String(image.dimensions || meta?.dimensions || '').split(/[×x]/i).map(Number);
+  if (w > 0 && h > 0) {
+    return [w, h];
+  }
+  const width = meta?.width || meta?.normalizedMetadata?.width;
+  const height = meta?.height || meta?.normalizedMetadata?.height;
+  return [width || 0, height || 0];
+};
+
+/**
  * Returns the images ordered by `field`/`direction`, or the input array
  * unchanged when either is null (the "no column sort" state).
  *
@@ -66,33 +85,20 @@ export function applyTableSorting(
         bValue = bCfg;
         break;
       }
-      case 'size': {
-        const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0x0';
-        const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0x0';
-        const [aW, aH] = aDims.split('×').map(Number);
-        const [bW, bH] = bDims.split('×').map(Number);
-        aValue = aW * aH;
-        bValue = bW * bH;
-        break;
-      }
+      case 'size':
       case 'megapixel': {
-        const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0x0';
-        const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0x0';
-        const [aW, aH] = aDims.split('×').map(Number);
-        const [bW, bH] = bDims.split('×').map(Number);
+        // Both compare pixel area.
+        const [aW, aH] = parseDimensions(a);
+        const [bW, bH] = parseDimensions(b);
         aValue = aW * aH;
         bValue = bW * bH;
         break;
       }
       case 'aspect': {
-        const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0×0';
-        const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0×0';
-        const [aW, aH] = aDims.split('×').map(Number);
-        const [bW, bH] = bDims.split('×').map(Number);
-        const aRatio = aW && aH ? aW / aH : 0;
-        const bRatio = bW && bH ? bW / bH : 0;
-        aValue = aRatio;
-        bValue = bRatio;
+        const [aW, aH] = parseDimensions(a);
+        const [bW, bH] = parseDimensions(b);
+        aValue = aW && aH ? aW / aH : 0;
+        bValue = bW && bH ? bW / bH : 0;
         break;
       }
       case 'filesize':

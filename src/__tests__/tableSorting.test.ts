@@ -111,17 +111,40 @@ describe('applyTableSorting', () => {
     expect(sort(list, 'steps', 'desc')).toEqual(['z', 'm', 'a']);
   });
 
-  it('ties when dimensions use an ASCII "x" — documented current behaviour, not a fix', () => {
-    // The comparator splits on '×' (U+00D7). Dimensions stored as '512x512'
-    // therefore parse to NaN, every comparison ties, and the column sort is a
-    // no-op on that data. This is how the table has always behaved; pinning it
-    // here stops a future "fix" from silently changing the list's order.
+  it('parses ASCII "x" dimensions — the separator the indexer actually writes', () => {
+    // Regression: the comparator used to split on '×' (U+00D7) while
+    // fileIndexer writes `${width}x${height}` with ASCII 'x'. Number() then
+    // produced NaN for every row, all comparisons tied, and the Resolution /
+    // MP / Aspect columns silently refused to sort on real libraries.
     const list = [
-      img('small', { dimensions: '100x100' }),
-      img('big', { dimensions: '200x200' }),
+      img('big', { dimensions: '2048x2048' }),
+      img('small', { dimensions: '512x512' }),
+      img('wide', { dimensions: '2048x512' }),
     ];
 
-    expect(sort(list, 'size', 'asc')).toEqual(['small', 'big']);
-    expect(sort(list, 'size', 'desc')).toEqual(['small', 'big']);
+    expect(sort(list, 'megapixel', 'asc')).toEqual(['small', 'wide', 'big']);
+    expect(sort(list, 'size', 'desc')).toEqual(['big', 'wide', 'small']);
+    // Ratio 4.0 first; the two 1.0 squares keep their incoming order (stable).
+    expect(sort(list, 'aspect', 'desc')).toEqual(['wide', 'big', 'small']);
+  });
+
+  it('accepts both separators (and spaces) in one list', () => {
+    const list = [
+      img('unicode', { dimensions: '100×100' }),
+      img('ascii', { dimensions: '300x300' }),
+      img('spaced', { dimensions: '200 x 200' }),
+    ];
+
+    expect(sort(list, 'megapixel', 'asc')).toEqual(['unicode', 'spaced', 'ascii']);
+  });
+
+  it('falls back to metadata width/height when no dimensions string exists', () => {
+    // Older cached records may carry only the raw width/height fields.
+    const list = [
+      img('a', { metadata: { normalizedMetadata: { width: 300, height: 300 } } as any }),
+      img('b', { metadata: { width: 100, height: 100 } as any }),
+    ];
+
+    expect(sort(list, 'megapixel', 'asc')).toEqual(['b', 'a']);
   });
 });
