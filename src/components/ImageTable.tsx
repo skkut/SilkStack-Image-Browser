@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { FixedSizeList as List } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { type IndexedImage } from '../types';
 import { getAspectRatio } from '../utils/imageUtils';
+import { type TableSortField, type TableSortDirection } from '../utils/tableSorting';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
 import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles } from 'lucide-react';
@@ -20,9 +21,6 @@ interface ImageTableProps {
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
 }
-
-type SortField = 'filename' | 'model' | 'steps' | 'cfg' | 'size' | 'megapixel' | 'aspect' | 'seed' | 'filesize';
-type SortDirection = 'asc' | 'desc' | null;
 
 const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
 
@@ -45,9 +43,25 @@ const isVideoFileName = (fileName: string, fileType?: string | null): boolean =>
 
 const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, semanticHitIds }) => {
   const directories = useImageStore((state) => state.directories);
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
-  const [sortedImages, setSortedImages] = useState<IndexedImage[]>(images);
+  // The column sort lives in the store while this table is mounted: the
+  // store re-orders `filteredImages` with it (see setTableSort), so the
+  // viewer window / modal navigates in the order the rows are drawn here.
+  // The table still owns the sort — see the release effect below.
+  const sortField = useImageStore((state) => state.tableSortField);
+  const sortDirection = useImageStore((state) => state.tableSortDirection);
+  const setTableSort = useImageStore((state) => state.setTableSort);
+
+  // Leaving the table (grid, Stacks, Models, stack drill-down) ends the
+  // column sort's authority over the library order, so the store list goes
+  // back to the header's sortOrder. useLayoutEffect, not useEffect: the
+  // cleanup must run in the same commit that unmounts this table so the
+  // replacement view never paints one frame in the stale order. Deps stay
+  // empty and the guard reads the store live — depending on `sortField`
+  // here would fire the cleanup the instant a sort is set.
+  useLayoutEffect(() => () => {
+    const store = useImageStore.getState();
+    if (store.tableSortField) store.setTableSort(null, null);
+  }, []);
 
   const {
     contextMenu,
@@ -73,111 +87,24 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
 
 
 
-  // Function to apply sorting based on current field and direction
-  // Memoized for performance - avoids recreating sort function on every render
-  const applySorting = useCallback((imagesToSort: IndexedImage[], field: SortField | null, direction: SortDirection) => {
-    if (!field || !direction) {
-      return imagesToSort;
-    }
+  const handleSort = (field: TableSortField) => {
+    let newDirection: TableSortDirection = 'asc';
 
-    return [...imagesToSort].sort((a, b) => {
-      let aValue: string | number;
-      let bValue: string | number;
-
-      switch (field) {
-        case 'filename':
-          aValue = a.handle.name.toLowerCase();
-          bValue = b.handle.name.toLowerCase();
-          break;
-        case 'model':
-          aValue = (a.models?.[0] || '').toLowerCase();
-          bValue = (b.models?.[0] || '').toLowerCase();
-          break;
-        case 'steps': {
-          const aSteps = a.steps || (a.metadata as any)?.steps || (a.metadata as any)?.normalizedMetadata?.steps || 0;
-          const bSteps = b.steps || (b.metadata as any)?.steps || (b.metadata as any)?.normalizedMetadata?.steps || 0;
-          aValue = aSteps;
-          bValue = bSteps;
-          break;
-        }
-        case 'cfg': {
-          const aCfg = a.cfgScale || (a.metadata as any)?.cfg_scale || (a.metadata as any)?.cfgScale || (a.metadata as any)?.normalizedMetadata?.cfg_scale || 0;
-          const bCfg = b.cfgScale || (b.metadata as any)?.cfg_scale || (b.metadata as any)?.cfgScale || (b.metadata as any)?.normalizedMetadata?.cfg_scale || 0;
-          aValue = aCfg;
-          bValue = bCfg;
-          break;
-        }
-        case 'size': {
-          const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0x0';
-          const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0x0';
-          const [aW, aH] = aDims.split('×').map(Number);
-          const [bW, bH] = bDims.split('×').map(Number);
-          aValue = aW * aH;
-          bValue = bW * bH;
-          break;
-        }
-        case 'megapixel': {
-          const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0x0';
-          const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0x0';
-          const [aW, aH] = aDims.split('×').map(Number);
-          const [bW, bH] = bDims.split('×').map(Number);
-          aValue = aW * aH;
-          bValue = bW * bH;
-          break;
-        }
-        case 'aspect': {
-          const aDims = a.dimensions || (a.metadata as any)?.dimensions || '0×0';
-          const bDims = b.dimensions || (b.metadata as any)?.dimensions || '0×0';
-          const [aW, aH] = aDims.split('×').map(Number);
-          const [bW, bH] = bDims.split('×').map(Number);
-          const aRatio = aW && aH ? aW / aH : 0;
-          const bRatio = bW && bH ? bW / bH : 0;
-          aValue = aRatio;
-          bValue = bRatio;
-          break;
-        }
-        case 'filesize':
-          aValue = a.fileSize || 0;
-          bValue = b.fileSize || 0;
-          break;
-        case 'seed': {
-          const aSeed = a.seed || (a.metadata as any)?.seed || (a.metadata as any)?.normalizedMetadata?.seed || 0;
-          const bSeed = b.seed || (b.metadata as any)?.seed || (b.metadata as any)?.normalizedMetadata?.seed || 0;
-          aValue = aSeed;
-          bValue = bSeed;
-          break;
-        }
-        default:
-          return 0;
-      }
-
-      if (typeof aValue === 'string' && typeof bValue === 'string') {
-        return direction === 'asc' ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-      } else {
-        return direction === 'asc' ? (aValue as number) - (bValue as number) : (bValue as number) - (aValue as number);
-      }
-    });
-  }, []); // No dependencies - pure function
-
-  const handleSort = (field: SortField) => {
-    let newDirection: SortDirection = 'asc';
-    
     if (sortField === field) {
       if (sortDirection === 'asc') {
         newDirection = 'desc';
       } else if (sortDirection === 'desc') {
-        newDirection = null;
-        setSortField(null);
-        setSortDirection(null);
+        // Third click: clear the column sort — the library falls back to
+        // the header's sortOrder.
+        setTableSort(null, null);
         return;
       }
     }
-    
-    setSortField(field);
-    setSortDirection(newDirection);
+
+    setTableSort(field, newDirection);
   };
 
-  const getSortIcon = (field: SortField) => {
+  const getSortIcon = (field: TableSortField) => {
     if (sortField !== field) {
       return <ArrowUpDown className="w-3 h-3 opacity-40" />;
     }
@@ -186,12 +113,6 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     }
     return <ArrowDown className="w-3 h-3" />;
   };
-
-  // Update sorted images when images prop changes OR when sort settings change
-  useEffect(() => {
-    const sorted = applySorting(images, sortField, sortDirection);
-    setSortedImages(sorted);
-  }, [images, sortField, sortDirection, applySorting]);
 
   // Column resize state
   const DEFAULT_COLUMN_WIDTHS = [96, 280, 220, 110, 110, 100, 80, 70, 100, 160];
@@ -247,9 +168,10 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
   const gridTemplateColumns = columnWidths.map(w => `${w}px`).join(' ');
   const totalWidth = columnWidths.reduce((sum, w) => sum + w, 0);
 
-  // The order the rows are actually drawn in: a column sort reorders them, so
-  // it can differ from the library's filtered order.
-  const displayOrder = useMemo(() => sortedImages.map(image => image.id), [sortedImages]);
+  // The ids of every row this table is showing, in display order. The store
+  // has already applied the column sort to `images` (setTableSort), so this is
+  // the same order the viewer window / modal navigates in.
+  const displayOrder = useMemo(() => images.map(image => image.id), [images]);
   const displayOrderRef = useRef(displayOrder);
   displayOrderRef.current = displayOrder;
   const handleImageClick = useCallback(
@@ -260,7 +182,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
 
   // Row renderer for virtualized list
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    const image = sortedImages[index];
+    const image = images[index];
     return (
       <div style={style}>
         <ImageTableRow
@@ -434,11 +356,11 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               {({ height, width }: { height: number; width: number }) => (
                 <List
                   height={height}
-                  itemCount={sortedImages.length}
+                  itemCount={images.length}
                   itemSize={ROW_HEIGHT}
                   width={width}
                   overscanCount={5}
-                  itemKey={(index) => sortedImages[index]?.id ?? index}
+                  itemKey={(index) => images[index]?.id ?? index}
                 >
                   {Row}
                 </List>

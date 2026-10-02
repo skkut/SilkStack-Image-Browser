@@ -1017,6 +1017,12 @@ describe('TopMenuBar sort-order control', () => {
     onLibraryViewChange: vi.fn(),
   };
 
+  // The list-view cases below flip viewMode; reset it here so every test in
+  // the describe is deterministic no matter what ran before it.
+  beforeEach(() => {
+    useSettingsStore.setState({ viewMode: 'grid' });
+  });
+
   it('sits right after the search bar with the full option set when wired', () => {
     setElectronAPI();
     render(
@@ -1083,5 +1089,37 @@ describe('TopMenuBar sort-order control', () => {
 
     fireEvent.click(screen.getByTitle('Reshuffle Random Order'));
     expect(onReshuffle).toHaveBeenCalled();
+  });
+
+  it('is disabled in the library list view, where the column headers own the order', () => {
+    setElectronAPI();
+    useSettingsStore.setState({ viewMode: 'list' });
+    render(<TopMenuBar {...baseProps} sortOrder="date-desc" onSortOrderChange={vi.fn()} />);
+
+    const select = screen.getByLabelText('Sort:') as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    // The value stays visible and truthful: it is the order the list falls
+    // back to on the third header click, and to in grid / Stacks / Models.
+    expect(select.value).toBe('date-desc');
+    // Disabled controls don't reliably get hover events, so the explanation
+    // lives on the wrapper — assert it there.
+    expect(screen.getByTitle('List view sorts from the column headers')).toBeDefined();
+  });
+
+  it('stays enabled for Stacks and Models even while viewMode is list', () => {
+    setElectronAPI();
+    useSettingsStore.setState({ viewMode: 'list' });
+
+    // Those views have no ImageTable whatever viewMode says, so disabling
+    // the header box there would leave them with no sort control at all.
+    const { rerender } = render(
+      <TopMenuBar {...baseProps} activeView="smart" sortOrder="stack-desc" onSortOrderChange={vi.fn()} />,
+    );
+    expect((screen.getByLabelText('Sort:') as HTMLSelectElement).disabled).toBe(false);
+
+    rerender(
+      <TopMenuBar {...baseProps} activeView="model" sortOrder="date-desc" onSortOrderChange={vi.fn()} />,
+    );
+    expect((screen.getByLabelText('Sort:') as HTMLSelectElement).disabled).toBe(false);
   });
 });

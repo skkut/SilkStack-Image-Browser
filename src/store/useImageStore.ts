@@ -12,6 +12,7 @@ import {
 
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
+import { applyTableSorting, type TableSortField, type TableSortDirection } from '../utils/tableSorting';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
@@ -834,6 +835,15 @@ interface ImageState {
   sortOrder: SortOrder;
   randomSeed: number;
   advancedFilters: any;
+  /**
+   * The list view's column sort, session-only and owned by ImageTable while
+   * it is mounted (the table clears it on unmount). While set,
+   * `filterAndSort` re-sorts `filteredImages` with it, so the viewer window
+   * and the in-app modal navigate in the order the rows are drawn in.
+   * null/null means "no column sort — use `sortOrder`". Never persisted.
+   */
+  tableSortField: TableSortField | null;
+  tableSortDirection: TableSortDirection;
 
   // Annotations State
   annotations: Map<string, ImageAnnotations>;
@@ -951,6 +961,12 @@ interface ImageState {
   setFilterOptions: (options: { models: string[]; loras: string[]; schedulers: string[]; dimensions: string[] }) => void;
   setSelectedFilters: (filters: { models?: string[]; loras?: string[]; schedulers?: string[] }) => void;
   setSortOrder: (order: SortOrder) => void;
+  /**
+   * The list view's column sort. Called by ImageTable on a column click
+   * (asc → desc → clear) and with `(null, null)` when the table unmounts,
+   * which hands the library back to the header's `sortOrder`.
+   */
+  setTableSort: (field: TableSortField | null, direction: TableSortDirection) => void;
   reshuffle: () => void;
   setAdvancedFilters: (filters: any) => void;
   filterAndSortImages: () => void;
@@ -1960,6 +1976,17 @@ export const useImageStore = create<ImageState>((set, get) => {
             }
         }
 
+        // List view's column sort (ImageTable owns it while mounted): the
+        // library's own order IS the column order there, so the viewer
+        // window / modal walks the same sequence the rows are drawn in.
+        // Applied last — an explicitly clicked column outranks the header
+        // sort, including 'relevance' — and stable, so ties keep the
+        // header-sort order (favorites-first, dates, …) exactly as the
+        // table drew them.
+        if (state.tableSortField && state.tableSortDirection) {
+            filteredImages = applyTableSorting(filteredImages, state.tableSortField, state.tableSortDirection);
+        }
+
         return {
             filteredImages,
             selectionTotalImages: totalInScope,
@@ -2040,6 +2067,8 @@ export const useImageStore = create<ImageState>((set, get) => {
         sortOrder: 'date-desc',
         randomSeed: Date.now(),
         advancedFilters: {},
+        tableSortField: null,
+        tableSortDirection: null,
         scanSubfolders: localStorage.getItem('image-metahub-scan-subfolders') !== 'false', // Default to true
         libraryStackContext: null,
         activeView: 'library',
@@ -2790,7 +2819,16 @@ export const useImageStore = create<ImageState>((set, get) => {
           // its option list doesn't contain.
           if (!isEphemeralSort(order)) useSettingsStore.getState().setSortOrder(order);
         },
-        
+
+        setTableSort: (field, direction) => set(state => ({
+            // The new field/direction must be merged BEFORE filterAndSort
+            // runs, or the returned list would be ordered by the previous
+            // column for one update.
+            ...filterAndSort({ ...state, tableSortField: field, tableSortDirection: direction }),
+            tableSortField: field,
+            tableSortDirection: direction,
+        })),
+
         reshuffle: () => set(state => {
             const newSeed = Date.now();
             return {
@@ -4214,6 +4252,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             scanSubfolders: true,
             libraryStackContext: null,
             sortOrder: useSettingsStore.getState().sortOrder || 'date-desc',
+            // resetState does not run filterAndSort, so the table's column
+            // sort must be cleared here explicitly or it would survive a
+            // cache reset and re-apply to the reloaded images.
+            tableSortField: null,
+            tableSortDirection: null,
             isFullscreenMode: false,
             undoAvailable: false,
             annotations: new Map(),

@@ -61,6 +61,13 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
     const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
 
+    // The library's list view sorts from its column headers (ImageTable owns
+    // that order), so the header sort box is disabled while it is on screen.
+    // Only the library view has a list mode — SmartLibrary/ModelView render
+    // their own layouts whatever viewMode says, and keep the header control.
+    const viewMode = useSettingsStore((state) => state.viewMode);
+    const sortDisabled = activeView === 'library' && viewMode === 'list';
+
     // Master AI-features toggle: when off, no model may load into VRAM.
     // The button is premium-only chrome (license-gated below); the raw pref
     // stays independent and persisted so it keeps the user's last choice
@@ -179,13 +186,26 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     when App wires the handlers (kept optional for tests). */}
                 {activeView && onSortOrderChange && (
                     <div className="flex items-center gap-1.5 h-full shrink-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
-                        <label htmlFor="topbar-sort" className="text-xs text-gray-400 whitespace-nowrap">Sort:</label>
-                        <div className="relative">
+                        <label
+                            htmlFor="topbar-sort"
+                            className={`text-xs text-gray-400 whitespace-nowrap ${sortDisabled ? 'opacity-50' : ''}`}
+                        >Sort:</label>
+                        {/* The tooltip sits on the wrapper: a disabled control
+                            doesn't reliably receive the hover it needs. */}
+                        <div
+                            className="relative"
+                            title={sortDisabled ? 'List view sorts from the column headers' : undefined}
+                        >
                             <select
                                 id="topbar-sort"
                                 value={sortOrder}
                                 onChange={(e) => onSortOrderChange(e.target.value)}
-                                className="h-8 appearance-none bg-gray-800/50 text-gray-200 text-sm border border-gray-700/50 rounded-full pl-3 pr-8 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 cursor-pointer hover:bg-gray-800/70 transition-all duration-300"
+                                disabled={sortDisabled}
+                                className={`h-8 appearance-none bg-gray-800/50 text-gray-200 text-sm border border-gray-700/50 rounded-full pl-3 pr-8 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all duration-300 ${
+                                    sortDisabled
+                                        ? 'opacity-50 cursor-not-allowed'
+                                        : 'cursor-pointer hover:bg-gray-800/70'
+                                }`}
                             >
                                 {semanticActive && <option value="relevance">Relevance</option>}
                                 <option value="date-desc">Newest First</option>

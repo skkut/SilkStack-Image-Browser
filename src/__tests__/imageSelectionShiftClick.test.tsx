@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 vi.hoisted(() => {
   global.localStorage = {
@@ -287,5 +287,46 @@ describe('image grid Shift+click selection', () => {
       expect(selectedIds()).toEqual(['img0', 'img4']);
       expect((window as any).electronAPI.openImageViewer).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ── The viewer inherits the list view's column sort ─────────────────────
+// Requirement under test: with a column sort active in list view, opening an
+// image must make the viewer navigate in the table's order. The Electron
+// viewer is a separate window fed an image-list snapshot here, so the only
+// place this can be verified is the openImageViewer payload — and until this
+// test existed, nothing asserted that payload at all.
+
+describe('viewer payload follows the active column sort', () => {
+  // Every asserted value differs from the store's insertion order, so the
+  // test can only pass if the payload was actually reordered.
+  const withSteps = (id: string, steps: number): IndexedImage =>
+    ({ ...makeImage(id), steps, directoryId: 'dir1' } as unknown as IndexedImage);
+
+  afterEach(() => {
+    useImageStore.setState({ tableSortField: null, tableSortDirection: null });
+  });
+
+  it('hands openImageViewer the column-ordered list and the clicked index in it', () => {
+    const images = [withSteps('imgA', 30), withSteps('imgB', 10), withSteps('imgC', 20)];
+    seed(images);
+    // filterAndSort drops images whose directory is unknown, so register one
+    // and put the images in it (see the seeded directoryId above).
+    useImageStore.setState({
+      directories: [{ id: 'dir1', path: 'C:/test' }] as any,
+      scanSubfolders: false,
+    });
+
+    useImageStore.getState().setTableSort('steps', 'asc');
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgB', 'imgC', 'imgA']);
+
+    render(<Harness images={images} />);
+    fireEvent.click(cardOf('imgA'));
+
+    const payload = (window as any).electronAPI.openImageViewer.mock.calls[0][0];
+    expect(payload.imageId).toBe('imgA');
+    expect(payload.imageList.map((i: IndexedImage) => i.id)).toEqual(['imgB', 'imgC', 'imgA']);
+    expect(payload.currentIndex).toBe(2); // imgA's position in the column order
+    expect(payload.totalImages).toBe(3);
   });
 });

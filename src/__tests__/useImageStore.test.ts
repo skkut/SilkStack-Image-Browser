@@ -1706,3 +1706,98 @@ describe('useImageStore ephemeral sort orders', () => {
     expect(useImageStore.getState().sortOrder).toBe('random');
   });
 });
+
+// ── List-view column sort (setTableSort) ───────────────────────────────
+// ImageTable owns this while mounted: `filteredImages` must carry the column
+// order so the Electron viewer snapshot and the in-app modal — both of which
+// walk `filteredImages` — navigate in the order the rows are drawn in.
+// Distinct lastModified values make the header order deterministic
+// (date-desc → c, b, a) so "the column sort is what reordered this" is
+// actually observable.
+
+describe('useImageStore list-view column sort', () => {
+  const ids = () => useImageStore.getState().filteredImages.map((image) => image.id);
+
+  const seed = () => {
+    const list = [
+      createImage({ id: 'a', steps: 30, lastModified: 1000, directoryId: 'dir1' }),
+      createImage({ id: 'b', steps: 10, lastModified: 2000, directoryId: 'dir1' }),
+      createImage({ id: 'c', steps: 20, lastModified: 3000, directoryId: 'dir1' }),
+    ];
+    useImageStore.setState({
+      images: list,
+      filteredImages: list,
+      sortOrder: 'date-desc',
+      // filterAndSort drops images whose directory is unknown/invisible, so
+      // the seed has to register one or the derived list comes back empty.
+      directories: [{ id: 'dir1', path: 'C:/test' }] as any,
+      scanSubfolders: false,
+    });
+  };
+
+  afterEach(() => {
+    useImageStore.setState({ tableSortField: null, tableSortDirection: null });
+  });
+
+  it('re-sorts filteredImages by the clicked column while set', () => {
+    seed();
+
+    useImageStore.getState().setTableSort('steps', 'asc');
+
+    expect(ids()).toEqual(['b', 'c', 'a']);
+    expect(useImageStore.getState().tableSortField).toBe('steps');
+    expect(useImageStore.getState().tableSortDirection).toBe('asc');
+  });
+
+  it('restores the header-sort order when the column sort clears', () => {
+    seed();
+    useImageStore.getState().setTableSort('steps', 'desc');
+    expect(ids()).toEqual(['a', 'c', 'b']);
+
+    useImageStore.getState().setTableSort(null, null);
+
+    // Back to date-desc, not back to the raw `images` array order.
+    expect(ids()).toEqual(['c', 'b', 'a']);
+  });
+
+  it('outranks a later header-sort change (it is applied last in filterAndSort)', () => {
+    seed();
+    useImageStore.getState().setTableSort('steps', 'asc');
+
+    // A-Z by name — every seeded image is called 'name', so this changes
+    // nothing on its own and must not dislodge the active column sort.
+    useImageStore.getState().setSortOrder('asc');
+
+    expect(ids()).toEqual(['b', 'c', 'a']);
+  });
+
+  it('keeps ties in the header-sort order (stable re-sort)', () => {
+    const list = [
+      createImage({ id: 'a', lastModified: 1000, directoryId: 'dir1' }),
+      createImage({ id: 'b', lastModified: 2000, directoryId: 'dir1' }),
+      createImage({ id: 'c', lastModified: 3000, directoryId: 'dir1' }),
+    ];
+    useImageStore.setState({
+      images: list,
+      filteredImages: list,
+      sortOrder: 'date-desc',
+      directories: [{ id: 'dir1', path: 'C:/test' }] as any,
+      scanSubfolders: false,
+    });
+
+    // No image has steps → every key ties → the list must stay c, b, a.
+    useImageStore.getState().setTableSort('steps', 'asc');
+
+    expect(ids()).toEqual(['c', 'b', 'a']);
+  });
+
+  it('is cleared by resetState (which does not run filterAndSort)', () => {
+    seed();
+    useImageStore.getState().setTableSort('steps', 'asc');
+
+    useImageStore.getState().resetState();
+
+    expect(useImageStore.getState().tableSortField).toBeNull();
+    expect(useImageStore.getState().tableSortDirection).toBeNull();
+  });
+});
