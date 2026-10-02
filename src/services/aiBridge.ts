@@ -189,8 +189,14 @@ export interface ISemanticSearchEngine {
 
 // ── Mirrored constants (always available, even without ai-intelligence) ──
 
-/** Model used for LLM-based tag extraction. */
-export const TAG_GENERATION_MODEL_ID = 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC';
+/**
+ * Model used for LLM-based tag extraction.
+ *
+ * Mirrors ai-intelligence's TAG_MODEL_OPTIONS[0] (the catalog default,
+ * switched from Hermes 3 3B to Qwen3 1.7B on 2026-10-02) — keep the two in
+ * step, the module resolves '' to its own options[0].
+ */
+export const TAG_GENERATION_MODEL_ID = 'Qwen3-1.7B-q4f16_1-MLC';
 
 /** Model used for prompt embedding generation. */
 export const EMBEDDING_MODEL_ID = 'snowflake-arctic-embed-m-q0f32-MLC-b4';

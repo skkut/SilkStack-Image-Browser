@@ -102,6 +102,10 @@ const ModelResidencyPill: React.FC<{
 function shortModelName(modelId: string): string {
   const qwen = /^Qwen3-Embedding-(\d+B)/.exec(modelId);
   if (qwen) return `Qwen3-${qwen[1]}`;
+  // Chat Qwen3 records (the auto-tag catalog) — the size must survive, e.g.
+  // the default 'Qwen3-1.7B-q4f16_1-MLC' → 'Qwen3 1.7B' (the catalog's own label).
+  const qwenChat = /^Qwen3-([\d.]+B)-q4f16_1/.exec(modelId);
+  if (qwenChat) return `Qwen3 ${qwenChat[1]}`;
   if (modelId.startsWith('Hermes-3-Llama-3.2-3B')) return 'Hermes-3 3B';
   if (modelId.startsWith('snowflake-arctic-embed')) return 'Arctic Embed';
   const first = modelId.split('-')[0];
