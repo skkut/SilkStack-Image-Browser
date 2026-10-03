@@ -6134,9 +6134,12 @@ useSettingsStore.subscribe((state) => {
 // Sync semantic search from settings changes (e.g. rehydration on app
 // restart). The effective gate is the user pref AND premium (license ∧
 // module), and either side can flip independently — react to both so the
-// feature clears when disabled AND kicks off Δ-indexing the moment it
-// becomes usable (the post-indexing pipeline may have already run without
-// the premium phases).
+// feature clears when disabled AND kicks the post-indexing pipeline the
+// moment it becomes usable. The kick is the PIPELINE, not the bare index:
+// the pipeline may already have run without the premium phases (startup
+// beats an async license check), and its phase order puts auto-tagging
+// first, while its stamps skip whatever an earlier licensed session
+// already processed.
 let prevSemanticSearchEnabled: boolean | undefined = undefined;
 let prevSemanticSearchUsable: boolean | undefined = undefined;
 useSettingsStore.subscribe((state) => {
@@ -6154,13 +6157,20 @@ useSettingsStore.subscribe((state) => {
     if (usable !== prevSemanticSearchUsable) {
         prevSemanticSearchUsable = usable;
         if (usable) {
-            if (useSettingsStore.getState().isSemanticSearchEnabled) {
-                // License/module arrived while the pref was on — run the
-                // PIPELINE, not the bare semantic index: auto-tagging has
-                // been gated off until now, so those images have no
-                // autoTags/synonyms yet and the semantic pass would embed
-                // them from their weaker prompt+tags text (and re-embed them
-                // again afterwards, once the tag writer clears the stamp).
+            // License/module arrived — the AI phases just became possible, so
+            // kick the post-indexing PIPELINE (the owner of the phase order),
+            // not the bare semantic index. Auto-tagging had been gated off
+            // until now, so those images have no autoTags/synonyms yet and a
+            // direct semantic pass would embed them from their weaker
+            // prompt+tags text, then re-embed them once the tag writer
+            // cleared the stamp. No semantic-pref check: with semantic search
+            // off the round still auto-tags and stops before any coordinator
+            // is created. Gated on the master toggle so a license landing
+            // while the user has AI switched off does no work — their flip
+            // back on runs the same round. Already-processed images are
+            // skipped by their enrichment/semantic stamps, so re-activating a
+            // license over an existing library is cheap.
+            if (isAiModelFeaturesEnabled()) {
                 useImageStore.getState().processPostIndexingPipeline();
             }
         } else {

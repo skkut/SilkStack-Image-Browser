@@ -877,3 +877,74 @@ describe('clearDerivedImageData — queue guards (Reprocess Images)', () => {
     expect(semanticSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('license arrival — kicks the AI pipeline in order', () => {
+  // A license activation reaches the store subscription as a settings write
+  // (setLicenseState writes to useSettingsStore, which is what the AI
+  // subscription listens to). Premium flipping false → true across two
+  // writes is that transition.
+  const licenseArrives = () => {
+    featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(false);
+    useSettingsStore.getState().setSortOrder('asc');
+    featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(true);
+    useSettingsStore.getState().setSortOrder('desc');
+  };
+
+  it('starts auto-tagging even with semantic search switched off', async () => {
+    // The master toggle is the user's switch on the wall; they never turned
+    // semantic search on. Activation must still start the enrichment pass —
+    // the bare semantic index this path used to call is a no-op for them.
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+    });
+
+    featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(false);
+    useSettingsStore.setState({ isSemanticSearchEnabled: false });
+
+    licenseArrives();
+
+    // Lexical branch: the enrichment phase opens; semantic stays out.
+    await vi.waitFor(() => { expect(FakeTaggingWorker.lastInstance).toBeTruthy(); });
+    expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+
+    completeRun(FakeTaggingWorker.lastInstance!, { imgA: [{ tag: 'fox', sourceType: 'prompt' }] });
+    await processingQueue.waitForIdle();
+    expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+    expect(useImageStore.getState().annotations.get('imgA')?.autoTags).toContain('fox');
+
+    // Restore: pref back on while the gate mock is still closed (the restore
+    // is inert), then reopen the gate for any later file order.
+    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+    await processingQueue.waitForIdle();
+    featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(true);
+  });
+
+  it('re-activating a license over an already-processed library re-runs nothing', async () => {
+    // Premium existed before: the image is enriched and semantic-indexed.
+    // The stamps must skip it on the way back in — no model load, no embed.
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    const processed: ImageAnnotations = {
+      ...enrichedAnnotation('imgA'),
+      stackGroupId: 'hash-a red fox',
+      isStackAnalyzed: true,
+      similarityGroupId: 'sim-imgA',
+      isSimilarityAnalyzed: true,
+      isSemanticIndexed: true,
+    };
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['imgA', processed]]),
+    });
+
+    licenseArrives();
+    await processingQueue.waitForIdle();
+
+    expect(FakeTaggingWorker.lastInstance).toBeNull();
+    expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+  });
+});

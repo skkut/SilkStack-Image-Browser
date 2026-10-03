@@ -453,9 +453,14 @@ describe('SettingsModal semantic section (Phase 6)', () => {
     fireEvent.click(toggle);
 
     expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(true);
-    await flush(); // settings subscription → semanticIndexImages() → coordinator
-    expect(useImageStore.getState().semanticIndexedCount).toBe(42);
-    expect(screen.getByText('42 images indexed')).toBeDefined();
+    // Two kicks are now in flight behind the click: the license stamp flips
+    // premium on (the activation path — a pipeline round: auto-tag, then the
+    // semantic phase) and the pref flip queues its own Δ-index behind it in
+    // the FIFO queue. Wait for the chain rather than counting microtasks.
+    await vi.waitFor(() => {
+      expect(useImageStore.getState().semanticIndexedCount).toBe(42);
+    });
+    expect(await screen.findByText('42 images indexed')).toBeDefined();
   });
 
   it('Re-index calls semanticIndexImages({ force: true }) and is disabled while a run is active', async () => {
