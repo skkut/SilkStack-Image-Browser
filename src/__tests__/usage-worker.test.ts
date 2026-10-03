@@ -78,6 +78,18 @@ describe('usage worker', () => {
     expect(point.blobs).toEqual(['DE', '2.3.0', 'win32', 'pro']);
   });
 
+  it('accepts the trial plan alongside free and pro', async () => {
+    const res = await worker.fetch(
+      makeRequest({ ...validBody, plan: 'trial' }),
+      env,
+    );
+
+    expect(res.status).toBe(204);
+    expect(
+      (writeDataPoint.mock.calls[0][0] as DataPoint).blobs[3],
+    ).toBe('trial');
+  });
+
   it('derives the country from the edge and defaults to XX when absent', async () => {
     await worker.fetch(makeRequest(validBody, { country: 'BR' }), env);
     await worker.fetch(makeRequest(validBody), env);

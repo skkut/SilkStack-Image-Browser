@@ -6,7 +6,7 @@ server side of the feature is this folder; the whole client side is
 
 One POST per active install per day, from the **packaged app only** (dev runs
 send nothing). The question it answers: *how many installs are active, and in
-which countries* — split by free/pro.
+which countries* — split by free / trial / pro.
 
 ## What arrives, what is stored
 
@@ -15,7 +15,7 @@ which countries* — split by free/pro.
 | `id`   | random install ID (UUID v4), generated locally on first run           |
 | `v`    | app version                                                             |
 | `os`   | `win32` / `darwin` / `linux`                                            |
-| `plan` | `free` or `pro` — whether a premium license is active                   |
+| `plan` | `free`, `pro` or `trial` — `trial` while a membership's free week is still running |
 
 Each request becomes one Analytics Engine data point:
 
@@ -103,10 +103,16 @@ SELECT blob1 AS country, count(DISTINCT index1) AS installs
   FROM silkstack_usage
  GROUP BY country ORDER BY installs DESC;
 
--- Free vs pro
+-- Free vs trial vs pro
 SELECT blob4 AS plan, count(DISTINCT index1) AS installs
   FROM silkstack_usage
  GROUP BY plan;
+
+-- Installs seen in their free trial, last 30 days. (For conversion, count
+-- installs whose plan changed trial → pro — group by index1 over the window.)
+SELECT count(DISTINCT index1) AS trial_installs
+  FROM silkstack_usage
+ WHERE blob4 = 'trial' AND timestamp > NOW() - INTERVAL '30' DAY;
 
 -- Version adoption
 SELECT blob2 AS version, count(DISTINCT index1) AS installs

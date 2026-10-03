@@ -971,6 +971,10 @@ app.whenReady().then(async () => {
             appVersion: app.getVersion(),
             platform: process.platform,
             licenseStatus: settings?.licenseStatus,
+            // Both are read purely to separate a running free trial from a
+            // paying subscription (see mapPlan); neither leaves the machine.
+            licenseProduct: settings?.licenseProduct,
+            trialEndsAt: settings?.trialEndsAt,
           }),
         )
         .catch(() => {});

@@ -18,6 +18,7 @@ import {
 } from '../../electron/usagePing.mjs';
 
 const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
 const NOW = 1_700_000_000_000;
 
 describe('usagePing', () => {
@@ -44,12 +45,22 @@ describe('usagePing', () => {
   const readState = async () =>
     JSON.parse(await fs.readFile(path.join(dir, STATE_FILE_NAME), 'utf-8'));
 
-  const sendWith = (fetchImpl: unknown, now = NOW, licenseStatus = 'valid') =>
+  const sendWith = (
+    fetchImpl: unknown,
+    now = NOW,
+    license: {
+      status?: string;
+      product?: string | null;
+      trialEndsAt?: number | null;
+    } = {},
+  ) =>
     maybeSendUsagePing({
       userDataPath: dir,
       appVersion: '2.3.0',
       platform: 'win32',
-      licenseStatus,
+      licenseStatus: license.status ?? 'valid',
+      licenseProduct: license.product,
+      trialEndsAt: license.trialEndsAt ?? null,
       fetchImpl: fetchImpl as typeof fetch,
       now,
     });
@@ -78,6 +89,25 @@ describe('usagePing', () => {
     const state = await readState();
     expect(state.anonymousId).toBe(body.id);
     expect(state.lastPing).toBe(NOW);
+  });
+
+  it('reports a subscription inside its free trial as "trial", then "pro" once it converts', async () => {
+    const trial = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    await expect(
+      sendWith(trial, NOW, { product: 'subscription', trialEndsAt: NOW + 3 * DAY }),
+    ).resolves.toBe(true);
+    expect(JSON.parse(trial.mock.calls[0][1].body).plan).toBe('trial');
+
+    // Same key, same product — the trial end has passed and the charge went
+    // through, so the next day's ping must read as a paying customer.
+    const converted = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    await expect(
+      sendWith(converted, NOW + PING_INTERVAL_MS, {
+        product: 'subscription',
+        trialEndsAt: NOW + DAY,
+      }),
+    ).resolves.toBe(true);
+    expect(JSON.parse(converted.mock.calls[0][1].body).plan).toBe('pro');
   });
 
   it('throttles to one ping per 24h and sends again after the interval', async () => {
@@ -161,12 +191,37 @@ describe('usagePing', () => {
     ).resolves.toBe(false);
   });
 
-  it('maps license states to free/pro', () => {
-    expect(mapPlan('valid')).toBe('pro');
-    expect(mapPlan('offline-valid')).toBe('pro');
+  it('maps license states to free/pro/trial', () => {
+    // Premium with no trial data at all — lifetime keys, and settings.json
+    // written before licenseProduct / trialEndsAt existed.
+    expect(mapPlan({ licenseStatus: 'valid', now: NOW })).toBe('pro');
+    expect(mapPlan({ licenseStatus: 'offline-valid', now: NOW })).toBe('pro');
 
-    for (const status of ['unchecked', 'invalid', 'expired', 'revoked', undefined]) {
-      expect(mapPlan(status)).toBe('free');
+    const trial = { licenseProduct: 'subscription', trialEndsAt: NOW + 3 * DAY, now: NOW };
+    expect(mapPlan({ licenseStatus: 'valid', ...trial })).toBe('trial');
+    // An offline launch mid-trial is still a trial — the label logic agrees.
+    expect(mapPlan({ licenseStatus: 'offline-valid', ...trial })).toBe('trial');
+
+    // Trial over (or exactly at its end): a paying subscriber, not a trial.
+    expect(
+      mapPlan({ licenseStatus: 'valid', licenseProduct: 'subscription', trialEndsAt: NOW - DAY, now: NOW }),
+    ).toBe('pro');
+    expect(
+      mapPlan({ licenseStatus: 'valid', licenseProduct: 'subscription', trialEndsAt: NOW, now: NOW }),
+    ).toBe('pro');
+
+    // Only the subscription product can trial: a lifetime key carrying a
+    // stray trial end (or the pre-field null) must never be reported as one.
+    expect(
+      mapPlan({ licenseStatus: 'valid', licenseProduct: 'lifetime', trialEndsAt: NOW + DAY, now: NOW }),
+    ).toBe('pro');
+    expect(
+      mapPlan({ licenseStatus: 'valid', licenseProduct: null, trialEndsAt: NOW + DAY, now: NOW }),
+    ).toBe('pro');
+
+    // Non-premium states are free even with a future trial end on disk.
+    for (const status of ['unchecked', 'verifying', 'invalid', 'expired', 'revoked', undefined]) {
+      expect(mapPlan({ licenseStatus: status, ...trial })).toBe('free');
     }
   });
 });

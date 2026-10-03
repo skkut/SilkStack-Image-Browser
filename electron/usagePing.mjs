@@ -3,9 +3,10 @@
  *
  * Once per 24h the packaged app POSTs a small JSON body to the SilkStack usage
  * endpoint: a random install ID (created on first run, persisted in
- * `<userData>/usage.json`), the app version, the OS, and whether a premium
- * license is active. The country is derived by the server from the connection
- * and the IP is discarded — see README → "License, privacy & offline use".
+ * `<userData>/usage.json`), the app version, the OS, and the plan — free, pro,
+ * or a subscription whose free trial is still running. The country is derived
+ * by the server from the connection and the IP is discarded — see README →
+ * "License, privacy & offline use".
  *
  * What it never sends: the license key, the license e-mail, folder or file
  * names, image counts, prompts, tags, search queries — anything from the
@@ -27,18 +28,46 @@ export const REQUEST_TIMEOUT_MS = 5000;
 export const STATE_FILE_NAME = 'usage.json';
 
 /**
- * Maps the app's license state to the two values the endpoint accepts.
+ * Collapses the app's license state into the three plan values the endpoint
+ * accepts: `trial` while a subscription's free trial is still running, `pro`
+ * for any other premium state, `free` otherwise.
+ *
  * `offline-valid` counts as pro: the license is trusted locally while the
  * machine is offline, and reporting it as free would make a paying user look
  * like a churned one for as long as the network is down.
  *
- * @param {string} [licenseStatus]
- * @returns {'free' | 'pro'}
+ * The trial test mirrors `deriveLicenseLabel` in the closed-source module
+ * (premium status AND the subscription product AND a trial end still in the
+ * future) — the stored status alone cannot separate trial / active /
+ * cancelled, since all three are `valid`. Mirroring the rule keeps the
+ * dashboard's `trial` bucket and the "Trial — N days left" label in Settings
+ * from ever disagreeing about the same install.
+ *
+ * @typedef {object} PlanInput
+ * @property {string} [licenseStatus]      Raw stored status.
+ * @property {string} [licenseProduct]     `subscription` is the only product with a trial;
+ *                                         `lifetime` / null / missing mean no trial.
+ * @property {number | null} [trialEndsAt] End of a subscription's free trial (ms since epoch).
+ * @property {number} [now]                Injectable clock (ms since epoch).
  */
-export function mapPlan(licenseStatus) {
-  return licenseStatus === 'valid' || licenseStatus === 'offline-valid'
-    ? 'pro'
-    : 'free';
+
+/**
+ * @param {PlanInput} [input]
+ * @returns {'free' | 'pro' | 'trial'}
+ */
+export function mapPlan({ licenseStatus, licenseProduct, trialEndsAt, now = Date.now() } = {}) {
+  if (licenseStatus !== 'valid' && licenseStatus !== 'offline-valid') {
+    return 'free';
+  }
+
+  // A trial end exactly at `now` is already over — same boundary as
+  // `daysUntil` in the label logic (`ms <= 0` is not a trial).
+  const trialRunning =
+    licenseProduct === 'subscription' &&
+    typeof trialEndsAt === 'number' &&
+    trialEndsAt > now;
+
+  return trialRunning ? 'trial' : 'pro';
 }
 
 async function readState(statePath) {
@@ -70,7 +99,9 @@ async function writeState(statePath, state) {
  * @property {string} [userDataPath]    Electron's `app.getPath('userData')`.
  * @property {string} [appVersion]      Electron's `app.getVersion()`.
  * @property {string} [platform]        `process.platform`.
- * @property {string} [licenseStatus]   Raw license state; `mapPlan` collapses it to free/pro.
+ * @property {string} [licenseStatus]   Raw license state; `mapPlan` collapses it to free/pro/trial.
+ * @property {string} [licenseProduct]  Stored product kind; a trial exists only for 'subscription'.
+ * @property {number | null} [trialEndsAt] End of a subscription's free trial (ms since epoch).
  * @property {typeof fetch} [fetchImpl] Injectable for tests; defaults to global fetch.
  * @property {number} [now]             Injectable clock (ms since epoch).
  * @property {number} [timeoutMs]       Abort timeout for the request.
@@ -89,6 +120,8 @@ export async function maybeSendUsagePing({
   appVersion,
   platform,
   licenseStatus,
+  licenseProduct,
+  trialEndsAt,
   fetchImpl = globalThis.fetch,
   now = Date.now(),
   timeoutMs = REQUEST_TIMEOUT_MS,
@@ -120,7 +153,7 @@ export async function maybeSendUsagePing({
         id: state.anonymousId,
         v: appVersion ?? 'unknown',
         os: platform ?? 'unknown',
-        plan: mapPlan(licenseStatus),
+        plan: mapPlan({ licenseStatus, licenseProduct, trialEndsAt, now }),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -10,7 +10,8 @@
  *            from the connection; the IP is never read, logged or stored)
  *   blob2    app version
  *   blob3    os
- *   blob4    plan: "free" | "pro"
+ *   blob4    plan: "free" | "pro" | "trial" (a subscription inside its free
+ *            week — kept separate so trials don't read as paying users)
  *
  * The app never sends — and this Worker never stores — the license key, the
  * license e-mail, file or folder names, image counts, prompts, tags or search
@@ -19,7 +20,7 @@
  * Deploy steps and the dashboard queries live in ../README.md.
  */
 
-const PLANS = new Set(['free', 'pro']);
+const PLANS = new Set(['free', 'pro', 'trial']);
 const MAX_ID_LENGTH = 64;
 const MAX_FIELD_LENGTH = 32;
 const MAX_BODY_BYTES = 1024;
