@@ -6155,8 +6155,13 @@ useSettingsStore.subscribe((state) => {
         prevSemanticSearchUsable = usable;
         if (usable) {
             if (useSettingsStore.getState().isSemanticSearchEnabled) {
-                // License/module arrived while the pref was on — index now.
-                useImageStore.getState().semanticIndexImages();
+                // License/module arrived while the pref was on — run the
+                // PIPELINE, not the bare semantic index: auto-tagging has
+                // been gated off until now, so those images have no
+                // autoTags/synonyms yet and the semantic pass would embed
+                // them from their weaker prompt+tags text (and re-embed them
+                // again afterwards, once the tag writer clears the stamp).
+                useImageStore.getState().processPostIndexingPipeline();
             }
         } else {
             // Premium lost (revoked license, missing module) — drop hits.
@@ -6168,21 +6173,26 @@ useSettingsStore.subscribe((state) => {
 // Master AI-features toggle — one switch can kill ALL model loading.
 // Flip OFF: cancel in-flight runs (auto-tag, semantic index), terminate
 // workers and unload resident models (freeing VRAM), and drop any
-// on-screen semantic hits. Flip ON: resume Δ semantic indexing when the
-// semantic-search pref is on (idempotent — textHash Δ; otherwise the
-// master-aware gate in runSemanticIndexNow makes it a safe no-op).
+// on-screen semantic hits. Flip ON: run the post-indexing PIPELINE — the
+// same entry point startup and the file watcher use — rather than the bare
+// semantic index. The pipeline is the owner of the AI phase order:
+// auto-tagging completes BEFORE the semantic pass, so the index text
+// includes the fresh autoTags (weight 0.9) and synonym vocabulary (0.8)
+// from the first embed instead of reading an enrichment-less text and
+// being re-embedded once the tag writer clears the stamp. Every phase is
+// idempotent (stamp/textHash Δ gates), so an already-processed library
+// costs one cheap round; with the semantic pref off the pipeline's lexical
+// branch stops after auto-tagging (runSemanticIndexNow's master-aware gate
+// returns before any coordinator is created).
 // The latch is pre-initialized to the current pref so the FIRST settings
-// write is a no-op: with the pref already on at startup, firing
-// semanticIndexImages would create the coordinator (and load the embed
-// model via ensureInitialized) even when the semantic-search pref is off —
-// runSemanticIndexNow's empty-payload early-return sits AFTER the
-// coordinator is created. Only real flips may act.
+// write is a no-op: with the pref already on at startup, firing the
+// pipeline would run AI phases at rehydrate time. Only real flips may act.
 let prevAiFeaturesMaster: boolean | undefined = useSettingsStore.getState().aiFeaturesEnabled;
 useSettingsStore.subscribe((state) => {
     if (typeof state.aiFeaturesEnabled === 'boolean' && state.aiFeaturesEnabled !== prevAiFeaturesMaster) {
         prevAiFeaturesMaster = state.aiFeaturesEnabled;
         if (state.aiFeaturesEnabled) {
-            useImageStore.getState().semanticIndexImages();
+            useImageStore.getState().processPostIndexingPipeline();
         } else {
             useImageStore.getState().cancelAutoTagging();
             useImageStore.getState().cancelSemanticIndexing();

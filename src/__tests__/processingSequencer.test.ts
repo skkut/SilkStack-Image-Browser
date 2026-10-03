@@ -267,6 +267,39 @@ describe('runPipelineRound — canonical sequential round', () => {
   });
 });
 
+describe('master AI toggle — flip ON runs the pipeline, auto-tag before semantic', () => {
+  it('holds the semantic phase open until auto-tagging completes, then embeds the fresh tags', async () => {
+    // The regression: the toggle used to call semanticIndexImages() directly,
+    // embedding never-enriched images from their prompt+tags text (no
+    // autoTags at weight 0.9, no synonyms) — then the tag writer cleared the
+    // stamp and forced a second, full re-embed. The ON branch must enter the
+    // SAME pipeline startup uses, so enrichment lands in the FIRST embed.
+    const img = createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', prompt: 'a red fox' });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+    });
+
+    // A REAL settings transition — the subscription latch only acts on a flip.
+    useSettingsStore.setState({ aiFeaturesEnabled: false });
+    useSettingsStore.setState({ aiFeaturesEnabled: true });
+
+    // Phase 2 open: the auto-tag worker is running and the semantic phase
+    // has NOT started — the old code reached the coordinator immediately.
+    await vi.waitFor(() => { expect(FakeTaggingWorker.lastInstance).toBeTruthy(); });
+    expect(coordinatorMock.indexImages).not.toHaveBeenCalled();
+
+    completeRun(FakeTaggingWorker.lastInstance!, { imgA: [{ tag: 'fox', sourceType: 'prompt' }] });
+
+    // Phase 3 opens only after the completion, and its payload carries the
+    // tag the worker just produced — the whole point of the ordering.
+    await vi.waitFor(() => { expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); });
+    const payload = coordinatorMock.indexImages.mock.calls[0][0] as Array<{ id: string; autoTags: string[] }>;
+    expect(payload.find((p) => p.id === 'imgA')?.autoTags).toContain('fox');
+  });
+});
+
 describe('auto-tag idempotency — the enrichment gate holds across a round', () => {
   // A fully pipeline-processed image: stack + similarity analyzed, enriched
   // at the CURRENT version. Phases 1-2 skip it, phase 3 must skip it too.

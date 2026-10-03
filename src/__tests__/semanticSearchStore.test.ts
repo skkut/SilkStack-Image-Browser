@@ -927,9 +927,10 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
     featureAccessMocks.isAiFeaturesEnabled.mockReturnValue(true);
     useSettingsStore.getState().setSortOrder('desc');
 
-    await flush();
-    expect(coordinatorMock.ensureInitialized).toHaveBeenCalledTimes(1);
-    expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(coordinatorMock.ensureInitialized).toHaveBeenCalledTimes(1);
+      expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
+    });
 
     useSettingsStore.getState().setSemanticSearchEnabled(false);
   });
@@ -938,11 +939,14 @@ describe('settings subscription — kick-in when the feature becomes usable', ()
 // ── Master AI-features toggle — runtime flip (Phase 8) ────────────────
 // The store's settings subscribe fires on the pref flip: OFF cancels
 // in-flight runs, unloads resident models, and drops semantic hits; ON
-// resumes Δ-indexing (idempotent). The latch is pre-initialized to the
-// current pref, so only REAL flips fire — this test must be the last to
-// touch the pref in the file (a restore would fire the ON branch).
+// runs the post-indexing PIPELINE (auto-tag completes before the semantic
+// phase, so fresh autoTags/synonyms are in the first embed — every phase
+// is idempotent, so a library already processed costs one cheap round).
+// The latch is pre-initialized to the current pref, so only REAL flips
+// fire — this test must be the last to touch the pref in the file (a
+// restore would fire the ON branch).
 describe('master AI-features toggle — runtime flip', () => {
-  it('flip OFF cancels + unloads + clears; flip ON resumes Δ-indexing', async () => {
+  it('flip OFF cancels + unloads + clears; flip ON runs the pipeline to Δ-indexing', async () => {
     // One unstamped image so the resumed run reaches the coordinator.
     useImageStore.setState({
       images: [{ id: 'a', name: 'a.png', prompt: 'red fox' } as unknown as IndexedImage],
@@ -955,11 +959,14 @@ describe('master AI-features toggle — runtime flip', () => {
     expect(useImageStore.getState().semanticHits).toBeNull();
     expect(coordinatorMock.unloadModels).toHaveBeenCalledTimes(1);
 
-    // OFF → ON: the Δ-index resumes — the semantic gate mock is open, so
-    // the run reaches the coordinator and re-embeds the unstamped image.
+    // OFF → ON: the pipeline round runs — auto-tag finds no eligible image
+    // (the seeded image belongs to no connected directory), so the round
+    // falls through to the semantic phase and the Δ-run reaches the
+    // coordinator to re-embed the unstamped image.
     useSettingsStore.setState({ aiFeaturesEnabled: true });
-    await flush();
-    expect(coordinatorMock.ensureInitialized).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(coordinatorMock.ensureInitialized).toHaveBeenCalled();
+    });
   });
 });
 
