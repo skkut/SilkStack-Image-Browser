@@ -4,11 +4,11 @@
  * Every premium-dependent decision (UI visibility, feature execution,
  * license validity) routes through the helpers below.
  *
- * LICENSE INTEGRITY: Premium status is protected by an HMAC stamp.
- * `isPremiumUnlocked()` recomputes the expected stamp from the stored
- * state + the build-time secret on every call.  If the stamp is missing
- * or mismatched the license is treated as invalid — this prevents casual
- * bypass by editing settings.json.
+ * LICENSE INTEGRITY: a stored premium state is honored only while it carries
+ * the stamp that matches it (`computeLicenseStamp`); a missing or mismatched
+ * stamp reads as no license at all.  Every writer of license state must
+ * re-stamp, and every reader goes through the helpers below — that invariant
+ * is the one thing this file exists to keep.
  *
  *   compile-time  │  runtime (license)  │  result
  *   ──────────────┼─────────────────────┼─────────
@@ -30,26 +30,19 @@ import { getDefaultLicenseState, type LicenseProduct } from '../services/license
 
 // ── Secrets ───────────────────────────────────────────────────────────
 
-/** Build-time secret injected by Vite. Never changes across releases
- *  without a rebuild. */
+/** Build-time constant injected by Vite — a rebuild is required to change it. */
 const SECRET: string = import.meta.env.VITE_IMH_LICENSE_SECRET;
 
 // ── Compile-time guard ────────────────────────────────────────────────
 
 export const AI_MODULE_AVAILABLE: boolean = import.meta.env.VITE_AI_FEATURES_AVAILABLE;
 
-// ── Stamp (anti-tamper) ───────────────────────────────────────────────
+// ── Stamp ─────────────────────────────────────────────────────────────
 
 /** How long a subscription keeps working without a successful re-check. */
 export const OFFLINE_GRACE_MS = 14 * 24 * 60 * 60 * 1000;
 
-/**
- * djb2 variant with the secret mixed in per-character, so the output
- * depends irreducibly on the secret. Note this is NOT the Web Crypto
- * HMAC the older comments promised — it is a keyed hash that is enough to
- * stop hand-editing settings.json, and cheap enough to run synchronously
- * on every render.
- */
+/** Cheap synchronous keyed hash — runs on every render. */
 function hashPayload(payload: string): string {
   let hash = 5381;
   for (let i = 0; i < payload.length; i++) {
@@ -65,15 +58,12 @@ function payloadV1(key: string, status: string, timestamp: number): string {
 }
 
 /**
- * Product-bound payload. Used ONLY for subscriptions, because the product
- * decides the offline rule there: without this binding, deleting the
- * `licenseProduct` field would downgrade the state to `null` → "legacy",
- * i.e. lifetime's unlimited offline trust.
+ * Product-bound payload, used for subscriptions only. The product field is
+ * part of the stamped payload because it decides the offline rule.
  *
- * Lifetime deliberately keeps the v1 payload: its rule is identical to
- * legacy's, and an unchanged stamp means a version rollback cannot
- * invalidate an existing customer's license (a mismatch would trip the
- * auto-heal below and erase their key).
+ * Lifetime deliberately keeps the v1 payload: its rule matches the legacy
+ * one, and an unchanged stamp means a version rollback cannot invalidate an
+ * existing customer's license.
  */
 function payloadV2(key: string, status: string, timestamp: number, product: string): string {
   return `${SECRET}:${key}:${status}:${timestamp}:${product}:v2`;
@@ -118,7 +108,7 @@ interface LicenseSnapshot {
   licenseProduct: LicenseProduct | null;
 }
 
-/** Tamper check: premium-looking status AND a stamp that verifies. */
+/** Premium-looking status with an intact, matching stamp. */
 function isLicenseStampValid(s: LicenseSnapshot): boolean {
   if (s.licenseStatus !== 'valid' && s.licenseStatus !== 'offline-valid') return false;
   return verifyLicenseStamp(
@@ -167,10 +157,10 @@ export function isAiFeaturesEnabled(): boolean {
   if (!AI_MODULE_AVAILABLE) return false;
   const s = useSettingsStore.getState();
   if (!isLicenseStampValid(s)) {
-    // Auto-heal ONLY on a failed stamp (hand-edited state), so the UI
-    // doesn't show stale premium indicators. A subscription that merely
-    // ran past its offline grace keeps its state: wiping the key here
-    // would force re-entry even though the subscription is still paid.
+    // Clear ONLY state whose stamp does not match, so the UI never shows a
+    // stale premium indicator. A subscription that merely ran past its
+    // offline grace keeps its state: wiping the key here would force
+    // re-entry even though the subscription is still paid.
     if (s.licenseStatus === 'valid' || s.licenseStatus === 'offline-valid') {
       s.setLicenseState(getDefaultLicenseState());
     }
@@ -181,7 +171,8 @@ export function isAiFeaturesEnabled(): boolean {
 
 /**
  * Imperative: true when premium is unlocked AND the stamp is valid.
- * Use in store actions / non-react contexts.  Auto-heals tampered state.
+ * Use in store actions / non-react contexts; also clears state whose stamp
+ * does not match.
  */
 export { isAiFeaturesEnabled as isPremiumUnlocked };
 

@@ -613,6 +613,20 @@ try {
 // --- End AI GPU preference ---
 
 // --- Application Menu ---
+// Whether the Help → "Try Premium" upsell should be in the native menu.
+// The renderer decides it — premium status is computed there — and pushes the
+// visibility whenever it changes; main only reflects it. Until that first
+// push (a few hundred ms after launch) the item is absent, well before anyone
+// could open the Help menu.
+let tryPremiumMenuVisible = false;
+
+function setTryPremiumMenuVisible(visible) {
+  const next = visible === true;
+  if (next === tryPremiumMenuVisible) return;
+  tryPremiumMenuVisible = next;
+  createApplicationMenu();
+}
+
 function createApplicationMenu() {
   const template = [
     {
@@ -674,15 +688,19 @@ function createApplicationMenu() {
     {
       label: "Help",
       submenu: [
-        {
-          label: "Try Premium",
-          click: () => {
-            if (mainWindow) {
-              mainWindow.webContents.send("menu-open-license");
-            }
-          },
-        },
-        { type: "separator" },
+        ...(tryPremiumMenuVisible
+          ? [
+              {
+                label: "Try Premium",
+                click: () => {
+                  if (mainWindow) {
+                    mainWindow.webContents.send("menu-open-license");
+                  }
+                },
+              },
+              { type: "separator" },
+            ]
+          : []),
         {
           label: "Documentation",
           click: async () => {
@@ -1539,6 +1557,13 @@ function setupFileOperationHandlers() {
     const currentSettings = await readSettings();
     const mergedSettings = { ...currentSettings, ...newSettings };
     await saveSettings(mergedSettings);
+  });
+
+  // Renderer → main: visibility of the native Help → "Try Premium" item (see
+  // setTryPremiumMenuVisible above). Rebuilds the menu only when the value
+  // actually flips, so a no-op push costs nothing.
+  ipcMain.on("set-try-premium-menu-visible", (event, visible) => {
+    setTryPremiumMenuVisible(visible);
   });
 
   ipcMain.handle("get-default-cache-path", () => {

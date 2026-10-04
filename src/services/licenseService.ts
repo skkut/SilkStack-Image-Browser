@@ -38,12 +38,11 @@ export interface LicenseState {
   licenseEmail: string;
   licensePurchaseDate: string | null;
   licenseLastValidated: number; // Date.now() timestamp
-  /** HMAC stamp — proves the state wasn't edited by hand in settings.json. */
+  /** Integrity stamp — must match the state it was issued for. */
   licenseStamp: string;
   /**
-   * Which product the key was activated against. Bound into the stamp for
-   * subscriptions because it decides the offline rule — deleting or editing
-   * it must not silently grant a subscription lifetime's offline trust.
+   * Which product the key was activated against. Part of the stamped payload
+   * for subscriptions because it decides the offline rule.
    * `null` means "activated before this field existed", i.e. lifetime.
    */
   licenseProduct: LicenseProduct | null;

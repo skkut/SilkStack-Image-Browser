@@ -49,9 +49,9 @@ const LicenseTabModule = import.meta.env.VITE_AI_FEATURES_AVAILABLE
  *  as props to the closed-source LicenseTab component.
  *
  *  Intercepts the onLicenseStateChange callback so that whenever the
- *  license transitions to a valid state, an HMAC stamp is computed and
- *  stored alongside the state.  isPremiumUnlocked() validates this stamp
- *  on every check — without it, the license is treated as unchecked. */
+ *  license transitions to a valid state, the matching stamp is computed and
+ *  stored alongside the state — a premium state without its stamp is read as
+ *  no license at all. */
 const LicenseSettingsPanel: React.FC = () => {
   const licenseKey = useSettingsStore((s) => s.licenseKey);
   const licenseStatus = useSettingsStore((s) => s.licenseStatus);
@@ -73,17 +73,16 @@ const LicenseSettingsPanel: React.FC = () => {
     trialEndsAt: number | null;
     subscriptionCancelled: boolean;
   }>) => {
-    // When transitioning to a premium status, compute and attach a stamp
-    // so isPremiumUnlocked() can verify the state hasn't been tampered with.
+    // When transitioning to a premium status, compute and attach a stamp so
+    // the license check can validate the state.
     const status = partial.licenseStatus;
     if (status === 'valid' || status === 'offline-valid') {
       const key = partial.licenseKey ?? licenseKey;
       const ts = partial.licenseLastValidated ?? Date.now();
-      // The product is part of the stamped payload (v2 for subscriptions):
-      // it decides the offline rule, so leaving it unstamped would let a
-      // hand-edit delete it and claim lifetime's unlimited offline trust.
-      // The module always sends it on a premium transition; null (= legacy
-      // lifetime semantics) is the safe reading when it doesn't.
+      // The product is part of the stamped payload because it decides the
+      // offline rule. The module always sends it on a premium transition;
+      // null (= legacy lifetime semantics) is the safe reading when it
+      // doesn't.
       const product = partial.licenseProduct ?? null;
       (partial as Record<string, unknown>).licenseStamp =
         computeLicenseStamp(key, status, ts, product);

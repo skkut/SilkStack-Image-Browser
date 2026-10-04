@@ -235,6 +235,12 @@ export interface ElectronAPI {
   onMenuOpenLicense: (callback: () => void) => () => void;
   onMenuToggleView: (callback: () => void) => () => void;
   onMenuShowChangelog: (callback: () => void) => () => void;
+  /**
+   * Show/hide the NATIVE Help → "Try Premium" item. The renderer owns the
+   * premium decision and pushes the visibility, so the main process never has
+   * to interpret license state itself.
+   */
+  setTryPremiumMenuVisible: (visible: boolean) => void;
   testUpdateDialog: () => Promise<{
     success: boolean;
     response?: number;

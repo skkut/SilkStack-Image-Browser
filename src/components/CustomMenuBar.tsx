@@ -32,11 +32,23 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
   onUndo,
   hasUndo = false,
 }) => {
-  // Runtime gate: the merge-Undo menu item requires premium license
-  const aiFeaturesEnabled = useAiFeaturesEnabled();
+  // NOTE: this is the LICENSE gate — the hook is named after the gate, not the
+  // master AI switch. The user's manual master toggle (`useAiMasterEnabled`) is
+  // deliberately NOT part of it: switching AI features off does not un-buy a
+  // license.
+  const premiumActive = useAiFeaturesEnabled();
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const isElectron = typeof window !== 'undefined' && !!(window as any).electronAPI;
+
+  // Help → "Try Premium" is an upsell for users WITHOUT premium access, so it
+  // needs the license surface to exist (no AI module → SettingsModal hides the
+  // License tab, leaving nothing to open) AND premium to be locked. A running
+  // trial fails the second check — its features are unlocked, so it is not a
+  // "free" user either. Only the license decides: the master AI switch stays
+  // out of this, so a paying user who turns the features off keeps the item
+  // hidden rather than being upsold what they already own.
+  const showTryPremium = AI_MODULE_AVAILABLE && !premiumActive;
 
   const handleAction = (e: React.MouseEvent, action: () => void) => {
     e.stopPropagation();
@@ -64,7 +76,7 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
         { label: 'Add Folder...', shortcut: 'Ctrl+O', onClick: () => onAddFolder() },
         { label: 'Reload', shortcut: 'Ctrl+R', onClick: () => window.location.reload() },
         { type: 'separator' } as MenuItem,
-        ...(aiFeaturesEnabled
+        ...(premiumActive
           ? [
               { label: 'Undo', shortcut: 'Ctrl+Z', onClick: () => onUndo?.(), disabled: !hasUndo } as MenuItem,
               { type: 'separator' as const } as MenuItem,
@@ -94,12 +106,8 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
     {
       label: 'Help',
       items: [
-        // License surface only exists when the AI module is in the build
-        // (SettingsModal hides the License tab otherwise) — same gate, so the
-        // item can never open an empty panel. Deliberately NOT gated on
-        // `aiFeaturesEnabled` (master ∧ license): that would hide the upsell
-        // from exactly the users who don't own a license yet.
-        ...(AI_MODULE_AVAILABLE
+        // Same `showTryPremium` as the native menu below — free users only.
+        ...(showTryPremium
           ? [
               { label: 'Try Premium', onClick: () => onOpenSettings('license') } as MenuItem,
               { type: 'separator' } as MenuItem,
@@ -113,6 +121,14 @@ const CustomMenuBar: React.FC<CustomMenuBarProps> = ({
       ],
     },
   ];
+
+  // Mirror the item into the NATIVE Electron menu. Main has no way to compute
+  // it, so the renderer — where the decision already lives — pushes it. This
+  // component is where that decision is made, which keeps the two Help menus
+  // from ever disagreeing.
+  useEffect(() => {
+    window.electronAPI?.setTryPremiumMenuVisible?.(showTryPremium);
+  }, [showTryPremium]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

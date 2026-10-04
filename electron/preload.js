@@ -96,6 +96,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
 
+  // Renderer → main: show/hide the native Help → "Try Premium" item. The
+  // renderer owns the decision; main never interprets license state itself.
+  setTryPremiumMenuVisible: (visible) =>
+    ipcRenderer.send('set-try-premium-menu-visible', visible),
+
   onFullscreenChanged: (callback) => {
     const handler = (event, ...args) => callback(...args);
     ipcRenderer.on('fullscreen-changed', handler);
