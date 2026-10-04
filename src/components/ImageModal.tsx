@@ -3985,9 +3985,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </button>
             </div>
           )}
+          {/* The gutter and the gaps are the panel's own 12px rhythm (px-3,
+              the unit on every row and card inside it), not a dialog's — p-6
+              was the only one of its kind in the viewer, and on a 300px panel
+              it spent a sixth of the width on margin the picture pane beside
+              it does not take. The cards carry the surface now, so the space
+              around them only has to separate them. */}
           <div
             data-testid="metadata-panel-body"
-            className={`flex-1 min-h-0 overflow-y-auto space-y-4 p-6 ${
+            className={`flex-1 min-h-0 overflow-y-auto space-y-3 p-3 ${
               compactPanelDocked
                 ? `transition duration-200 ease-out ${
                     compactPanelReady
