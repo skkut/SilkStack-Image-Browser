@@ -175,11 +175,13 @@ describe('the metadata panel in the ordinary viewer', () => {
     const writesBefore = writesTo(SIDEBAR_SHARE_STORAGE_KEY);
 
     act(() => startDrag(500));
-    act(() => moveDrag(400));
+    // 40px left is +0.04 on a 1000px row: 0.2 → 0.24, inside the range so the
+    // assertion is about the drag rather than about a bound.
+    act(() => moveDrag(460));
 
     // Live: the layout has already moved, because a CSS width costs nothing to
     // change and a divider that lagged the cursor would feel broken.
-    expect(layoutShare()).toBe('40.00%');
+    expect(layoutShare()).toBe('24.00%');
     // But nothing is stored yet — a drag is not a decision until it ends, and
     // the share on disk is still the one the panel was opened at.
     expect(writesTo(SIDEBAR_SHARE_STORAGE_KEY)).toBe(writesBefore);
@@ -187,10 +189,10 @@ describe('the metadata panel in the ordinary viewer', () => {
 
     act(() => endDrag());
 
-    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.24');
     // The layout settles on exactly what was dragged, with no jump at the seam:
     // the value committed is the value the pointer was last at.
-    expect(layoutShare()).toBe('40.00%');
+    expect(layoutShare()).toBe('24.00%');
   });
 
   it('does not write to storage once per mousemove', () => {
@@ -221,9 +223,15 @@ describe('the metadata panel in the ordinary viewer', () => {
     expect(layoutShare()).toBe(`${(MIN_SIDEBAR_SHARE * 100).toFixed(2)}%`);
     act(() => endDrag());
 
-    // And well past the left-hand end.
+    // And well past the left-hand end. The pointer is dragged clean out of the
+    // window (a negative clientX, which is what a drag past the edge produces —
+    // the listeners are on the document for exactly this), so the travel covers
+    // the whole range from wherever the floor just left the share. A fixed
+    // 400px of travel would only reach the ceiling while the floor happened to
+    // be 0.2, which made this assertion a statement about the floor's value
+    // rather than about the ceiling.
     act(() => startDrag(500));
-    act(() => moveDrag(100));
+    act(() => moveDrag(-1000));
     expect(layoutShare()).toBe(`${(MAX_SIDEBAR_SHARE * 100).toFixed(2)}%`);
     act(() => endDrag());
 
@@ -234,9 +242,9 @@ describe('the metadata panel in the ordinary viewer', () => {
   it('puts the panel back to the default on a double click', () => {
     openViewer();
     act(() => startDrag(500));
-    act(() => moveDrag(400));
+    act(() => moveDrag(460));
     act(() => endDrag());
-    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.24');
 
     act(() => {
       fireEvent.doubleClick(handle());
@@ -261,11 +269,11 @@ describe('the metadata panel in the ordinary viewer', () => {
   });
 
   it('opens at the share it was left at', () => {
-    (global.localStorage as any).__store.set(SIDEBAR_SHARE_STORAGE_KEY, '0.45');
+    (global.localStorage as any).__store.set(SIDEBAR_SHARE_STORAGE_KEY, '0.22');
 
     openViewer();
 
-    expect(layoutShare()).toBe('45.00%');
+    expect(layoutShare()).toBe('22.00%');
   });
 
   it('reads a stored share it cannot use as one it never had', () => {
@@ -350,12 +358,12 @@ describe('the metadata panel in a compact window', () => {
     await compactWithPanel('400x300');
 
     act(() => startDrag(600));
-    act(() => moveDrag(500));
+    act(() => moveDrag(560));
     act(() => endDrag());
 
-    // Dragged 100px left from the default third: 0.3 + 100/1000 of the screen.
-    expect(panel().style.width).toBe(`${compactSidebarWidth(WORK_AREA, 0.4)}px`);
-    expect(lastRequest().contentWidth).toBe(400 + 16 + compactSidebarWidth(WORK_AREA, 0.4));
+    // Dragged 40px left from the default fifth: 0.2 + 40/1000 of the screen.
+    expect(panel().style.width).toBe(`${compactSidebarWidth(WORK_AREA, 0.24)}px`);
+    expect(lastRequest().contentWidth).toBe(400 + 16 + compactSidebarWidth(WORK_AREA, 0.24));
   });
 
   it('crops the picture rather than rescaling it', async () => {
@@ -373,11 +381,11 @@ describe('the metadata panel in a compact window', () => {
   });
 
   it('opens at the share it was left at, and sizes the frame for it', async () => {
-    (global.localStorage as any).__store.set(SIDEBAR_SHARE_STORAGE_KEY, '0.5');
+    (global.localStorage as any).__store.set(SIDEBAR_SHARE_STORAGE_KEY, '0.22');
 
     await compactWithPanel('400x300');
 
-    const panelWidth = compactSidebarWidth(WORK_AREA, 0.5);
+    const panelWidth = compactSidebarWidth(WORK_AREA, 0.22);
     expect(panel().style.width).toBe(`${panelWidth}px`);
     expect(lastRequest().contentWidth).toBe(400 + 16 + panelWidth);
   });
@@ -390,7 +398,7 @@ describe('the metadata panel in a compact window', () => {
     await compactWithPanel('400x300');
 
     act(() => startDrag(600));
-    act(() => moveDrag(500));
+    act(() => moveDrag(560));
     const requestsDuring = setViewerCompactMode.mock.calls.length;
 
     act(() => {
@@ -398,7 +406,7 @@ describe('the metadata panel in a compact window', () => {
     });
 
     expect(setViewerCompactMode.mock.calls.length).toBe(requestsDuring + 1);
-    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.24');
   });
 
   it('opens the next window at the width this one was dragged to', async () => {
@@ -416,17 +424,17 @@ describe('the metadata panel in a compact window', () => {
     });
     await act(async () => {});
 
-    // A third of the screen to two fifths of it.
+    // From the default fifth to just under a quarter.
     act(() => startDrag(600));
-    act(() => moveDrag(500));
+    act(() => moveDrag(560));
     act(() => endDrag());
-    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.4');
+    expect(stored(SIDEBAR_SHARE_STORAGE_KEY)).toBe('0.24');
 
     first.unmount();
 
     openCompact('400x300');
 
-    const panelWidth = compactSidebarWidth(WORK_AREA, 0.4);
+    const panelWidth = compactSidebarWidth(WORK_AREA, 0.24);
     expect(panel().style.width).toBe(`${panelWidth}px`);
     expect(panel().className).not.toContain('hidden');
     expect(picture().style.width).toBe('400px');
@@ -436,16 +444,19 @@ describe('the metadata panel in a compact window', () => {
     // The hand-drag reader subtracts the panel from the window it observes and
     // *stores* the factor it derives. If it were listening through a stale
     // panel width, every window that followed would come out wrong by the
-    // difference — permanently, and for every image. Here the panel is half the
-    // screen; read at the old default third, the remembered size would be out
-    // by a fifth of the screen.
+    // difference — permanently, and for every image. Here the panel is the
+    // quarter of the screen it is allowed at most; read at the default fifth,
+    // the remembered size would be out by that difference.
     //
     // The picture is deliberately larger than the window dragged over it. The
     // reader decides which of its two readings a frame belongs to by comparing
     // the two, and only the *display fit* reading subtracts the panel: a window
     // drawn larger than the file's own pixels is an enlargement, which is a
     // multiple of the file and has no panel in it to be stale about.
-    (global.localStorage as any).__store.set(SIDEBAR_SHARE_STORAGE_KEY, '0.5');
+    (global.localStorage as any).__store.set(
+      SIDEBAR_SHARE_STORAGE_KEY,
+      String(MAX_SIDEBAR_SHARE),
+    );
     vi.useFakeTimers();
     try {
       await compactWithPanel('2000x1500');
@@ -461,7 +472,7 @@ describe('the metadata panel in a compact window', () => {
 
       const withPanel = userScaleFromResize(
         2000, 1500, WORK_AREA, WORK_AREA, observed.width, observed.height, 1,
-        compactSidebarWidth(WORK_AREA, 0.5),
+        compactSidebarWidth(WORK_AREA, MAX_SIDEBAR_SHARE),
       );
       const withStalePanel = userScaleFromResize(
         2000, 1500, WORK_AREA, WORK_AREA, observed.width, observed.height, 1,

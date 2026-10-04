@@ -177,7 +177,7 @@ export const COMPACT_MIN_WINDOW_HEIGHT = 160;
  * reads it against its own body, and a compact window reads it against the
  * display's work area (`compactSidebarWidth` below). Those are different
  * rectangles — a compact window *is* the picture's size — but the same
- * statement fits both, and "the panel gets a third of the room" is a sentence
+ * statement fits both, and "the panel gets a fifth of the room" is a sentence
  * each mode can keep on its own terms.
  *
  * What it replaced was a fixed width, which is only right at one window size.
@@ -190,28 +190,54 @@ export const COMPACT_MIN_WINDOW_HEIGHT = 160;
  * the frame it sits in, because a shared frame would shrink the panel along
  * with the picture, and the panel holds text whose needs do not follow the
  * size of the file beside it.
+ *
+ * The value has followed the panel's content down: it was 0.3 — the 70/30 split
+ * the layout was fixed at before it could be dragged — while the panel was a
+ * console of monospace rows, and is 0.2 now that the rows are icon-led and the
+ * ceiling is a quarter of the room. It sits strictly inside the bounds below,
+ * with room to drag in either direction.
  */
-export const DEFAULT_SIDEBAR_SHARE = 0.3;
+export const DEFAULT_SIDEBAR_SHARE = 0.2;
 
 /**
  * Bounds on that share. The two ends fail differently, so they are argued
  * separately.
  *
- * The **floor** is legibility: under a fifth of the room the panel is a column
- * of broken words. It doubles as a guard for the smallest pictures — a compact
- * frame is `picture + padding + panel`, and a frame that falls under
+ * The **floor** is legibility: somewhere under a couple of hundred pixels the
+ * panel is a column of broken words. Where that boundary sits is a property of
+ * the content, and the content got smaller — the icon-led rows, the paired
+ * header stats and the wrapping values cut the panel's real needs well below
+ * what they were. Measured in the built app (2026-10-04, long filename and a
+ * full A1111 payload): at 225px the panel is clean, with no horizontal overflow
+ * in the body or in any card and a 98px tag input; at 164px the body scrolls
+ * sideways by 15px, three cards overflow and the tag input is down to 37px.
+ *
+ * 0.15 keeps ordinary windows on the clean side of that: 225px at 1500 wide,
+ * 307px against a 2048-wide work area — where the old floor of a fifth allowed
+ * 410px and is the room this floor gives back. Windows under ~1350px take the floor past
+ * the boundary; that is the same bargain the old value struck below ~1000px,
+ * not a new one. It is a share rather than a flat pixel count because one
+ * number serves both modes (the compact panel reads it against the work area)
+ * and because the stored value has no base to measure pixels against.
+ *
+ * It doubles as a guard for the smallest pictures — a compact frame is
+ * `picture + padding + panel`, and a frame that falls under
  * `COMPACT_MIN_WINDOW_WIDTH` is not refused by the OS but quietly *widened*,
  * which leaves background on screen. A floor above zero keeps that out of reach
  * for every picture big enough to be worth opening in this mode.
  *
- * The **ceiling** is the picture's, and it is set by where the cap below starts
- * biting: `share * avail > avail - COMPACT_MIN_WINDOW_WIDTH` is `avail < 680`
- * at 0.6. Below that the panel stops following the pointer, because the work
- * area has become the constraint instead. Keeping the ceiling here means a drag
- * and the panel agree everywhere the display is not genuinely too small.
+ * The **ceiling** is where the panel stops reading as a sidebar: a quarter of
+ * the room is a panel beside the picture, and past it the two are peers
+ * splitting a window. Everything the panel holds is a readout of the file on
+ * screen, so it has no claim to more of the window than the file does. It also
+ * stays clear of the cap below — `share * avail > avail -
+ * COMPACT_MIN_WINDOW_WIDTH` is `avail < 363` at 0.25, so on any real display a
+ * drag reaches the ceiling rather than being stopped by the work area first.
+ * (It was 0.6, then 0.5: the first was derived from compact geometry rather
+ * than from how the panel reads, and the second still let it take half.)
  */
-export const MIN_SIDEBAR_SHARE = 0.2;
-export const MAX_SIDEBAR_SHARE = 0.6;
+export const MIN_SIDEBAR_SHARE = 0.15;
+export const MAX_SIDEBAR_SHARE = 0.25;
 
 /**
  * Persisted share of the room the metadata panel takes: written when a drag

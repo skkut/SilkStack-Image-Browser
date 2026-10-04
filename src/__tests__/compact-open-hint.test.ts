@@ -32,6 +32,7 @@ import {
   COMPACT_PANEL_STORAGE_KEY,
   COMPACT_SCALE_STORAGE_KEY,
   DEFAULT_SIDEBAR_SHARE,
+  MAX_SIDEBAR_SHARE,
   SIDEBAR_SHARE_STORAGE_KEY,
   clampSidebarShare,
   compactSidebarWidth,
@@ -143,12 +144,18 @@ describe('the open-hint that pre-sizes a viewer window', () => {
   it('reserves the share that was dragged, not the default one', () => {
     // Read through the same clamp the viewer's own init uses, so a share the
     // user set is the share the window is shaped around before the viewer has
-    // had a chance to say anything.
+    // had a chance to say anything. Seeded at the ceiling — a share dragged as
+    // far as it goes — read symbolically rather than as a literal, because the
+    // point is only that it differs from the default: a literal goes stale the
+    // next time a bound moves and silently collapses this into the test above.
     seed(COMPACT_MODE_STORAGE_KEY, 'true');
     seed(COMPACT_PANEL_STORAGE_KEY, 'true');
-    seed(SIDEBAR_SHARE_STORAGE_KEY, '0.5');
+    seed(SIDEBAR_SHARE_STORAGE_KEY, String(MAX_SIDEBAR_SHARE));
 
-    const panel = compactSidebarWidth(WORK_AREA, 0.5);
+    const panel = compactSidebarWidth(WORK_AREA, MAX_SIDEBAR_SHARE);
+    // Without this, a ceiling that converged on the default would leave both
+    // assertions above true while testing nothing.
+    expect(panel).not.toBe(PANEL);
     expect(compactOpenHint(image()).compactContentWidth).toBe(400 + 16 + panel);
   });
 
@@ -181,9 +188,9 @@ describe('the open-hint that pre-sizes a viewer window', () => {
     seed(COMPACT_MODE_STORAGE_KEY, 'true');
     seed(COMPACT_PANEL_STORAGE_KEY, 'true');
     seed(COMPACT_SCALE_STORAGE_KEY, '0.5');
-    seed(SIDEBAR_SHARE_STORAGE_KEY, '0.4');
+    seed(SIDEBAR_SHARE_STORAGE_KEY, String(MAX_SIDEBAR_SHARE));
 
-    const reserved = compactSidebarWidth(WORK_AREA, 0.4);
+    const reserved = compactSidebarWidth(WORK_AREA, MAX_SIDEBAR_SHARE);
     const rule = computeCompactContentSize(
       400,
       300,

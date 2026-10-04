@@ -923,15 +923,17 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       expect(screen.getByTestId('image-minimap')).toBeTruthy();
 
       // …and a drag reaches the rest of it. The pane travels half the
-      // difference between the picture and the pane it is cropped by, which is
-      // comfortably more than the 100px asked for here — so the drag is 1:1
-      // against the picture rather than clamped short of it.
+      // difference between the picture and the pane it is cropped by — 92px
+      // here, 984 against 800 — so the 60px asked for is 1:1 against the
+      // picture rather than clamped short of it. The ask is kept well inside
+      // that bound: a drag past it would assert the clamp instead, which is a
+      // different test, and the bound follows the panel's default share.
       const pane = document.getElementById('image-zoom-container')!;
       fireEvent.mouseDown(pane, { button: 0, clientX: 300, clientY: 300 });
-      fireEvent.mouseMove(pane, { button: 0, clientX: 400, clientY: 300 });
-      fireEvent.mouseUp(pane, { button: 0, clientX: 400, clientY: 300 });
+      fireEvent.mouseMove(pane, { button: 0, clientX: 360, clientY: 300 });
+      fireEvent.mouseUp(pane, { button: 0, clientX: 360, clientY: 300 });
 
-      expect(picture().style.transform).toBe('translate(100px, 0px) scale(1)');
+      expect(picture().style.transform).toBe('translate(60px, 0px) scale(1)');
     } finally {
       vi.useRealTimers();
     }

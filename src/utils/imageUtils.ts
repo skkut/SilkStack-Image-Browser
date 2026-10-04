@@ -244,7 +244,48 @@ export const copyFilePathToClipboard = async (
 };
 
 /**
- * Calculates the aspect ratio of an image and returns it as a string (e.g., "3:2")
+ * Aspect ratios people actually name, as [width, height] pairs. The exact
+ * reduced ratio of most images is unrecognisable — 2252x4000 reduces to
+ * 563:1000 — so a near match to one of these is the more useful answer.
+ */
+const NAMED_ASPECT_RATIOS: ReadonlyArray<readonly [number, number]> = [
+  [1, 1],
+  [5, 4],
+  [4, 3],
+  [3, 2],
+  [16, 9],
+  [21, 9],
+  [2, 1],
+  [4, 5],
+  [3, 4],
+  [2, 3],
+  [9, 16],
+  [9, 21],
+  [1, 2],
+];
+
+/**
+ * How far (relatively) a ratio may sit from a named one and still be called by
+ * its name. 2.5% is sized by the gap between it and the nearest *named* ratios
+ * in the list: the SDXL-bucket reductions sit 2.6–2.9% from the nearest name
+ * above (7:9 is 2.78% off 4:5, 13:19 is 2.63% off 2:3, 5:12 is 2.78% off 9:21),
+ * so those keep their exact form, while genuine near-misses come in: 40:49
+ * (0.8163) is 2.04% off 4:5 and 1344x768 (1.75) is 1.56% off 16:9.
+ */
+const ASPECT_RATIO_TOLERANCE = 0.025;
+
+/**
+ * Calculates the aspect ratio of an image and returns it as a string (e.g., "3:2").
+ *
+ * Snaps to the *nearest* named ratio when the image is within
+ * `ASPECT_RATIO_TOLERANCE` of one, and falls back to the exact reduced ratio
+ * otherwise. Nearest (not first-match) matters because the tolerance window is
+ * wider than half the closest pair of named ratios is far apart — with 5:4 and
+ * 4:3 only 6.25% apart, a first-match list would make the answer depend on
+ * declaration order. The snapped value also feeds the AdvancedFilters
+ * aspect-ratio option list and its comparison — both sides call this function,
+ * so they stay in agreement.
+ *
  * @param width - Image width
  * @param height - Image height
  * @returns Aspect ratio string or null if inputs are invalid
@@ -259,6 +300,20 @@ export const getAspectRatio = (width?: number, height?: number): string | null =
   const common = gcd(width, height);
   const rWidth = width / common;
   const rHeight = height / common;
+
+  const actual = width / height;
+  let best: (readonly [number, number]) | null = null;
+  let bestError = Infinity;
+  for (const named of NAMED_ASPECT_RATIOS) {
+    const error = Math.abs(actual - named[0] / named[1]) / (named[0] / named[1]);
+    if (error < bestError) {
+      bestError = error;
+      best = named;
+    }
+  }
+  if (best && bestError <= ASPECT_RATIO_TOLERANCE) {
+    return `${best[0]}:${best[1]}`;
+  }
 
   return `${rWidth}:${rHeight}`;
 };

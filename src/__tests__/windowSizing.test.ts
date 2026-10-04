@@ -910,18 +910,18 @@ describe('a docked metadata panel', () => {
     // for a small file: a share of the frame would hand a 300px picture a 90px
     // panel. Rounded to whole pixels, because this is a width the viewer lays
     // out and a term in the frame's arithmetic both.
-    expect(compactSidebarWidth(2048)).toBe(614);
+    expect(compactSidebarWidth(2048)).toBe(410);
     expect(compactSidebarWidth(2048)).toBe(
       Math.round(DEFAULT_SIDEBAR_SHARE * 2048),
     );
-    expect(compactSidebarWidth(1000)).toBe(300);
+    expect(compactSidebarWidth(1000)).toBe(200);
     // The work area decides, so two frames of the same size on the same screen
     // reserve the same panel — this function is not told which picture is in it.
     expect(compactSidebarWidth(1000)).toBe(compactSidebarWidth(1000));
   });
 
   it('drops the panel, not the picture, on a display too small for both', () => {
-    // Under 389px of work area at the default share there is no room for both,
+    // Under 340px of work area at the default share there is no room for both,
     // and the panel is what gives way: what it leaves the pane is the width the
     // window manager's minimum is stated in, so the picture still gets a
     // window's worth of screen. The cap is exercised with a share past
@@ -932,7 +932,7 @@ describe('a docked metadata panel', () => {
       compactSidebarWidth(2048),
     );
     // Still the share's side of the cap on a display with room for both.
-    expect(compactSidebarWidth(500, 0.3)).toBe(150);
+    expect(compactSidebarWidth(500, MAX_SIDEBAR_SHARE)).toBe(125);
     expect(compactSidebarWidth(200)).toBe(0);
   });
 
@@ -951,9 +951,9 @@ describe('a docked metadata panel', () => {
     // written, because the range is a policy the callers apply and this rule
     // should be askable about shares it was never meant to see. What it will not
     // do is let a NaN through — that would poison the frame's whole arithmetic.
-    expect(compactSidebarWidth(1000, Number.NaN)).toBe(300);
-    expect(compactSidebarWidth(1000, 0)).toBe(300);
-    expect(compactSidebarWidth(1000, -1)).toBe(300);
+    expect(compactSidebarWidth(1000, Number.NaN)).toBe(200);
+    expect(compactSidebarWidth(1000, 0)).toBe(200);
+    expect(compactSidebarWidth(1000, -1)).toBe(200);
     expect(compactSidebarWidth(1000, 0.9)).toBe(728);
   });
 
@@ -998,7 +998,7 @@ describe('clampSidebarShare', () => {
   });
 
   it('passes a value in the range through untouched', () => {
-    expect(clampSidebarShare(0.42)).toBe(0.42);
+    expect(clampSidebarShare(0.22)).toBe(0.22);
     expect(clampSidebarShare(DEFAULT_SIDEBAR_SHARE)).toBe(DEFAULT_SIDEBAR_SHARE);
   });
 
@@ -1031,7 +1031,7 @@ describe('clampSidebarShare', () => {
  * The two functions disagree about exactly one case, and it is the case a drag
  * produces constantly: `startShare - travel/base` goes negative the moment the
  * pointer is pulled past the panel's narrowest point. Read through the storage
- * policy that negative is "never chosen" and the panel springs back to a third
+ * policy that negative is "never chosen" and the panel springs back to a fifth
  * of the row under a pointer that has stopped moving; read through the range it
  * is "further than allowed" and the panel stops at its floor.
  */
@@ -1048,7 +1048,7 @@ describe('boundSidebarShare', () => {
   });
 
   it('passes a value in the range through untouched', () => {
-    expect(boundSidebarShare(0.42)).toBe(0.42);
+    expect(boundSidebarShare(0.22)).toBe(0.22);
     expect(boundSidebarShare(MIN_SIDEBAR_SHARE)).toBe(MIN_SIDEBAR_SHARE);
     expect(boundSidebarShare(DEFAULT_SIDEBAR_SHARE)).toBe(DEFAULT_SIDEBAR_SHARE);
   });

@@ -30,10 +30,26 @@ import {
   ExternalLink,
   Frame,
   Tag,
-  Info,
+  Ruler,
+  Grid3x3,
+  Ratio,
+  HardDrive,
+  CalendarClock,
   MessageSquare,
   SlidersHorizontal,
   Code,
+  Box,
+  Aperture,
+  Cpu,
+  Layers,
+  Footprints,
+  Gauge,
+  SkipForward,
+  Dices,
+  Waves,
+  Timer,
+  Blend,
+  type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import hotkeyManager from "../services/hotkeyManager";
@@ -349,27 +365,76 @@ const COPY_REVEAL =
  * empty row, and the container's `divide-y` counts only rendered children, so
  * a skipped row leaves no stray divider.
  */
-const MetaRow: FC<{
+/**
+ * A row's value is dropped — the row renders nothing — when it carries no
+ * information. Shared with MetaPair, which needs the same test to know whether
+ * a pair row has anything to show at all.
+ */
+const hasMetaValue = (value: unknown): boolean =>
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  !(Array.isArray(value) && value.length === 0);
+
+type MetaRowProps = {
   label: string;
   value?: string | number | any[];
   onCopy?: (value: string) => void;
-}> = ({ label, value, onCopy }) => {
-  if (
-    value === null ||
-    value === undefined ||
-    value === "" ||
-    (Array.isArray(value) && value.length === 0)
-  ) {
+  /**
+   * Draws the label as this icon instead of as text. The name is not lost —
+   * it becomes the icon's hover text (the same native `title` every toolbar
+   * button uses) and its screen-reader name.
+   */
+  icon?: LucideIcon;
+};
+
+const MetaRow: FC<MetaRowProps> = ({ label, value, onCopy, icon: Icon }) => {
+  if (!hasMetaValue(value)) {
     return null;
   }
 
   const displayValue = Array.isArray(value) ? value.join(", ") : String(value);
 
   return (
-    <div className="group/row flex items-start justify-between gap-3 px-3 py-1.5 hover:bg-gray-700/20 transition-colors">
-      <span className="text-sm text-gray-400 shrink-0 pt-px">{label}</span>
-      <span className="flex items-start gap-1.5 min-w-0 justify-end">
-        <span className="text-sm text-gray-200 break-words text-right min-w-0">
+    <div
+      className={`group/row flex items-start px-3 py-1.5 hover:bg-gray-700/20 transition-colors ${
+        // An icon row is a readout, not a label/value table: `justify-between`
+        // would fling a value like "28" to the far edge, and in a pair row it
+        // would right-align to the middle of the card — against nothing. The
+        // value sits beside its icon instead, the header stats' rhythm, with
+        // the icon column still lining up down the stack.
+        Icon ? "gap-2" : "justify-between gap-3"
+      }`}
+    >
+      {Icon ? (
+        <>
+          {/* h-5 so the icon centres against the value's first line box —
+              rows are items-start because values can wrap. */}
+          <span
+            className="shrink-0 h-5 flex items-center text-gray-500 cursor-help"
+            title={label}
+          >
+            <Icon size={14} aria-hidden="true" />
+          </span>
+          {/* A sibling of the value, not a child of the icon span: an
+              icon-only wrapper would then have the label as its own text
+              content, and getByText would match wrapper and label alike.
+              Absolute, so it is not a flex item either. */}
+          <span className="sr-only">{label}</span>
+        </>
+      ) : (
+        <span className="text-sm text-gray-400 shrink-0 pt-px">{label}</span>
+      )}
+      <span
+        className={`flex items-start gap-1.5 min-w-0 ${
+          Icon ? "" : "justify-end"
+        }`}
+      >
+        <span
+          className={`text-sm text-gray-200 break-words min-w-0 ${
+            Icon ? "" : "text-right"
+          }`}
+        >
           {displayValue}
         </span>
         {onCopy && (
@@ -383,6 +448,41 @@ const MetaRow: FC<{
           </button>
         )}
       </span>
+    </div>
+  );
+};
+
+/**
+ * Two short rows side by side — the same trade the header stats make: a
+ * label/value row stretched across the panel's full width leaves a dead middle,
+ * and halving the width costs nothing for a value like "20" or "karras".
+ *
+ * Each pair is its own grid rather than one auto-flowing grid over the group,
+ * because a grid item that renders nothing (`display: none` via MetaRow's null)
+ * is not a grid item at all — auto-placement would slide the next row's left
+ * cell up into the hole and silently re-pair the rest of the group. A pair
+ * that has only one value sidesteps the question: it renders as a single
+ * full-width row, because a lone value sitting beside an empty cell reads as
+ * something that failed to load rather than as something unpaired.
+ */
+const MetaPair: FC<{ left: MetaRowProps; right: MetaRowProps }> = ({
+  left,
+  right,
+}) => {
+  const hasLeft = hasMetaValue(left.value);
+  const hasRight = hasMetaValue(right.value);
+  if (!hasLeft && !hasRight) {
+    return null;
+  }
+  if (!hasLeft || !hasRight) {
+    return <MetaRow {...(hasLeft ? left : right)} />;
+  }
+  return (
+    // gap-x-3 keeps the halves' contents apart even when the left value is a
+    // long one — each row's own px-3 only guarantees 6px at the seam.
+    <div className="grid grid-cols-2 gap-x-3">
+      <MetaRow {...left} />
+      <MetaRow {...right} />
     </div>
   );
 };
@@ -450,10 +550,14 @@ const PromptBlock: FC<{
   );
 };
 
-/** The six metadata groups, in the order the panel renders them. */
+/**
+ * The five metadata groups, in the order the panel renders them. The file's
+ * own stats — dimensions, megapixels, aspect ratio, size — are deliberately
+ * not a group: they sit in the header line under the timestamp, where they
+ * need no labels and no room of their own.
+ */
 type MetadataGroupKey =
   | "tags"
-  | "imageInfo"
   | "prompt"
   | "generation"
   | "performance"
@@ -461,20 +565,37 @@ type MetadataGroupKey =
 
 const METADATA_GROUPS_STORAGE_KEY = "image_modal_metadata_groups";
 
-/** How the Raw data group displays the file's unparsed metadata. */
-type MetadataViewMode = "parsed" | "json" | "fulljson";
+/**
+ * How the Raw data group displays the file's unparsed metadata. There is no
+ * "parsed" view: it held one sentence pointing at the sections above the
+ * group, which are the sections above it.
+ */
+type MetadataViewMode = "json" | "fulljson";
 
-/** The raw-data views, in the order the group's segmented control shows them. */
+/** The raw-data views, in the order the group's segmented control shows them —
+ *  the default first, so the control opens on its left segment: the file's
+ *  full metadata is what the group is for, and the app's own parsed object is
+ *  the fallback reading. */
 const METADATA_VIEW_MODES: ReadonlyArray<readonly [MetadataViewMode, string]> = [
-  ["parsed", "Parsed"],
-  ["json", "JSON"],
   ["fulljson", "Full JSON"],
+  ["json", "JSON"],
 ];
+
+/**
+ * How many files' raw metadata the panel keeps around. The read behind Full
+ * JSON is the one thing in the panel that touches the whole file (it goes
+ * over IPC and is parsed in the renderer), and Full JSON is now the view the
+ * group opens on — so without a cache, every arrow-key step through a folder
+ * would re-read and re-parse a file the user just looked at. Small and fixed
+ * on purpose: a ComfyUI payload is an entire workflow graph, so this is a
+ * memory bound, not a hit-rate target, and the case it exists for is stepping
+ * back and forth over the same handful of images.
+ */
+const RAW_METADATA_CACHE_LIMIT = 20;
 
 /** Before it had groups the panel showed everything, so that is the default. */
 const DEFAULT_METADATA_GROUPS: Record<MetadataGroupKey, boolean> = {
   tags: true,
-  imageInfo: true,
   prompt: true,
   generation: true,
   performance: true,
@@ -489,6 +610,9 @@ const DEFAULT_METADATA_GROUPS: Record<MetadataGroupKey, boolean> = {
  * would render as closed. A missing key, unparseable JSON (a bare `getItem`
  * mock returns `undefined`, and `JSON.parse(undefined)` throws) or absent
  * storage all fall back to all-open.
+ *
+ * Only the fallback's keys are read, so a stored entry for a group that no
+ * longer exists — the retired `imageInfo` — is dropped rather than resurrected.
  */
 const readExpandedGroups = (): Record<MetadataGroupKey, boolean> => {
   const fallback = { ...DEFAULT_METADATA_GROUPS };
@@ -509,10 +633,18 @@ const readExpandedGroups = (): Record<MetadataGroupKey, boolean> => {
 };
 
 /**
+ * The card surface every section of the panel sits on — the collapsible groups
+ * and the name/stats header alike. The header used to be bare text on the panel
+ * background, which read as page chrome rather than as part of the panel once
+ * every other section was a bounded card.
+ */
+const PANEL_CARD = "bg-gray-900/50 rounded-lg border border-gray-700/50";
+
+/**
  * One collapsible group: a header that is the whole disclosure control, and a
  * body that animates open. Mirrors the Models/LoRAs/Schedulers sections in
- * Sidebar.tsx, with `initial={false}` so opening the viewer does not fire six
- * simultaneous expand animations behind the image.
+ * Sidebar.tsx, with `initial={false}` so opening the viewer does not fire every
+ * group's expand animation at once behind the image.
  */
 const MetadataGroup: FC<{
   title: string;
@@ -523,7 +655,7 @@ const MetadataGroup: FC<{
   children: React.ReactNode;
 }> = ({ title, icon, count, open, onToggle, children }) => {
   return (
-    <div className="bg-gray-900/50 rounded-lg border border-gray-700/50">
+    <div className={PANEL_CARD}>
       <button
         type="button"
         onClick={onToggle}
@@ -900,8 +1032,8 @@ const resetCompactPanel = (
  * classes by scanning this file's raw text, so a class assembled at runtime is a
  * class that never gets generated.
  */
-const SIDEBAR_WIDTH = "md:w-[var(--sidebar-share,30%)]";
-const PANE_WIDTH = "md:w-[calc(100%_-_var(--sidebar-share,30%))]";
+const SIDEBAR_WIDTH = "md:w-[var(--sidebar-share,20%)]";
+const PANE_WIDTH = "md:w-[calc(100%_-_var(--sidebar-share,20%))]";
 
 const ImageModal: React.FC<ImageModalProps> = ({
   image,
@@ -930,9 +1062,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
     image.name.replace(/\.(png|jpg|jpeg|webp|mp4|webm|mkv|mov|avi)$/i, ""),
   );
   const [metadataViewMode, setMetadataViewMode] =
-    useState<MetadataViewMode>("parsed");
+    useState<MetadataViewMode>("fulljson");
   const [fullRawMetadata, setFullRawMetadata] = useState<any>(null);
   const [isLoadingFullJson, setIsLoadingFullJson] = useState(false);
+  /**
+   * The image `fullRawMetadata` belongs to — or, while a read is in flight,
+   * the image it is being read for. The viewer keeps ONE ImageModal mounted
+   * while the user walks the grid, so the loaded payload outlives navigation:
+   * without this, image B would draw image A's metadata — permanently, if
+   * nothing ever loaded B's. It also marks the read as started, so flipping
+   * views or re-expanding the group cannot start a second one.
+   */
+  const fullRawForRef = useRef<string | null>(null);
+  /** Completed reads, keyed by image id — see RAW_METADATA_CACHE_LIMIT. */
+  const fullRawCacheRef = useRef(new Map<string, unknown>());
 
   // ... (rest of the component state)
 
@@ -1115,7 +1258,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
    *
    * One number for both viewers — the ordinary one reads it against the modal
    * body, a compact window against the display's work area — and one number is
-   * the point: "the panel gets a third of the room" is a statement each mode can
+   * the point: "the panel gets a fifth of the room" is a statement each mode can
    * keep on its own terms, even though the two rectangles are not the same. The
    * alternative, a share of the compact *frame*, would size the panel to the
    * picture and hand a small file a panel too narrow to read.
@@ -1787,6 +1930,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
     }
     return [null, null];
   })();
+
+  // The header stat line's values, derived once here so the JSX below stays a
+  // read. They sit beside fileWidth/fileHeight because they keep the same
+  // rule: these are FILE properties, so they exist for a file with no
+  // generation metadata at all.
+  const fileSizeLabel = formatFileSize(image.fileSize);
+  const megapixelsLabel =
+    fileWidth && fileHeight
+      ? `${((fileWidth * fileHeight) / 1_000_000).toFixed(2)} MP`
+      : undefined;
+  const aspectRatioLabel =
+    getAspectRatio(fileWidth ?? undefined, fileHeight ?? undefined) || undefined;
 
   const effectiveDuration = (nMeta as any)?.video?.duration_seconds;
 
@@ -3223,54 +3378,77 @@ const ImageModal: React.FC<ImageModalProps> = ({
         .slice(0, 5)
     : [];
 
-  // Fetch raw metadata from file when "Full JSON" is clicked
-  const handleLoadFullJson = useCallback(async () => {
-    if (metadataViewMode === "fulljson") {
-      setMetadataViewMode("parsed");
-      return;
-    }
-    setMetadataViewMode("fulljson");
-    if (!fullRawMetadata && directoryPath) {
-      setIsLoadingFullJson(true);
-      try {
-        const [, relPath] = image.id.split("::");
-        const filePath = relPath || image.name;
-        let fullPath = `${directoryPath}/${filePath}`;
-        // Use Electron's safe path joining when available
-        if (window.electronAPI?.joinPaths) {
-          const result = await window.electronAPI.joinPaths(
-            directoryPath,
-            filePath,
-          );
-          if (result.success && result.path) {
-            fullPath = result.path;
-          }
+  // Read the file's raw metadata. Not a click handler any more: Full JSON is
+  // the Raw data group's default view, so the payload has to be there when the
+  // group opens rather than after the user asks for it. The ref makes this
+  // idempotent — per image, not per call — because re-entering the view (or
+  // re-expanding the group) must not re-read the whole file over IPC.
+  const loadFullJson = useCallback(async () => {
+    if (!directoryPath || fullRawForRef.current === image.id) return;
+    const requestedFor = image.id;
+    fullRawForRef.current = requestedFor;
+    setIsLoadingFullJson(true);
+    try {
+      const [, relPath] = image.id.split("::");
+      const filePath = relPath || image.name;
+      let fullPath = `${directoryPath}/${filePath}`;
+      // Use Electron's safe path joining when available
+      if (window.electronAPI?.joinPaths) {
+        const result = await window.electronAPI.joinPaths(
+          directoryPath,
+          filePath,
+        );
+        if (result.success && result.path) {
+          fullPath = result.path;
         }
-        const raw = await extractRawMetadataFromFile(fullPath);
-        setFullRawMetadata(raw);
-      } catch (e) {
-        console.error("Failed to load raw metadata:", e);
-      } finally {
-        setIsLoadingFullJson(false);
       }
+      const raw = await extractRawMetadataFromFile(fullPath);
+      // Cached before the staleness check below: the payload is correct for
+      // its own file whether or not the viewer has moved on from it.
+      const cache = fullRawCacheRef.current;
+      if (cache.size >= RAW_METADATA_CACHE_LIMIT) cache.clear();
+      cache.set(requestedFor, raw ?? null);
+      // A read that lands after the user moved on is dropped: the file it
+      // describes is no longer the one on screen.
+      if (fullRawForRef.current === requestedFor) setFullRawMetadata(raw);
+    } catch (e) {
+      console.error("Failed to load raw metadata:", e);
+    } finally {
+      if (fullRawForRef.current === requestedFor) setIsLoadingFullJson(false);
     }
-  }, [
-    metadataViewMode,
-    fullRawMetadata,
-    directoryPath,
-    image.id,
-    image.name,
-  ]);
+  }, [directoryPath, image.id, image.name]);
 
-  // The Raw data group's segmented control. `handleLoadFullJson` is itself a
-  // toggle — it falls back to "parsed" when already showing full JSON — so it
-  // is only handed the selection when that is actually the change being made,
-  // or picking "Full JSON" while already there would flip the view off.
-  const selectMetadataView = (mode: MetadataViewMode) => {
-    if (mode === "fulljson") {
-      if (metadataViewMode !== "fulljson") void handleLoadFullJson();
+  // Fetch it as soon as the view that shows it can be seen — which, with Full
+  // JSON as the default, is the moment the panel opens. A collapsed Raw data
+  // group defers the read: nothing would render it, and it is the one read in
+  // the panel that touches the whole file.
+  useEffect(() => {
+    if (metadataViewMode !== "fulljson" || !expandedGroups.raw) return;
+    if (fullRawForRef.current === image.id) return;
+    // An image already read once is served from the cache, in this commit —
+    // that is what makes stepping back and forth through a folder cheap.
+    const cache = fullRawCacheRef.current;
+    if (cache.has(image.id)) {
+      fullRawForRef.current = image.id;
+      setFullRawMetadata(cache.get(image.id));
+      // A read for the image just left may still be in flight, and its
+      // `finally` will not clear the flag: this image's view is complete.
+      setIsLoadingFullJson(false);
       return;
     }
+    // Whatever is in state belongs to the previous image. Starting a read
+    // replaces it in the same commit — the pane shows its loading state
+    // meanwhile, which is what keeps another file's metadata off the screen —
+    // but clear it anyway: with no read left to start (no directory path),
+    // nothing else would.
+    setFullRawMetadata(null);
+    void loadFullJson();
+  }, [metadataViewMode, expandedGroups.raw, image.id, loadFullJson]);
+
+  // The Raw data group's segmented control: two named views, each a plain
+  // selection. The load is the effect's job, so picking "Full JSON" only has
+  // to say that is what is showing.
+  const selectMetadataView = (mode: MetadataViewMode) => {
     setMetadataViewMode(mode);
   };
 
@@ -3819,49 +3997,122 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 : ""
             }`}
           >
-            {isRenaming ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="bg-gray-900 text-gray-50 border border-gray-600 rounded-lg px-2 py-1 w-full"
-                  autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && confirmRename()}
+            {/* Name, timestamp and the file's own stats, as one header block
+                on the same card surface as the groups below it — not a group
+                itself, so it has no header row, chevron or remembered state.
+                The stats used to be their own "Image info" group; folded in
+                under the timestamp they answer "what is this file" at a
+                glance, and the panel stops repeating the file name and
+                stretching label/value pairs across its full width. Icons
+                carry the meaning the row labels used to, and each value keeps
+                a screen-reader-only label — "563:1000" is only
+                self-explanatory once you know it is an aspect ratio. */}
+            <div className={`${PANEL_CARD} px-3 py-3 space-y-1.5`}>
+              {isRenaming ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="bg-gray-900 text-gray-50 border border-gray-600 rounded-lg px-2 py-1 w-full"
+                    autoFocus
+                    onKeyDown={(e) => e.key === "Enter" && confirmRename()}
+                  />
+                  <button
+                    onClick={confirmRename}
+                    className="bg-green-600 text-gray-50 px-3 py-1 rounded-lg"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setIsRenaming(false)}
+                    className="bg-gray-600 text-gray-50 px-3 py-1 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <h2 className="text-xl font-bold text-gray-100 break-all flex items-center gap-2 flex-wrap">
+                  <span className="break-all">{image.name}</span>
+                  <button
+                    onClick={() => setIsRenaming(true)}
+                    disabled={isIndexing}
+                    className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-orange-400"}`}
+                    title={
+                      isIndexing
+                        ? "Cannot rename during indexing"
+                        : "Rename image"
+                    }
+                  >
+                    <Pencil size={16} />
+                  </button>
+                </h2>
+              )}
+              {/* gray-300, the stats grid's value color — an accent date made
+                  the timestamp the panel's one colored line. */}
+              <p className="flex items-center gap-1.5 text-sm text-gray-300">
+                <CalendarClock
+                  size={14}
+                  className="shrink-0 text-gray-500"
+                  aria-hidden="true"
                 />
-                <button
-                  onClick={confirmRename}
-                  className="bg-green-600 text-gray-50 px-3 py-1 rounded-lg"
-                >
-                  Save
-                </button>
-                <button
-                  onClick={() => setIsRenaming(false)}
-                  className="bg-gray-600 text-gray-50 px-3 py-1 rounded-lg"
-                >
-                  Cancel
-                </button>
+                <span className="break-all">
+                  {new Date(image.lastModified).toLocaleString()}
+                </span>
+              </p>
+              {/* 2×2 grid, not one wrapping line: two short columns need roughly
+                  half the horizontal room, so the row never becomes the widest
+                  thing in the header (the panel is resizable and the grid is a
+                  flex item's min-content contributor). */}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-300">
+                {fileWidth && fileHeight && (
+                  <>
+                    <span className="flex items-center gap-1.5">
+                      <Ruler
+                        size={14}
+                        className="shrink-0 text-gray-500"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">Dimensions:</span>
+                      <span className="tabular-nums">
+                        {fileWidth} × {fileHeight}
+                      </span>
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Grid3x3
+                        size={14}
+                        className="shrink-0 text-gray-500"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">Megapixels:</span>
+                      <span className="tabular-nums">{megapixelsLabel}</span>
+                    </span>
+                    {aspectRatioLabel && (
+                      <span className="flex items-center gap-1.5">
+                        <Ratio
+                          size={14}
+                          className="shrink-0 text-gray-500"
+                          aria-hidden="true"
+                        />
+                        <span className="sr-only">Aspect ratio:</span>
+                        <span className="tabular-nums">{aspectRatioLabel}</span>
+                      </span>
+                    )}
+                  </>
+                )}
+                {fileSizeLabel && (
+                  <span className="flex items-center gap-1.5">
+                    <HardDrive
+                      size={14}
+                      className="shrink-0 text-gray-500"
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">File size:</span>
+                    <span className="tabular-nums">{fileSizeLabel}</span>
+                  </span>
+                )}
               </div>
-            ) : (
-              <h2 className="text-xl font-bold text-gray-100 break-all flex items-center gap-2 flex-wrap">
-                <span className="break-all">{image.name}</span>
-                <button
-                  onClick={() => setIsRenaming(true)}
-                  disabled={isIndexing}
-                  className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-orange-400"}`}
-                  title={
-                    isIndexing
-                      ? "Cannot rename during indexing"
-                      : "Rename image"
-                  }
-                >
-                  <Pencil size={16} />
-                </button>
-              </h2>
-            )}
-            <p className="text-sm text-accent break-all">
-              {new Date(image.lastModified).toLocaleString()}
-            </p>
+            </div>
 
           {/* Tags. The star, input and pills stay one composition rather than
               becoming label/value rows — this is an editor, not a readout, and
@@ -3984,39 +4235,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
             </div>
           </MetadataGroup>
 
-          {/* Image info — always visible. Resolution/megapixels/aspect ratio come
-              from the file itself (actual dimensions), not from generation
-              metadata, so they must not depend on nMeta. */}
-          <MetadataGroup
-            title="Image info"
-            icon={<Info size={13} className="shrink-0 text-gray-500" />}
-            open={expandedGroups.imageInfo}
-            onToggle={() => toggleMetadataGroup("imageInfo")}
-          >
-            <div className="divide-y divide-gray-700/40">
-              <MetaRow
-                label="Dimensions"
-                value={fileWidth && fileHeight ? `${fileWidth}x${fileHeight}` : undefined}
-              />
-              <MetaRow
-                label="Megapixels"
-                value={
-                  fileWidth && fileHeight
-                    ? `${((fileWidth * fileHeight) / 1_000_000).toFixed(2)} MP`
-                    : undefined
-                }
-              />
-              <MetaRow
-                label="Aspect Ratio"
-                value={
-                  getAspectRatio(fileWidth ?? undefined, fileHeight ?? undefined) ||
-                  undefined
-                }
-              />
-              <MetaRow label="File Size" value={formatFileSize(image.fileSize)} />
-            </div>
-          </MetadataGroup>
-
           {nMeta ? (
             <>
               {/* Prompt. The ref stays on the wrapper holding both blocks:
@@ -4067,48 +4285,74 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 <div className="divide-y divide-gray-700/40">
                   <MetaRow
                     label="Model"
+                    icon={Box}
                     value={nMeta.model}
                     onCopy={(v) => copyToClipboard(v, "Model")}
                   />
                   {((nMeta as any).vae || (nMeta as any).vaes?.[0]?.name) && (
                     <MetaRow
                       label="VAE"
+                      icon={Aperture}
                       value={(nMeta as any).vae || (nMeta as any).vaes?.[0]?.name}
                     />
                   )}
                   {/* MetaRow drops an empty value, so the old explicit guards are
                       not needed for these two — `[].join()` is "" and undefined
                       passes through. */}
-                  <MetaRow label="Generator" value={nMeta.generator} />
+                  <MetaRow label="Generator" icon={Cpu} value={nMeta.generator} />
                   <MetaRow
                     label="LoRAs"
+                    icon={Layers}
                     value={nMeta.loras?.map(formatLoRA).join(", ")}
                   />
-                  <MetaRow label="Steps" value={effectiveMetadata?.steps} />
-                  <MetaRow
-                    label="CFG Scale"
-                    value={effectiveMetadata?.cfg_scale}
+                  {/* The sampling parameters are short values, so they pair
+                      two to a row — Steps|CFG and Sampler|Scheduler are the
+                      pairs a generator's own info block groups. Model, VAE,
+                      Generator and LoRAs above stay full width: their values
+                      are file names and lists, not values. Every label in the
+                      group is an icon with its name as hover text, which is
+                      also what keeps a half-row's label from eating the space
+                      its short value needs. A pair missing one side renders
+                      as a single full-width row (see MetaPair). */}
+                  <MetaPair
+                    left={{
+                      label: "Steps",
+                      icon: Footprints,
+                      value: effectiveMetadata?.steps,
+                    }}
+                    right={{
+                      label: "CFG Scale",
+                      icon: Gauge,
+                      value: effectiveMetadata?.cfg_scale,
+                    }}
                   />
-                  <MetaRow
-                    label="Clip Skip"
-                    value={
-                      nMeta.clip_skip && nMeta.clip_skip > 1
-                        ? nMeta.clip_skip
-                        : undefined
-                    }
+                  <MetaPair
+                    left={{
+                      label: "Clip Skip",
+                      icon: SkipForward,
+                      value:
+                        nMeta.clip_skip && nMeta.clip_skip > 1
+                          ? nMeta.clip_skip
+                          : undefined,
+                    }}
+                    right={{
+                      label: "Seed",
+                      icon: Dices,
+                      value: nMeta.seed,
+                      onCopy: (v) => copyToClipboard(v, "Seed"),
+                    }}
                   />
-                  <MetaRow
-                    label="Seed"
-                    value={nMeta.seed}
-                    onCopy={(v) => copyToClipboard(v, "Seed")}
-                  />
-                  <MetaRow label="Sampler" value={nMeta.sampler} />
-                  <MetaRow
-                    label="Scheduler"
-                    value={effectiveMetadata?.scheduler}
+                  <MetaPair
+                    left={{ label: "Sampler", icon: Waves, value: nMeta.sampler }}
+                    right={{
+                      label: "Scheduler",
+                      icon: Timer,
+                      value: effectiveMetadata?.scheduler,
+                    }}
                   />
                   <MetaRow
                     label="Denoise"
+                    icon={Blend}
                     value={
                       (nMeta as any).denoise != null &&
                       (nMeta as any).denoise < 1
@@ -4227,9 +4471,9 @@ const ImageModal: React.FC<ImageModalProps> = ({
           >
             <div className="px-3">
               {/* A segmented control rather than the two underline links this
-                  replaced: with the section collapsed to a header, three named
-                  views say which one is showing; "Show Parsed" said only what
-                  the other button would do. */}
+                  replaced: with the section collapsed to a header, named views
+                  say which one is showing; "Show Full JSON" said only what the
+                  other button would do. */}
               <div className="inline-flex rounded-lg bg-gray-800/60 p-0.5">
                 {METADATA_VIEW_MODES.map(([mode, label]) => (
                   <button
@@ -4246,12 +4490,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   </button>
                 ))}
               </div>
-              {metadataViewMode === "parsed" && (
-                <p className="mt-2 text-sm text-gray-400">
-                  The parsed metadata is in the sections above. Choose JSON for
-                  the raw file metadata.
-                </p>
-              )}
             </div>
             {metadataViewMode === "json" && (
               <div className="relative px-3 pt-2">
@@ -4310,38 +4548,6 @@ const ImageModal: React.FC<ImageModalProps> = ({
               </>
             )}
           </MetadataGroup>
-
-          {/* File actions — not metadata, so not a group: always reachable. */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() =>
-                copyToClipboard(
-                  JSON.stringify(image.metadata, null, 2),
-                  "Raw Metadata",
-                )
-              }
-              // text-accent, not text-blue-300: accent is remapped per theme,
-              // blue-300 is a raw palette value that goes near-white on the
-              // pale wash this button uses in light mode.
-              className="w-full justify-center bg-blue-500/10 hover:bg-blue-500/20 text-accent border border-blue-500/30 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2"
-            >
-              Copy Raw Metadata
-            </button>
-            <button
-              onClick={async () => {
-                if (!directoryPath) {
-                  alert(
-                    "Cannot determine file location: directory path is missing.",
-                  );
-                  return;
-                }
-                await showInExplorer(`${directoryPath}/${image.name}`);
-              }}
-              className="w-full justify-center bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-            >
-              Show in Folder
-            </button>
-          </div>
           </div>
         </div>
 

@@ -32,10 +32,11 @@ import type { IndexedImage } from '../types';
  * ImageModal file-parameter regression.
  *
  * Resolution / megapixels / aspect ratio / file size are FILE properties —
- * they must display even when the file carries no generation metadata
- * (nMeta undefined) or when the metadata parser left width/height unset
- * (e.g. MP4s whose dimensions come from the tkhd track header, not from
- * embedded generation data). The indexer stores them in image.dimensions.
+ * they display in the header stat line under the timestamp, and they must
+ * show even when the file carries no generation metadata (nMeta undefined) or
+ * when the metadata parser left width/height unset (e.g. MP4s whose dimensions
+ * come from the tkhd track header, not from embedded generation data). The
+ * indexer stores them in image.dimensions.
  */
 
 function makeImage(overrides: Partial<IndexedImage> = {}): IndexedImage {
@@ -62,13 +63,11 @@ describe('ImageModal file parameters', () => {
       />,
     );
 
-    // File-parameter grid renders independently of nMeta…
-    expect(screen.getByText('Dimensions')).toBeTruthy();
-    expect(screen.getByText('1344x768')).toBeTruthy();
+    // The header stat line renders independently of nMeta. It carries no
+    // visible labels, so each value is its own anchor.
+    expect(screen.getByText('1344 × 768')).toBeTruthy();
     expect(screen.getByText('1.03 MP')).toBeTruthy();
-    expect(screen.getByText('Aspect Ratio')).toBeTruthy();
-    expect(screen.getByText('7:4')).toBeTruthy();
-    expect(screen.getByText('File Size')).toBeTruthy();
+    expect(screen.getByText('16:9')).toBeTruthy();
     expect(screen.getByText('2.0 KB')).toBeTruthy();
     // …and the no-metadata notice still shows for generation data.
     expect(screen.getByText('No normalized metadata available.')).toBeTruthy();
@@ -93,10 +92,10 @@ describe('ImageModal file parameters', () => {
       />,
     );
 
-    expect(screen.getByText('1024x1024')).toBeTruthy();
+    expect(screen.getByText('1024 × 1024')).toBeTruthy();
     expect(screen.getByText('1.05 MP')).toBeTruthy();
     expect(screen.getByText('1:1')).toBeTruthy();
     // The stale/fallback dimensions string must not win over metadata.
-    expect(screen.queryByText('512x512')).toBeNull();
+    expect(screen.queryByText('512 × 512')).toBeNull();
   });
 });
