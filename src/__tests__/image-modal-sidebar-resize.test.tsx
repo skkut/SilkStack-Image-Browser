@@ -299,7 +299,7 @@ describe('the metadata panel in a compact window', () => {
       />,
     );
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
@@ -417,7 +417,7 @@ describe('the metadata panel in a compact window', () => {
     // on.
     const first = openCompact('400x300');
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Expand sidebar').click();

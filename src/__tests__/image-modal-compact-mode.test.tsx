@@ -269,7 +269,7 @@ beforeEach(() => {
 describe('ImageModal compact mode', () => {
   it('offers the compact toggle only in the standalone viewer window', () => {
     render(<ImageModal image={makeImage()} onClose={() => {}} />);
-    expect(screen.queryByLabelText('Fit window to image')).toBeNull();
+    expect(screen.queryByLabelText('Compact mode')).toBeNull();
     // …and never calls the IPC from the browser-hosted modal.
     expect(setViewerCompactMode).not.toHaveBeenCalled();
   });
@@ -287,7 +287,7 @@ describe('ImageModal compact mode', () => {
     expect(panel.className).not.toContain('hidden');
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
 
     // 1000x500 in a 1000x1000 work area: scale 0.984 → 984x492 image area,
@@ -314,7 +314,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
 
     expect(screen.getByLabelText('Expand sidebar')).toBeTruthy();
@@ -335,7 +335,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     expect(screen.getByTestId('metadata-panel').className).toContain('hidden');
     // 400x300 is not upscaled by the fit, so the window is the picture at its
@@ -379,7 +379,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
@@ -405,7 +405,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Exit compact mode').click();
@@ -441,7 +441,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
 
     expect(global.localStorage.setItem).toHaveBeenCalledWith(
@@ -481,7 +481,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
@@ -516,7 +516,7 @@ describe('ImageModal compact mode', () => {
     );
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
@@ -561,7 +561,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(1000, 540, 'center'));
 
@@ -668,7 +668,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // The main process applies our requested size; under display scaling the
@@ -713,7 +713,7 @@ describe('ImageModal compact mode — user-resized windows', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
         compactPayload(254, 1000, 'center'),
@@ -752,7 +752,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       />,
     );
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
@@ -789,7 +789,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       />,
     );
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
 
     // Hold the reply to the panel's resize, and look at the frame while it is
@@ -896,7 +896,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // The fit is the whole work area: 984x738 of picture in a 1000x754 pane
@@ -954,7 +954,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       expect(panel().className).toContain('hidden');
 
@@ -1046,7 +1046,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
       />,
     );
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     act(() => {
       screen.getByLabelText('Expand sidebar').click();
@@ -1100,7 +1100,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
     expect(panel().className).not.toContain('hidden');
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     await act(async () => {});
 
@@ -1126,7 +1126,7 @@ describe('ImageModal compact mode — the metadata panel docked in the window', 
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       await act(async () => {
@@ -1269,7 +1269,7 @@ describe('ImageModal compact mode — the maximise gesture', () => {
     expect(subscribe).not.toHaveBeenCalled();
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
     expect(subscribe).toHaveBeenCalledTimes(1);
 
@@ -1308,7 +1308,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
       );
 
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(compactPayload(216, 148, 'center'));
 
@@ -1353,7 +1353,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // Straight to 2x, which is the shape a flick arrives in: the gesture's
@@ -1403,7 +1403,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       expect(setViewerCompactMode).toHaveBeenLastCalledWith(
         compactPayload(739, 1104, 'center'),
@@ -1439,7 +1439,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       const slider = () => screen.getByTitle('Adjust zoom') as HTMLInputElement;
@@ -1497,7 +1497,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       act(() => {
         screen.getByTitle('Zoom In').click();
@@ -1552,7 +1552,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // Magnified but not yet grown: the request is still waiting.
@@ -1591,7 +1591,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       act(() => {
         screen.getByTitle('Zoom In').click();
@@ -1644,7 +1644,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
     expect(picture().style.width).toBe('');
 
     act(() => {
-      screen.getByLabelText('Fit window to image').click();
+      screen.getByLabelText('Compact mode').click();
     });
 
     // Compact: the layout is pinned to the fit the frame was built around, so
@@ -1684,7 +1684,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // The frame at 1x and the pointer 200,100 from the middle of it. Anchored,
@@ -1723,7 +1723,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
 
       // 984x492 of picture across a 1000x508 pane. One step is 1230x615 of
@@ -1765,7 +1765,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
     };
 
@@ -1964,7 +1964,7 @@ describe('ImageModal compact mode — zooming inside the frame', () => {
         />,
       );
       act(() => {
-        screen.getByLabelText('Fit window to image').click();
+        screen.getByLabelText('Compact mode').click();
       });
       wheelStep(200, 100, 100);
       wheelStep(200, 100, 100);

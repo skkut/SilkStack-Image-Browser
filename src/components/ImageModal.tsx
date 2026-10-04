@@ -3491,8 +3491,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   ? "text-blue-400 bg-blue-500/15"
                   : "text-gray-400 hover:text-gray-50 hover:bg-gray-500/10"
               }`}
-              title={isCompactMode ? "Exit compact mode" : "Fit window to image"}
-              aria-label={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+              title={isCompactMode ? "Exit compact mode" : "Compact mode"}
+              aria-label={isCompactMode ? "Exit compact mode" : "Compact mode"}
               aria-pressed={isCompactMode}
             >
               <Frame size={14} />
@@ -3798,8 +3798,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
                         ? "bg-blue-500/20 text-blue-400"
                         : "bg-gray-950/60 text-gray-400 hover:text-gray-50"
                     }`}
-                    title={isCompactMode ? "Exit compact mode" : "Fit window to image"}
-                    aria-label={isCompactMode ? "Exit compact mode" : "Fit window to image"}
+                    title={isCompactMode ? "Exit compact mode" : "Compact mode"}
+                    aria-label={isCompactMode ? "Exit compact mode" : "Compact mode"}
                     aria-pressed={isCompactMode}
                   >
                     <Frame size={16} />
