@@ -8,7 +8,7 @@ import { type IndexedImage, type BaseMetadata, ImageStack, type LibraryStackCont
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useContextMenu } from '../hooks/useContextMenu';
-import type { DraggedItemRef } from '../services/imageRelocation';
+import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
 import { 
   Info, 
   Copy, 
@@ -1446,52 +1446,13 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   // Use itemsToRender for calculations
   const isEmpty = itemsToRender.length === 0;
 
+  // Payload building is shared with the table and the stack views — see
+  // buildDragPayload. It reads the store imperatively so the callback stays
+  // referentially stable (ImageCard is memoized and itemData is a dep).
   const getDragPayload = useCallback((targetImage: IndexedImage) => {
     const storeState = useImageStore.getState();
-    const currentSelectedImages = storeState.selectedImages;
-    const currentImages = storeState.images;
-
-    // If the dragged image is part of the selection, drag all selected images
-    if (currentSelectedImages.has(targetImage.id)) {
-      // Find all selected images from the current images list
-      const selectedItems = currentImages.filter(img => currentSelectedImages.has(img.id));
-      
-      // If we found them, map them to the payload
-      if (selectedItems.length > 0) {
-        return selectedItems.map(img => {
-            const [, relativeFromId] = img.id.split('::');
-            const relativePath = relativeFromId || img.name;
-            // Best effort path reconstruction using directoryId
-            const sourcePath = img.directoryId
-              ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
-              : img.id.includes('::') ? img.id.split('::')[1] : img.id;
-
-            return {
-              // id + directoryId resolve the store image EXACTLY on drop
-              // (relocation source resolution; path matching is the fallback).
-              id: img.id,
-              directoryId: img.directoryId,
-              sourcePath,
-              name: img.name
-            };
-        });
-      }
-    }
-
-    // Fallback: if not selected or mapping failed, just drag the target image
-    const [, relativeFromId] = targetImage.id.split('::');
-    const relativePath = relativeFromId || targetImage.name;
-    const sourcePath = targetImage.directoryId
-      ? `${targetImage.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
-      : targetImage.id.includes('::') ? targetImage.id.split('::')[1] : targetImage.id;
-
-    return [{
-       id: targetImage.id,
-       directoryId: targetImage.directoryId,
-       sourcePath,
-       name: targetImage.name
-    }];
-  }, []); // Removed `selectedImages` and `images` dependencies to preserve React.memo
+    return buildDragPayload(targetImage, storeState.images, storeState.selectedImages);
+  }, []);
 
   // Dummy handler for image loading since aspect ratio tracking was removed but prop is required
   const handleImageLoad = useCallback((id: string, aspectRatio: number) => {

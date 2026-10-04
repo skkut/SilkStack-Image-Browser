@@ -8,7 +8,7 @@ import { buildSubGroups } from '../hooks/useImageStacking';
 import { withPromptVariationSegments } from '../utils/promptVariation';
 import { safeLazy } from '../utils/safeLazy';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
-import type { DraggedItemRef } from '../services/imageRelocation';
+import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
 
 interface SimilarityStackExpandedViewWrapperProps {
   images: IndexedImage[];
@@ -220,38 +220,18 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
     toggleImageSelection(imageId);
   }, [toggleImageSelection]);
 
-  // Drag start — builds payload from selected images (mirrors original getDragPayload)
+  // Drag start — payload comes from the shared builder (selection-aware), so
+  // the stack view drags exactly what the grid and the table drag.
   const handleDragStart = useCallback((image: IndexedImage, event: React.DragEvent<HTMLDivElement>) => {
     const canDragExternally = typeof window !== 'undefined' && !!(window as any).electronAPI?.startFileDrag;
     if (!canDragExternally) return;
 
     const storeState = useImageStore.getState();
-    const currentSelectedImages = storeState.selectedImages;
-    const currentImages = storeState.images;
-
-    // If dragged image is part of selection, drag all selected images
-    let filesToDrag: DraggedItemRef[];
-
-    if (currentSelectedImages.has(image.id)) {
-      const selectedItems = currentImages.filter(img => currentSelectedImages.has(img.id));
-      filesToDrag = selectedItems.map(img => {
-        const [, relativeFromId] = img.id.split('::');
-        const relativePath = relativeFromId || img.name;
-        const sourcePath = img.directoryId
-          ? `${img.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
-          : img.id.includes('::') ? img.id.split('::')[1] : img.id;
-        // id + directoryId let a folder drop resolve the store image exactly
-        // (relocation source resolution; path matching is the fallback).
-        return { id: img.id, directoryId: img.directoryId, sourcePath, name: img.name };
-      });
-    } else {
-      const [, relativeFromId] = image.id.split('::');
-      const relativePath = relativeFromId || image.name;
-      const sourcePath = image.directoryId
-        ? `${image.directoryId}\\${relativePath}`.replace(/\\\\/g, '\\')
-        : image.id.includes('::') ? image.id.split('::')[1] : image.id;
-      filesToDrag = [{ id: image.id, directoryId: image.directoryId, sourcePath, name: image.name }];
-    }
+    const filesToDrag: DraggedItemRef[] = buildDragPayload(
+      image,
+      storeState.images,
+      storeState.selectedImages,
+    );
 
     if (filesToDrag.length > 0) {
       // Set internal drag state

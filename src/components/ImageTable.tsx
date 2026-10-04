@@ -6,6 +6,7 @@ import { getAspectRatio } from '../utils/imageUtils';
 import { type TableSortField, type TableSortDirection } from '../utils/tableSorting';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
+import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
 import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -180,6 +181,15 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     [onImageClick],
   );
 
+  // Same payload rule as the grid and the stack views (see buildDragPayload):
+  // the whole selection when the dragged row is part of it, else just the row.
+  // Reads the store imperatively so the identity stays stable — ImageTableRow
+  // is memoized and does not compare this prop (see its comparator).
+  const getDragPayload = useCallback((targetImage: IndexedImage) => {
+    const storeState = useImageStore.getState();
+    return buildDragPayload(targetImage, storeState.images, storeState.selectedImages);
+  }, []);
+
   // Row renderer for virtualized list
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
     const image = images[index];
@@ -192,6 +202,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
           isSemanticMatch={semanticHitIds?.has(image.id)}
           onContextMenu={handleContextMenu}
           gridTemplateColumns={gridTemplateColumns}
+          getDragPayload={getDragPayload}
         />
       </div>
     );
@@ -486,13 +497,28 @@ interface ImageTableRowProps {
   isSemanticMatch?: boolean;
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
   gridTemplateColumns: string;
+  /** Selection-aware drag payload — same builder the grid cards use. */
+  getDragPayload?: (image: IndexedImage) => DraggedItemRef[];
 }
 
-const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, onContextMenu, gridTemplateColumns }) => {
+/**
+ * Exported for tests (the row is what owns the drag gesture; the virtualized
+ * list around it renders nothing at jsdom's zero measured height).
+ */
+export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, onContextMenu, gridTemplateColumns, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
   const isVideo = isVideoFileName(image.name, image.fileType);
+
+  const setDraggedItems = useImageStore((state) => state.setDraggedItems);
+  const clearDraggedItems = useImageStore((state) => state.clearDraggedItems);
+  const canDragExternally = typeof window !== 'undefined' && !!window.electronAPI?.startFileDrag;
+
+  // Click-vs-drag guard, same rule as the grid card: the row opens the viewer
+  // on click, so a gesture that moved the pointer is a drag, not a click.
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
+  const isDragging = useRef(false);
 
   useThumbnail(image);
 
@@ -559,13 +585,75 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
     };
   }, [image.thumbnailHandle, image.handle, image.thumbnailStatus, image.thumbnailUrl, thumbnailsDisabled, isVideo]);
 
+  // ── Drag to ComfyUI / other folders / apps ────────────────────────────
+  // Two things travel with the gesture: the internal payload (store state +
+  // dataTransfer, consumed by the sidebar's folder drop for in-app moves) and
+  // the native OS drag started in main, which is what ComfyUI and Explorer
+  // receive as real files.
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDragExternally || !image.directoryId) return;
+
+    const payload = getDragPayload ? getDragPayload(image) : [];
+    if (payload.length === 0) return;
+
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('application/x-image-metahub-items', JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = 'copyMove';
+    }
+    setDraggedItems(payload);
+
+    // Cancel the in-page drag so the native file drag below is the only one
+    // running — without this the OS receives a URL/text drag, not the files.
+    e.preventDefault();
+
+    window.electronAPI?.startFileDrag({
+      files: payload.map((p) => p.sourcePath).filter(Boolean),
+      directoryPath: image.directoryId,
+      relativePath: image.id.split('::')[1] || image.name,
+      id: image.id,
+      lastModified: image.lastModified,
+    });
+  };
+
+  const handleDragEnd = () => {
+    clearDraggedItems();
+  };
+
+  const handleRowMouseDown = (e: React.MouseEvent) => {
+    mouseDownPos.current = { x: e.clientX, y: e.clientY };
+    isDragging.current = false;
+  };
+
+  const handleRowMouseMove = (e: React.MouseEvent) => {
+    if (!mouseDownPos.current) return;
+    const dx = Math.abs(e.clientX - mouseDownPos.current.x);
+    const dy = Math.abs(e.clientY - mouseDownPos.current.y);
+    if (dx > 5 || dy > 5) {
+      isDragging.current = true;
+      mouseDownPos.current = null; // Reset so subsequent moves are no-ops
+    }
+  };
+
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (isDragging.current) {
+      isDragging.current = false;
+      return;
+    }
+    onImageClick(image, e);
+  };
+
   return (
     <div
       className={`border-b border-gray-700 hover:bg-gray-800/50 cursor-pointer transition-colors group grid items-center ${
         isSelected ? 'bg-blue-900/30 border-blue-700' : ''
       }`}
-      onClick={(e) => onImageClick(image, e)}
+      onClick={handleRowClick}
+      onMouseDown={handleRowMouseDown}
+      onMouseMove={handleRowMouseMove}
       onContextMenu={(e) => onContextMenu && onContextMenu(image, e)}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      draggable={canDragExternally}
       style={{ height: '64px', gridTemplateColumns }}
     >
       <div className="px-3 py-2">
@@ -579,6 +667,9 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
                 alt={image.handle.name}
                 className="w-full h-full object-cover"
                 loading="lazy"
+                // The row owns the drag (native file drag); the browser's own
+                // image drag would hijack the gesture from the thumbnail.
+                draggable={false}
               />
               {isVideo && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -688,7 +779,10 @@ const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImage
     </div>
   );
 }, (prevProps, nextProps) => {
-  // Custom comparison for performance - only re-render if critical props changed
+  // Custom comparison for performance - only re-render if critical props changed.
+  // Like onImageClick / onContextMenu, `getDragPayload` is deliberately not
+  // compared: it reads the store imperatively and the table hands out a
+  // stable useCallback([]) identity, so comparing it would only cost renders.
   return (
     prevProps.image.id === nextProps.image.id &&
     prevProps.image.thumbnailUrl === nextProps.image.thumbnailUrl &&

@@ -18,6 +18,7 @@
  *
  * This module owns the renderer-side pieces that are not part of the store:
  *   - the pure old→new move builder (cache ids, ids, names),
+ *   - the drag payload builder every draggable surface shares,
  *   - the short-lived relocation registry the rescan/watcher paths consult,
  *   - the semantic + prompt vector IDB re-key,
  *   - the thin wrapper over the main-process `relocate-derived-files` IPC
@@ -33,10 +34,10 @@ import type {
   IndexedImage,
   RelocateDerivedFilesResult,
 } from '../types';
-import { normalizePath, getImageAbsolutePath } from '../utils/pathUtils';
+import { normalizePath, getImageAbsolutePath, joinPathPreservingCase } from '../utils/pathUtils';
 import { getIsPersistenceDisabled, openDatabase } from './indexedDb';
 
-/** The slice of a drag payload the builder needs (see ImageGrid/stack view). */
+/** The slice of a drag payload the builder needs (see buildDragPayload). */
 export interface DraggedItemRef {
   sourcePath: string;
   name: string;
@@ -87,6 +88,56 @@ export function relativePathPreservingCase(rootPath: string, absPath: string): s
     return absFwd.slice(rootNorm.length + 1);
   }
   return absFwd.split('/').pop() || absFwd;
+}
+
+/** The single-item payload shape, shared by the selection and lone-image cases. */
+function draggedRefFor(image: IndexedImage): DraggedItemRef {
+  // `id` is `${directoryId}::${relativePath}`, so the tail is the path relative
+  // to the directory root. `name` may itself carry a relative path (recursive
+  // scans fold it in), so it is the fallback rather than the source of truth.
+  const [, relativeFromId] = image.id.split('::');
+  const relativePath = relativeFromId || image.name;
+  // `directoryId` is the directory's PATH (see useImageLoader: "Use path as a
+  // unique ID"), and the relative tail always uses `/`-or-`\` separators — the
+  // join keeps the root's own style so the result is a real path on Windows,
+  // macOS and Linux alike (it goes straight to the OS drag and to fs moves).
+  const sourcePath = image.directoryId
+    ? joinPathPreservingCase(image.directoryId, relativePath)
+    : image.id.includes('::')
+      ? image.id.split('::')[1]
+      : image.id;
+  return {
+    // id + directoryId resolve the store image EXACTLY on drop
+    // (relocation source resolution; path matching is the fallback).
+    id: image.id,
+    directoryId: image.directoryId,
+    sourcePath,
+    name: image.name,
+  };
+}
+
+/**
+ * Build the drag payload for `targetImage`: the whole selection when the
+ * dragged image is part of it, otherwise just that image.
+ *
+ * Every draggable surface (grid card, table row, stack expanded view) builds
+ * its payload through here. The selection rule is what makes a drag of one
+ * selected image move the entire selection, and it has to be identical
+ * everywhere — the payload is consumed by the native OS drag, by the
+ * folder-drop move, and by the relocation re-key.
+ */
+export function buildDragPayload(
+  targetImage: IndexedImage,
+  images: IndexedImage[],
+  selectedImages: ReadonlySet<string>,
+): DraggedItemRef[] {
+  if (selectedImages.has(targetImage.id)) {
+    const selectedItems = images.filter((image) => selectedImages.has(image.id));
+    // An empty result means every selected id is outside the loaded list —
+    // fall through to the lone image rather than starting an empty drag.
+    if (selectedItems.length > 0) return selectedItems.map(draggedRefFor);
+  }
+  return [draggedRefFor(targetImage)];
 }
 
 /**

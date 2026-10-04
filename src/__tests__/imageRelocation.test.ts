@@ -10,6 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   buildCacheId,
   relativePathPreservingCase,
+  buildDragPayload,
   collectRelocationSources,
   buildRelocationMoves,
   beginRelocation,
@@ -82,6 +83,75 @@ describe('buildCacheId / relativePathPreservingCase', () => {
 
   it('falls back to the basename when the file is not under the root', () => {
     expect(relativePathPreservingCase(ROOT_A, 'D:\\elsewhere\\pic.png')).toBe('pic.png');
+  });
+});
+
+describe('buildDragPayload', () => {
+  // Every draggable surface (grid card, table row, stack expanded view) drags
+  // through this builder: the payload it produces is what the native OS drag
+  // hands to ComfyUI/Explorer AND what the sidebar folder drop moves.
+  const lone = makeImage(`${ROOT_A}::pic.png`, 'pic.png');
+  const nested = makeImage(`${ROOT_A}::sub/pic.png`, 'sub/pic.png');
+
+  it('drags just the image when it is not part of the selection', () => {
+    const payload = buildDragPayload(lone, [lone, nested], new Set());
+
+    expect(payload).toHaveLength(1);
+    expect(payload[0]).toEqual({
+      id: `${ROOT_A}::pic.png`,
+      directoryId: ROOT_A,
+      sourcePath: `${ROOT_A}\\pic.png`,
+      name: 'pic.png',
+    });
+  });
+
+  it('drags the whole selection when the dragged image is selected', () => {
+    const payload = buildDragPayload(
+      lone,
+      [lone, nested],
+      new Set([lone.id, nested.id]),
+    );
+
+    expect(payload.map((item) => item.id)).toEqual([lone.id, nested.id]);
+    // The relative tail survives into a real path — a recursive-scan image
+    // lives in a subfolder, and the drag must name that subfolder.
+    expect(payload[1].sourcePath).toBe(`${ROOT_A}\\sub\\pic.png`);
+  });
+
+  it('falls back to the lone image when no selected id is in the loaded list', () => {
+    // Selection can outlive a filter change; an empty payload would start a
+    // drag that drops nothing at all.
+    const payload = buildDragPayload(lone, [lone], new Set(['gone::elsewhere.png']));
+
+    expect(payload.map((item) => item.id)).toEqual([lone.id]);
+  });
+
+  it('joins with the root\'s own separator so non-Windows roots stay valid', () => {
+    const posix = makeImage('/home/me/libs::sub/pic.png', 'sub/pic.png', {
+      directoryId: '/home/me/libs',
+    });
+    const trailing = makeImage(`${ROOT_A}\\::pic.png`, 'pic.png', {
+      directoryId: `${ROOT_A}\\`,
+    });
+
+    expect(buildDragPayload(posix, [posix], new Set())[0].sourcePath)
+      .toBe('/home/me/libs/sub/pic.png');
+    // A root stored with a trailing separator must not double it up.
+    expect(buildDragPayload(trailing, [trailing], new Set())[0].sourcePath)
+      .toBe(`${ROOT_A}\\pic.png`);
+  });
+
+  it('round-trips through collectRelocationSources (the drop-side consumer)', () => {
+    const payload = buildDragPayload(lone, [lone, nested], new Set([lone.id, nested.id]));
+
+    const sources = collectRelocationSources(
+      payload,
+      [lone, nested],
+      [makeDirectory(ROOT_A, 'A')],
+    );
+
+    expect(sources.map((source) => source.id)).toEqual([lone.id, nested.id]);
+    expect(sources[0].absolutePath).toBe(`${ROOT_A}\\pic.png`);
   });
 });
 

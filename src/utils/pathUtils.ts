@@ -54,7 +54,7 @@ const detectSeparator = (base: string): string => (base.includes('\\') ? '\\' : 
  * lowercases because it exists to build case-insensitive Map keys; a path that
  * is going onto the clipboard or to the shell must not be mangled that way.
  */
-const joinPathPreservingCase = (base: string, relative: string): string => {
+export const joinPathPreservingCase = (base: string, relative: string): string => {
   const separator = detectSeparator(base);
   const strippedBase = base.replace(/[\\/]+$/, '');
   // A base of nothing but separators is a filesystem root ("/") — keep one.
