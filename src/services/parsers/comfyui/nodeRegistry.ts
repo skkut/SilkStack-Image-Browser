@@ -536,6 +536,20 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
     },
     widget_order: ['seed', '__unknown__', '__unknown__', '__unknown__']
   },
+  // comfy-core seed source (v0.31+). Widget-only node: the value lives in
+  // widgets_values, and samplers wire it in by converting their seed widget
+  // into a linked input. The paired combo widget is `fixed`
+  // ("randomize"/"fixed"), per widgets_values_named in the UI format.
+  'SeedNode': {
+    category: 'UTILS',
+    roles: ['SOURCE'],
+    inputs: {},
+    outputs: { INT: { type: 'INT' } },
+    param_mapping: {
+      seed: { source: 'widget', key: 'seed' }
+    },
+    widget_order: ['seed', 'fixed']
+  },
 
   // --- FLUX-SPECIFIC NODES (woman.json workflow) ---
   'Lora Loader (JPS)': {

@@ -12,7 +12,7 @@ The ComfyUI parser is the most complex metadata parser in the project. It uses a
    - Overlays workflow nodes onto prompt data for complete graph representation
 
 2. **Traversal Engine** (`traversalEngine.ts`)
-   - Traverses graph backwards from SINK nodes (like KSampler)
+   - Traverses graph backwards from SINK nodes (like KSampler); with several samplers (generation + upscale/refiner passes), the one fed by an `Empty*Latent*` source is chosen
    - Skips muted nodes (mode 2/4)
    - Supports multiple traversal strategies:
      - **Single Path**: For unique parameters (seed)

@@ -61,6 +61,7 @@ The parser uses a **priority-based extraction system**:
 
 **3. Traversal Engine (`traversalEngine.ts`)** (Fallback)
 - Graph traversal from terminal SINK nodes backwards through connections
+- **Terminal selection**: when several samplers exist — a generation pass plus upscale/refiner passes, common once subgraphs are flattened — the sampler whose `latent_image` traces back to an `Empty*Latent*` source wins over node-array order. Bypassed (4) / muted (2) samplers are walked through; an active upstream sampler ends the search.
 - Mode-aware: skips muted nodes (mode 2/4)
 - State-aware: maintains traversal context for complex parameter resolution
 - Supports multiple traversal strategies:
@@ -122,7 +123,7 @@ The parser uses a **priority-based extraction system**:
 - **widgets_values**: UI widget data (flat array, position-based)
 - **inputs**: Execution connections (object with link references)
 - PNG exports may contain both or only one
-- Fallback strategy: `widgets_values → inputs → defaults`
+- Fallback strategy: `widgets_values → inputs → defaults`, except for a widget converted into an input — there the link overrides the stale `widgets_values` entry
 
 ---
 
@@ -265,6 +266,9 @@ if (metadata._detection_method === 'metahub_chunk') {
 ```typescript
 { source: 'widget', key: 'steps' }
 // Reads from widgets_values[widget_order.indexOf('steps')]
+// EXCEPT when that slot is also a linked input (the widget was converted into
+// an input, e.g. KSampler.seed ← SeedNode): the link is what executes and
+// widgets_values holds only the stale last-used value, so the link wins.
 
 // NEW (v0.9.6): With accumulation flag
 { source: 'widget', key: 'lora_name', accumulate: true }

@@ -196,14 +196,27 @@ function traverse(
 function extractValue(node: ParserNode, rule: ParamMappingRule, state: TraversalState, graph: Graph, accumulator: any[]): any {
     if (rule.source === 'widget') {
         const nodeDef = NodeRegistry[node.class_type];
-        
-        // 1️⃣ Tenta via widget_order index
+
+        // 1️⃣ Um LINK neste input vence o valor guardado no widget.
+        // Quando o ComfyUI converte um widget em input (ex: KSampler.seed ←
+        // SeedNode), widgets_values mantém o último valor que o widget teve —
+        // obsoleto, porque quem executa é o link. Sem esta precedência o valor
+        // velho sombreia o link e o seed real nunca é alcançado.
+        const linkedInput = node.inputs?.[rule.key];
+        if (Array.isArray(linkedInput) && linkedInput.length === 2) {
+            const linkedValue = traverseFromLink(linkedInput as NodeLink, state, graph, accumulator);
+            if (linkedValue !== null && linkedValue !== undefined) {
+                return linkedValue;
+            }
+        }
+
+        // 2️⃣ Tenta via widget_order index
         const widgetIndex = nodeDef?.widget_order?.indexOf(rule.key) ?? -1;
         if (widgetIndex !== -1 && node.widgets_values?.[widgetIndex] !== undefined) {
             return node.widgets_values[widgetIndex];
         }
         
-        // 2️⃣ FALLBACK: Tenta ler diretamente de inputs (workflows sem UI)
+        // 3️⃣ FALLBACK: Tenta ler diretamente de inputs (workflows sem UI)
         if (!node.widgets_values || node.widgets_values.length === 0) {
             const inputValue = node.inputs?.[rule.key];
             if (inputValue !== undefined) {
@@ -218,7 +231,7 @@ function extractValue(node: ParserNode, rule: ParamMappingRule, state: Traversal
             }
         }
         
-        // 3️⃣ FALLBACK FINAL: Procura em inputs por nome similar
+        // 4️⃣ FALLBACK FINAL: Procura em inputs por nome similar
         const inputValue = node.inputs?.[rule.key];
         if (inputValue !== undefined && !Array.isArray(inputValue)) {
             return inputValue;

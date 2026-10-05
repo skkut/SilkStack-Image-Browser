@@ -1,4 +1,4 @@
-import { resolveAll, resolveFacts } from './comfyui/traversalEngine';
+import { resolve, resolveAll, resolveFacts } from './comfyui/traversalEngine';
 import { ParserNode, NodeRegistry, WorkflowFacts } from './comfyui/nodeRegistry';
 
 // Lazy-loaded zlib for Node.js environment
@@ -151,6 +151,22 @@ function extractAdvancedSeed(node: ParserNode | null, graph: Graph): { seed: num
   // Handle null node
   if (!node) {
     return { seed: null };
+  }
+
+  // A linked seed input is authoritative. When ComfyUI converts a sampler's
+  // seed widget into an input, widgets_values keeps a stale copy while the
+  // link executes — so resolve through the link (usually to a SeedNode)
+  // instead of letting the widget scan below return the stale value.
+  const seedLink = node.inputs?.seed;
+  if (Array.isArray(seedLink) && seedLink.length === 2) {
+    const linkedSeed = resolve({ startNode: node, param: 'seed', graph });
+    if (typeof linkedSeed === 'number' && !isNaN(linkedSeed)) {
+      return { seed: linkedSeed };
+    }
+    if (typeof linkedSeed === 'string' && linkedSeed.startsWith('0x')) {
+      const hexLinked = parseInt(linkedSeed, 16);
+      if (!isNaN(hexLinked)) return { seed: hexLinked };
+    }
   }
 
   // Try numeric seed first (standard path)
@@ -692,6 +708,42 @@ function createNodeMap(workflow: any, prompt: any): Graph {
 
 
 
+/** Input names that carry a LATENT upstream of a sampler. */
+const LATENT_INPUT_NAMES = ['latent_image', 'latent', 'samples'];
+
+/**
+ * True when a sampler's latent input traces back (through bypassed/muted
+ * nodes and regular latent transforms) to an EmptyLatent* source — i.e. the
+ * pass that actually generated the image from noise, as opposed to a
+ * post-processing pass (upscale/refine) that consumes an encoded image.
+ */
+function tracesToEmptyLatent(node: ParserNode, graph: Graph): boolean {
+    const visited = new Set<string>();
+    let current: ParserNode | undefined = node;
+
+    for (let depth = 0; depth < 20 && current; depth++) {
+        if (visited.has(current.id)) return false;
+        visited.add(current.id);
+
+        let next: ParserNode | undefined;
+        for (const inputName of LATENT_INPUT_NAMES) {
+            const link = current.inputs?.[inputName];
+            if (Array.isArray(link) && link.length === 2) {
+                next = graph[link[0]];
+                break;
+            }
+        }
+        if (!next) return false;
+        if (/Empty.*Latent/i.test(next.class_type || '')) return true;
+        // Another ACTIVE sampler upstream ends the search: a generation pass
+        // starts from noise, not from another sampler's output. Bypassed (4)
+        // and muted (2) samplers pass data through, so keep walking past them.
+        if (next.mode !== 2 && next.mode !== 4 && /Sampler/i.test(next.class_type || '')) return false;
+        current = next;
+    }
+    return false;
+}
+
 /**
  * Encontra o nó terminal do grafo, que serve como ponto de partida para a travessia.
  * Prioriza nós de geração (KSampler) sobre pós-processamento (UltimateSDUpscale).
@@ -700,6 +752,7 @@ function createNodeMap(workflow: any, prompt: any): Graph {
 function findTerminalNode(graph: Graph): ParserNode | null {
     let terminalNode: ParserNode | null = null;
     let kSamplerNode: ParserNode | null = null;
+    let generationSamplerNode: ParserNode | null = null;
 
     for (const nodeId in graph) {
         const node = graph[nodeId];
@@ -722,14 +775,21 @@ function findTerminalNode(graph: Graph): ParserNode | null {
               if (!kSamplerNode || node.class_type === 'KSampler (Efficient)') {
                 kSamplerNode = node;
               }
+              // Remember the first sampler fed from an EmptyLatent* source. A
+              // workflow can hold several samplers (generation + upscale/refine
+              // passes); insertion order alone would pick whichever subgraph
+              // instance appears first in the .json nodes array.
+              if (!generationSamplerNode && tracesToEmptyLatent(node, graph)) {
+                generationSamplerNode = node;
+              }
             } else if (!terminalNode || node.class_type === 'SaveImage' || node.class_type === 'UltimateSDUpscale') {
                 terminalNode = node;
             }
         }
     }
 
-    // Return KSampler if found, otherwise return any SINK node
-    const result = kSamplerNode || terminalNode;
+    // Return the generation sampler if found, then any KSampler, then any SINK
+    const result = generationSamplerNode || kSamplerNode || terminalNode;
     return result;
 }
 
