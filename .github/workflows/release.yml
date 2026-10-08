@@ -75,7 +75,7 @@ jobs:
         # private source. Bump AI_INTELLIGENCE_REVISION at every release and
         # record it in the release body (see mpl-covered-sources/SOURCES.md).
         env:
-          AI_INTELLIGENCE_REVISION: 499dcb30e67af53adee2e3e33a0eb4eb11626653
+          AI_INTELLIGENCE_REVISION: b7c608bdfa9c2fa76a321b365a3145d09f33ac6d
         run: git clone https://oauth2:${{ secrets.GH_PAT }}@github.com/skkut/ai-intelligence.git ai-intelligence && git -C ai-intelligence checkout $AI_INTELLIGENCE_REVISION
 
       - name: Install Node.js

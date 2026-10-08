@@ -68,7 +68,7 @@
     "releaseType": "release"
   },
   "releaseInfo": {
-    "releaseNotesFile": "docs/release-v2.3.0.md"
+    "releaseNotesFile": "docs/release-v2.4.0.md"
   },
   "generateUpdatesFilesForAllChannels": true
 }
