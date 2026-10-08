@@ -45,7 +45,7 @@ More features are coming soon. Follow, subscribe and keep looking for updates.
 
 ## License & Build Provenance
 
-This release contains Mozilla Public License 2.0 code. The corresponding source ships in the attached **`silkstack-mpl-covered-sources-v2.4.0.zip`** and in the repository's [`mpl-covered-sources/`](https://github.com/skkut/SilkStack-Image-Browser/tree/main/mpl-covered-sources) directory. Built from the private `ai-intelligence` revision `b7c608b` (source drop at the link above). Covered-sources ZIP SHA-256: `C7A520F113BB589EF14A45DB7792F6A20A1F69B99A29E7020C0A65FA669D2254`.
+This release contains Mozilla Public License 2.0 code. The corresponding source ships in the attached **`silkstack-mpl-covered-sources-v2.4.0.zip`** and in the repository's [`mpl-covered-sources/`](https://github.com/skkut/SilkStack-Image-Browser/tree/main/mpl-covered-sources) directory. Built from the private `ai-intelligence` revision `b7c608b` (source drop at the link above). Covered-sources ZIP SHA-256: `24E9B6FF85A296F4AC3986B184A33B2ACED96771E48B89054A5C541EF2512267`.
 
 ---
 
