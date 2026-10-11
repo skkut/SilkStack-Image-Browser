@@ -4068,30 +4068,56 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   </button>
                 </div>
               ) : (
-                /* Renaming opens on a double-click of the name itself. It used
-                   to be a pencil button beside it, but the row was a flex-wrap:
-                   a long name pushed the pencil onto a line of its own, so the
-                   card grew a row that was there for some names and not others.
-                   With the name the row's only child, the h2 is a plain block
-                   and the whole row is the target, however the name wraps.
+                /* The name and the star that marks it, on the row the card
+                   opens with. The star belongs to the file, not to the file's
+                   tags, so it sits beside the name it applies to rather than
+                   in a row of its own three cards down.
+
+                   Renaming opens on a double-click of the name. The star is a
+                   sibling of the h2, never a child, so a double-click on the
+                   star cannot reach the rename behind it — and the h2 still
+                   owns the rest of the row (`flex-1`), however the name wraps.
+                   `items-start` with an h-7 star: 28px is the text-xl line box,
+                   so the star centres on the name's first line rather than on
+                   the block's middle, which for a wrapped name is nowhere near
+                   the name.
 
                    Still inert while indexing — the indexer is reading this
-                   file's path — with the reason in the tooltip the button's
+                   file's path — with the reason in the tooltip the old button's
                    `title` used to carry. The cursor says which of the two the
                    row is right now. */
-                <h2
-                  onDoubleClick={() => !isIndexing && setIsRenaming(true)}
-                  className={`text-xl font-bold text-gray-100 break-all py-1.5 ${
-                    isIndexing ? "cursor-not-allowed" : "cursor-text"
-                  }`}
-                  title={
-                    isIndexing
-                      ? "Cannot rename during indexing"
-                      : "Double-click to rename"
-                  }
-                >
-                  {image.name}
-                </h2>
+                <div className="flex items-start gap-2 py-1.5">
+                  <button
+                    onClick={handleToggleFavorite}
+                    className={`shrink-0 h-7 flex items-center px-0.5 rounded transition-all ${
+                      currentIsFavorite
+                        ? "text-yellow-400 hover:text-yellow-300"
+                        : "text-gray-500 hover:text-yellow-400"
+                    }`}
+                    title={
+                      currentIsFavorite
+                        ? "Remove from favorites"
+                        : "Add to favorites"
+                    }
+                  >
+                    <Star
+                      className={`w-5 h-5 ${currentIsFavorite ? "fill-current" : ""}`}
+                    />
+                  </button>
+                  <h2
+                    onDoubleClick={() => !isIndexing && setIsRenaming(true)}
+                    className={`flex-1 min-w-0 text-xl font-bold text-gray-100 break-all ${
+                      isIndexing ? "cursor-not-allowed" : "cursor-text"
+                    }`}
+                    title={
+                      isIndexing
+                        ? "Cannot rename during indexing"
+                        : "Double-click to rename"
+                    }
+                  >
+                    {image.name}
+                  </h2>
+                </div>
               )}
               {/* gray-300, the stats grid's value color — an accent date made
                   the timestamp the panel's one colored line.
@@ -4194,9 +4220,8 @@ const ImageModal: React.FC<ImageModalProps> = ({
               )}
             </div>
 
-          {/* Tags. The star, input and pills stay one composition rather than
-              becoming label/value rows — this is an editor, not a readout, and
-              the star is the primary favourite affordance. */}
+          {/* Tags. Input and pills stay one composition rather than becoming
+              label/value rows — this is an editor, not a readout. */}
           <MetadataGroup
             title="Tags"
             icon={<Tag size={13} className="shrink-0 text-gray-500" />}
@@ -4204,37 +4229,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
             open={expandedGroups.tags}
             onToggle={() => toggleMetadataGroup("tags")}
           >
-            {/* Two rows: the star and the input, then the pills that input
-                produces. Dividing them needs the line to be full-bleed rather
-                than an inset stub, so the pills leave the input's column and
-                take a row of their own — which also returns to them the width
-                the star was holding. */}
+            {/* Two rows: the input, then the pills it produces. Dividing them
+                needs the line to be full-bleed rather than an inset stub, so
+                the pills leave the input's column and take a row of their own.
+                The favourite star used to head this row — it lives on the name
+                now, which is the thing it is about. */}
             <div className="divide-y divide-gray-700/40 pt-1">
-              {/* The star keeps the input's company instead of becoming a row
-                  of its own: it is the primary favourite affordance, not a
-                  label above one. */}
-              <div className="flex items-start gap-3 px-3 pb-1.5">
-                {/* Favorite Star - Discrete */}
-                <button
-                  onClick={handleToggleFavorite}
-                  className={`p-1.5 rounded transition-all ${
-                    currentIsFavorite
-                      ? "text-yellow-400 hover:text-yellow-300"
-                      : "text-gray-500 hover:text-yellow-400"
-                  }`}
-                  title={
-                    currentIsFavorite
-                      ? "Remove from favorites"
-                      : "Add to favorites"
-                  }
-                >
-                  <Star
-                    className={`w-5 h-5 ${currentIsFavorite ? "fill-current" : ""}`}
-                  />
-                </button>
-
+              <div className="px-3 pb-1.5">
                 {/* Add Tag Input */}
-                <div className="relative flex-1">
+                <div className="relative">
                   <input
                     type="text"
                     placeholder="Add tag..."

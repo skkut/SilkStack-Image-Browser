@@ -437,8 +437,9 @@ describe("ImageModal metadata groups", () => {
       .getByText(STAT_MEGAPIXELS)
       .closest("div.grid")!.parentElement!;
 
+    // The five stats, plus the favourite star that heads the card.
     const icons = Array.from(card.querySelectorAll("svg"));
-    expect(icons.length).toBe(5);
+    expect(icons.length).toBe(6);
     for (const icon of icons) {
       expect(icon.parentElement!.getAttribute("title")).toBeTruthy();
     }
@@ -464,6 +465,32 @@ describe("ImageModal metadata groups", () => {
     const date = card.children[1] as HTMLElement;
     expect(date.getAttribute("title")).toBe("Created");
     expect(date.className).not.toContain("cursor-help");
+  });
+
+  it("puts the favourite star on the name's row, and no longer in Tags", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // One star in the panel: it moved, it was not copied.
+    const stars = document.querySelectorAll('[title="Add to favorites"]');
+    expect(stars.length).toBe(1);
+    const star = stars[0] as HTMLElement;
+
+    // On the name's row, immediately before the name.
+    const name = screen.getByText("test.png");
+    expect(star.nextElementSibling).toBe(name);
+    expect(star.parentElement!.textContent).toContain("test.png");
+
+    // A sibling of the h2, never a child of it: the h2 carries the rename on a
+    // double-click, so a star inside it would open the rename from under the
+    // pointer. The h2's own body is bare text.
+    expect(name.querySelector("button")).toBeNull();
+    expect(name.tagName).toBe("H2");
+
+    // The Tags group is the input and the pills now — no star left behind.
+    const tagsCard = header("Tags").parentElement!;
+    expect(screen.getByPlaceholderText("Add tag...")).toBeTruthy();
+    expect(tagsCard.querySelector('[title="Add to favorites"]')).toBeNull();
+    expect(tagsCard.querySelector('[title="Remove from favorites"]')).toBeNull();
   });
 
   it("opens the rename on a double-click of the name, with no button to spend a row on", () => {
@@ -549,7 +576,7 @@ describe("ImageModal metadata groups", () => {
     expect(stack.className).toContain("divide-gray-700/40");
 
     // A row only draws a line above itself if a row precedes it, so the pills
-    // must not be the stack's first child — the star and the input are.
+    // must not be the stack's first child — the input is.
     expect(pillsRow).not.toBe(stack.firstElementChild);
     expect(stack.firstElementChild!.querySelector("input")).toBe(
       screen.getByPlaceholderText("Add tag..."),
@@ -560,13 +587,12 @@ describe("ImageModal metadata groups", () => {
     render(<ImageModal image={makeImage()} onClose={() => {}} />);
 
     // `divide-y` counts rendered children only: with no pills there is nothing
-    // to divide, and the star and input are the whole body — the same way a
-    // generation row that renders nothing leaves no stray line.
-    const row = screen
+    // to divide, and the input is the whole body — the same way a generation
+    // row that renders nothing leaves no stray line.
+    const stack = screen
       .getByPlaceholderText("Add tag...")
-      .closest("div.flex.items-start")!;
-    const stack = row.parentElement!;
-    expect(stack.className).toContain("divide-y");
+      .closest("div.divide-y")!;
+    expect(stack.className).toContain("divide-gray-700/40");
     expect(stack.children.length).toBe(1);
   });
 
