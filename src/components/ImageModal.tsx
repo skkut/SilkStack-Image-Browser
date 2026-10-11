@@ -381,7 +381,7 @@ type MetaRowProps = {
   onCopy?: (value: string) => void;
   /**
    * Draws the label as this icon instead of as text. The name is not lost —
-   * it becomes the icon's hover text (the same native `title` every toolbar
+   * it becomes the row's hover text (the same native `title` every toolbar
    * button uses) and its screen-reader name.
    */
   icon?: LucideIcon;
@@ -396,6 +396,15 @@ const MetaRow: FC<MetaRowProps> = ({ label, value, onCopy, icon: Icon }) => {
 
   return (
     <div
+      // The hover text belongs to the whole readout, not to the icon in it: an
+      // icon and its value are one thing — "28" is not the answer to anything
+      // until you know the row is about steps — so the pointer may rest
+      // anywhere on the row to ask. No `cursor-help` either: a cursor that
+      // changes shape over text that is not clickable promises something.
+      //
+      // Only icon rows: a text label says its own name, and a tooltip repeating
+      // it over the row would just be noise following the pointer.
+      title={Icon ? label : undefined}
       className={`group/row flex items-start px-3 py-1.5 hover:bg-gray-700/20 transition-colors ${
         // An icon row is a readout, not a label/value table: `justify-between`
         // would fling a value like "28" to the far edge, and in a pair row it
@@ -409,10 +418,7 @@ const MetaRow: FC<MetaRowProps> = ({ label, value, onCopy, icon: Icon }) => {
         <>
           {/* h-5 so the icon centres against the value's first line box —
               rows are items-start because values can wrap. */}
-          <span
-            className="shrink-0 h-5 flex items-center text-gray-500 cursor-help"
-            title={label}
-          >
+          <span className="shrink-0 h-5 flex items-center text-gray-500">
             <Icon size={14} aria-hidden="true" />
           </span>
           {/* A sibling of the value, not a child of the icon span: an
@@ -4088,8 +4094,23 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 </h2>
               )}
               {/* gray-300, the stats grid's value color — an accent date made
-                  the timestamp the panel's one colored line. */}
-              <p className="flex items-center gap-1.5 text-sm text-gray-300 py-1.5">
+                  the timestamp the panel's one colored line.
+
+                  The card's five items are the only labelled things in the
+                  panel with neither text nor a tooltip: everywhere else the
+                  icon either sits beside its name (the groups) or carries it
+                  (MetaRow's rows). Here an icon and a value stand alone, and
+                  the icon alone cannot say whether a ruler means the size in
+                  pixels or the size on disk — so each item now names itself on
+                  hover, MetaRow's rows included, and the pointer may rest on
+                  the value as well as on the icon. No cursor change with it: a
+                  help cursor over text that is not clickable promises
+                  something. "Created" is the table's own column name for this
+                  date. */}
+              <p
+                className="flex items-center gap-1.5 text-sm text-gray-300 py-1.5"
+                title="Created"
+              >
                 <CalendarClock
                   size={14}
                   className="shrink-0 text-gray-500"
@@ -4117,7 +4138,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   it — as the second row, alone. */}
               {fileWidth && fileHeight && (
                 <div className="grid grid-cols-2 gap-x-4 text-sm text-gray-300 py-1.5">
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5" title="Dimensions">
                     <Ruler
                       size={14}
                       className="shrink-0 text-gray-500"
@@ -4128,7 +4149,7 @@ const ImageModal: React.FC<ImageModalProps> = ({
                       {fileWidth} × {fileHeight}
                     </span>
                   </span>
-                  <span className="flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5" title="Megapixels">
                     <Grid3x3
                       size={14}
                       className="shrink-0 text-gray-500"
@@ -4142,7 +4163,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
               {(aspectRatioLabel || fileSizeLabel) && (
                 <div className="grid grid-cols-2 gap-x-4 text-sm text-gray-300 py-1.5">
                   {aspectRatioLabel && (
-                    <span className="flex items-center gap-1.5">
+                    <span
+                      className="flex items-center gap-1.5"
+                      title="Aspect ratio"
+                    >
                       <Ratio
                         size={14}
                         className="shrink-0 text-gray-500"
@@ -4153,7 +4177,10 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     </span>
                   )}
                   {fileSizeLabel && (
-                    <span className="flex items-center gap-1.5">
+                    <span
+                      className="flex items-center gap-1.5"
+                      title="File size"
+                    >
                       <HardDrive
                         size={14}
                         className="shrink-0 text-gray-500"

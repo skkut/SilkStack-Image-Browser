@@ -423,6 +423,49 @@ describe("ImageModal metadata groups", () => {
     expect(card.querySelectorAll(".grid-cols-2").length).toBe(1);
   });
 
+  it("names each header card item on hover, the value as well as the icon", () => {
+    // A file size too, so all five items are on the card at once.
+    render(
+      <ImageModal image={makeImage({ fileSize: 12345 })} onClose={() => {}} />,
+    );
+
+    // These five are the panel's only labelled things with neither text nor a
+    // tooltip: an icon and a value, where the icon alone cannot say whether a
+    // ruler means the size in pixels or the size on disk. Everywhere else the
+    // icon either sits beside its name (the groups) or carries it (MetaRow).
+    const card = screen
+      .getByText(STAT_MEGAPIXELS)
+      .closest("div.grid")!.parentElement!;
+
+    const icons = Array.from(card.querySelectorAll("svg"));
+    expect(icons.length).toBe(5);
+    for (const icon of icons) {
+      expect(icon.parentElement!.getAttribute("title")).toBeTruthy();
+    }
+
+    // The name belongs to the item, not to the icon: the value was never
+    // self-explanatory either, so hovering it says the same thing. Each stat's
+    // name is the one its value already carries to a screen reader.
+    for (const [label, value] of [
+      ["Dimensions", "1024 × 1024"],
+      ["Megapixels", STAT_MEGAPIXELS],
+      ["Aspect ratio", "1:1"],
+      ["File size", "12.1 KB"],
+    ]) {
+      const item = screen.getByText(`${label}:`).parentElement!;
+      expect(item.getAttribute("title")).toBe(label);
+      expect(item.textContent).toContain(value);
+      // Nothing changes shape under the pointer.
+      expect(item.className).not.toContain("cursor-help");
+    }
+
+    // The date's name is the table's own column name for the same value, not
+    // a second word for it.
+    const date = card.children[1] as HTMLElement;
+    expect(date.getAttribute("title")).toBe("Created");
+    expect(date.className).not.toContain("cursor-help");
+  });
+
   it("opens the rename on a double-click of the name, with no button to spend a row on", () => {
     render(<ImageModal image={makeImage()} onClose={() => {}} />);
 
@@ -568,28 +611,39 @@ describe("ImageModal metadata groups", () => {
   it("draws a generation row's label as an icon whose hover text is the name", () => {
     render(<ImageModal image={makeImage()} onClose={() => {}} />);
 
-    // `title` is the same native hover text every toolbar button uses.
-    const icon = document.querySelector('[title="Seed"]');
-    expect(icon).not.toBeNull();
-    expect(icon!.querySelector("svg")).not.toBeNull();
+    // `title` is the same native hover text every toolbar button uses, on the
+    // row rather than on the icon in it: the value is part of what is being
+    // named, so the pointer may rest on "12345" to learn it is the seed.
+    const row = document.querySelector('[title="Seed"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    expect(row.className).toContain("group/row");
+    expect(row.querySelector("svg")).not.toBeNull();
+    expect(row.textContent).toContain("12345");
+
     // Nothing but the icon is visible — the name survives as the row's
     // screen-reader text, not as a label taking room beside the value.
-    expect(icon!.textContent).toBe("");
+    const icon = row.querySelector("svg")!.parentElement!;
+    expect(icon.textContent).toBe("");
     expect(screen.getByText("Seed").className).toContain("sr-only");
+
+    // Nothing changes shape under the pointer: the icon is not clickable, so
+    // it does not promise a cursor it cannot keep.
+    expect(row.className).not.toContain("cursor-help");
+    expect(icon.className).not.toContain("cursor-help");
 
     // The value hugs the icon — the header stats' rhythm — rather than being
     // flung to the far edge, where a short value in a pair row would
     // right-align to the middle of the card, against nothing.
-    const iconRow = icon!.closest('[class~="group/row"]')!;
-    expect(iconRow.className).not.toContain("justify-between");
+    expect(row.className).not.toContain("justify-between");
 
     // Rows outside the generation group are untouched: the Performance
-    // group's label is still ordinary visible text on a label/value row.
+    // group's label is still ordinary visible text on a label/value row — text
+    // that says its own name, so no tooltip follows the pointer over it.
     const labelRow = screen.getByText("GPU Device");
     expect(labelRow.className).not.toContain("sr-only");
-    expect(
-      labelRow.closest('[class~="group/row"]')!.className,
-    ).toContain("justify-between");
+    const gpuRow = labelRow.closest('[class~="group/row"]') as HTMLElement;
+    expect(gpuRow.className).toContain("justify-between");
+    expect(gpuRow.getAttribute("title")).toBeNull();
   });
 
   it("drops the contents and the aria-expanded state when a group is collapsed", async () => {
