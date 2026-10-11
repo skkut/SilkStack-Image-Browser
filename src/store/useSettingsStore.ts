@@ -102,6 +102,9 @@ interface SettingsState {
    *  when grouping by Prompt. Pure render-time markup over data already in
    *  memory — no model load — so it ships ON by default. */
   stackHighlightPromptVariations: boolean;
+  /** Semantic search on/off — mirrored by the search bar's sparkles button
+   *  (the only control); enabling it kicks the Δ-index build. Premium-gated:
+   *  effective only with the master AI pref AND a valid license. */
   isSemanticSearchEnabled: boolean;
   semanticRerankEnabled: boolean;
   /** Master switch for ALL model-loading AI features (auto-tagging, semantic
@@ -214,8 +217,9 @@ export const useSettingsStore = create<SettingsState>()(
       stackGroupByDimensions: ['prompt'],
       stackHighlightPromptVariations: true,
 
-      // Semantic search — premium, opt-in. Off until the user enables it
-      // in Settings (requires a valid license + the ai-intelligence module).
+      // Semantic search — premium, opt-in. Off until the user clicks the
+      // search bar's sparkles (requires a valid license + the ai-intelligence
+      // module).
       isSemanticSearchEnabled: false,
       semanticRerankEnabled: false,
       // Master AI-features switch — ON by default (preserves current behavior).

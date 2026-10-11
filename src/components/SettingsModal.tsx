@@ -241,10 +241,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     fetchMainProcessGpuInfo();
   }, [isOpen, aiFeaturesEnabled]);
 
-  // Phase 6 (§9): semantic search settings — toggle (pref), status line
-  // (indexed count / last error), Re-index (force → clearIndex + rebuild).
+  // Phase 6 (§9): semantic search settings — status line (indexed count /
+  // last error) and Re-index (force → clearIndex + rebuild). The on/off
+  // itself lives on the search bar's sparkles, not here; `isSemanticSearchEnabled`
+  // is only read to disable Re-index while the feature is switched off.
   const isSemanticSearchEnabled = useSettingsStore((state) => state.isSemanticSearchEnabled);
-  const setSemanticSearchEnabled = useSettingsStore((state) => state.setSemanticSearchEnabled);
   const semanticIndexedCount = useImageStore((state) => state.semanticIndexedCount);
   const semanticLastError = useImageStore((state) => state.semanticLastError);
   const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
@@ -657,10 +658,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       knob for ALL AI features — auto-tagging, embeddings, and
                       semantic search share one WebLLM engine), then the two
                       auto-tag cards (LLM fallback policy, tag model), then the
-                      two semantic-search cards (toggle, embedding model), and
-                      finally the shared model cache. Premium-gated as a whole:
-                      without the module or a license there is nothing to
-                      configure. */}
+                      semantic-search card (embedding model + the Re-index
+                      lever — semantic search itself is switched from the
+                      search bar's sparkles), and finally the shared model
+                      cache. Premium-gated as a whole: without the module or a
+                      license there is nothing to configure. */}
                   {aiFeaturesEnabled && (
                   <>
                   <section>
@@ -806,45 +808,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
 
                       <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="flex items-start justify-between">
-                          <div className="pr-6">
-                            <p className="text-sm font-medium text-gray-200">Semantic search</p>
-                            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                              Natural-language search over the library using AI embeddings. When enabled, the search bar gains a sparkles toggle to switch between keyword and semantic modes.
-                            </p>
-                            {semanticLastError ? (
-                              <p className="text-xs text-red-400 mt-2">Last error: {semanticLastError}</p>
-                            ) : semanticIndexedCount > 0 ? (
-                              <p className="text-xs text-gray-500 mt-2">{semanticIndexedCount} images indexed</p>
-                            ) : null}
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                            <input
-                              type="checkbox"
-                              checked={isSemanticSearchEnabled}
-                              onChange={(event) => setSemanticSearchEnabled(event.target.checked)}
-                              className="sr-only peer"
-                              data-testid="semantic-toggle-checkbox"
-                            />
-                            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                          </label>
-                        </div>
-                        <button
-                          onClick={handleReindexSemantic}
-                          disabled={semanticIndexProgress !== null}
-                          className="mt-4 inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white border border-purple-500/20 hover:border-purple-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-500/10 disabled:hover:text-purple-400"
-                        >
-                          <RefreshCw size={16} className={semanticIndexProgress !== null ? 'animate-spin' : ''} />
-                          Re-index library
-                        </button>
-                      </div>
-
-                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
                         <label htmlFor="ai-embedding-model" className="text-sm font-medium text-gray-200 block mb-1">
                           Semantic embedding model
                         </label>
                         <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-                          Powers natural-language search over the library. Switching models immediately rebuilds the index — a full re-embed with progress and cancel (images stay keyword-searchable while it runs).
+                          Powers natural-language search over the library — switch it on with the sparkles button in the search bar. Switching models immediately rebuilds the index — a full re-embed with progress and cancel (images stay keyword-searchable while it runs).
                         </p>
                         {embeddingModelOptions === null ? (
                           <select disabled data-testid="ai-embedding-model-select" className="bg-gray-700/50 text-gray-400 border border-gray-700 rounded-lg px-3 py-1.5 text-sm cursor-not-allowed">
@@ -870,6 +838,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                         <p className="text-xs text-gray-600 mt-1">
                           Heavier variants embed more accurately but need more VRAM. {effectiveEmbeddingModel ? 'The index rebuild happens automatically — watch the footer progress.' : ''}
                         </p>
+                        {/* The manual rebuild lever, beside the model that
+                            owns the index. Disabled while semantic search is
+                            switched off (the sparkles) — the action is
+                            pref-gated and would otherwise no-op silently. */}
+                        <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <button
+                            onClick={handleReindexSemantic}
+                            disabled={semanticIndexProgress !== null || !isSemanticSearchEnabled}
+                            title={isSemanticSearchEnabled ? undefined : 'Switch on semantic search with the sparkles button in the search bar first'}
+                            className="inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 hover:bg-purple-500 hover:text-white border border-purple-500/20 hover:border-purple-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-purple-500/10 disabled:hover:text-purple-400"
+                          >
+                            <RefreshCw size={16} className={semanticIndexProgress !== null ? 'animate-spin' : ''} />
+                            Re-index library
+                          </button>
+                          {semanticLastError ? (
+                            <p className="text-xs text-red-400">Last error: {semanticLastError}</p>
+                          ) : semanticIndexedCount > 0 ? (
+                            <p className="text-xs text-gray-500">{semanticIndexedCount} images indexed</p>
+                          ) : null}
+                        </div>
                       </div>
 
                     </div>

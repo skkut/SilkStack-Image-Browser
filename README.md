@@ -55,6 +55,7 @@ Keyword search matches words. Semantic search matches *meaning*, so you can desc
 
 - Describe it loosely ("girl with a puppy in a palace") and SilkStack finds images whose prompts mean the same thing, even when they use completely different words.
 - Works across languages - a query in Japanese or Chinese can match English prompts.
+- Switch it on with the **✨ button in the search bar** — the library starts indexing in the background straight away (progress and cancel in the footer), and later runs only embed new or changed images.
 - Semantic results are **merged with your keyword results**: semantic hits come first, keyword-only matches are appended and duplicates removed. Semantic hits are marked with a ✨ badge in the grid and table views.
 - While semantic hits are on screen, the sort box offers **Relevance**; clear the search and your normal sort comes back.
 - Pick your local embedding model in Settings → AI Intelligence: **Qwen3-Embedding 0.6B / 4B / 8B**, or the lighter **Arctic Embed M / S** if you are short on VRAM.

@@ -2,7 +2,7 @@ import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
 import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw } from 'lucide-react';
-import { useAiFeaturesEnabled, useAiMasterEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
+import { useAiFeaturesEnabled, useAiMasterEnabled, useAiModelFeaturesEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { SortOrder, type SettingsTab } from '../types';
@@ -47,14 +47,17 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
 }) => {
     // Runtime gate: the Stacks view tab requires premium license
     const aiFeaturesEnabled = useAiFeaturesEnabled();
-    // Semantic search (§9): the sparkles toggle only appears when the
-    // feature is usable. It is a plain on/off — 'semantic' (purple glow)
-    // ranks results by embedding similarity; 'off' (gray) is pure keyword
-    // search. Store state flows down — SearchBar stays presentational.
-    const semanticAvailable = useSemanticSearchEnabled();
+    // Semantic search (§9): the sparkles button is the feature's ONLY
+    // switch. Availability therefore needs just the premium gate (master ∧
+    // license ∧ module) — NOT the pref, or a switched-off feature could
+    // never be switched back on. 'semantic' (purple glow) ranks results by
+    // embedding similarity; 'off' (gray) is pure keyword search. Store
+    // state flows down — SearchBar stays presentational.
+    const semanticAvailable = useAiModelFeaturesEnabled();
     const semanticMode = useImageStore((state) => state.semanticMode);
     const semanticSearchStatus = useImageStore((state) => state.semanticSearchStatus);
     const setSemanticMode = useImageStore((state) => state.setSemanticMode);
+    const setSemanticSearchEnabled = useSettingsStore((state) => state.setSemanticSearchEnabled);
 
     // Real-time folder monitoring: global on/off, persisted in settings.
     // App.tsx watches this value and starts/stops the OS watchers on change.
@@ -76,7 +79,20 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     const setAiFeaturesEnabled = useSettingsStore((state) => state.setAiFeaturesEnabled);
 
     const handleToggleSemantic = () => {
-        setSemanticMode(semanticMode === 'semantic' ? 'off' : 'semantic');
+        if (semanticMode === 'semantic') {
+            // OFF: switch the feature itself off — the persisted pref flip
+            // clears the hits via useImageStore's settings subscription, and
+            // nothing embeds in the background while it stays off.
+            setSemanticSearchEnabled(false);
+            setSemanticMode('off');
+        } else {
+            // ON: the pref flip is what starts the Δ-index build (same
+            // subscription; idempotent, so a re-enable only embeds what
+            // changed), then the mode flip re-runs the current query against
+            // whatever is already embedded.
+            setSemanticSearchEnabled(true);
+            setSemanticMode('semantic');
+        }
     };
 
     const [isDev, setIsDev] = React.useState<boolean>(false);

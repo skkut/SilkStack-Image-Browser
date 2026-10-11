@@ -91,7 +91,8 @@ const flush = async () => {
 };
 
 /** Real premium gate: valid license + matching HMAC stamp (SmartLibrary
- *  pattern). `useSemanticSearchEnabled()` also needs the user pref. */
+ *  pattern). This is all the sparkles button needs to appear — the user
+ *  pref it flips is the feature's on/off, not its availability. */
 const stampPremium = () => {
   const now = Date.now();
   useSettingsStore.setState({
@@ -115,6 +116,10 @@ const setElectronAPI = () => {
 
 beforeEach(() => {
   vi.clearAllMocks(); // clears records, keeps implementations
+  // vi.clearAllMocks keeps mockReturnValue — re-pin the default so a test
+  // that reported a nonzero index (42 images) cannot leak its count into the
+  // next one.
+  coordinatorMock.getStatus.mockReturnValue({ ready: true, indexed: 0, modelId: 'm', dimension: 768, error: null });
   useImageStore.setState({
     images: [],
     filteredImages: [],
@@ -184,10 +189,22 @@ describe('SearchBar semantic toggle (Phase 6)', () => {
 // ── TopMenuBar (wiring) ───────────────────────────────────────────────
 
 describe('TopMenuBar semantic wiring (Phase 6)', () => {
-  it('passes store state to SearchBar and flips the mode on click', async () => {
+  it('the sparkles button is the semantic on/off: pref and mode move together', async () => {
     setElectronAPI();
     stampPremium();
-    useSettingsStore.setState({ isSemanticSearchEnabled: true });
+    // One unstamped image so the enable's Δ-index kick reaches the
+    // coordinator — an empty library short-circuits before indexImages
+    // (isSemanticIndexed gate).
+    useImageStore.setState({
+      images: [{ id: 'a', name: 'a.png', prompt: 'red fox' } as unknown as IndexedImage],
+    });
+    coordinatorMock.getStatus.mockReturnValue({
+      ready: true,
+      indexed: 42,
+      modelId: 'm',
+      dimension: 768,
+      error: null,
+    });
 
     render(
       <TopMenuBar
@@ -201,19 +218,29 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
       />,
     );
 
-    // Toggle visible only via the full gate (module + stamp + pref)
+    // Visible on the premium gate alone — the pref is still off, or the
+    // button could never switch the feature back on.
     const toggle = screen.getByTestId('semantic-toggle-button');
+    expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(false);
     expect((screen.getByTestId('search-input') as HTMLInputElement).placeholder).toBe('Search');
 
     fireEvent.click(toggle);
+    expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(true);
     expect(useImageStore.getState().semanticMode).toBe('semantic');
     expect((screen.getByTestId('search-input') as HTMLInputElement).placeholder).toBe('Search (semantic)');
 
+    // The pref flip is what kicks the Δ-index (settings subscription), same
+    // as the removed Settings checkbox used to.
+    await vi.waitFor(() => {
+      expect(useImageStore.getState().semanticIndexedCount).toBe(42);
+    });
+
+    // Off is a full off, not just a ranked-mode switch: the pref goes back
+    // to false so no embedding work runs in the background.
     fireEvent.click(toggle);
+    expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(false);
     expect(useImageStore.getState().semanticMode).toBe('off');
 
-    // Let the subscription-triggered Δ-index run (fired when the pref was
-    // set true above) settle so nothing leaks into the next test.
     await flush();
   });
 
@@ -278,6 +305,7 @@ describe('TopMenuBar semantic wiring (Phase 6)', () => {
     // clear them (reversal regression), not just flip the mode.
     expect(useImageStore.getState().semanticMode).toBe('off');
     expect(useImageStore.getState().semanticHits).toBeNull();
+    expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(false);
     expect(screen.queryByText('Semantic')).toBeNull();
 
     await flush();
@@ -424,46 +452,25 @@ describe('SettingsModal semantic section (Phase 6)', () => {
   it('hides the section without a premium license', () => {
     setElectronAPI();
     render(<SettingsModal isOpen onClose={vi.fn()} />);
-    expect(screen.queryByText('Semantic search')).toBeNull();
+    expect(screen.queryByText('Semantic embedding model')).toBeNull();
+    expect(screen.queryByText('Re-index library')).toBeNull();
   });
 
-  it('toggles the pref, fires the Δ-index and shows the indexed count', async () => {
+  it('shows the index readout beside the Re-index lever, and no toggle of its own', () => {
     setElectronAPI();
     stampPremium();
-    coordinatorMock.getStatus.mockReturnValue({
-      ready: true,
-      indexed: 42,
-      modelId: 'm',
-      dimension: 768,
-      error: null,
-    });
-
-    // One unstamped image so the kick-in Δ-run reaches the coordinator —
-    // an empty library short-circuits before indexImages (isSemanticIndexed gate).
-    useImageStore.setState({
-      images: [{ id: 'a', name: 'a.png', prompt: 'red fox' } as unknown as IndexedImage],
-    });
+    useImageStore.setState({ semanticIndexedCount: 42 });
 
     render(<SettingsModal isOpen onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
 
-    const toggle = screen.getByTestId('semantic-toggle-checkbox') as HTMLInputElement;
-    expect(toggle.checked).toBe(false);
-
-    fireEvent.click(toggle);
-
-    expect(useSettingsStore.getState().isSemanticSearchEnabled).toBe(true);
-    // Two kicks are now in flight behind the click: the license stamp flips
-    // premium on (the activation path — a pipeline round: auto-tag, then the
-    // semantic phase) and the pref flip queues its own Δ-index behind it in
-    // the FIFO queue. Wait for the chain rather than counting microtasks.
-    await vi.waitFor(() => {
-      expect(useImageStore.getState().semanticIndexedCount).toBe(42);
-    });
-    expect(await screen.findByText('42 images indexed')).toBeDefined();
+    // The on/off is the search bar's sparkles now — the panel only reports
+    // state and offers the manual rebuild.
+    expect(screen.getByText('42 images indexed')).toBeDefined();
+    expect(screen.queryByTestId('semantic-toggle-checkbox')).toBeNull();
   });
 
-  it('Re-index calls semanticIndexImages({ force: true }) and is disabled while a run is active', async () => {
+  it('Re-index is disabled while semantic search is off, and calls semanticIndexImages({ force: true }) when on', () => {
     setElectronAPI();
     stampPremium();
     // Spy BEFORE render: zustand replaces the state object on every set(),
@@ -473,11 +480,18 @@ describe('SettingsModal semantic section (Phase 6)', () => {
     render(<SettingsModal isOpen onClose={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'AI Intelligence' }));
 
-    const button = screen.getByText('Re-index library');
-    fireEvent.click(button);
+    const button = screen.getByText('Re-index library') as HTMLButtonElement;
+    // Pref off (never switched on from the sparkles) — the action is
+    // pref-gated, so the lever must say so rather than no-op silently.
+    expect(button.disabled).toBe(true);
 
+    act(() => {
+      useSettingsStore.setState({ isSemanticSearchEnabled: true });
+    });
+    expect(button.disabled).toBe(false);
+
+    fireEvent.click(button);
     expect(spy).toHaveBeenCalledWith({ force: true });
-    expect((button as HTMLButtonElement).disabled).toBe(false);
 
     // A running index job disables the button (and spins the icon) — the
     // setState must be act()-wrapped: a bare call schedules the re-render
@@ -485,7 +499,7 @@ describe('SettingsModal semantic section (Phase 6)', () => {
     act(() => {
       useImageStore.setState({ semanticIndexProgress: { current: 1, total: 3, message: 'embedding' } });
     });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    expect(button.disabled).toBe(true);
   });
 });
 
@@ -932,8 +946,9 @@ describe('master AI-features toggle', () => {
 
     fireEvent.click(toggle);
 
-    // Master off: the persisted pref flips and the sparkle disappears —
-    // useSemanticSearchEnabled() is master-aware (the whole gate collapses).
+    // Master off: the persisted pref flips and the sparkle disappears even
+    // though the semantic pref is still on — useAiModelFeaturesEnabled() is
+    // master-aware (the whole gate collapses).
     expect(useSettingsStore.getState().aiFeaturesEnabled).toBe(false);
     expect(toggle.getAttribute('aria-pressed')).toBe('false');
     expect(screen.queryByTestId('semantic-toggle-button')).toBeNull();

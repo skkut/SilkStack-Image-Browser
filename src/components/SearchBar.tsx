@@ -6,7 +6,7 @@ interface SearchBarProps {
   value: string;
   onChange: (query: string) => void;
   // Semantic search (§9) — presentational: TopMenuBar wires these.
-  semanticAvailable?: boolean; // useSemanticSearchEnabled() — hides the button
+  semanticAvailable?: boolean; // premium gate only (useAiModelFeaturesEnabled()) — hides the button
   semanticMode?: 'semantic' | 'off';
   semanticStatus?: 'idle' | 'loading' | 'ready' | 'error' | 'unavailable';
   onToggleSemantic?: () => void;
