@@ -369,6 +369,189 @@ describe("ImageModal metadata groups", () => {
     expect(headerCard.querySelector("button[aria-expanded]")).toBeNull();
   });
 
+  it("divides the header card's rows, the stats grid included", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // The header card is a readout of the same kind as the five groups below
+    // it, so it is divided the same way: the name, the timestamp, then the
+    // stats — two rows of two, with a line between them like any other pair of
+    // rows in the panel.
+    const card = screen
+      .getByText(STAT_MEGAPIXELS)
+      .closest("div.grid")!.parentElement!;
+    expect(card.className).toContain("divide-y");
+    expect(card.className).toContain("divide-gray-700/40");
+    expect(card.children.length).toBe(4);
+
+    // The gaps moved onto the rows themselves: a margin is a gap between two
+    // blocks, and a divider needs room on both sides of it.
+    expect(card.className).not.toContain("space-y-1.5");
+    for (const row of Array.from(card.children)) {
+      expect(row.className).toContain("py-1.5");
+    }
+
+    // A row the card can divide has to be an element of its own, which is why
+    // the stats are two grids rather than one auto-flowing grid: the second
+    // row of an auto-flowing grid is only whatever cells were left over.
+    const statRows = Array.from(card.children).filter((el) =>
+      el.className.includes("grid-cols-2"),
+    );
+    expect(statRows.length).toBe(2);
+    expect(statRows[0].textContent).toContain("1.05 MP");
+    expect(statRows[1].textContent).toContain("1:1");
+  });
+
+  it("gives a file size with no dimensions to pair it with a row of its own", () => {
+    // The size is not behind the dimensions guard, so it survives a file whose
+    // dimensions are unknown — as the stats' only row, still divided from the
+    // timestamp, with no second row to draw a line above.
+    render(
+      <ImageModal
+        image={makeImage({
+          metadata: { normalizedMetadata: { prompt: PROMPT } } as any,
+          fileSize: 12345,
+        })}
+        onClose={() => {}}
+      />,
+    );
+
+    const card = screen
+      .getByText("File size:")
+      .closest("div.grid")!.parentElement!;
+    expect(card.children.length).toBe(3);
+    expect(card.lastElementChild!.textContent).toContain("12.1 KB");
+    expect(card.querySelectorAll(".grid-cols-2").length).toBe(1);
+  });
+
+  it("opens the rename on a double-click of the name, with no button to spend a row on", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // The name is the row's only child. The pencil that used to sit beside it
+    // was a flex item in a wrapping row, so a long name pushed it onto a line
+    // of its own — a row the card had for some names and not others.
+    const name = screen.getByText("test.png");
+    expect(name.tagName).toBe("H2");
+    expect(name.children.length).toBe(0);
+    expect(name.querySelector("button")).toBeNull();
+
+    fireEvent.doubleClick(name);
+    // The field opens on the name minus its extension, as the button did.
+    expect(screen.getByDisplayValue("test")).toBeTruthy();
+  });
+
+  it("keeps the rename shut while indexing, with the reason on the row", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} isIndexing />);
+
+    const name = screen.getByText("test.png");
+    expect(name.getAttribute("title")).toBe("Cannot rename during indexing");
+
+    fireEvent.doubleClick(name);
+    expect(screen.queryByDisplayValue("test")).toBeNull();
+  });
+
+  it("divides every group's heading from its body with the rows' own line", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // One line for every boundary in the panel, heading or row: the same
+    // `gray-700/40` the rows divide by, so a section reads as one grid rather
+    // than as a header with a table hung under it.
+    for (const title of [
+      "Tags",
+      "Prompt",
+      "Generation details",
+      "Performance",
+      "Raw data",
+    ]) {
+      const head = header(title);
+      const body = head.parentElement!.querySelector(":scope > div")!;
+      expect(body.firstElementChild!.className).toContain("border-t");
+      expect(body.firstElementChild!.className).toContain("border-gray-700/40");
+
+      // Open, the header's bottom corners square off so its hover fill is a
+      // band meeting that line; the card's rounded corner is the closed
+      // state's shape, and the header is the whole card again then.
+      expect(head.className).toContain("rounded-t-lg");
+      expect(head.className).not.toContain("rounded-lg");
+    }
+  });
+
+  it("gives a collapsed group's header the card's own four corners back", async () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    await toggle("Tags");
+
+    // Nothing is left under the header to meet a straight edge, so the card's
+    // rounded corner is correct again. The divider went with the body — the
+    // subtree still in the DOM here is AnimatePresence's exiting copy.
+    const head = header("Tags");
+    expect(head.className).toContain("rounded-lg");
+    expect(head.className).not.toContain("rounded-t-lg");
+  });
+
+  it("divides the tag pills from the row that adds them", () => {
+    render(
+      <ImageModal
+        image={makeImage({ tags: ["cat", "mat"] })}
+        onClose={() => {}}
+      />,
+    );
+
+    // The row that adds a tag and the pills it produces are divided like any
+    // other pair of rows, which is why the pills left the input's column: an
+    // inset divider under a half-width row is the one shape this stack never
+    // draws.
+    const pillsRow = screen.getByText("cat").parentElement!;
+    const stack = pillsRow.parentElement!;
+    expect(stack.className).toContain("divide-y");
+    expect(stack.className).toContain("divide-gray-700/40");
+
+    // A row only draws a line above itself if a row precedes it, so the pills
+    // must not be the stack's first child — the star and the input are.
+    expect(pillsRow).not.toBe(stack.firstElementChild);
+    expect(stack.firstElementChild!.querySelector("input")).toBe(
+      screen.getByPlaceholderText("Add tag..."),
+    );
+  });
+
+  it("leaves the tag box a single undivided row on a file with no tags", () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // `divide-y` counts rendered children only: with no pills there is nothing
+    // to divide, and the star and input are the whole body — the same way a
+    // generation row that renders nothing leaves no stray line.
+    const row = screen
+      .getByPlaceholderText("Add tag...")
+      .closest("div.flex.items-start")!;
+    const stack = row.parentElement!;
+    expect(stack.className).toContain("divide-y");
+    expect(stack.children.length).toBe(1);
+  });
+
+  it("divides the Raw data view control from the pane it switches", async () => {
+    render(<ImageModal image={makeImage()} onClose={() => {}} />);
+
+    // The control and the pane are rows of one stack, so choosing a view
+    // swaps what sits under the line rather than redrawing the group.
+    const stack = screen
+      .getByRole("button", { name: "Full JSON" })
+      .closest("div.divide-y")!;
+    expect(stack).not.toBeNull();
+    expect(stack.firstElementChild!.querySelector("input, button")).toBe(
+      screen.getByRole("button", { name: "Full JSON" }),
+    );
+
+    // The pane takes that second slot whichever of the three it is — the
+    // loading banner, the JSON well, or the empty-read banner.
+    expect(stack.children.length).toBe(2);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "JSON" }));
+    });
+    const pane = stack.lastElementChild!;
+    expect(pane).not.toBe(stack.firstElementChild);
+    expect(pane.querySelector('[title="Copy JSON"]')).toBeTruthy();
+  });
+
   it("sets the timestamp in the standard readout color, not the accent", () => {
     const image = makeImage();
     render(<ImageModal image={image} onClose={() => {}} />);

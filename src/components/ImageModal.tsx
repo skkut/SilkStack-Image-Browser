@@ -7,7 +7,6 @@ import { getImageAbsolutePath, quotePathForClipboard } from "../utils/pathUtils"
 import { extractRawMetadataFromFile } from "../services/fileIndexer";
 import {
   Copy,
-  Pencil,
   Trash2,
   ChevronDown,
   ChevronUp,
@@ -662,7 +661,14 @@ const MetadataGroup: FC<{
         aria-expanded={open}
         // The accessible name is the visible text — deliberately no aria-label,
         // which would collide with the icon buttons' labels the tests query by.
-        className="w-full flex items-center gap-2 px-3 py-2.5 text-left rounded-lg hover:bg-gray-700/30 transition-colors"
+        //
+        // The bottom corners square off while open so the hover fill is a band
+        // with a straight bottom edge, meeting the body's divider; rounded down
+        // there, the fill would curve away from the line at both ends. Closed,
+        // the header is the whole card and takes all four corners back.
+        className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-700/30 transition-colors ${
+          open ? "rounded-t-lg" : "rounded-lg"
+        }`}
       >
         {icon}
         <span className="text-sm font-semibold uppercase tracking-wide text-gray-400">
@@ -703,7 +709,15 @@ const MetadataGroup: FC<{
             exit={{ height: 0, opacity: 0, overflow: "hidden" }}
             transition={{ duration: 0.2, ease: "easeOut" }}
           >
-            <div className="pb-1.5">{children}</div>
+            {/* The heading's divider, drawn by the body rather than the header
+                button so it is owned by the thing it separates: a border on the
+                button would vanish the instant `open` flips, while the body was
+                still collapsing under it for the 200ms of the animation. Here
+                it clips away with the last of the shrinking box instead.
+
+                Same `gray-700/40` the rows divide by — one line weight for
+                every boundary in the panel, heading or row. */}
+            <div className="border-t border-gray-700/40 pb-1.5">{children}</div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -4012,10 +4026,20 @@ const ImageModal: React.FC<ImageModalProps> = ({
                 stretching label/value pairs across its full width. Icons
                 carry the meaning the row labels used to, and each value keeps
                 a screen-reader-only label — "563:1000" is only
-                self-explanatory once you know it is an aspect ratio. */}
-            <div className={`${PANEL_CARD} px-3 py-3 space-y-1.5`}>
+                self-explanatory once you know it is an aspect ratio.
+
+                Its three lines are divided like the groups' rows: the card is
+                a readout of the same kind, and the name over a rule, the
+                timestamp over a rule, then the stats is how the rest of the
+                panel is read. The spacing moves from `space-y` to the rows
+                themselves for it — a margin is a gap between two blocks and a
+                divider needs room on both sides of it — with the card keeping
+                the outer 12px the two paddings always added up to. */}
+            <div
+              className={`${PANEL_CARD} divide-y divide-gray-700/40 px-3 py-1.5`}
+            >
               {isRenaming ? (
-                <div className="flex gap-2">
+                <div className="flex gap-2 py-1.5">
                   <input
                     type="text"
                     value={newName}
@@ -4038,25 +4062,34 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   </button>
                 </div>
               ) : (
-                <h2 className="text-xl font-bold text-gray-100 break-all flex items-center gap-2 flex-wrap">
-                  <span className="break-all">{image.name}</span>
-                  <button
-                    onClick={() => setIsRenaming(true)}
-                    disabled={isIndexing}
-                    className={`p-1 ${isIndexing ? "text-gray-600 cursor-not-allowed" : "text-gray-400 hover:text-orange-400"}`}
-                    title={
-                      isIndexing
-                        ? "Cannot rename during indexing"
-                        : "Rename image"
-                    }
-                  >
-                    <Pencil size={16} />
-                  </button>
+                /* Renaming opens on a double-click of the name itself. It used
+                   to be a pencil button beside it, but the row was a flex-wrap:
+                   a long name pushed the pencil onto a line of its own, so the
+                   card grew a row that was there for some names and not others.
+                   With the name the row's only child, the h2 is a plain block
+                   and the whole row is the target, however the name wraps.
+
+                   Still inert while indexing — the indexer is reading this
+                   file's path — with the reason in the tooltip the button's
+                   `title` used to carry. The cursor says which of the two the
+                   row is right now. */
+                <h2
+                  onDoubleClick={() => !isIndexing && setIsRenaming(true)}
+                  className={`text-xl font-bold text-gray-100 break-all py-1.5 ${
+                    isIndexing ? "cursor-not-allowed" : "cursor-text"
+                  }`}
+                  title={
+                    isIndexing
+                      ? "Cannot rename during indexing"
+                      : "Double-click to rename"
+                  }
+                >
+                  {image.name}
                 </h2>
               )}
               {/* gray-300, the stats grid's value color — an accent date made
                   the timestamp the panel's one colored line. */}
-              <p className="flex items-center gap-1.5 text-sm text-gray-300">
+              <p className="flex items-center gap-1.5 text-sm text-gray-300 py-1.5">
                 <CalendarClock
                   size={14}
                   className="shrink-0 text-gray-500"
@@ -4066,58 +4099,72 @@ const ImageModal: React.FC<ImageModalProps> = ({
                   {new Date(image.lastModified).toLocaleString()}
                 </span>
               </p>
-              {/* 2×2 grid, not one wrapping line: two short columns need roughly
-                  half the horizontal room, so the row never becomes the widest
-                  thing in the header (the panel is resizable and the grid is a
-                  flex item's min-content contributor). */}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-300">
-                {fileWidth && fileHeight && (
-                  <>
-                    <span className="flex items-center gap-1.5">
-                      <Ruler
-                        size={14}
-                        className="shrink-0 text-gray-500"
-                        aria-hidden="true"
-                      />
-                      <span className="sr-only">Dimensions:</span>
-                      <span className="tabular-nums">
-                        {fileWidth} × {fileHeight}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <Grid3x3
-                        size={14}
-                        className="shrink-0 text-gray-500"
-                        aria-hidden="true"
-                      />
-                      <span className="sr-only">Megapixels:</span>
-                      <span className="tabular-nums">{megapixelsLabel}</span>
-                    </span>
-                    {aspectRatioLabel && (
-                      <span className="flex items-center gap-1.5">
-                        <Ratio
-                          size={14}
-                          className="shrink-0 text-gray-500"
-                          aria-hidden="true"
-                        />
-                        <span className="sr-only">Aspect ratio:</span>
-                        <span className="tabular-nums">{aspectRatioLabel}</span>
-                      </span>
-                    )}
-                  </>
-                )}
-                {fileSizeLabel && (
+              {/* Two rows of two, not one wrapping line: two short columns
+                  need roughly half the horizontal room, so a row never becomes
+                  the widest thing in the header (the panel is resizable and the
+                  grid is a flex item's min-content contributor).
+
+                  Each row is its own grid, and each is a row of the card's
+                  stack, so the card's own divide-y draws the line between them.
+                  The one auto-flowing grid this replaces could not be divided:
+                  its second row was not a box, just whatever cells were left
+                  over once the first row filled, so the element that opens the
+                  second row is a different one depending on whether an aspect
+                  ratio came before it.
+
+                  The file size is not behind the dimensions guard, so a file
+                  whose size is known and whose dimensions are not still shows
+                  it — as the second row, alone. */}
+              {fileWidth && fileHeight && (
+                <div className="grid grid-cols-2 gap-x-4 text-sm text-gray-300 py-1.5">
                   <span className="flex items-center gap-1.5">
-                    <HardDrive
+                    <Ruler
                       size={14}
                       className="shrink-0 text-gray-500"
                       aria-hidden="true"
                     />
-                    <span className="sr-only">File size:</span>
-                    <span className="tabular-nums">{fileSizeLabel}</span>
+                    <span className="sr-only">Dimensions:</span>
+                    <span className="tabular-nums">
+                      {fileWidth} × {fileHeight}
+                    </span>
                   </span>
-                )}
-              </div>
+                  <span className="flex items-center gap-1.5">
+                    <Grid3x3
+                      size={14}
+                      className="shrink-0 text-gray-500"
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">Megapixels:</span>
+                    <span className="tabular-nums">{megapixelsLabel}</span>
+                  </span>
+                </div>
+              )}
+              {(aspectRatioLabel || fileSizeLabel) && (
+                <div className="grid grid-cols-2 gap-x-4 text-sm text-gray-300 py-1.5">
+                  {aspectRatioLabel && (
+                    <span className="flex items-center gap-1.5">
+                      <Ratio
+                        size={14}
+                        className="shrink-0 text-gray-500"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">Aspect ratio:</span>
+                      <span className="tabular-nums">{aspectRatioLabel}</span>
+                    </span>
+                  )}
+                  {fileSizeLabel && (
+                    <span className="flex items-center gap-1.5">
+                      <HardDrive
+                        size={14}
+                        className="shrink-0 text-gray-500"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">File size:</span>
+                      <span className="tabular-nums">{fileSizeLabel}</span>
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
           {/* Tags. The star, input and pills stay one composition rather than
@@ -4130,31 +4177,37 @@ const ImageModal: React.FC<ImageModalProps> = ({
             open={expandedGroups.tags}
             onToggle={() => toggleMetadataGroup("tags")}
           >
-            {/* Favorite and Tags Row */}
-            <div className="flex items-start gap-3 px-3 pt-1">
-              {/* Favorite Star - Discrete */}
-              <button
-                onClick={handleToggleFavorite}
-                className={`p-1.5 rounded transition-all ${
-                  currentIsFavorite
-                    ? "text-yellow-400 hover:text-yellow-300"
-                    : "text-gray-500 hover:text-yellow-400"
-                }`}
-                title={
-                  currentIsFavorite
-                    ? "Remove from favorites"
-                    : "Add to favorites"
-                }
-              >
-                <Star
-                  className={`w-5 h-5 ${currentIsFavorite ? "fill-current" : ""}`}
-                />
-              </button>
+            {/* Two rows: the star and the input, then the pills that input
+                produces. Dividing them needs the line to be full-bleed rather
+                than an inset stub, so the pills leave the input's column and
+                take a row of their own — which also returns to them the width
+                the star was holding. */}
+            <div className="divide-y divide-gray-700/40 pt-1">
+              {/* The star keeps the input's company instead of becoming a row
+                  of its own: it is the primary favourite affordance, not a
+                  label above one. */}
+              <div className="flex items-start gap-3 px-3 pb-1.5">
+                {/* Favorite Star - Discrete */}
+                <button
+                  onClick={handleToggleFavorite}
+                  className={`p-1.5 rounded transition-all ${
+                    currentIsFavorite
+                      ? "text-yellow-400 hover:text-yellow-300"
+                      : "text-gray-500 hover:text-yellow-400"
+                  }`}
+                  title={
+                    currentIsFavorite
+                      ? "Remove from favorites"
+                      : "Add to favorites"
+                  }
+                >
+                  <Star
+                    className={`w-5 h-5 ${currentIsFavorite ? "fill-current" : ""}`}
+                  />
+                </button>
 
-              {/* Tags Pills */}
-              <div className="flex-1 space-y-2">
                 {/* Add Tag Input */}
-                <div className="relative">
+                <div className="relative flex-1">
                   <input
                     type="text"
                     placeholder="Add tag..."
@@ -4206,38 +4259,37 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     </div>
                   )}
                 </div>
-
-                {/* Current Tags */}
-                {currentTags && currentTags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {currentTags.map((tag) => {
-                      const source = getTagSource(tag);
-                      const colors = source === 'auto'
-                        ? 'bg-cyan-600/20 border border-cyan-500/50 text-cyan-700 dark:text-cyan-300'
-                        : source === 'metadata'
-                        ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-700 dark:text-emerald-300'
-                        : 'bg-blue-600/20 border border-blue-500/50 text-blue-700 dark:text-blue-300';
-                      return (
-                        <span
-                          key={tag}
-                          className={`flex items-center gap-1 ${colors} px-2 py-0.5 rounded-full text-sm transition-all`}
-                          title={`${tag} (${source})`}
-                        >
-                          {tag}
-                          <button
-                            onClick={() => handleRemoveTag(tag)}
-                            className="hover:text-red-600 dark:hover:text-red-300 transition-colors"
-                            title="Remove tag"
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                )}
-
               </div>
+
+              {/* Current Tags */}
+              {currentTags && currentTags.length > 0 && (
+                <div className="px-3 pt-1.5 flex flex-wrap gap-1.5">
+                  {currentTags.map((tag) => {
+                    const source = getTagSource(tag);
+                    const colors = source === 'auto'
+                      ? 'bg-cyan-600/20 border border-cyan-500/50 text-cyan-700 dark:text-cyan-300'
+                      : source === 'metadata'
+                      ? 'bg-emerald-600/20 border border-emerald-500/50 text-emerald-700 dark:text-emerald-300'
+                      : 'bg-blue-600/20 border border-blue-500/50 text-blue-700 dark:text-blue-300';
+                    return (
+                      <span
+                        key={tag}
+                        className={`flex items-center gap-1 ${colors} px-2 py-0.5 rounded-full text-sm transition-all`}
+                        title={`${tag} (${source})`}
+                      >
+                        {tag}
+                        <button
+                          onClick={() => handleRemoveTag(tag)}
+                          className="hover:text-red-600 dark:hover:text-red-300 transition-colors"
+                          title="Remove tag"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </MetadataGroup>
 
@@ -4475,84 +4527,91 @@ const ImageModal: React.FC<ImageModalProps> = ({
             open={expandedGroups.raw}
             onToggle={() => toggleMetadataGroup("raw")}
           >
-            <div className="px-3">
-              {/* A segmented control rather than the two underline links this
-                  replaced: with the section collapsed to a header, named views
-                  say which one is showing; "Show Full JSON" said only what the
-                  other button would do. */}
-              <div className="inline-flex rounded-lg bg-gray-800/60 p-0.5">
-                {METADATA_VIEW_MODES.map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    onClick={() => selectMetadataView(mode)}
-                    aria-pressed={metadataViewMode === mode}
-                    className={`px-2.5 py-1 rounded-md text-sm font-medium transition-colors ${
-                      metadataViewMode === mode
-                        ? "bg-gray-700 text-gray-100"
-                        : "text-gray-500 hover:text-gray-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {metadataViewMode === "json" && (
-              <div className="relative px-3 pt-2">
-                {/* bg-gray-950, not bg-black/50: this well has to invert with
-                    the theme. black/50 over a light panel leaves text-gray-300
-                    (dark slate there) dark-on-dark. gray-950 is the deepest
-                    surface of whichever theme is active, so the token pair
-                    stays readable both ways. */}
-                <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-                  {JSON.stringify(image.metadata, null, 2)}
-                </pre>
-                <button
-                  onClick={() =>
-                    copyToClipboard(
-                      JSON.stringify(image.metadata, null, 2),
-                      "JSON",
-                    )
-                  }
-                  className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
-                  title="Copy JSON"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-            {metadataViewMode === "fulljson" && (
-              <>
-                {isLoadingFullJson ? (
-                  <div className="mx-3 mt-2 bg-gray-950/70 border border-gray-800/60 p-4 rounded-lg text-sm text-gray-400 text-center animate-pulse">
-                    Loading raw metadata from file...
-                  </div>
-                ) : fullRawMetadata ? (
-                  <div className="relative px-3 pt-2">
-                    <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
-                      {JSON.stringify(fullRawMetadata, null, 2)}
-                    </pre>
+            {/* The view control and the pane it switches between, divided like
+                the rows of every other group — the pane changes under the same
+                line rather than the group changing shape as it does. */}
+            <div className="divide-y divide-gray-700/40">
+              <div className="px-3 py-1.5">
+                {/* A segmented control rather than the two underline links this
+                    replaced: with the section collapsed to a header, named views
+                    say which one is showing; "Show Full JSON" said only what the
+                    other button would do. */}
+                <div className="inline-flex rounded-lg bg-gray-800/60 p-0.5">
+                  {METADATA_VIEW_MODES.map(([mode, label]) => (
                     <button
-                      onClick={() =>
-                        copyToClipboard(
-                          JSON.stringify(fullRawMetadata, null, 2),
-                          "Full JSON",
-                        )
-                      }
-                      className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
-                      title="Copy Full JSON"
+                      key={mode}
+                      onClick={() => selectMetadataView(mode)}
+                      aria-pressed={metadataViewMode === mode}
+                      className={`px-2.5 py-1 rounded-md text-sm font-medium transition-colors ${
+                        metadataViewMode === mode
+                          ? "bg-gray-700 text-gray-100"
+                          : "text-gray-500 hover:text-gray-300"
+                      }`}
                     >
-                      <Copy className="w-3 h-3" />
+                      {label}
                     </button>
-                  </div>
-                ) : (
-                  <div className="mx-3 mt-2 bg-yellow-500/10 border border-yellow-500/40 text-yellow-700 dark:text-yellow-300 px-3 py-2 rounded-lg text-sm">
-                    Unable to load raw metadata. The file may not contain
-                    embedded metadata, or the format is not supported.
-                  </div>
-                )}
-              </>
-            )}
+                  ))}
+                </div>
+              </div>
+              {metadataViewMode === "json" && (
+                <div className="relative px-3 pt-2">
+                  {/* bg-gray-950, not bg-black/50: this well has to invert with
+                      the theme. black/50 over a light panel leaves text-gray-300
+                      (dark slate there) dark-on-dark. gray-950 is the deepest
+                      surface of whichever theme is active, so the token pair
+                      stays readable both ways. */}
+                  <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                    {JSON.stringify(image.metadata, null, 2)}
+                  </pre>
+                  <button
+                    onClick={() =>
+                      copyToClipboard(
+                        JSON.stringify(image.metadata, null, 2),
+                        "JSON",
+                      )
+                    }
+                    className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
+                    title="Copy JSON"
+                  >
+                    <Copy className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+              {/* A fragment, so the views stay direct children of the divide-y
+                  container and are divided like the rows above them. */}
+              {metadataViewMode === "fulljson" && (
+                <>
+                  {isLoadingFullJson ? (
+                    <div className="mx-3 mt-2 bg-gray-950/70 border border-gray-800/60 p-4 rounded-lg text-sm text-gray-400 text-center animate-pulse">
+                      Loading raw metadata from file...
+                    </div>
+                  ) : fullRawMetadata ? (
+                    <div className="relative px-3 pt-2">
+                      <pre className="bg-gray-950/70 border border-gray-800/60 scrollbar-thin p-2 pr-8 rounded-lg text-sm font-sans text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                        {JSON.stringify(fullRawMetadata, null, 2)}
+                      </pre>
+                      <button
+                        onClick={() =>
+                          copyToClipboard(
+                            JSON.stringify(fullRawMetadata, null, 2),
+                            "Full JSON",
+                          )
+                        }
+                        className="absolute top-4 right-5 bg-gray-700/80 hover:bg-gray-600 text-gray-300 hover:text-gray-50 p-1 rounded transition-all duration-200"
+                        title="Copy Full JSON"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mx-3 mt-2 bg-yellow-500/10 border border-yellow-500/40 text-yellow-700 dark:text-yellow-300 px-3 py-2 rounded-lg text-sm">
+                      Unable to load raw metadata. The file may not contain
+                      embedded metadata, or the format is not supported.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </MetadataGroup>
           </div>
         </div>
