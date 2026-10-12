@@ -5,6 +5,7 @@ import { FileOperations } from "../services/fileOperations";
 import { copyImageToClipboard, showInExplorer, openInNativeViewer, getAspectRatio } from "../utils/imageUtils";
 import { getImageAbsolutePath, quotePathForClipboard } from "../utils/pathUtils";
 import { extractRawMetadataFromFile } from "../services/fileIndexer";
+import { isVideoFileName, resolveMediaMimeType } from "../utils/mediaTypes";
 import {
   Copy,
   Trash2,
@@ -209,8 +210,6 @@ const formatVRAM = (vramMb: number, gpuDevice?: string | null): string => {
   return `${vramGb.toFixed(1)} GB`;
 };
 
-const VIDEO_EXTENSIONS = [".mp4", ".webm", ".mkv", ".mov", ".avi"];
-
 const MAX_ZOOM = 10;
 const MIN_ZOOM = 1;
 
@@ -268,36 +267,11 @@ const stepZoom = (zoom: number, notches: number): number => {
   return Math.min(Math.max(1, next), MAX_ZOOM);
 };
 
-const isVideoFileName = (
-  fileName: string,
-  fileType?: string | null,
-): boolean => {
-  if (fileType && fileType.startsWith("video/")) {
-    return true;
-  }
-  const lower = fileName.toLowerCase();
-  return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
-};
-
-const resolveImageMimeType = (fileName: string): string => {
-  const lowerName = fileName.toLowerCase();
-  if (lowerName.endsWith(".mp4")) return "video/mp4";
-  if (lowerName.endsWith(".webm")) return "video/webm";
-  if (lowerName.endsWith(".mkv")) return "video/x-matroska";
-  if (lowerName.endsWith(".mov")) return "video/quicktime";
-  if (lowerName.endsWith(".avi")) return "video/x-msvideo";
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg"))
-    return "image/jpeg";
-  if (lowerName.endsWith(".webp")) return "image/webp";
-  if (lowerName.endsWith(".gif")) return "image/gif";
-  return "image/png";
-};
-
 const createImageUrlFromFileData = (
   data: unknown,
   fileName: string,
 ): { url: string; revoke: boolean } => {
-  const mimeType = resolveImageMimeType(fileName);
+  const mimeType = resolveMediaMimeType(fileName);
 
   if (typeof data === "string") {
     return { url: `data:${mimeType};base64,${data}`, revoke: false };

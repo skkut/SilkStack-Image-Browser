@@ -9,6 +9,8 @@ import { useImageStore } from '../store/useImageStore';
 import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
 import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
+import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
+import { isVideoFileName } from '../utils/mediaTypes';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 interface ImageTableProps {
@@ -23,8 +25,6 @@ interface ImageTableProps {
   semanticHitIds?: Set<string>;
 }
 
-const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
-
 const formatFileSize = (bytes?: number): string => {
   if (bytes == null || isNaN(bytes)) return '—';
   if (bytes === 0) return '0 B';
@@ -32,14 +32,6 @@ const formatFileSize = (bytes?: number): string => {
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const value = bytes / Math.pow(1024, i);
   return `${i === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[i]}`;
-};
-
-const isVideoFileName = (fileName: string, fileType?: string | null): boolean => {
-  if (fileType && fileType.startsWith('video/')) {
-    return true;
-  }
-  const lower = fileName.toLowerCase();
-  return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
 };
 
 const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, semanticHitIds }) => {
@@ -522,6 +514,10 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
 
   useThumbnail(image);
 
+  // Hover-to-play preview for videos and animated GIFs, over the row's thumbnail.
+  const { previewUrl, previewKind, onMouseEnter, onMouseLeave, cancel: cancelPreview } =
+    useHoverMediaPreview(image);
+
   useEffect(() => {
     if (thumbnailsDisabled) {
       setImageUrl(null);
@@ -622,6 +618,9 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
   const handleRowMouseDown = (e: React.MouseEvent) => {
     mouseDownPos.current = { x: e.clientX, y: e.clientY };
     isDragging.current = false;
+    // A press starts either a drag or the click that opens the viewer; neither
+    // wants a video still playing behind it.
+    cancelPreview();
   };
 
   const handleRowMouseMove = (e: React.MouseEvent) => {
@@ -650,6 +649,8 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
       onClick={handleRowClick}
       onMouseDown={handleRowMouseDown}
       onMouseMove={handleRowMouseMove}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       onContextMenu={(e) => onContextMenu && onContextMenu(image, e)}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
@@ -671,7 +672,29 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
                 // image drag would hijack the gesture from the thumbnail.
                 draggable={false}
               />
-              {isVideo && (
+              {/* Hover preview over the thumbnail. pointer-events-none so the
+                  row keeps owning click and the native file drag. */}
+              {previewUrl && previewKind === 'video' && (
+                <video
+                  src={previewUrl}
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  preload="auto"
+                  draggable={false}
+                />
+              )}
+              {previewUrl && previewKind === 'image' && (
+                <img
+                  src={previewUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+                  draggable={false}
+                />
+              )}
+              {isVideo && !previewUrl && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="rounded-full bg-black/50 p-1.5">
                     <Play className="h-4 w-4 text-white/90" />

@@ -102,6 +102,10 @@ interface SettingsState {
    *  when grouping by Prompt. Pure render-time markup over data already in
    *  memory — no model load — so it ships ON by default. */
   stackHighlightPromptVariations: boolean;
+  /** Play a muted preview of a video or animated GIF while the pointer rests on
+   *  a grid card. Ships ON, but every preview reads the whole media file, so
+   *  this is the switch that turns the behaviour off entirely. */
+  autoplayVideoPreviews: boolean;
   /** Semantic search on/off — mirrored by the search bar's sparkles button
    *  (the only control); enabling it kicks the Δ-index build. Premium-gated:
    *  effective only with the master AI pref AND a valid license. */
@@ -158,6 +162,7 @@ interface SettingsState {
   setStackingEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
   setStackHighlightPromptVariations: (value: boolean) => void;
+  setAutoplayVideoPreviews: (value: boolean) => void;
   setSemanticSearchEnabled: (enabled: boolean) => void;
   setSemanticRerankEnabled: (enabled: boolean) => void;
   setAiFeaturesEnabled: (enabled: boolean) => void;
@@ -216,6 +221,7 @@ export const useSettingsStore = create<SettingsState>()(
       isStackingEnabled: true,
       stackGroupByDimensions: ['prompt'],
       stackHighlightPromptVariations: true,
+      autoplayVideoPreviews: true,
 
       // Semantic search — premium, opt-in. Off until the user clicks the
       // search bar's sparkles (requires a valid license + the ai-intelligence
@@ -270,6 +276,7 @@ export const useSettingsStore = create<SettingsState>()(
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
       setStackHighlightPromptVariations: (value) => set({ stackHighlightPromptVariations: !!value }),
+      setAutoplayVideoPreviews: (value) => set({ autoplayVideoPreviews: !!value }),
       setSemanticSearchEnabled: (enabled) => set({ isSemanticSearchEnabled: enabled }),
       setSemanticRerankEnabled: (enabled) => set({ semanticRerankEnabled: enabled }),
       setAiFeaturesEnabled: (enabled) => set({ aiFeaturesEnabled: enabled }),
@@ -310,6 +317,7 @@ export const useSettingsStore = create<SettingsState>()(
         keymap: getDefaultKeymap(),
         indexingConcurrency: defaultIndexingConcurrency,
         disableThumbnails: false,
+        autoplayVideoPreviews: true,
         globalAutoWatch: true,
         sensitiveTags: ['nsfw', 'private', 'hidden'],
         blurSensitiveImages: true,
@@ -394,6 +402,12 @@ export const useSettingsStore = create<SettingsState>()(
         // turned it off keeps it off across restarts.
         if (state && typeof state.stackHighlightPromptVariations !== 'boolean') {
           state.stackHighlightPromptVariations = true;
+        }
+
+        // Also shipped after users existed. A `typeof` check, for the same
+        // reason: a user who turned hover previews off must stay off.
+        if (state && typeof state.autoplayVideoPreviews !== 'boolean') {
+          state.autoplayVideoPreviews = true;
         }
 
         if (state && typeof state.isSemanticSearchEnabled !== 'boolean') {

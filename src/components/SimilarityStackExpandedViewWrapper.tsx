@@ -4,6 +4,7 @@ import { IndexedImage, StackGroupByDimension } from '../types';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useThumbnail } from '../hooks/useThumbnail';
+import { hoverPreview } from '../services/hoverPreviewCoordinator';
 import { buildSubGroups } from '../hooks/useImageStacking';
 import { withPromptVariationSegments } from '../utils/promptVariation';
 import { safeLazy } from '../utils/safeLazy';
@@ -292,6 +293,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
         onDragStart={handleDragStart as any}
         onDragEnd={handleDragEnd}
         onContextMenu={onContextMenu as any}
+        hoverPreview={hoverPreview}
       />
     </>
   );

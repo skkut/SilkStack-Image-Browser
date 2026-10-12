@@ -30,6 +30,8 @@ import {
   Layers2
 } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
+import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
+import { isVideoFileName } from '../utils/mediaTypes';
 import { useImageStacking } from '../hooks/useImageStacking';
 import { useStackingEnabled } from '../services/aiFeatureAccess';
 // Static on purpose: this file already imports useImageStore, which imports
@@ -77,17 +79,6 @@ interface ImageCardProps {
   /** Image matched semantically for the active query — show the sparkle badge. */
   isSemanticMatch?: boolean;
 }
-
-const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mkv', '.mov', '.avi'];
-
-const isVideoFileName = (fileName?: string | null, fileType?: string | null): boolean => {
-  if (fileType && fileType.startsWith('video/')) {
-    return true;
-  }
-  if (!fileName) return false;
-  const lower = fileName.toLowerCase();
-  return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
-};
 
 // Global cache to prevent flickering when react-window shifts ImageCards across rows (triggering unmount/remount)
 const fallbackUrlCache = new Map<string, { url: string; timeoutId: ReturnType<typeof setTimeout> | null }>();
@@ -149,6 +140,12 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
 
   // Virtualization handles visibility, request thumbnail immediately
   useThumbnail(image);
+
+  // Hover-to-play preview for videos and animated GIFs. The card keeps showing
+  // its poster until the preview is ready, so nothing here is on the critical
+  // path for images.
+  const { previewUrl, previewKind, onMouseEnter, onMouseLeave, cancel: cancelPreview } =
+    useHoverMediaPreview(image);
 
   // Provide cardRef directly
   const mergedRef = useCallback(
@@ -318,6 +315,10 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
   const handleCardMouseDown = (e: React.MouseEvent) => {
     mouseDownPos.current = { x: e.clientX, y: e.clientY };
     isDragging.current = false;
+    // A press here is either the start of a drag or of the click that opens the
+    // viewer. Neither wants a video playing behind it, so the preview stops now
+    // rather than waiting for the pointer to leave.
+    cancelPreview();
   };
 
   const handleCardMouseMove = (e: React.MouseEvent) => {
@@ -354,6 +355,8 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
         onClick={handleCardClick}
         onMouseDown={handleCardMouseDown}
         onMouseMove={handleCardMouseMove}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
         onContextMenu={(e) => onContextMenu && onContextMenu(image, e)}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
@@ -439,7 +442,35 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
           <div className="w-full h-full animate-pulse bg-gray-700"></div>
         )}
 
-        {isVideo && (
+        {/* Hover preview, layered over the poster. pointer-events-none so every
+            gesture (click, drag, context menu) still lands on the card itself —
+            a <video> would otherwise become the event target under the pointer.
+            object-contain matches the poster beneath, so the swap is seamless. */}
+        {previewUrl && previewKind === 'video' && (
+          <video
+            src={previewUrl}
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            draggable={false}
+          />
+        )}
+
+        {previewUrl && previewKind === 'image' && (
+          <img
+            src={previewUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            draggable={false}
+          />
+        )}
+
+        {/* The play badge is the "this is a video" affordance; while the video
+            is actually playing, the motion says it better than the badge does. */}
+        {isVideo && !previewUrl && (
           <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
             <div className="rounded-full bg-black/50 p-2 shadow-lg">
               <Play className="h-6 w-6 text-white/90" />

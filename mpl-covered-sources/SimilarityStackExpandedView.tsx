@@ -24,6 +24,32 @@ const isVideoFile = (img: StackImage): boolean => {
   return VIDEO_EXTENSIONS.some(ext => name.endsWith(ext));
 };
 
+// ── Hover preview host (injected by the app wrapper) ───────────────────
+// Declared structurally rather than imported: this module stays free of app
+// dependencies, the same reason every store interaction above arrives as a
+// callback prop. The app passes its preview coordinator here, which owns the
+// policy (dwell delay, one preview at a time, byte-capped cache) so this
+// component only has to say "the pointer is on me" and render what comes back.
+
+export interface StackHoverPreviewSource {
+  id: string;
+  name?: string | null;
+  fileType?: string | null;
+  fileSize?: number;
+  lastModified?: number;
+  handle?: unknown;
+}
+
+export interface StackHoverPreviewSession {
+  /** Settles to a playable blob URL, or null when skipped or cancelled. */
+  readonly url: Promise<string | null>;
+  cancel(): void;
+}
+
+export interface StackHoverPreviewApi {
+  activate(source: StackHoverPreviewSource): StackHoverPreviewSession;
+}
+
 // ── Sub-group image card (store-agnostic — callbacks instead of store reads) ──
 
 interface SubGroupImageCardProps {
@@ -36,6 +62,7 @@ interface SubGroupImageCardProps {
   onDragEnd: (event: React.DragEvent<HTMLDivElement>) => void;
   onContextMenu?: (image: StackImage, event: React.MouseEvent) => void;
   thumbnailsDisabled: boolean;
+  hoverPreview?: StackHoverPreviewApi;
 }
 
 const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
@@ -48,6 +75,7 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
   onDragEnd,
   onContextMenu,
   thumbnailsDisabled,
+  hoverPreview,
 }) => {
   // Thumbnail state — the parent wrapper triggers thumbnail loading via useThumbnail.
   // This component passively reacts to thumbnailUrl / thumbnailStatus becoming ready.
@@ -80,6 +108,46 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
 
   const canDragExternally = typeof window !== 'undefined' && !!(window as any).electronAPI?.startFileDrag;
 
+  // Hover preview — the coordinator behind `hoverPreview` owns the dwell delay,
+  // the single-active rule and the cache; this only reports pointer enter/leave
+  // and renders whatever URL comes back.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewSessionRef = useRef<StackHoverPreviewSession | null>(null);
+
+  const cancelPreview = useCallback(() => {
+    const session = previewSessionRef.current;
+    previewSessionRef.current = null;
+    session?.cancel();
+    setPreviewUrl(null);
+  }, []);
+
+  // Virtualized rows recycle cards onto other images, so drop the preview on
+  // image change as well as on unmount.
+  useEffect(() => () => cancelPreview(), [cancelPreview, image.id]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!hoverPreview) return;
+
+    const session = hoverPreview.activate(image);
+    previewSessionRef.current = session;
+    void session.url.then((url) => {
+      // Ignore a result that arrived after the pointer left or after another
+      // card took the preview over.
+      if (!url || previewSessionRef.current !== session) return;
+      setPreviewUrl(url);
+    });
+  }, [hoverPreview, image]);
+
+  const handleMouseLeave = useCallback(() => {
+    cancelPreview();
+  }, [cancelPreview]);
+
+  const handlePreviewMouseDown = useCallback(() => {
+    // A press starts a drag or the click that opens the viewer; neither wants
+    // a video still playing behind it.
+    cancelPreview();
+  }, [cancelPreview]);
+
   // Track mouse movement to distinguish click from drag
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
   const isDragging = useRef(false);
@@ -87,6 +155,7 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
   const handleMouseDown = (e: React.MouseEvent) => {
     mouseDownPos.current = { x: e.clientX, y: e.clientY };
     isDragging.current = false;
+    handlePreviewMouseDown();
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -118,6 +187,8 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
       onClick={handleCardClick}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       onContextMenu={(e) => onContextMenu?.(image, e)}
       onDragStart={(e) => onDragStart(image, e)}
       onDragEnd={onDragEnd}
@@ -175,6 +246,30 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
         </div>
       )}
 
+      {/* Hover preview over the still frame. pointer-events-none so click,
+          drag and context menu all keep landing on the card itself. */}
+      {previewUrl && isVideoFile(image) && (
+        <video
+          src={previewUrl}
+          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+          draggable={false}
+        />
+      )}
+
+      {previewUrl && !isVideoFile(image) && (
+        <img
+          src={previewUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+          draggable={false}
+        />
+      )}
+
       {/* Hover overlay with filename */}
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
         <p className="text-[10px] text-white truncate leading-tight">
@@ -199,6 +294,7 @@ interface JustifiedRowProps {
   onDragEnd: (event: React.DragEvent<HTMLDivElement>) => void;
   onContextMenu?: (image: StackImage, event: React.MouseEvent) => void;
   thumbnailsDisabled: boolean;
+  hoverPreview?: StackHoverPreviewApi;
 }
 
 const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
@@ -211,6 +307,7 @@ const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
   onDragEnd,
   onContextMenu,
   thumbnailsDisabled,
+  hoverPreview,
 }) => {
   return (
     <div className="flex flex-row" style={{ height: row.height, gap: GAP_SIZE }}>
@@ -231,6 +328,7 @@ const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
               onDragEnd={onDragEnd}
               onContextMenu={onContextMenu}
               thumbnailsDisabled={thumbnailsDisabled}
+              hoverPreview={hoverPreview}
             />
           </div>
         );
@@ -253,6 +351,9 @@ export interface SimilarityStackExpandedViewProps {
   imageSize?: number;
   /** Whether thumbnails are disabled (from settings store). */
   thumbnailsDisabled: boolean;
+  /** Hover-preview host — plays videos/GIFs while the pointer rests on a card.
+   *  Supplied by the app wrapper; absent means hover previews are off. */
+  hoverPreview?: StackHoverPreviewApi;
   /** Callback — toggle favorite on an image by ID. */
   onToggleFavorite: (imageId: string) => void;
   /** Callback — toggle selection on an image by ID. */
@@ -287,6 +388,7 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
   onBack,
   imageSize: imageSizeProp,
   thumbnailsDisabled,
+  hoverPreview,
   onToggleFavorite,
   onToggleSelection,
   onDragStart,
@@ -519,6 +621,7 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
                         onDragEnd={onDragEnd}
                         onContextMenu={onContextMenu}
                         thumbnailsDisabled={thumbnailsDisabled}
+                        hoverPreview={hoverPreview}
                       />
                     </div>
                   ))}
