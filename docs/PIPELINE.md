@@ -51,12 +51,24 @@ The pipeline MUST run **after** Phase B (enrichment/metadata parsing) completes.
 
 ## Pipeline Phases
 
+One `runPipelineRound()` runs a strictly sequential round. Phases 1-2 are shared by both branches; the count then depends on the branch (the Footer's labels follow it — see [Branch-dependent phase order](#branch-dependent-phase-order)):
+
+| # | Phase | Function | State flag | Output |
+|---|-------|----------|-----------|--------|
+| 1 | Stacking (exact-prompt hashing) | `syncNewImagesToStacks()` + `reconcilePromptHashes()` | `isStackAnalyzed` | `stackGroupId` — FNV-1a hash of the normalized prompt |
+| 2 | Similarity grouping — **lexical** | `computeSimilarityGroups()` | `isSimilarityAnalyzed` | `similarityGroupId` |
+| 3 | Auto-tagging (AI enrichment) | `startAutoTagging('', false, { scope: 'library' })` | `searchTagVersion` | `autoTags`, `synonymTags` |
+| 4 | Semantic search indexing | `runSemanticIndexNow()` | `isSemanticIndexed` | semantic + prompt vectors |
+| 5 | Similarity grouping — **vector** (vector branch only) | `computeVectorSimilarityGroups()` | `isSimilarityAnalyzed` | merges added to phase 2's partition |
+
+Phase 2 is deliberately hoisted ahead of the model phases: it is pure string work, so new images join (or mint) their stacks the moment they are indexed instead of waiting behind a model load — which is what keeps the library grid, the Stacks tab and an open drill-down showing the same thing at the same moment. Auto-tag and semantic run after it and preserve the grouping fields.
+
 ### Phase 1: Prompt Stacking (Exact-Match Hashing)
 
 - **Function**: `syncNewImagesToStacks()`
 - **State flag**: `isStackAnalyzed` (on `ImageAnnotations`)
 - **Output**: `stackGroupId` — FNV-1a hash of the normalized prompt text
-- **Footer**: Shows amber "Phase 1/2: Stacking…"
+- **Footer**: Shows amber "Phase 1/5: Stacking…" (vector branch) or "Phase 1/4: Stacking…" (lexical branch)
 
 **What it does**:
 1. Iterates all images in the store
@@ -69,12 +81,12 @@ The pipeline MUST run **after** Phase B (enrichment/metadata parsing) completes.
 
 **Idempotency**: Safe to call multiple times — only unprocessed images are modified.
 
-### Phase 2: Similarity Grouping (Semantic Clustering)
+### Phase 2: Similarity Grouping (Lexical Clustering)
 
 - **Function**: `computeSimilarityGroups()`
 - **State flag**: `isSimilarityAnalyzed` (on `ImageAnnotations`)
 - **Output**: `similarityGroupId` — shared ID grouping semantically similar prompts
-- **Footer**: Shows amber "Phase 2/2: Similarity…"
+- **Footer**: Shows amber "Phase 2/5: Similarity…" (vector branch) or "Phase 2/4: Similarity…" (lexical branch)
 
 **What it does**:
 1. Ensures all images have `stackGroupId` (Step 0 — catch-up for images that bypassed Phase 1)
@@ -83,9 +95,20 @@ The pipeline MUST run **after** Phase B (enrichment/metadata parsing) completes.
 4. Persists `{ similarityGroupId, isSimilarityAnalyzed: true }` to IndexedDB
 5. Updates in-memory store
 
-**Similarity threshold**: 0.85 (configurable via StackingEngine)
+**Similarity threshold**: 0.80 (`SIMILARITY_MATCH_THRESHOLD` in `src/services/aiBridge.ts`)
 
 **Idempotency**: Only processes images where `isSimilarityAnalyzed` is false or `similarityGroupId` is absent.
+
+### Branch-dependent phase order
+
+`isSemanticSearchEnabled()` selects the branch. The vector pass (phase 5) can only run after phase 4 — a prompt vector does not exist until the semantic pass has embedded it — and it may only ADD merges to phase 2's partition, never remove a match.
+
+```
+VECTOR branch  (semantic search on):  1 stacking → 2 similarity (lexical) → 3 autoTag → 4 semantic → 5 similarity (vector)
+LEXICAL branch (semantic search off): 1 stacking → 2 similarity (lexical) → 3 autoTag → 4 semantic
+```
+
+The Footer's phase labels are per-branch (`VECTOR_PHASE_LABELS` / `LEXICAL_PHASE_LABELS` in [Footer.tsx](src/components/Footer.tsx)) because the denominator differs. `pipelinePhase` uses `'similarity'` for the lexical pass and `'vectorSimilarity'` for the vector one, so the two passes are distinguishable in the label and in tests.
 
 ## When the Pipeline Runs
 
@@ -209,9 +232,15 @@ Image added to library
          ▼  (sequential — only after Phase 1 completes)
 ┌──────────────────┐
 │  Phase 2: Sim    │  processPostIndexingPipeline()
-│  (Clustering)    │  → computeSimilarityGroups()
+│  (Lexical)       │  → computeSimilarityGroups()
 │                  │  isSimilarityAnalyzed: true
 │                  │  similarityGroupId: cluster ID
+└────────┬─────────┘
+         │
+         ▼  (branch-dependent from here: see Pipeline Phases)
+┌──────────────────┐
+│  Phase 3-5       │  autoTag → semantic → (vector pass, vector branch only)
+│  (Model phases)  │  setPipelinePhase('autoTag' | 'semantic' | 'vectorSimilarity')
 └────────┬─────────┘
          │
          ▼
@@ -243,8 +272,11 @@ To add a new automatic processing phase to the pipeline:
 
 ### Key console messages
 - `[Pipeline] Annotations not yet loaded — deferring` — Pipeline called too early; will retry on next trigger
-- `[Pipeline] Phase 1/2: Prompt stacking...` — Phase 1 started
-- `[Pipeline] Phase 2/2: Similarity grouping...` — Phase 2 started
+- `[Pipeline] Phase 1: Prompt stacking (exact-match hashing)...` — Phase 1 started
+- `[Pipeline] Phase 2: Similarity grouping (lexical clustering)...` — Phase 2 started (both branches)
+- `[Pipeline] Phase 3/5: Auto-tagging (library scope)...` — auto-tag started (vector branch; `3/4` in the lexical branch)
+- `[Pipeline] Phase 4/5: Semantic search indexing...` — semantic indexing started (`4/4` in the lexical branch)
+- `[Pipeline] Phase 5/5: Similarity grouping (vector)...` — vector pass started (vector branch only)
 - `[Pipeline] All phases complete.` — Pipeline finished successfully
 - `[Pipeline] Running queued pipeline invocation` — A follow-up run was queued (normal under high churn)
 
@@ -256,9 +288,14 @@ Each processing stage has its own color-coded badge with file-level detail:
 |-------|-------|-------|---------|
 | **Cataloging X/Y — file.png** | 🟢 Green | File count + current file name | Phase A: building catalog stubs |
 | **Enriching X/Y — file.png** | 🔵 Blue | File count + current file name | Phase B: parsing metadata from binary |
-| **Phase 1/2: Stacking…** | 🟠 Amber | Phase label | Pipeline: exact-prompt hashing |
-| **Phase 2/2: Similarity…** | 🟠 Amber | Phase label | Pipeline: semantic clustering |
+| **Phase 1/5: Stacking…** | 🟠 Amber | Phase label | Pipeline: exact-prompt hashing |
+| **Phase 2/5: Similarity…** | 🟠 Amber | Phase label | Pipeline: lexical clustering |
+| **Phase 3/5: Auto-tagging…** | 🟠 Amber | Phase label | Pipeline: AI enrichment |
+| **Phase 4/5: Semantic indexing…** | 🟠 Amber | Phase label | Pipeline: embedding the index text |
+| **Phase 5/5: Similarity…** | 🟠 Amber | Phase label | Pipeline: vector clustering on top of phase 2 |
 | **Similarity message** | 🟢 Green | `similarityGroupProgress.message` | Clustering progress with counts |
+
+The denominators are `N/5` while semantic search is on and `N/4` while it is off (there is no vector pass to run) — see [Branch-dependent phase order](#branch-dependent-phase-order).
 
 **Troubleshooting guide:**
 
@@ -267,7 +304,7 @@ Each processing stage has its own color-coded badge with file-level detail:
 | "Cataloging 1/1 — image.png" stuck | Phase A has 1 file; check if Phase B started | Wait for Phase B to begin (blue badge should appear) |
 | "Enriching 0/1" no file name | Phase B queued but hasn't started processing | Normal — worker pool initializing |
 | "Enriching 1/1 — image.png" stuck | Phase B is parsing this file (large file, slow parse) | Check file size; PNG iTXt chunks require deflate decompression |
-| "Phase 1/2: Stacking…" persists | Stacking engine is running; may be slow for many new images | Check console for `[Pipeline]` logs |
+| "Phase 1/5: Stacking…" persists | Stacking engine is running; may be slow for many new images | Check console for `[Pipeline]` logs |
 | No badge after enrichment completes | Pipeline hasn't triggered yet or enrichment failed | Check console for Phase B errors; pipeline triggers in `phaseB.then()` |
-| "Cataloging" → nothing → "Phase 1/2" | Normal flow: Phase A complete → Phase B runs silently → Pipeline starts | Expected behavior when Phase B is fast |
+| "Cataloging" → nothing → "Phase 1/5" | Normal flow: Phase A complete → Phase B runs silently → Pipeline starts | Expected behavior when Phase B is fast |
 | All badges gone but images not stacked | Possible: pipeline ran before enrichment completed (fixed — see Critical Timing Fix) | If reproducing after fix, check `isStackAnalyzed` flag in IndexedDB |

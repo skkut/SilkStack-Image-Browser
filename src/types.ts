@@ -1305,7 +1305,16 @@ export interface StackSubGroup {
  * prompt is displayed above its images in the drill-down view.
  */
 export interface ImageStack {
-  id: string; // Unique stack ID (e.g. "stack-" + coverImage.id)
+  /**
+   * Stable stack id — `"stack-" + groupKey` (see resolveStackGroupKey).
+   * Deliberately NOT derived from the cover image: the cover changes the
+   * moment a newer image joins the group, and an id that changes with
+   * membership tears down anything keyed by it (the Stacks-tab drill-down
+   * closes itself when its stack "disappears").
+   */
+  id: string;
+  /** The grouping key every member shares — stable across membership changes. */
+  groupKey: string;
   coverImage: IndexedImage; // The representative image (first in group)
   images: IndexedImage[]; // All images in this stack
   count: number; // Total number of images in stack
@@ -1315,14 +1324,17 @@ export interface ImageStack {
 
 /**
  * Context for drilling into a library stack.
- * Stores explicit image IDs so filtering is ID-based rather than text-based,
- * leaving the search bar untouched. Supports future manual image addition.
+ *
+ * Carries the stack's GROUP KEY — never a snapshot of member IDs. Membership
+ * is resolved live from the current images on every filter pass (see
+ * `collectGroupMembers`), so images that join the group while the drill-down
+ * is open — a watcher-added generation, a vector merge, a redo of an unmerge
+ * — appear without any reconciliation code. Filtering stays ID-based under
+ * the hood, so the search bar is untouched.
  */
 export interface LibraryStackContext {
-  stackId: string;
-  imageIds: string[];
+  groupKey: string;
   basePrompt: string;
-  subGroups?: { promptHash: string; prompt: string; label: string; groupKey: string; dimensions?: StackSubGroupDimension[]; imageIds: string[] }[]; // Sub-group metadata for drill-down display
 }
 
 /**

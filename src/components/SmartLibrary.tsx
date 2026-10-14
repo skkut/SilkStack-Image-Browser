@@ -114,7 +114,13 @@ const Stacks: React.FC<StacksProps> = () => {
     }
   }, [expandedStackId]);
 
-  // Clear expanded state if the stack is removed
+  // Close the drill-down when its group is no longer a stack: the group key
+  // disappeared, or it shrank to a single image and is now emitted as a bare
+  // singleton (which this view never shows — see the `stacks` filter above).
+  // Stable stack ids (`stack-<groupKey>`) are what make this check meaningful
+  // across membership changes: the id no longer changes when a newer image
+  // joins and takes over the cover, so the drill-down stays open as its stack
+  // grows and only closes when the stack is genuinely gone.
   useEffect(() => {
     if (expandedStackId && !stacks.some(s => s.id === expandedStackId)) {
       setExpandedStackId(null);
@@ -124,19 +130,6 @@ const Stacks: React.FC<StacksProps> = () => {
   const activeStack = expandedStackId
     ? stacks.find(s => s.id === expandedStackId) ?? null
     : null;
-
-  // Build drill-down props from the active stack
-  const drillDownSubGroups = useMemo(() => {
-    if (!activeStack?.subGroups) return [];
-    return activeStack.subGroups.map(sg => ({
-      promptHash: sg.promptHash,
-      prompt: sg.prompt,
-      label: sg.label,
-      groupKey: sg.groupKey,
-      dimensions: sg.dimensions,
-      imageIds: sg.imageIds,
-    }));
-  }, [activeStack]);
 
   const primaryPath = directories[0]?.path ?? '';
   const hasDirectories = directories.length > 0;
@@ -153,7 +146,6 @@ const Stacks: React.FC<StacksProps> = () => {
         <div className="flex-1 min-h-0 flex flex-col">
           <SimilarityStackExpandedView
             images={activeStack.images}
-            subGroups={drillDownSubGroups}
             onImageClick={handleImageSelection}
             selectedImages={new Set()}
             onBack={handleCloseStack}

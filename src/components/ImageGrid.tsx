@@ -1443,10 +1443,11 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
       moduleMainLibraryScrollPosition = gridRef.current.scrollTop;
     }
 
-    // Build ID-based stack context — filters by explicit image IDs instead of
-    // polluting the search bar. This supports future manual image addition.
-    // Use a fallback label when no prompt is available (e.g. manually merged
-    // stacks of images without embedded prompt metadata).
+    // Build the drill-down context from the GROUP KEY, not from a snapshot of
+    // image IDs: membership is re-resolved from the live image list on every
+    // filter pass (see filterAndSort / collectGroupMembers), so images added
+    // while the drill-down is open appear in it immediately — the same way
+    // they appear in the library grid and in the Stacks tab.
     const prompt = stack.basePrompt
       || stack.coverImage.metadata?.normalizedMetadata?.prompt
       || stack.coverImage.metadata?.positive_prompt
@@ -1457,18 +1458,8 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     }
 
     const context: LibraryStackContext = {
-      stackId: stack.id,
-      imageIds: stack.images.map(img => img.id),
+      groupKey: stack.groupKey,
       basePrompt: prompt,
-      // Pass sub-group info for prompt-grouped drill-down display
-      subGroups: stack.subGroups?.map(sg => ({
-        promptHash: sg.promptHash,
-        prompt: sg.prompt,
-        label: sg.label,
-        groupKey: sg.groupKey,
-        dimensions: sg.dimensions,
-        imageIds: sg.imageIds,
-      })),
     };
     setLibraryStackContext(context);
     setStackingEnabled(false); // Disable stacking when drilling down to see individual items

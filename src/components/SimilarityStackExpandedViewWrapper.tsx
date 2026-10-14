@@ -13,7 +13,6 @@ import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocati
 
 interface SimilarityStackExpandedViewWrapperProps {
   images: IndexedImage[];
-  subGroups: { promptHash: string; prompt: string; label: string; groupKey: string; imageIds: string[] }[];
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
   onBack: () => void;
@@ -66,11 +65,11 @@ const DIMENSION_COLORS: Record<string, { bg: string; text: string; shadow: strin
  * Also provides a grouping-dimension toolbar: checkboxes for Model, Prompt,
  * and Loras that control how images are sub-grouped within the expanded
  * stack view. The user can toggle any combination — sub-groups are
- * recomputed on the fly from the raw image list.
+ * recomputed on the fly from the raw image list (never passed in), so the
+ * drill-down always reflects the images currently in its stack.
  */
 const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWrapperProps> = ({
   images,
-  subGroups: propSubGroups,
   onImageClick,
   selectedImages,
   onBack,

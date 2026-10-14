@@ -60,19 +60,20 @@ Stack membership follows the same per-image annotation pattern as auto-tags: eac
 The hook groups images in two levels with zero runtime similarity computation:
 
 ```
-images → any image have stackGroupId?
+images → any image resolved to a group key?  (resolveStackGroupKey: similarityGroupId || stackGroupId)
   ├─ YES → groupByAnnotation()
-  │         ├─ Level 1: Group by similarityGroupId (or stackGroupId fallback)
-  │         └─ Level 2: Sub-group within each stack by exact prompt text
-  └─ NO  → groupByExactPrompt()
-            └─ Group by normalized prompt text (fallback before first sync)
+  │         ├─ Level 1: Group by that key (stable stack id: `stack-<groupKey>`)
+  │         └─ Level 2: Sub-group within each stack by the Group by dimensions (prompt by default)
+  └─ NO  → the images are returned ungrouped — the pipeline will group them
 ```
 
-**Level 1 — Similarity grouping**: Groups by `img.similarityGroupId` (persisted, computed async by `computeSimilarityGroups`). Falls back to `img.stackGroupId` if similarity hasn't been computed yet. This is O(n) with no computation — just a Map lookup.
+**Level 1 — Group-key grouping**: Groups by `img.similarityGroupId`, falling back to `img.stackGroupId` when similarity hasn't been computed yet — the single expression in [`stackGroupKey.ts`](../src/utils/stackGroupKey.ts), shared with the drill-down and the store filter. This is O(n) with no computation — just a Map lookup. A group of one is emitted as a bare singleton, not a stack, so views that show only stacks never list ungrouped images.
 
-**Level 2 — Exact prompt sub-groups**: Within each similarity stack, images are further grouped by exact prompt text (lowercase, whitespace collapse). Each distinct prompt becomes a `StackSubGroup` with its own label displayed above its images in the drill-down view.
+**Stack identity is the group, not the cover.** `ImageStack.id` is `stack-<groupKey>`; the cover is just the newest image in the group and changes as images arrive. Anything keyed by stack id (the Stacks tab's open drill-down, scroll restoration) therefore survives a new image joining the stack — an id derived from the cover would reset that state on every arrival.
 
-**Fallback path** (`groupByExactPrompt`): Used before annotations load or `syncNewImagesToStacks` runs. Normalizes each image's prompt and groups by normalized text. Also produces sub-groups.
+**Level 2 — Sub-groups**: Within each stack, images are further grouped by the user's **Group by** dimensions — prompt (exact text, lowercase, whitespace collapsed) by default, optionally model and/or LoRAs. Each sub-group becomes a `StackSubGroup` with its own label displayed above its images in the drill-down view. The drill-down recomputes these from the images it is given, so a dimension change applies immediately without rebuilding the stacks.
+
+**Ungrouped path**: With no group key on any image (fresh library, annotations not yet loaded, or before `syncNewImagesToStacks` runs) the images are returned as-is — no client-side prompt grouping. Grouping is the pipeline's job; a second grouping rule here is how two views end up disagreeing.
 
 ### Per-Image Annotation Fields
 
@@ -151,7 +152,7 @@ The similarity merge runs as an **async store action** (not in the render path).
 
 ### Stack Drill-Down
 
-When a user clicks a stack in the library grid, the app drills down to show images organized by prompt sub-groups. This is handled by `handleStackClick` in [`ImageGrid.tsx`](../src/components/ImageGrid.tsx) and rendered by [`SimilarityStackExpandedView`](../src/components/SimilarityStackExpandedView.tsx).
+When a user clicks a stack in the library grid, the app drills down to show images organized by prompt sub-groups. This is handled by `handleStackClick` in [`ImageGrid.tsx`](../src/components/ImageGrid.tsx) and rendered by [`SimilarityStackExpandedViewWrapper`](../src/components/SimilarityStackExpandedViewWrapper.tsx).
 
 **Flow:**
 
@@ -159,26 +160,30 @@ When a user clicks a stack in the library grid, the app drills down to show imag
 User clicks stack card
   │
   ├─ 1. Save scroll position (moduleMainLibraryScrollPosition)
-  ├─ 2. Build LibraryStackContext { stackId, imageIds, basePrompt, subGroups }
-  ├─ 3. setLibraryStackContext(context) → triggers filterAndSort (ID-based filtering)
+  ├─ 2. Build LibraryStackContext { groupKey, basePrompt }
+  ├─ 3. setLibraryStackContext(context) → triggers filterAndSort (group-key filtering)
   ├─ 4. setStackingEnabled(false)
   └─ 5. App.tsx renders SimilarityStackExpandedView instead of ImageGrid
        │
        ├─ Back to Library button (replaces old App.tsx back bar)
-       ├─ For each sub-group:
+       ├─ For each sub-group (recomputed live from the images prop):
        │   ├─ Prompt header panel (prompt text + image count)
        │   └─ Justified image rows (same computeJustifiedLayout as ImageGrid)
        └─ Scroll position restored on back
 ```
 
-The key design decision: **drill-down uses ID-based filtering, not text-based filtering.** This means:
+The key design decision: **drill-down uses group-key filtering, not text-based filtering.** This means:
 - The search bar is NOT modified — any prior search is preserved
-- Filtering is O(1) per image (Set lookup vs. text matching)
-- Manual image addition is possible (push an ID into `imageIds`)
+- Filtering is O(n) over the visible set with a Set lookup per image (vs. text matching)
+- **Membership is live.** The context stores the group key, and `filterAndSort` re-resolves which images belong to it on every pass. Images indexed while the drill-down is open appear in it immediately — the same instant they appear in the library grid and the Stacks tab. No snapshot of image IDs is kept anywhere, so the three views cannot drift apart.
 
-**Sub-group display**: Every stack drill-down shows prompt headers, even for single-prompt stacks. The prompt label in a dark panel is displayed above its images, making it clear what prompt generated each group.
+**Sub-group display**: Every stack drill-down shows prompt headers, even for single-prompt stacks. The prompt label in a dark panel is displayed above its images, making it clear what prompt generated each group. Sub-groups are recomputed from the `images` prop by the wrapper (respecting the user's Group by dimensions), not passed in.
 
 **Image layout**: Sub-group images use `computeJustifiedLayout()` — the same algorithm as `ImageGrid` — producing identical justified rows. Each image card uses `useThumbnail()` for thumbnail loading and includes selection checkboxes, favorite stars, and hover filename overlays matching `ImageCard` behavior.
+
+**Closing the drill-down:** two paths, one rule — the view closes when its group is no longer a stack (fewer than two members, i.e. it fell to a singleton or disappeared):
+- the back button / `Escape` (App.tsx) clears the context and re-enables stacking;
+- a close-on-shrink effect in `App.tsx` does the same when `collectGroupMembers(...).size < 2`, matching the Stacks tab, which clears its `expandedStackId` as soon as the group is missing from the stacks it renders.
 
 ### LibraryStackContext
 
@@ -186,16 +191,15 @@ The key design decision: **drill-down uses ID-based filtering, not text-based fi
 
 ```typescript
 interface LibraryStackContext {
-  stackId: string;       // Matches ImageStack.id
-  imageIds: string[];    // Explicit membership — the source of truth for filtering
+  groupKey: string;      // = similarityGroupId || stackGroupId, the open group
   basePrompt: string;    // Display text for the "Back to all stacks" bar
-  subGroups?: {          // Sub-group metadata for prompt-grouped drill-down
-    promptHash: string;
-    prompt: string;
-    imageIds: string[];
-  }[];
 }
 ```
+
+The membership resolver lives in [`src/utils/stackGroupKey.ts`](../src/utils/stackGroupKey.ts) — one module, imported by the stack builder, the store filter and the drill-down close check:
+
+- `resolveStackGroupKey(image)` → `image.similarityGroupId || image.stackGroupId` (the key an image belongs to, or `undefined` for a singleton)
+- `collectGroupMembers(images, annotations, groupKey)` → the id set for one group, used by `filterAndSort` and by the unmerge/undo actions
 
 **Store integration** ([`src/store/useImageStore.ts`](../src/store/useImageStore.ts)):
 - **State:** `libraryStackContext: LibraryStackContext | null` (initially `null`)
@@ -209,20 +213,25 @@ interface LibraryStackContext {
 The filter pipeline applies these stages in order:
 
 ```
-selectionFiltered → favorites → sensitive tags → ID-BASED OR TEXT SEARCH → models → loras → schedulers → advanced filters → sort
+selectionFiltered → favorites → sensitive tags → GROUP-KEY OR TEXT SEARCH → models → loras → schedulers → advanced filters → sort
 ```
 
-**ID-based filtering:**
+**Group-key filtering:**
 ```typescript
-if (libraryStackContext) {
-    const contextImageIds = new Set(libraryStackContext.imageIds);
-    results = results.filter(image => contextImageIds.has(image.id));
+const stackContextImageIds = libraryStackContext
+    ? collectGroupMembers(images, annotations, libraryStackContext.groupKey)
+    : null;
+// …
+if (stackContextImageIds) {
+    out = out.filter(image => stackContextImageIds.has(image.id));
 } else if (searchQuery) {
     // Normal text search (unchanged)
 }
 ```
 
-The `if/else if` structure means **ID-based filtering takes priority over text search.** When a stack is open, the grid shows exactly the images in `imageIds`. When the context is cleared, any active `searchQuery` resumes filtering normally.
+The `if/else if` structure means **group filtering takes priority over text search.** When a stack is open, the grid shows exactly the images whose group key matches — resolved fresh on each pass. When the context is cleared, any active `searchQuery` resumes filtering normally.
+
+The semantic overlay (semantic search mode) intersects its hits with the same set, so semantic results inside a drill-down can never include images from another stack.
 
 ### Scroll Position Preservation
 

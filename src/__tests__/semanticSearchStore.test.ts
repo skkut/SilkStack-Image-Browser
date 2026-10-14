@@ -387,10 +387,19 @@ describe('filterAndSort semantic overlay (store integration)', () => {
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
   });
 
-  it('stack drill-down: the semantic overlay shows only images from the active stack', () => {
-    const other = createImage({ id: 'imgC', name: 'outside stack.png', directoryId: 'dir1' });
+  it('stack drill-down: the semantic overlay shows only images from the active group', () => {
+    const other = createImage({
+      id: 'imgC',
+      name: 'outside stack.png',
+      directoryId: 'dir1',
+      similarityGroupId: 'grp-other',
+    });
     useImageStore.setState({
-      images: [fox(), mountain(), other],
+      images: [
+        createImage({ id: 'imgA', name: 'red fox.png', directoryId: 'dir1', similarityGroupId: 'grp-fox' }),
+        createImage({ id: 'imgB', name: 'snowy mountain.png', directoryId: 'dir1', similarityGroupId: 'grp-fox' }),
+        other,
+      ],
       directories: [
         { id: 'dir1', name: 'lib', path: 'C:/lib', handle: {} as FileSystemDirectoryHandle, visible: true },
       ],
@@ -403,16 +412,60 @@ describe('filterAndSort semantic overlay (store integration)', () => {
       ],
       semanticMode: 'semantic',
       libraryStackContext: {
-        stackId: 'stack-1',
-        imageIds: ['imgA', 'imgB'],
+        groupKey: 'grp-fox',
         basePrompt: 'fox',
       },
       sortOrder: 'relevance',
     });
     useImageStore.getState().filterAndSortImages();
-    // imgC is a valid hit but belongs to another stack — it must not leak
+    // imgC is a valid hit but belongs to another group — it must not leak
     // into the drill-down alongside the stack's own images.
     expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
+  });
+
+  it('stack drill-down: an image added while it is open joins immediately', () => {
+    // The regression this guards: membership used to be a snapshot of image
+    // IDs captured at click time, so a freshly indexed image with the same
+    // group key stayed invisible in the drill-down until it was re-opened —
+    // while showing up fine in the library grid and the Stacks tab.
+    // Explicit DESCENDING timestamps keep the expected order stable under the
+    // default date sort (equal Date.now() values would order by creation
+    // speed instead).
+    const openStack = (images: IndexedImage[]) =>
+      setupLibrary(images, { hits: null, mode: 'off' }, {
+        libraryStackContext: { groupKey: 'grp-fox', basePrompt: 'fox' },
+      });
+
+    const first = createImage({ id: 'imgA', name: 'a.png', directoryId: 'dir1', similarityGroupId: 'grp-fox', lastModified: 3000 });
+    const second = createImage({ id: 'imgB', name: 'b.png', directoryId: 'dir1', similarityGroupId: 'grp-fox', lastModified: 2000 });
+    openStack([first, second]);
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
+
+    // Same open context, one more member — no re-entry, no re-click.
+    const arrived = createImage({ id: 'imgC', name: 'c.png', directoryId: 'dir1', similarityGroupId: 'grp-fox', lastModified: 1000 });
+    openStack([first, second, arrived]);
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB', 'imgC']);
+  });
+
+  it('stack drill-down: an image re-grouped away leaves immediately', () => {
+    const openFox = (images: IndexedImage[]) =>
+      setupLibrary(images, { hits: null, mode: 'off' }, {
+        libraryStackContext: { groupKey: 'grp-fox', basePrompt: 'fox' },
+      });
+
+    const inGroup = (id: string, name: string, lastModified: number) =>
+      createImage({ id, name, directoryId: 'dir1', similarityGroupId: 'grp-fox', lastModified });
+
+    openFox([inGroup('imgA', 'a.png', 3000), inGroup('imgB', 'b.png', 2000)]);
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA', 'imgB']);
+
+    // Unmerge clears the grouping fields on the image itself — the drill-down
+    // follows the key it was opened with, so the image drops out live.
+    openFox([
+      inGroup('imgA', 'a.png', 3000),
+      createImage({ id: 'imgB', name: 'b.png', directoryId: 'dir1', stackGroupId: 'hash-b', lastModified: 2000 }),
+    ]);
+    expect(useImageStore.getState().filteredImages.map((i) => i.id)).toEqual(['imgA']);
   });
 
   it('favorites filter drops semantic hits for non-favorites', () => {
@@ -786,10 +839,12 @@ describe('runSemanticSearch', () => {
 
 describe('semanticIndexImages + pipeline Phase 3', () => {
   it.each([
-    // Vector branch: prompt vectors only exist after the semantic pass, so
-    // similarity must run LAST.
-    { branch: 'vector', enabled: true, order: ['stacking', 'autoTag', 'semantic', 'similarity'] },
-    // Lexical branch: byte-for-byte the pre-vector phase order.
+    // Vector branch: BOTH similarity passes appear — the lexical one is
+    // hoisted ahead of the model phases (it is pure string work), while the
+    // VECTOR one still runs last, because prompt vectors only exist after the
+    // semantic pass. `indexOf('similarity')` resolves to the lexical phase.
+    { branch: 'vector', enabled: true, order: ['stacking', 'similarity', 'autoTag', 'semantic', 'vectorSimilarity'] },
+    // Lexical branch: same first four, no vector pass (it needs embeddings).
     { branch: 'lexical', enabled: false, order: ['stacking', 'similarity', 'autoTag', 'semantic'] },
   ])('runs the post-indexing pipeline phases in $branch-branch order', async ({ enabled, order }) => {
     featureAccessMocks.isSemanticSearchEnabled.mockReturnValue(enabled);

@@ -113,16 +113,19 @@ function shortModelName(modelId: string): string {
 }
 
 // Per-branch phase labels — the numbering must stay monotonic while the
-// phase ORDER differs between branches: the vector branch runs autoTag +
-// semantic BEFORE similarity (prompt vectors only exist after the semantic
-// pass), the lexical branch keeps the old stacking → similarity → autoTag →
-// semantic order. A phase not in the map (shouldn't happen) falls back to
-// its raw name.
+// phase COUNT differs between branches. Both branches now share the first two
+// phases (stacking, then lexical similarity — pure string work that must not
+// queue behind the model phases); the vector branch then adds autoTag,
+// semantic indexing and a vector similarity pass on top, while the lexical
+// branch has no vector pass at all (it needs prompt embeddings). The
+// denominator therefore tracks the branch rather than being fixed at 4.
+// A phase not in the map (shouldn't happen) falls back to its raw name.
 const VECTOR_PHASE_LABELS: Record<string, string> = {
-  stacking: 'Phase 1/4: Stacking…',
-  autoTag: 'Phase 2/4: Auto-tagging…',
-  semantic: 'Phase 3/4: Semantic indexing…',
-  similarity: 'Phase 4/4: Similarity…',
+  stacking: 'Phase 1/5: Stacking…',
+  similarity: 'Phase 2/5: Similarity…',
+  autoTag: 'Phase 3/5: Auto-tagging…',
+  semantic: 'Phase 4/5: Semantic indexing…',
+  vectorSimilarity: 'Phase 5/5: Similarity…',
 };
 const LEXICAL_PHASE_LABELS: Record<string, string> = {
   stacking: 'Phase 1/4: Stacking…',

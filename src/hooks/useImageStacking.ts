@@ -3,6 +3,7 @@ import { IndexedImage, ImageStack, StackSubGroup, StackGroupByDimension, LoRAInf
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { resolveStackGroupKey } from '../utils/stackGroupKey';
 
 // ── Simple hash for sub-group display keys ──────────────────────────────
 // Used only as React key identifiers for StackSubGroup objects in the UI.
@@ -375,7 +376,7 @@ function groupByAnnotation(images: IndexedImage[], displayStarredFirst: boolean)
   const ungrouped: IndexedImage[] = [];
 
   for (const img of images) {
-    const key = img.similarityGroupId || img.stackGroupId;
+    const key = resolveStackGroupKey(img);
     if (key) {
       const group = stackGroups.get(key);
       if (group) {
@@ -390,7 +391,7 @@ function groupByAnnotation(images: IndexedImage[], displayStarredFirst: boolean)
 
   const result: StackItem[] = [];
 
-  for (const [, groupImages] of stackGroups) {
+  for (const [groupKey, groupImages] of stackGroups) {
     const sorted = [...groupImages].sort((a, b) => {
       // When starred-first is enabled, favorited images come first within the stack
       if (displayStarredFirst) {
@@ -407,7 +408,11 @@ function groupByAnnotation(images: IndexedImage[], displayStarredFirst: boolean)
       const subGroups = buildSubGroups(sorted, displayStarredFirst);
 
       result.push({
-        id: `stack-${sorted[0].id}`,
+        // Stable identity (see ImageStack.id): keyed by the GROUP, not by the
+        // cover — the cover changes as newer images join, and an id that
+        // changed with membership would reset any view keyed by it.
+        id: `stack-${groupKey}`,
+        groupKey,
         coverImage: sorted[0],
         images: sorted,
         count: sorted.length,
@@ -441,13 +446,19 @@ export const useImageStacking = (
       return images;
     }
 
-    // When stacking is enabled, group by annotation fields (stackGroupId /
-    // similarityGroupId). These are populated by the store actions only when
-    // the ai-intelligence stacking engine is available. If no annotations
-    // exist yet, return ungrouped images — the engine will process them.
-    const hasAnnotations = images.some(img => img.stackGroupId !== undefined);
+    // When stacking is enabled, group by the annotation-backed group key.
+    // These fields are populated by the store actions only when the
+    // ai-intelligence stacking engine is available; with nothing grouped yet,
+    // return the images as-is — the engine will process them.
+    //
+    // The test uses resolveStackGroupKey, NOT a bare `stackGroupId !==
+    // undefined`: a manually merged pair can carry only a similarityGroupId
+    // (a `merged-…` id, when neither image had been analyzed yet), and a gate
+    // that ignored it would leave that stack unrendered while the drill-down —
+    // which keys off the same resolver — still considered it one group.
+    const hasGrouped = images.some(img => resolveStackGroupKey(img) !== undefined);
 
-    const items = hasAnnotations
+    const items = hasGrouped
       ? groupByAnnotation(images, displayStarredFirst)
       : images;
 

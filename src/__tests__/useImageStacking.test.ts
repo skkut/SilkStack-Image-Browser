@@ -112,6 +112,63 @@ describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking H
     expect('coverImage' in (dog as any)).toBe(false); // Singleton, not stack
   });
 
+  it('keys stack identity by group, so a new cover image does not change the id', () => {
+    useImageStore.setState({ sortOrder: 'date-desc' });
+    useSettingsStore.setState({ displayStarredFirst: false });
+
+    // similarityGroupId (the similarity merge's group) wins over the
+    // exact-prompt stackGroupId — see resolveStackGroupKey.
+    const cat = (id: string, lastModified: number) =>
+      createImage({ id, prompt: 'A beautiful cat', lastModified, similarityGroupId: 'grp-cat' });
+
+    const before = renderHook(() => useImageStacking([cat('1', 1000), cat('2', 900)], true));
+    const stackBefore = before.result.current.stackedItems.find(i => 'coverImage' in i) as any;
+    expect(stackBefore.id).toBe('stack-grp-cat');
+    expect(stackBefore.groupKey).toBe('grp-cat');
+
+    // A newer image joins the group and takes over the cover. The ID must not
+    // move with it: the Stacks tab and the library drill-down key off this id
+    // (their close-on-missing checks), so an id derived from the cover would
+    // reset — or close — an open view every time a new image arrived.
+    const after = renderHook(() =>
+      useImageStacking([cat('3', 2000), cat('1', 1000), cat('2', 900)], true),
+    );
+    const stackAfter = after.result.current.stackedItems.find(i => 'coverImage' in i) as any;
+    expect(stackAfter.coverImage.id).toBe('3'); // newest is the cover
+    expect(stackAfter.id).toBe(stackBefore.id); // identity survived the change
+    // …and it is still ONE stack holding every member.
+    expect(after.result.current.stackedItems).toHaveLength(1);
+    expect(stackAfter.images.map((img: any) => img.id)).toEqual(['3', '1', '2']);
+  });
+
+  it('a group that shrinks to one image stops being a stack', () => {
+    useImageStore.setState({ sortOrder: 'date-desc' });
+    useSettingsStore.setState({ displayStarredFirst: false });
+
+    const images = [
+      createImage({ id: '1', prompt: 'A beautiful cat', lastModified: 1000, similarityGroupId: 'grp-cat' }),
+      createImage({ id: '2', prompt: 'A beautiful cat', lastModified: 900, similarityGroupId: 'grp-cat' }),
+    ];
+    const { result } = renderHook(() => useImageStacking(images, true));
+    expect(result.current.stackedItems.filter(i => 'coverImage' in i)).toHaveLength(1);
+
+    // Image 2 was unmerged (grouping fields cleared) — with the group down to
+    // a single member it is emitted as a bare singleton, so stack views (which
+    // filter to ImageStacks only) drop it. This is the rule that keeps
+    // "images that are not in a stack" out of the Stacks tab.
+    const after = renderHook(() =>
+      useImageStacking(
+        [
+          { ...images[0] },
+          { ...images[1], similarityGroupId: undefined, stackGroupId: undefined },
+        ],
+        true,
+      ),
+    );
+    expect(after.result.current.stackedItems.filter(i => 'coverImage' in i)).toHaveLength(0);
+    expect(after.result.current.stackedItems).toHaveLength(2);
+  });
+
   it('treats images without stackGroupId as singletons', () => {
     useImageStore.setState({ sortOrder: 'date-desc' });
     useSettingsStore.setState({ displayStarredFirst: false });

@@ -66,7 +66,6 @@ const renderWrapper = () =>
           mkImage('2', 'a dog in a garden', 2000, 'sdxl'),
         ] as any
       }
-      subGroups={[]}
       onImageClick={vi.fn()}
       selectedImages={new Set<string>()}
       onBack={vi.fn()}

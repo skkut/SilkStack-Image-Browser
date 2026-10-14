@@ -14,6 +14,7 @@ import {
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { applyTableSorting, type TableSortField, type TableSortDirection } from '../utils/tableSorting';
+import { collectGroupMembers } from '../utils/stackGroupKey';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
@@ -410,26 +411,34 @@ export async function runSemanticIndexNow(options?: { force?: boolean; chunkSize
  * RAW pipeline round — the implementation behind the queue-wrapped
  * `processPostIndexingPipeline` action. One strictly sequential round:
  *
- *   Phase 1/4 — stacking (exact prompt hashing → stackGroupId), then
+ *   Phase 1/2 — stacking (exact prompt hashing → stackGroupId), then
  *               reconcilePromptHashes (BOTH branches — prompt edits on
  *               re-scan re-open stacking/similarity/indexing)
  *
- *   VECTOR branch (isSemanticSearchEnabled()):
- *     Phase 2/4 — auto-tagging (AI enrichment, LIBRARY scope)
- *     Phase 3/4 — semantic search indexing (isSemanticIndexed gate +
- *                 textHash/promptHash Δ → semanticVectors + promptVectors)
- *     Phase 4/4 — similarity grouping, BOTH signals under one label:
- *                 lexical clustering first, then VECTOR clustering of prompt
- *                 embeddings on top. Must run AFTER semantic: new images'
- *                 prompt vectors only exist once the pass embeds them.
- *                 Lexical first because vector may only ADD merges — the
- *                 lexical partition is the floor. One phase label keeps the
- *                 observed phase sequence unchanged.
+ *   Phase 2 — LEXICAL similarity grouping (BOTH branches). Pure string work
+ *               — no model load, no embedding — so it runs as early as
+ *               possible: freshly indexed images join (or mint) their stacks
+ *               immediately instead of waiting behind the model phases
+ *               below, which is what makes the library, the Stacks tab and
+ *               an open drill-down agree the moment images arrive.
+ *               Safe to run BEFORE auto-tag/semantic: both writers preserve
+ *               the group fields (spread-first records), and tags never
+ *               change the prompt.
  *
- *   LEXICAL branch (semantic disabled — byte-for-byte the old order):
- *     Phase 2/4 — similarity grouping (lexical clustering only)
- *     Phase 3/4 — auto-tagging
- *     Phase 4/4 — semantic search indexing
+ *   VECTOR branch (isSemanticSearchEnabled()) continues:
+ *     Phase 3 — auto-tagging (AI enrichment, LIBRARY scope)
+ *     Phase 4 — semantic search indexing (isSemanticIndexed gate +
+ *               textHash/promptHash Δ → semanticVectors + promptVectors)
+ *     Phase 5 — VECTOR similarity clustering on top of the phase-2 lexical
+ *               partition. Must run AFTER semantic: new images' prompt
+ *               vectors only exist once the pass embeds them. Lexical stays
+ *               the floor — vector may only ADD merges. It consumes the
+ *               candidate set the lexical pass returned.
+ *
+ *   LEXICAL branch (semantic disabled):
+ *     Phase 3 — auto-tagging
+ *     Phase 4 — semantic search indexing
+ *     (no vector pass — it needs prompt vectors)
  *
  * Auto-tag sits before semantic so enrichment results feed the index — and
  * so it always completes before the semantic index consumes tag changes.
@@ -440,7 +449,8 @@ export async function runSemanticIndexNow(options?: { force?: boolean; chunkSize
  * awaiting the queue-wrapped `processPostIndexingPipeline` action here
  * would deadlock (FIFO — the pipeline job can't start until the outer job
  * finishes), so the raw function is what queued jobs await. `pipelinePhase`
- * drives the Footer's "Phase N/4" label one phase at a time.
+ * drives the Footer's "Phase N/M" label one phase at a time (M differs per
+ * branch — see the label maps in Footer.tsx).
  */
 export async function runPipelineRound(): Promise<void> {
     const store = useImageStore.getState();
@@ -453,7 +463,7 @@ export async function runPipelineRound(): Promise<void> {
     try {
         // Phase 1: Exact-prompt hash stacking (syncNewImagesToStacks)
         // Only processes images where isStackAnalyzed is false.
-        console.log('[Pipeline] Phase 1/4: Prompt stacking (exact-match hashing)...');
+        console.log('[Pipeline] Phase 1: Prompt stacking (exact-match hashing)...');
         store.setPipelinePhase('stacking');
         await store.syncNewImagesToStacks();
 
@@ -461,36 +471,39 @@ export async function runPipelineRound(): Promise<void> {
         // re-opens stacking/similarity/indexing for exactly those images.
         await store.reconcilePromptHashes();
 
+        // Phase 2 — LEXICAL similarity clustering, in BOTH branches and as
+        // early as it can go. It is pure string work (no model load, no
+        // embedding), so new images join — or mint — their stacks right after
+        // being indexed instead of queueing behind the model phases below.
+        // Running it before auto-tag/semantic is safe: neither writer touches
+        // the group fields (their annotation records spread-first), and tags
+        // never change the prompt. The VECTOR branch consumes the candidate
+        // set it returns for its add-only merge pass.
+        console.log('[Pipeline] Phase 2: Similarity grouping (lexical clustering)...');
+        store.setPipelinePhase('similarity');
+        const lexical = await store.computeSimilarityGroups();
+
         if (isSemanticSearchEnabled()) {
-            // VECTOR branch — similarity runs LAST: prompt vectors for new
-            // images only exist after the semantic pass, so the order must
-            // be autoTag → semantic → similarity.
-            console.log('[Pipeline] Phase 2/4: Auto-tagging (library scope)...');
+            // VECTOR branch — the vector pass is LAST: prompt vectors for new
+            // images only exist once the semantic pass has embedded them.
+            console.log('[Pipeline] Phase 3/5: Auto-tagging (library scope)...');
             store.setPipelinePhase('autoTag');
             await store.startAutoTagging('', false, { scope: 'library' });
 
-            console.log('[Pipeline] Phase 3/4: Semantic search indexing...');
+            console.log('[Pipeline] Phase 4/5: Semantic search indexing...');
             store.setPipelinePhase('semantic');
             await runSemanticIndexNow();
 
-            // Phase 4 is BOTH signals under one phase label, LEXICAL FIRST.
-            // Vector only ADDS merges on top of the lexical partition — it
-            // never removes a lexical match (the pre-vector behaviour is the
-            // floor, not an alternative). Order is not swappable: the vector
-            // pass consumes the lexical pass's candidate set, and every group
-            // it might merge INTO must already exist. Both run under the same
-            // 'similarity' label so the observed phase sequence is unchanged.
-            console.log('[Pipeline] Phase 4/4: Similarity grouping (lexical, then vector)...');
-            store.setPipelinePhase('similarity');
-            const lexical = await store.computeSimilarityGroups();
+            // Vector only ADDS merges on top of the phase-2 lexical partition
+            // — it never removes a lexical match (the pre-vector behaviour is
+            // the floor, not an alternative). Order is not swappable: the
+            // vector pass consumes the lexical pass's candidate set, and every
+            // group it might merge INTO must already exist.
+            console.log('[Pipeline] Phase 5/5: Similarity grouping (vector)...');
+            store.setPipelinePhase('vectorSimilarity');
             await store.computeVectorSimilarityGroups(lexical?.processedStackGroupIds);
         } else {
-            // LEXICAL branch — unchanged phase order (stacking → similarity
-            // → autoTag → semantic).
-            console.log('[Pipeline] Phase 2/4: Similarity grouping (lexical clustering)...');
-            store.setPipelinePhase('similarity');
-            await store.computeSimilarityGroups();
-
+            // LEXICAL branch — no vector pass (it needs prompt vectors).
             console.log('[Pipeline] Phase 3/4: Auto-tagging (library scope)...');
             store.setPipelinePhase('autoTag');
             await store.startAutoTagging('', false, { scope: 'library' });
@@ -884,7 +897,7 @@ interface ImageState {
   similarityGroupProgress: { current: number; total: number; message: string } | null;
 
   // Pipeline State
-  pipelinePhase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | null;
+  pipelinePhase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | 'vectorSimilarity' | null;
 
   // Auto-Tagging State (Phase 3)
 
@@ -1066,7 +1079,7 @@ interface ImageState {
   setClusters: (clusters: any[]) => void;
   setClusteringProgress: (progress: { current: number; total: number; message: string } | null) => void;
   setSimilarityGroupProgress: (progress: { current: number; total: number; message: string } | null) => void;
-  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | null) => void;
+  setPipelinePhase: (phase: 'idle' | 'stacking' | 'similarity' | 'autoTag' | 'semantic' | 'vectorSimilarity' | null) => void;
   setSemanticMode: (mode: 'semantic' | 'off') => void;
   runSemanticSearch: (query: string) => Promise<void>;
   clearSemanticSearch: () => void;
@@ -1629,7 +1642,18 @@ export const useImageStore = create<ImageState>((set, get) => {
 
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
-        const { images, searchQuery, libraryStackContext, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
+        const { images, annotations, searchQuery, libraryStackContext, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
+
+        // ── Live drill-down membership ─────────────────────────────────────
+        // The stack drill-down is scoped by its GROUP KEY, resolved against
+        // the current images on every pass — never a snapshot of member IDs.
+        // Anything the pipeline assigns to the group later (a watcher-added
+        // generation, a vector merge, an undone unmerge) is therefore already
+        // visible the moment the store publishes it. Resolved once here and
+        // reused by the non-tag filters and the semantic overlay below.
+        const stackContextImageIds = libraryStackContext
+            ? collectGroupMembers(images, annotations, libraryStackContext.groupKey)
+            : null;
 
         // ── Filtering helpers ──────────────────────────────────────────────
         // The non-tag filters below (stack/search, models, LoRAs, schedulers,
@@ -1642,10 +1666,9 @@ export const useImageStore = create<ImageState>((set, get) => {
         const applyNonTagFilters = (list: IndexedImage[]): IndexedImage[] => {
             let out = list;
 
-            // ID-based stack filtering (preserves search bar state)
-            if (libraryStackContext) {
-                const contextImageIds = new Set(libraryStackContext.imageIds);
-                out = out.filter(image => contextImageIds.has(image.id));
+            // Group-key stack filtering (preserves search bar state)
+            if (stackContextImageIds) {
+                out = out.filter(image => stackContextImageIds.has(image.id));
             } else if (searchQuery) {
                 const searchTerms = searchQuery
                     .toLowerCase()
@@ -1983,15 +2006,14 @@ export const useImageStore = create<ImageState>((set, get) => {
         // still shows every keyword match.
         let filteredImages = sorted;
         if (state.semanticMode === 'semantic') {
-            // Stack drill-down is ID-scoped: curationVisible is captured above
-            // (BEFORE the libraryStackContext restriction), so the overlay
-            // would otherwise resurrect every hit — including images from
-            // other stacks — into the drill-down. Intersect the hit set with
-            // the active stack's imageIds before merging.
+            // Stack drill-down is group-scoped: curationVisible is captured
+            // above (BEFORE the stack restriction), so the overlay would
+            // otherwise resurrect every hit — including images from other
+            // stacks — into the drill-down. Intersect the hit set with the
+            // active stack's LIVE membership before merging.
             let mergeHits = state.semanticHits;
-            if (libraryStackContext && mergeHits) {
-                const stackIds = new Set(libraryStackContext.imageIds);
-                mergeHits = mergeHits.filter(h => stackIds.has(h.imageId));
+            if (stackContextImageIds && mergeHits) {
+                mergeHits = mergeHits.filter(h => stackContextImageIds.has(h.imageId));
             }
             filteredImages = applySemanticMerge(sorted, mergeHits, curationVisible, state.semanticMode);
             // The sort box is honest in semantic mode: 'relevance' (the
@@ -2737,16 +2759,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                         ? rebaseRelocatedImage(state.selectedImage, byOldId.get(state.selectedImage.id)!)
                         : state.selectedImage;
 
-                    const libraryStackContext = state.libraryStackContext
-                        ? {
-                            ...state.libraryStackContext,
-                            imageIds: state.libraryStackContext.imageIds.map(remapId),
-                            subGroups: state.libraryStackContext.subGroups?.map(subGroup => ({
-                                ...subGroup,
-                                imageIds: subGroup.imageIds.map(remapId),
-                            })),
-                        }
-                        : state.libraryStackContext;
+                    // The drill-down context needs no id remapping: it holds
+                    // the stack's GROUP KEY, and the re-keyed annotations
+                    // (above) carry the moved images' group fields with them —
+                    // live membership follows the move on its own.
 
                     const semanticHits = state.semanticHits
                         ? state.semanticHits.map(hit => {
@@ -2773,7 +2789,6 @@ export const useImageStore = create<ImageState>((set, get) => {
                         selectedImages,
                         selectedImage,
                         selectionAnchorId: state.selectionAnchorId ? remapId(state.selectionAnchorId) : null,
-                        libraryStackContext,
                         semanticHits,
                         draggedItems,
                     };
@@ -3267,6 +3282,15 @@ export const useImageStore = create<ImageState>((set, get) => {
                 // permanent — the stamp below makes the image ineligible for
                 // another run, and its synonyms still describe its prompt.
                 const annotation: ImageAnnotations = {
+                    // Spread first — preserves stackGroupId / similarityGroupId /
+                    // isStackAnalyzed / isSimilarityAnalyzed (see toggleFavorite).
+                    // This writer REPLACES the record in the annotation map, so a
+                    // hardcoded rebuild silently dropped the image out of its
+                    // stack: the stack fields on the image object kept the old
+                    // values while the annotation lost them, and the next read
+                    // of either source disagreed with the other. Tags never
+                    // change the prompt, so grouping is not re-opened here.
+                    ...current,
                     imageId,
                     isFavorite: current?.isFavorite ?? false,
                     tags: current?.tags ?? [],
@@ -4990,8 +5014,9 @@ export const useImageStore = create<ImageState>((set, get) => {
 
             if (selectedImages.size === 0 || !libraryStackContext) return;
 
-            // Only unmerge images that are actually in the current stack
-            const stackImageIds = new Set(libraryStackContext.imageIds);
+            // Only unmerge images that are actually in the current stack —
+            // membership resolved live from the group key.
+            const stackImageIds = collectGroupMembers(state.images, annotations, libraryStackContext.groupKey);
             const toUnmerge = [...selectedImages].filter(id => stackImageIds.has(id));
             if (toUnmerge.length === 0) return;
 
@@ -5047,17 +5072,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return;
             }
 
-            // Remove unmerged images from the libraryStackContext so they
-            // disappear from the stack view immediately.
-            const unmergedSet = new Set(toUnmerge);
-            const updatedStackContext = {
-                ...libraryStackContext,
-                imageIds: libraryStackContext.imageIds.filter(id => !unmergedSet.has(id)),
-            };
+            // No context surgery needed: the unmerged images just lost their
+            // group ids, and the drill-down's membership is resolved live from
+            // that group key — they drop out of the view on this very set().
 
             // Update in-memory state + clear selection
             const updatedImages = applyAnnotationsToImages(state.images, newAnnotations);
-            const filteredResult = filterAndSort({ ...state, images: updatedImages, annotations: newAnnotations, libraryStackContext: updatedStackContext });
+            const filteredResult = filterAndSort({ ...state, images: updatedImages, annotations: newAnnotations });
             const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
 
             set({
@@ -5065,7 +5086,6 @@ export const useImageStore = create<ImageState>((set, get) => {
                 ...availableFilters,
                 images: updatedImages,
                 annotations: newAnnotations,
-                libraryStackContext: updatedStackContext,
                 selectedImages: new Set(),
                 selectionAnchorId: null,
                 undoAvailable: __undoStack.length > 0,
@@ -5124,37 +5144,14 @@ export const useImageStore = create<ImageState>((set, get) => {
                 return false;
             }
 
-            // If we're inside a stack view, re-add restored images that now
-            // belong to the stack (e.g. undoing an unmerge).
-            let updatedStackContext = state.libraryStackContext;
-            if (updatedStackContext) {
-                // Collect the similarityGroupId(s) of images still in the stack
-                const stackGroupIds = new Set<string>();
-                for (const id of updatedStackContext.imageIds) {
-                    const ann = newAnnotations.get(id);
-                    if (ann?.similarityGroupId) stackGroupIds.add(ann.similarityGroupId);
-                }
-                // Re-add restored images whose group matches the stack's group
-                const reAddIds = restoredAnnotations
-                    .filter(a => a.similarityGroupId && stackGroupIds.has(a.similarityGroupId))
-                    .map(a => a.imageId)
-                    .filter(id => !updatedStackContext!.imageIds.includes(id));
-
-                if (reAddIds.length > 0) {
-                    updatedStackContext = {
-                        ...updatedStackContext,
-                        imageIds: [...updatedStackContext.imageIds, ...reAddIds],
-                    };
-                }
-            }
-
-            // Update in-memory state
+            // An undo performed inside a stack view needs no re-add pass: the
+            // restored group ids make the images members again, and the
+            // drill-down resolves membership live from the group key.
             const updatedImages = applyAnnotationsToImages(state.images, newAnnotations);
             const filteredResult = filterAndSort({
                 ...state,
                 images: updatedImages,
                 annotations: newAnnotations,
-                libraryStackContext: updatedStackContext,
             });
             const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
 
@@ -5163,7 +5160,6 @@ export const useImageStore = create<ImageState>((set, get) => {
                 ...availableFilters,
                 images: updatedImages,
                 annotations: newAnnotations,
-                libraryStackContext: updatedStackContext,
                 undoAvailable: __undoStack.length > 0,
             });
 

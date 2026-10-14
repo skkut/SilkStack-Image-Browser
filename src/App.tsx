@@ -32,6 +32,7 @@ import SimilarityStackExpandedView from './components/SimilarityStackExpandedVie
 
 import { normalizePath } from './utils/pathUtils';
 import { clearStackingState } from './utils/stackingReset';
+import { collectGroupMembers } from './utils/stackGroupKey';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
 import { revalidateLicenseIfDue } from './services/licenseRevalidation';
@@ -119,6 +120,10 @@ export default function App() {
   const undoAvailable = useImageStore((state) => state.undoAvailable);
   const libraryStackContext = useImageStore((state) => state.libraryStackContext);
   const setLibraryStackContext = useImageStore((state) => state.setLibraryStackContext);
+  // Annotation map — read only to re-resolve drill-down membership (see the
+  // group-key close effect below). The images' own grouping fields are
+  // refreshed from it by applyAnnotationsToImages.
+  const annotations = useImageStore((state) => state.annotations);
   const isAnnotationsLoaded = useImageStore((state) => state.isAnnotationsLoaded);
   const refreshingDirectories = useImageStore((state) => state.refreshingDirectories);
 
@@ -418,6 +423,22 @@ export default function App() {
     if (libraryStackContext) setLibraryStackContext(null);
     if (activeView === 'smart') setActiveView('library');
   }, [aiFeaturesEnabled]);
+
+  // Close the drill-down when its group stops being a stack — fewer than two
+  // members left after a manual unmerge, a deletion or a relocation. Mirrors
+  // the Stacks tab, which drops its expandedStackId the moment the group is no
+  // longer among the stacks it renders. Membership is resolved with the SAME
+  // helper filterAndSort uses, so the two can never disagree about whether the
+  // group the user is looking at still exists. (A stack always has >= 2
+  // members on open — singletons are never stack items — so this can only fire
+  // on shrink, never on a transient frame right after opening.)
+  useEffect(() => {
+    if (!libraryStackContext) return;
+    const members = collectGroupMembers(images, annotations, libraryStackContext.groupKey);
+    if (members.size >= 2) return;
+    setStackingEnabled(true);
+    setLibraryStackContext(null);
+  }, [libraryStackContext, images, annotations, setLibraryStackContext, setStackingEnabled]);
 
   // Escape from stack view back to library
   useEffect(() => {
@@ -1407,7 +1428,6 @@ export default function App() {
                       {aiFeaturesEnabled && libraryStackContext ? (
                         <SimilarityStackExpandedView
                           images={safeFilteredImages}
-                          subGroups={libraryStackContext.subGroups || []}
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
                           onBack={() => {

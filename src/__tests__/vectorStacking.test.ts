@@ -216,12 +216,16 @@ describe('vector stacking — pipeline round integration', () => {
     await useImageStore.getState().processPostIndexingPipeline();
     unsub();
 
-    // Vector branch: similarity is LAST (prompt vectors only exist after the
-    // semantic pass).
+    // Vector branch: the VECTOR pass is LAST (prompt vectors only exist after
+    // the semantic pass), while the lexical pass was hoisted up front — its
+    // own label is 'similarity', so the vector phase is what must follow
+    // 'semantic'.
     const iSemantic = phases.indexOf('semantic');
-    const iSimilarity = phases.indexOf('similarity');
+    const iVector = phases.indexOf('vectorSimilarity');
+    const iLexical = phases.indexOf('similarity');
     expect(iSemantic).toBeGreaterThan(-1);
-    expect(iSimilarity).toBeGreaterThan(iSemantic);
+    expect(iLexical).toBeLessThan(iSemantic);
+    expect(iVector).toBeGreaterThan(iSemantic);
 
     // The backfill embeds one entry per distinct new prompt group.
     expect(coordinatorMock.embedPromptVectors).toHaveBeenCalledTimes(1);

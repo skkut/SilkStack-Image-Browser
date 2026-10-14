@@ -114,6 +114,7 @@ import { useImageStore } from '../store/useImageStore';
 import { processingQueue } from '../services/processingQueue';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { bulkSaveAnnotations } from '../services/imageAnnotationsStorage';
+import { resolveStackGroupKey } from '../utils/stackGroupKey';
 import { type IndexedImage, type ImageAnnotations } from '../types';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
@@ -193,14 +194,16 @@ beforeEach(() => {
 });
 
 describe('runPipelineRound — canonical sequential round', () => {
-  it('runs one vector-branch round in order: stacking → autoTag → semantic → similarity → idle', async () => {
-    // The semantic gate is open (this file's default) → VECTOR branch:
-    // similarity must run LAST because prompt vectors only exist after the
-    // semantic pass. The lexical-branch order (similarity before autoTag)
-    // is covered by the parametrized test in semanticSearchStore.test.ts.
+  it('runs one vector-branch round in order: stacking → similarity (lexical) → autoTag → semantic → similarity (vector) → idle', async () => {
+    // The semantic gate is open (this file's default) → VECTOR branch. The
+    // lexical pass runs EARLY — right after stacking — so new images join
+    // their stacks without waiting behind the model phases; the vector pass
+    // still runs LAST because prompt vectors only exist after the semantic
+    // pass. The lexical-branch order (same first four, no vector pass) is
+    // covered by the parametrized test in semanticSearchStore.test.ts.
     const phases: Array<string | null> = [];
     const unsub = useImageStore.subscribe((s) => phases.push(s.pipelinePhase));
-    // One never-indexed (but enriched) image so phase 3 actually reaches the
+    // One never-indexed (but enriched) image so phase 4 actually reaches the
     // coordinator — an all-stamped library sends an empty payload and skips
     // it entirely.
     const img = createImage({ id: 'imgA', name: 'fox.png', directoryId: 'dir1', prompt: 'a red fox' });
@@ -214,13 +217,15 @@ describe('runPipelineRound — canonical sequential round', () => {
     unsub();
 
     const iStacking = phases.indexOf('stacking');
-    const iSimilarity = phases.indexOf('similarity');
+    const iLexical = phases.indexOf('similarity');
     const iAutoTag = phases.indexOf('autoTag');
     const iSemantic = phases.indexOf('semantic');
+    const iVector = phases.indexOf('vectorSimilarity');
     expect(iStacking).toBeGreaterThan(-1);
-    expect(iAutoTag).toBeGreaterThan(iStacking);
+    expect(iLexical).toBeGreaterThan(iStacking);
+    expect(iAutoTag).toBeGreaterThan(iLexical);
     expect(iSemantic).toBeGreaterThan(iAutoTag);
-    expect(iSimilarity).toBeGreaterThan(iSemantic);
+    expect(iVector).toBeGreaterThan(iSemantic);
     expect(phases[phases.length - 1]).toBeNull(); // the round resets the phase
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1);
   });
@@ -375,6 +380,61 @@ describe('auto-tag idempotency — the enrichment gate holds across a round', ()
     expect(ann.isStackAnalyzed).toBe(true); // their own work still completed
     expect(ann.isSimilarityAnalyzed).toBe(true);
     expect(coordinatorMock.indexImages).toHaveBeenCalledTimes(1); // phase 4 ran as usual
+  });
+
+  it('the auto-tag writer leaves the image in its stack (grouping fields survive)', async () => {
+    // The writer REPLACES the annotation record. Rebuilding it field by field
+    // silently dropped stackGroupId / similarityGroupId, so an image fell out
+    // of its stack the moment its tags finished — nothing about its prompt had
+    // changed. The grouping fields are carried by the `...existing` spread.
+    // stackGroupId matches the engine hash, so reconciliation mid-round is a
+    // no-op and this test observes ONLY the writer (see the note on
+    // fullyAnalyzed above).
+    // The image object carries the same grouping fields as its annotation —
+    // that is the normal post-applyAnnotationsToImages shape, and it is what
+    // the views group by. The writer's surgical patch spreads `...img`, so
+    // those fields must survive it untouched.
+    const img = createImage({
+      id: 'imgA',
+      name: 'fox.png',
+      directoryId: 'dir1',
+      prompt: 'a red fox',
+      stackGroupId: 'hash-a red fox',
+      similarityGroupId: 'sim-imgA',
+      isStackAnalyzed: true,
+      isSimilarityAnalyzed: true,
+    });
+    useImageStore.setState({
+      images: [img],
+      filteredImages: [img],
+      directories: [dir('dir1', 'C:/lib', true)],
+      annotations: new Map([['imgA', {
+        ...fullyAnalyzed('imgA', 'a red fox'),
+        // needsSearchEnrichment keys off the VERSION STAMP, not isAutoTagged:
+        // dropping it back below the current version is what re-queues an
+        // image for tagging while it stays stacked.
+        isAutoTagged: false,
+        searchTagVersion: undefined,
+        autoTags: [],
+        synonymTags: [],
+      }]]),
+    });
+
+    const round = useImageStore.getState().processPostIndexingPipeline();
+    await vi.waitFor(() => { expect(FakeTaggingWorker.lastInstance).toBeTruthy(); });
+    completeRun(FakeTaggingWorker.lastInstance!, { imgA: [{ tag: 'fox', sourceType: 'prompt' }] });
+    await round;
+
+    const ann = useImageStore.getState().annotations.get('imgA')!;
+    expect(ann.isAutoTagged).toBe(true);                                  // the tags DID land
+    expect(ann.autoTags).toEqual(['fox']);
+    expect(ann.stackGroupId).toBe('hash-a red fox');                      // grouping survived
+    expect(ann.isStackAnalyzed).toBe(true);
+    // The image object the views group by still resolves to the same key —
+    // annotation and image agreeing is what keeps the grid, the Stacks tab and
+    // an open drill-down in step.
+    const image = useImageStore.getState().images.find(i => i.id === 'imgA')!;
+    expect(resolveStackGroupKey(image)).toBe('sim-imgA');
   });
 });
 

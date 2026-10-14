@@ -391,7 +391,7 @@ describe('similarity OR-merge — vector adds on top of the lexical partition', 
 });
 
 describe('similarity OR-merge — pipeline shape', () => {
-  it('keeps the observed phase sequence unchanged (similarity stays last)', async () => {
+  it('runs the lexical pass early and the vector pass last, both on one round', async () => {
     const fox = 'a red fox';
     const whale = 'a blue whale';
 
@@ -413,11 +413,15 @@ describe('similarity OR-merge — pipeline shape', () => {
     const observed = phases
       .filter((p): p is string => p !== null)
       .filter((p, i, all) => p !== all[i - 1]);
-    expect(observed).toEqual(['stacking', 'autoTag', 'semantic', 'similarity']);
+    // Similarity appears TWICE and on purpose: the lexical pass is hoisted
+    // right after stacking (pure string work — new images join their stacks
+    // without waiting behind the model phases), while the vector pass stays
+    // last because prompt vectors only exist after the semantic pass.
+    expect(observed).toEqual(['stacking', 'similarity', 'autoTag', 'semantic', 'vectorSimilarity']);
 
-    // Both signals ran INSIDE that single phase. If a future refactor splits
-    // them into two phases, the Footer's "Phase N/4" counter and the
-    // processingSequencer assertions need updating too.
+    // Both similarity signals ran INSIDE the same round. If the phases are
+    // ever merged back under one label, the Footer's per-branch "Phase N/M"
+    // maps and the processingSequencer assertions need updating too.
     expect(stackingEngineMock.computeSimilarityGroupIds).toHaveBeenCalledTimes(1);
     expect(coordinatorMock.clusterPromptGroups).toHaveBeenCalledTimes(1);
   });
