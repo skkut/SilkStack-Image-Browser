@@ -19,6 +19,17 @@ interface SimilarityStackExpandedViewWrapperProps {
   imageSize?: number;
   /** Right-click handler — receives the right-clicked image in the drill-down view. */
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
+  /**
+   * Overrides for the store-backed callbacks.
+   *
+   * The drill-down runs inside the main window, where favourite/selection are
+   * the real store actions. The popped-out stack window is a separate renderer
+   * whose store holds no images at all, so it passes its own handlers (a local
+   * toggle plus an IPC forward) instead. Omitted → the store actions, i.e. the
+   * existing behaviour everywhere else.
+   */
+  onToggleFavorite?: (imageId: string) => void;
+  onToggleSelection?: (imageId: string) => void;
 }
 
 // ── Thumbnail preloader ────────────────────────────────────────────────
@@ -75,6 +86,8 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   onBack,
   imageSize: imageSizeProp,
   onContextMenu,
+  onToggleFavorite,
+  onToggleSelection,
 }) => {
   const aiFeaturesEnabled = useAiFeaturesEnabled();
   const libraryImageSize = useSettingsStore(s => s.viewZoomLevels.library);
@@ -212,13 +225,23 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
 
   // ── Callback bridges ─────────────────────────────────────────────────
 
+  // Store actions are the default; the popped-out stack window supplies its
+  // own because its store has no images to act on.
   const handleToggleFavorite = useCallback((imageId: string) => {
+    if (onToggleFavorite) {
+      onToggleFavorite(imageId);
+      return;
+    }
     toggleFavorite(imageId);
-  }, [toggleFavorite]);
+  }, [onToggleFavorite, toggleFavorite]);
 
   const handleToggleSelection = useCallback((imageId: string) => {
+    if (onToggleSelection) {
+      onToggleSelection(imageId);
+      return;
+    }
     toggleImageSelection(imageId);
-  }, [toggleImageSelection]);
+  }, [onToggleSelection, toggleImageSelection]);
 
   // Drag start — payload comes from the shared builder (selection-aware), so
   // the stack view drags exactly what the grid and the table drag.

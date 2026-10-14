@@ -264,6 +264,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
   sendImageViewerUpdate: (data) => ipcRenderer.send('image-viewer-update-from-main', data),
+
+  // Stack Window — a similarity stack popped out into its own window
+  openStackWindow: (data) => ipcRenderer.invoke('open-stack-window', data),
+  stackWindowReady: () => ipcRenderer.send('stack-window-ready'),
+  stackWindowClose: () => ipcRenderer.send('stack-window-close'),
+  stackWindowAction: (action) => ipcRenderer.send('stack-window-action', action),
+  onStackWindowUpdate: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('stack-window-update', handler);
+    return () => {
+      ipcRenderer.removeListener('stack-window-update', handler);
+    };
+  },
+  onStackWindowAction: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('stack-window-action', handler);
+    return () => {
+      ipcRenderer.removeListener('stack-window-action', handler);
+    };
+  },
 });
 
 // DEBUG: Log that preload script has loaded

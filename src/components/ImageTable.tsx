@@ -7,7 +7,7 @@ import { type TableSortField, type TableSortDirection } from '../utils/tableSort
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
 import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
-import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles } from 'lucide-react';
+import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles, Layers } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
 import { isVideoFileName } from '../utils/mediaTypes';
@@ -69,7 +69,8 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     copyPath,
     showInFolder,
     openWithNativeViewer,
-    copyRawMetadata
+    copyRawMetadata,
+    openStackInNewWindow
   } = useContextMenu();
 
   const selectedCount = selectedImages.size;
@@ -449,6 +450,18 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
             </button>
 
           <div className="border-t border-gray-600 my-1"></div>
+
+          {/* Only rendered for an image that belongs to a stack — the flag is
+              resolved when the menu opens (see useContextMenu). */}
+          {contextMenu.canOpenStackInNewWindow && (
+            <button
+              onClick={openStackInNewWindow}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <Layers className="w-4 h-4" />
+              Open Stack in New Window
+            </button>
+          )}
 
           <button
             onClick={copyPath}

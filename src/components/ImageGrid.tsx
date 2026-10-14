@@ -9,6 +9,9 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useContextMenu } from '../hooks/useContextMenu';
 import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
+// Aliased: the context menu's own action is called openStackInNewWindow too,
+// and destructuring it below would shadow this import inside the component.
+import { openStackInNewWindow as openStackWindow } from '../services/stackWindowService';
 import { 
   Info, 
   Copy, 
@@ -566,6 +569,8 @@ interface ImageGridRowData {
   focusedItemId: string | null;
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   handleStackClick: (stack: ImageStack) => void;
+  /** Ctrl/Cmd+click on a stack badge — pop the stack out instead of drilling down. */
+  onStackOpenInNewWindow?: (stack: ImageStack) => void;
   handleImageLoad: (id: string, aspectRatio: number) => void;
   handleContextMenu: (image: IndexedImage, event: React.MouseEvent) => void;
   registerCardRef: (id: string, el: HTMLDivElement | null) => void;
@@ -573,7 +578,7 @@ interface ImageGridRowData {
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
-  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, semanticHitIds, focusedItemId, onImageClick, handleStackClick, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, semanticHitIds, focusedItemId, onImageClick, handleStackClick, onStackOpenInNewWindow, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
   const row = rows[index];
   if (!row) return null;
   
@@ -615,10 +620,18 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                               <div
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  // Ctrl/Cmd+click pops the stack out into its
+                                  // own window instead of drilling down in
+                                  // place — the modifier is the whole
+                                  // difference between the two.
+                                  if ((e.ctrlKey || e.metaKey) && onStackOpenInNewWindow) {
+                                    onStackOpenInNewWindow(item);
+                                    return;
+                                  }
                                   handleStackClick(item);
                                 }}
                                 className="absolute bottom-2 right-2 bg-gradient-to-r from-blue-600/95 to-indigo-600/95 hover:from-blue-500 hover:to-indigo-500 text-white text-[11px] font-semibold px-2.5 py-1 rounded-md backdrop-blur-md z-20 border border-blue-400/40 shadow-[0_0_8px_rgba(59,130,246,0.25)] hover:shadow-[0_0_14px_rgba(99,102,241,0.45)] flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
-                                title={`Open stack (${item.count} images)`}
+                                title={`Open stack (${item.count} images) — Ctrl+click for a new window`}
                               >
                                 <Layers size={11} className="text-blue-100" />
                                 <span>Stack ({item.count})</span>
@@ -981,7 +994,8 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     copyPath,
     showInFolder,
     openWithNativeViewer,
-    copyRawMetadata
+    copyRawMetadata,
+    openStackInNewWindow
   } = useContextMenu();
 
 
@@ -1414,6 +1428,18 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
           <div className="border-t border-gray-600 my-1"></div>
 
+          {/* Only rendered for an image that belongs to a stack — the flag is
+              resolved when the menu opens (see useContextMenu). */}
+          {contextMenu.canOpenStackInNewWindow && (
+            <button
+              onClick={openStackInNewWindow}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <Layers className="w-4 h-4" />
+              Open Stack in New Window
+            </button>
+          )}
+
           <button
             onClick={copyPath}
             className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
@@ -1483,6 +1509,17 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     setStackingEnabled(false); // Disable stacking when drilling down to see individual items
   }, [setLibraryStackContext, setStackingEnabled]);
 
+  /**
+   * Ctrl/Cmd+click on a stack badge: pop the stack out into its own window.
+   *
+   * The grid already holds the built `ImageStack`, so membership needs no
+   * re-resolution here — and the drill-down state is deliberately left alone,
+   * because the window is a second view of the same stack, not a navigation.
+   */
+  const onStackOpenInNewWindow = useCallback((stack: ImageStack) => {
+    void openStackWindow(stack, useImageStore.getState().directories);
+  }, []);
+
   // Use itemsToRender for calculations
   const isEmpty = itemsToRender.length === 0;
 
@@ -1516,6 +1553,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     onImageClick: handleImageClick,
     handleStackClick,
+    onStackOpenInNewWindow,
     handleImageLoad,
     handleContextMenu,
     registerCardRef,
@@ -1531,6 +1569,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
     handleImageClick,
     handleStackClick,
+    onStackOpenInNewWindow,
     handleImageLoad,
     handleContextMenu,
     registerCardRef,

@@ -6,7 +6,7 @@ import { useImageSelection } from './hooks/useImageSelection';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
 import { Directory, IndexedImage, ImageRelocationMove, type SettingsTab } from './types';
-import { X, ArrowLeft, Copy, ExternalLink, Folder } from 'lucide-react';
+import { X, ArrowLeft, Copy, ExternalLink, Folder, Layers } from 'lucide-react';
 
 import FolderSelector from './components/FolderSelector';
 import ImageGrid from './components/ImageGrid';
@@ -79,7 +79,8 @@ export default function App() {
     copyPath,
     showInFolder,
     openWithNativeViewer,
-    copyRawMetadata
+    copyRawMetadata,
+    openStackInNewWindow
   } = useContextMenu();
 
   const handleContextMenu = useCallback((image: IndexedImage, e: React.MouseEvent) => {
@@ -1264,6 +1265,25 @@ export default function App() {
     return () => unsubscribe();
   }, [handleImageDeleted, handleImageRenamed, toggleFavorite, addTagToImage, removeTagFromImage, updateImage, sendImageToViewer]);
 
+  // Listen for actions from popped-out stack windows.
+  //
+  // A stack window holds a snapshot and an empty store, so a favourite toggled
+  // there is a request, not a write: it lands here, on the one store that owns
+  // the library. Nothing is broadcast back — the stack window already flipped
+  // its own copy optimistically, and the two only diverge if the store refuses
+  // (an image deleted while the window was open), where the next open repairs it.
+  useEffect(() => {
+    if (!window.electronAPI?.onStackWindowAction) return;
+
+    const unsubscribe = window.electronAPI.onStackWindowAction(async (action) => {
+      if (action?.type === 'toggleFavorite' && action.imageId) {
+        await toggleFavorite(action.imageId);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [toggleFavorite]);
+
   // Listen for viewer window closed — only reset selectedImage when all viewer windows are gone
   useEffect(() => {
     if (!window.electronAPI?.onImageViewerClosed) return;
@@ -1618,6 +1638,18 @@ export default function App() {
           </button>
 
           <div className="border-t border-gray-600 my-1"></div>
+
+          {/* Only rendered for an image that belongs to a stack — the flag is
+              resolved when the menu opens (see useContextMenu). */}
+          {contextMenu.canOpenStackInNewWindow && (
+            <button
+              onClick={openStackInNewWindow}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <Layers className="w-4 h-4" />
+              Open Stack in New Window
+            </button>
+          )}
 
           <button
             onClick={copyPath}

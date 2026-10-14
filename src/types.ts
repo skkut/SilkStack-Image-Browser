@@ -474,6 +474,42 @@ export interface ElectronAPI {
     previousImage?: any;
     imageList?: any[];
   }) => void;
+
+  // Stack Window (a similarity stack popped out into its own window)
+  openStackWindow: (
+    data: StackWindowPayload,
+  ) => Promise<{ success: boolean; windowId?: number; error?: string }>;
+  stackWindowReady: () => void;
+  stackWindowClose: () => void;
+  stackWindowAction: (action: { type: 'toggleFavorite'; imageId: string }) => void;
+  onStackWindowUpdate: (callback: (data: StackWindowPayload) => void) => () => void;
+  /** Main-window side of `stackWindowAction`. */
+  onStackWindowAction: (
+    callback: (action: { type: 'toggleFavorite'; imageId: string; windowId?: number }) => void,
+  ) => () => void;
+}
+
+/**
+ * What a popped-out stack window is handed at open time.
+ *
+ * The child renderer is a separate process with an empty image store, so the
+ * stack travels as a snapshot — the same contract the image viewer uses. A
+ * stack is identified by its `groupKey` everywhere else in the app; here the
+ * resolved members travel with it because the child has no library to resolve
+ * them against.
+ */
+export interface StackWindowPayload {
+  /** The stack's grouping key — its stable identity across the app. */
+  groupKey: string;
+  /** Stack title (the base prompt, or a fallback label). */
+  basePrompt: string;
+  /** Serialized `IndexedImage[]` — file handles stripped, they cannot cross IPC. */
+  imageList: any[];
+  /**
+   * `directoryId -> absolute folder path`, so the child can resolve a file's
+   * real location (media URLs, "open in viewer") without the directory list.
+   */
+  directoryPaths: Record<string, string>;
 }
 
 declare global {

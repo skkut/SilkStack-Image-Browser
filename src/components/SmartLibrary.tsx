@@ -9,6 +9,8 @@ import { IndexedImage, ImageStack } from '../types';
 import StackCard from './StackCardWrapper';
 import SimilarityStackExpandedView from './SimilarityStackExpandedViewWrapper';
 import Footer from './Footer';
+// Aliased: the context menu's own action is called openStackInNewWindow too.
+import { openStackInNewWindow as openStackWindow } from '../services/stackWindowService';
 
 const Stacks: React.FC = () => {
   const filteredImages = useImageStore((state) => state.filteredImages);
@@ -40,7 +42,8 @@ const Stacks: React.FC = () => {
     copyPath,
     showInFolder,
     openWithNativeViewer,
-    copyRawMetadata
+    copyRawMetadata,
+    openStackInNewWindow
   } = useContextMenu();
 
   // Resolve the image's directory path (needed by "Show in Folder" / "Open in
@@ -190,6 +193,7 @@ const Stacks: React.FC = () => {
                   stack={stack}
                   onOpen={() => handleOpenStack(stack.id)}
                   onContextMenu={handleContextMenu}
+                  onOpenInNewWindow={() => { void openStackWindow(stack, directories); }}
                 />
               ))}
             </div>
@@ -274,6 +278,18 @@ const Stacks: React.FC = () => {
           </button>
 
           <div className="border-t border-gray-600 my-1"></div>
+
+          {/* Only rendered for an image that belongs to a stack — the flag is
+              resolved when the menu opens (see useContextMenu). */}
+          {contextMenu.canOpenStackInNewWindow && (
+            <button
+              onClick={openStackInNewWindow}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <Layers className="w-4 h-4" />
+              Open Stack in New Window
+            </button>
+          )}
 
           <button
             onClick={copyPath}

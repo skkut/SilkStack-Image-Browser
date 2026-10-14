@@ -3,6 +3,8 @@ import { type IndexedImage } from '../types';
 import { copyImageToClipboard, showInExplorer, openInNativeViewer } from '../utils/imageUtils';
 import { getImageAbsolutePath, quotePathForClipboard } from '../utils/pathUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useImageStore } from '../store/useImageStore';
+import { openStackInNewWindow, resolveStackForImage, canOpenStackWindow } from '../services/stackWindowService';
 
 interface ContextMenuState {
   x: number;
@@ -10,6 +12,12 @@ interface ContextMenuState {
   visible: boolean;
   image?: IndexedImage;
   directoryPath?: string;
+  /**
+   * Whether the right-clicked image is part of a stack, and this build can pop
+   * one out. Resolved once, when the menu opens — the menu itself is not
+   * reactive, so a value computed at render time would go stale behind it.
+   */
+  canOpenStackInNewWindow?: boolean;
 }
 
 const showNotification = (message: string) => {
@@ -74,7 +82,12 @@ export const useContextMenu = () => {
       y: e.clientY,
       visible: true,
       image,
-      directoryPath
+      directoryPath,
+      // Read imperatively: this decides whether one menu item is rendered, and
+      // subscribing to the whole image list for it would re-render every view
+      // that mounts this hook on every indexing batch.
+      canOpenStackInNewWindow: canOpenStackWindow()
+        && !!resolveStackForImage(image, useImageStore.getState().images, useImageStore.getState().annotations),
     });
   };
 
@@ -187,6 +200,26 @@ export const useContextMenu = () => {
     copyToClipboardElectron(metadataString, 'Raw Metadata');
   };
 
+  /**
+   * Pop the right-clicked image's stack out into its own window.
+   *
+   * Membership is resolved from the live store at click time, not from the
+   * flag that decided the item was visible — the two are the same instant in
+   * practice, and resolving here means the window matches the stack as it
+   * stands rather than as it stood when the menu opened.
+   */
+  const openStackInNewWindowFromMenu = () => {
+    const image = contextMenu.image;
+    if (!image) return;
+    hideContextMenu();
+
+    const store = useImageStore.getState();
+    const stack = resolveStackForImage(image, store.images, store.annotations);
+    if (stack) {
+      void openStackInNewWindow(stack, store.directories);
+    }
+  };
+
   return {
     contextMenu,
     showContextMenu,
@@ -199,6 +232,7 @@ export const useContextMenu = () => {
     copyPath,
     showInFolder,
     openWithNativeViewer,
-    copyRawMetadata
+    copyRawMetadata,
+    openStackInNewWindow: openStackInNewWindowFromMenu,
   };
 };

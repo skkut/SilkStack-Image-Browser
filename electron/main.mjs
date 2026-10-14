@@ -261,10 +261,17 @@ async function readVideoMetadataWithFfprobe(filePath) {
 let mainWindow;
 // Map of windowId -> BrowserWindow for all open image viewer windows
 const imageViewerWindows = new Map();
+// Popped-out similarity stacks: windowId -> BrowserWindow. Unlike the viewer,
+// several stack windows are expected at once (one per stack the user pulls
+// out), so this is a Map and never reused or focused-instead-of-opened.
+const stackWindows = new Map();
 // Single dev-tools window (reopened/focused instead of duplicating)
 let devToolsWindow = null;
 // Pending image data for windows that haven't signalled ready yet (windowId -> data)
 const pendingViewerData = new Map();
+// Same handshake for stack windows: the payload is parked here until the
+// child asks for it, because `open-stack-window` returns before it has loaded.
+const pendingStackData = new Map();
 let skippedVersions = new Set();
 
 // --- Image viewer "compact" (frame-the-image) mode ---
@@ -970,6 +977,21 @@ app.whenReady().then(async () => {
           height: 32
         });
         viewerWindow.webContents.send("theme-updated", {
+          shouldUseDarkColors: isDark,
+        });
+      }
+    }
+
+    // ... and every popped-out stack window
+    for (const stackWindow of stackWindows.values()) {
+      if (stackWindow && !stackWindow.isDestroyed()) {
+        stackWindow.setBackgroundColor(isDark ? '#0a0a0a' : '#ffffff');
+        stackWindow.setTitleBarOverlay({
+          color: isDark ? '#1a1a1a' : '#f3f4f6',
+          symbolColor: isDark ? '#ffffff' : '#000000',
+          height: 32
+        });
+        stackWindow.webContents.send("theme-updated", {
           shouldUseDarkColors: isDark,
         });
       }
@@ -1717,6 +1739,193 @@ function setupFileOperationHandlers() {
           w.webContents.send("image-viewer-update", imageData);
         }
       }
+    }
+  });
+
+  // --- Stack Window IPC ---
+  // A similarity stack popped out into its own window. Modelled on the image
+  // viewer above, with two differences that follow from what it shows: several
+  // stack windows coexist (a Map, no single-instance reuse), and it remembers
+  // its own size/position separately — a stack window is a browsing surface,
+  // and sharing `viewerWindowState` would make the two fight over one set of
+  // bounds and have a popped-out stack open at the viewer's compact size.
+  ipcMain.handle("open-stack-window", async (event, data) => {
+    try {
+      if (!data || typeof data !== "object" || !Array.isArray(data.imageList)) {
+        return { success: false, error: "Invalid stack payload" };
+      }
+
+      const isDark = nativeTheme.shouldUseDarkColors;
+      const settings = await readSettings();
+      const windowState = settings.stackWindowState || {};
+
+      const { screen } = electron;
+      const primaryDisplay = screen.getPrimaryDisplay();
+      const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+
+      const defaultWidth = Math.round(screenWidth * 0.8);
+      const defaultHeight = Math.round(screenHeight * 0.8);
+
+      // Cascade so a second stack window does not land exactly on the first.
+      const cascadeOffset = stackWindows.size * 30;
+      const baseX = windowState.x !== undefined ? windowState.x + cascadeOffset : undefined;
+      const baseY = windowState.y !== undefined ? windowState.y + cascadeOffset : undefined;
+
+      const stackWindow = new BrowserWindow({
+        x: baseX,
+        y: baseY,
+        width: windowState.width || defaultWidth,
+        height: windowState.height || defaultHeight,
+        minWidth: 560,
+        minHeight: 400,
+        backgroundColor: isDark ? '#0a0a0a' : '#ffffff',
+        icon: getIconPath(),
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          enableRemoteModule: false,
+          webSecurity: true,
+          preload: path.join(__dirname, "preload.js"),
+        },
+        titleBarStyle: "hidden",
+        titleBarOverlay: {
+          color: isDark ? '#1a1a1a' : '#f3f4f6',
+          symbolColor: isDark ? '#ffffff' : '#000000',
+          height: 32,
+        },
+        show: false,
+        autoHideMenuBar: true,
+        parent: null, // Independent window, not modal
+      });
+
+      // The title is what the OS shows in the taskbar and alt-tab; the window
+      // itself is frameless, so nothing else surfaces it.
+      const label = typeof data.basePrompt === "string" ? data.basePrompt.trim() : "";
+      stackWindow.setTitle(
+        label ? `Stack — ${label.slice(0, 80)}` : "Stack",
+      );
+
+      // index.html's own <title> fires page-title-updated once the page loads,
+      // and Electron applies it over the title set above — the same trap the
+      // main window works around. The stack's label is the useful thing to show
+      // here, so refuse the document's title outright rather than re-applying
+      // ours after it.
+      stackWindow.on("page-title-updated", (e) => {
+        e.preventDefault();
+      });
+
+      const windowId = stackWindow.id;
+      stackWindows.set(windowId, stackWindow);
+      pendingStackData.set(windowId, data);
+
+      // Keep a remembered position on screen if displays changed since.
+      if (baseX !== undefined && baseY !== undefined) {
+        const isVisible = screen.getAllDisplays().some((display) => {
+          const b = display.bounds;
+          return (
+            baseX >= b.x &&
+            baseX < b.x + b.width &&
+            baseY >= b.y &&
+            baseY < b.y + b.height
+          );
+        });
+        if (!isVisible) stackWindow.center();
+      }
+
+      const queryString = `?stackWindow=true`;
+      if (isDev && !process.argv.includes("--dist")) {
+        stackWindow.loadURL(`http://localhost:5173${queryString}`);
+      } else {
+        stackWindow.loadFile(
+          path.join(__dirname, "..", "dist", "index.html"),
+          { search: queryString.substring(1) }
+        );
+      }
+
+      stackWindow.once("ready-to-show", () => {
+        stackWindow.show();
+      });
+
+      stackWindow.on("close", async () => {
+        if (!stackWindow || stackWindow.isDestroyed()) return;
+        const bounds = stackWindow.isMaximized()
+          ? stackWindow.getNormalBounds()
+          : stackWindow.getBounds();
+        const currentSettings = await readSettings();
+        currentSettings.stackWindowState = {
+          x: bounds.x,
+          y: bounds.y,
+          width: bounds.width,
+          height: bounds.height,
+          isMaximized: stackWindow.isMaximized(),
+        };
+        await saveSettings(currentSettings);
+      });
+
+      stackWindow.on("closed", () => {
+        stackWindows.delete(windowId);
+        pendingStackData.delete(windowId);
+      });
+
+      const themeHandler = () => {
+        if (!stackWindow.isDestroyed()) {
+          const dark = nativeTheme.shouldUseDarkColors;
+          stackWindow.setBackgroundColor(dark ? '#0a0a0a' : '#ffffff');
+          stackWindow.webContents.send("theme-updated", {
+            shouldUseDarkColors: dark,
+          });
+        }
+      };
+      nativeTheme.on("updated", themeHandler);
+      stackWindow.on("closed", () => {
+        nativeTheme.removeListener("updated", themeHandler);
+      });
+
+      setupFullscreenHandlers(stackWindow);
+
+      return { success: true, windowId };
+    } catch (error) {
+      console.error("Error creating stack window:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // The stack window signals it is ready to receive its payload
+  ipcMain.on("stack-window-ready", (event) => {
+    const senderWebContentsId = event.sender.id;
+    const entry = [...stackWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    );
+    if (!entry) return;
+
+    const [windowId, stackWindow] = entry;
+    const pending = pendingStackData.get(windowId);
+    if (pending && !stackWindow.isDestroyed()) {
+      stackWindow.webContents.send("stack-window-update", pending);
+      pendingStackData.delete(windowId);
+    }
+  });
+
+  // Stack window is requesting to close itself (its Back / close button)
+  ipcMain.on("stack-window-close", (event) => {
+    const senderWebContentsId = event.sender.id;
+    const entry = [...stackWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    );
+    if (entry) entry[1].close();
+  });
+
+  // An edit made in the stack window (favourite star). The child holds only a
+  // snapshot of the images, so the write has to happen in the main window's
+  // store — that is also what keeps the library grid in sync with it.
+  ipcMain.on("stack-window-action", (event, action) => {
+    const senderWebContentsId = event.sender.id;
+    const windowId = [...stackWindows.entries()].find(
+      ([, w]) => !w.isDestroyed() && w.webContents.id === senderWebContentsId
+    )?.[0];
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("stack-window-action", { ...action, windowId });
     }
   });
 
