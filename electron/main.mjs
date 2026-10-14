@@ -8,6 +8,7 @@ const {
   nativeTheme,
   Menu,
   nativeImage,
+  protocol,
 } = electron;
 // console.log('📦 Loaded electron module');
 
@@ -15,12 +16,22 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs/promises";
 import fsSync from "fs";
+import { Readable } from "stream";
 import crypto from "crypto";
 import { execFile, spawn } from "child_process";
 import { promisify } from "util";
 import * as fileWatcher from "./fileWatcher.mjs";
 import { maybeSendUsagePing } from "./usagePing.mjs";
 import { relocateCacheRecord } from "./cacheRelocation.mjs";
+import {
+  MEDIA_SCHEME,
+  getMediaContentType,
+  isWithinRoots,
+  parseMediaUrl,
+  parseRangeHeader,
+} from "./mediaProtocol.mjs";
+import { MAX_MOOV_BYTES, readMoovBox } from "./mp4Moov.mjs";
+import { listDirectoryFiles, scanDirectory } from "./directoryScanner.mjs";
 import archiver from "archiver";
 import ffprobeStatic from "ffprobe-static";
 import { createRequire } from "module";
@@ -83,6 +94,32 @@ if (isDev) {
   app.setPath("userData", `${userDataPath} (Dev)`);
 }
 
+// =============================================================================
+// Privileged media scheme — `silkstack-media://`
+//
+// Library files are served to the renderer over a custom scheme instead of
+// being pushed through IPC as whole-file buffers. `<img>` and `<video>` then
+// read ranges straight off disk through Chromium's own media stack, so a
+// 400 MB video costs a few MB of reads instead of a 400 MB structured clone.
+//
+// This call must happen before the `ready` event — the privilege list is read
+// once when the network service is configured, and a later registration throws.
+// The request handler itself is installed in `setupMediaProtocol()`, which runs
+// inside `whenReady`.
+// =============================================================================
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MEDIA_SCHEME,
+    privileges: {
+      standard: true, // gives the scheme a real origin (host + path parsing)
+      secure: true, // treated as a secure context by the renderer
+      stream: true, // required for <video>/<audio> range streaming
+      supportFetchAPI: true, // lets renderer code fetch() a media URL
+      corsEnabled: true, // CORS applies, so responses carry ACAO for canvas use
+    },
+  },
+]);
+
 // Parser version - increment when parser logic changes
 // This ensures cache is invalidated when parsing rules change
 const PARSER_VERSION = 4; // v4: Added Eff. Loader SDXL, DF_Text_Box, and Unpack SDXL Tuple nodes for better SDXL workflow support
@@ -103,21 +140,10 @@ function getIconPath() {
 }
 
 const execFileAsync = promisify(execFile);
-const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mkv", ".mov", ".avi"]);
 
-const getMimeTypeFromName = (name) => {
-  const lower = name.toLowerCase();
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".mp4")) return "video/mp4";
-  if (lower.endsWith(".webm")) return "video/webm";
-  if (lower.endsWith(".mkv")) return "video/x-matroska";
-  if (lower.endsWith(".mov")) return "video/quicktime";
-  if (lower.endsWith(".avi")) return "video/x-msvideo";
-  return "application/octet-stream";
-};
+// The extension sets and MIME mapping live in directoryScanner.mjs, which is
+// where they are used; importing them keeps one source of truth for "what
+// counts as a media file".
 
 const parseFrameRate = (value) => {
   if (typeof value !== "string" || !value.includes("/")) {
@@ -177,6 +203,16 @@ const buildVideoInfoFromProbe = (stream, format) => {
   };
 };
 
+// ffprobe is a child process per video, so it is the one step here that can
+// outlive its input: a truncated, locked or network-stalled file leaves
+// execFile pending forever, and the renderer's enrichment slot waits with it.
+// The timeout turns that into an ordinary probe failure the caller already
+// knows how to fall back from (local MP4 box parsing). maxBuffer is raised
+// well above execFile's 1 MB default because a metadata-rich MP4 dumps its
+// whole tag set as JSON on stdout.
+const FFPROBE_TIMEOUT_MS = 15_000;
+const FFPROBE_MAX_BUFFER = 16 * 1024 * 1024;
+
 async function readVideoMetadataWithFfprobe(filePath) {
   // Binary resolution order: explicit env override → the ffprobe bundled in
   // node_modules (ffprobe-static) → PATH lookup for system installs. The
@@ -193,7 +229,12 @@ async function readVideoMetadataWithFfprobe(filePath) {
       "-show_format",
       filePath,
     ],
-    { encoding: "utf8" },
+    {
+      encoding: "utf8",
+      timeout: FFPROBE_TIMEOUT_MS,
+      maxBuffer: FFPROBE_MAX_BUFFER,
+      killSignal: "SIGKILL",
+    },
   );
 
   const output = typeof stdout === "string" ? stdout : stdout.toString("utf8");
@@ -973,6 +1014,10 @@ app.whenReady().then(async () => {
   // Setup IPC handlers for file operations BEFORE creating window
   setupFileOperationHandlers();
 
+  // Serve library media over silkstack-media:// (registered as privileged at
+  // module load). Before createWindow so no renderer can race ahead of it.
+  setupMediaProtocol();
+
   createWindow(startupDirectory);
 
   // Anonymous usage ping — one fire-and-forget POST per 24h, from packaged
@@ -1004,75 +1049,261 @@ app.whenReady().then(async () => {
 // Store allowed directory paths for security
 const allowedDirectoryPaths = new Set();
 
-// Helper function for recursive file search
-async function getFilesRecursively(directory, baseDirectory) {
-  const files = [];
-  try {
-    const entries = await fs.readdir(directory, { withFileTypes: true });
+// =============================================================================
+// Library path allow-list
+//
+// These live at module scope — not inside `setupFileOperationHandlers()` — so
+// that the `silkstack-media://` protocol handler and the file-operation IPC
+// handlers enforce the *same* rule. Two copies of an allow-list is one copy too
+// many: whichever one is stricter is the one that matters, and a divergence
+// would either let a media URL read something IPC refuses, or make a legitimate
+// file openable in one direction only.
+// =============================================================================
 
-    for (const entry of entries) {
-      const fullPath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        files.push(...(await getFilesRecursively(fullPath, baseDirectory)));
-      } else if (entry.isFile()) {
-        const lowerName = entry.name.toLowerCase();
-        const isImage =
-          lowerName.endsWith(".png") ||
-          lowerName.endsWith(".jpg") ||
-          lowerName.endsWith(".jpeg") ||
-          lowerName.endsWith(".webp") ||
-          lowerName.endsWith(".gif");
-        const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) =>
-          lowerName.endsWith(ext),
-        );
-        if (isImage || isVideo) {
-          const stats = await fs.stat(fullPath);
-          const fileType = getMimeTypeFromName(lowerName);
-          files.push({
-            name: path.relative(baseDirectory, fullPath).replace(/\\/g, "/"),
-            lastModified: stats.birthtimeMs,
-            size: stats.size,
-            type: fileType,
-            birthtimeMs: stats.birthtimeMs,
-          });
-        }
+/** Windows paths are case-insensitive; every comparison folds there. */
+const foldPathCase = (value) =>
+  process.platform === "win32" ? value.toLowerCase() : value;
+
+/** The app's own profile directory — where the metadata/thumbnail caches live. */
+const userDataPath = path.normalize(app.getPath("userData"));
+
+/**
+ * True when `filePath` sits inside one of the library folders the user has
+ * opened in the app.
+ */
+const isPathAllowed = (filePath) => {
+  if (!filePath || typeof filePath !== "string") return false;
+  if (allowedDirectoryPaths.size === 0) return false;
+  const needle = foldPathCase(path.normalize(filePath));
+  const roots = Array.from(allowedDirectoryPaths, (allowedPath) =>
+    foldPathCase(path.normalize(allowedPath)),
+  );
+  // The separator boundary is load-bearing: a plain `startsWith` would let a
+  // library at C:\Images also "allow" C:\ImagesBackup\private.png, since the
+  // normalized path genuinely does start with those characters.
+  return isWithinRoots(needle, roots, path.sep);
+};
+
+/** True when `filePath` is inside the app's own profile directory. */
+const isInternalPath = (filePath) => {
+  if (!filePath || typeof filePath !== "string") return false;
+  return isWithinRoots(path.normalize(filePath), [userDataPath], path.sep);
+};
+
+const isAllowedOrInternal = (filePath) =>
+  isPathAllowed(filePath) || isInternalPath(filePath);
+
+// =============================================================================
+// `silkstack-media://` request handler
+//
+// URL shape: silkstack-media://local/<base64url(absolute path)>. The path is
+// base64url rather than percent-encoded because Windows paths mix `:` and `\`
+// (and UNC paths add `\\server\share`) — encoding them keeps Chromium's URL
+// normalisation from touching the path at all, which matters on case-sensitive
+// filesystems and is merely tidy on Windows.
+//
+// Three guards, in cheap-to-expensive order: the host and allow-list check
+// happen before any filesystem access, and the extension allow-list stops the
+// scheme from becoming a general-purpose reader for everything that shares a
+// folder with the images (sidecar JSON, config files, the .git directory of a
+// folder someone added by mistake).
+// =============================================================================
+function setupMediaProtocol() {
+  protocol.handle(MEDIA_SCHEME, async (request) => {
+    // Range requests carry a single safelisted `Range` header, so Chromium
+    // normally skips the preflight — but a non-safelisted header (or a fetch
+    // with credentials) would trigger one, and an unanswered OPTIONS reads as a
+    // broken media source rather than as a CORS problem.
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+          "Access-Control-Allow-Headers": "Range",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
+    }
+
+    const filePath = parseMediaUrl(request.url);
+    if (!filePath) {
+      return new Response("Bad request", { status: 400 });
+    }
+
+    if (!isPathAllowed(filePath)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const contentType = getMediaContentType(filePath);
+    if (!contentType) {
+      return new Response("Unsupported media type", { status: 403 });
+    }
+
+    let stats;
+    try {
+      stats = await fs.stat(filePath);
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+    if (!stats.isFile()) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    const totalSize = stats.size;
+    const range = parseRangeHeader(request.headers.get("range"), totalSize);
+
+    if (range && range.unsatisfiable) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          "Content-Range": `bytes */${totalSize}`,
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
+
+    const headers = {
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes",
+      // The file watcher replaces files in place (same path, new contents), so
+      // a cached body would happily keep serving the pre-edit bytes.
+      "Cache-Control": "no-store",
+      // Required for `crossOrigin="anonymous"` media: the thumbnail pipeline
+      // draws a decoded frame to a canvas, and a non-CORS-approved response
+      // would taint it, making `canvas.toBlob()` throw.
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Expose-Headers":
+        "Content-Range, Content-Length, Accept-Ranges",
+    };
+
+    if (!range) {
+      headers["Content-Length"] = String(totalSize);
+      return new Response(Readable.toWeb(fsSync.createReadStream(filePath)), {
+        status: 200,
+        headers,
+      });
+    }
+
+    // `fs.createReadStream`'s `end` is inclusive, which is exactly HTTP's
+    // convention for `bytes=start-end` — no off-by-one adjustment needed.
+    const { start, end } = range;
+    headers["Content-Length"] = String(end - start + 1);
+    headers["Content-Range"] = `bytes ${start}-${end}/${totalSize}`;
+    return new Response(
+      Readable.toWeb(fsSync.createReadStream(filePath, { start, end })),
+      { status: 206, headers },
+    );
+  });
+}
+
+// Helper function for recursive file search — replaced by the streaming
+// scanner in directoryScanner.mjs, which the IPC handlers below drive.
+// `listDirectoryFiles` collects a whole scan for callers that want the old
+// "everything at once" shape; everything user-facing streams instead.
+
+/**
+ * Active directory scans, keyed by scan id.
+ *
+ * A scan is a paused generator plus the sender it belongs to: the renderer
+ * pulls one batch at a time through `directory-scan-next`, so a slow renderer
+ * throttles the walk instead of queueing batches it has not asked for.
+ */
+const activeScans = new Map();
+let nextScanId = 1;
+
+/**
+ * Senders already wired for cleanup. Scans hold an open directory handle, so a
+ * window that goes away mid-scan must take its scans with it — otherwise the
+ * generator stays parked forever, one leak per closed window.
+ */
+const watchedSenders = new WeakSet();
+
+function watchSenderDestroyed(sender) {
+  if (watchedSenders.has(sender)) {
+    return;
+  }
+  watchedSenders.add(sender);
+  sender.once("destroyed", () => {
+    for (const [scanId, state] of [...activeScans]) {
+      if (state.sender === sender) {
+        state.cancelled = true;
+        void disposeScan(scanId);
       }
     }
-  } catch (error) {
-    // Ignore errors from directories we can't read, e.g. permissions
-    console.warn(`Could not read directory ${directory}: ${error.message}`);
+  });
+}
+
+/** Close a scan's iterator (releasing its directory handle) and forget it. */
+async function disposeScan(scanId) {
+  const state = activeScans.get(scanId);
+  if (!state) {
+    return;
   }
-  return files;
+  activeScans.delete(scanId);
+  state.cancelled = true;
+  try {
+    // Returning into a suspended generator runs its `finally` blocks, which is
+    // what actually closes the directory handle.
+    await state.iterator.return?.(undefined);
+  } catch {
+    // Nothing useful to do — the walk is being abandoned either way.
+  }
+}
+
+/**
+ * Read one file's `moov` box, opening and closing the file around the walk.
+ * Returns the same `{ path, success, ... }` shape the batch read handlers use,
+ * so the renderer can treat every batch read alike. A failure is reported as a
+ * `reason` rather than an error string because none of them are actionable at
+ * the call site: NO_MOOV just means "not an MP4" and the caller keeps whatever
+ * ffprobe found. It is logged here instead, where it can be useful.
+ */
+async function readOneMoov(filePath, maxBytes) {
+  let handle = null;
+  try {
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile()) {
+      return { path: filePath, success: false, reason: "READ_FAILED" };
+    }
+
+    handle = await fs.open(filePath, "r");
+    const reader = {
+      size: stats.size,
+      read: async (offset, length) => {
+        const buffer = Buffer.alloc(length);
+        const { bytesRead } = await handle.read(buffer, 0, length, offset);
+        return bytesRead === length ? buffer : buffer.subarray(0, bytesRead);
+      },
+    };
+
+    const result = await readMoovBox(reader, maxBytes);
+    if (!result.ok) {
+      return { path: filePath, success: false, reason: result.reason };
+    }
+    return {
+      path: filePath,
+      success: true,
+      data: result.bytes,
+      offset: result.offset,
+    };
+  } catch (error) {
+    return {
+      path: filePath,
+      success: false,
+      reason: "READ_FAILED",
+      error: error?.message || String(error),
+    };
+  } finally {
+    if (handle) {
+      await handle.close().catch(() => {});
+    }
+  }
 }
 
 function setupFileOperationHandlers() {
-  // Security helper to check if a file path is within one of the allowed directories
-  const isPathAllowed = (filePath) => {
-    if (!filePath || typeof filePath !== 'string') return false;
-    if (allowedDirectoryPaths.size === 0) return false;
-    const normalizedFilePath = path.normalize(filePath);
-    // Windows paths are case-insensitive: compare folded so a stored path
-    // whose casing differs from the directory picker's still matches (the
-    // main grid never notices such mismatches — it reads via handles, not
-    // path IPC — but path-based reads fail hard on case).
-    const fold =
-      process.platform === 'win32' ? (p) => p.toLowerCase() : (p) => p;
-    const needle = fold(normalizedFilePath);
-    return Array.from(allowedDirectoryPaths).some((allowedPath) =>
-      needle.startsWith(fold(path.normalize(allowedPath))),
-    );
-  };
-  const userDataPath = path.normalize(app.getPath("userData"));
-  const isInternalPath = (filePath) => {
-    if (!filePath) return false;
-    const normalized = path.normalize(filePath);
-    return (
-      normalized === userDataPath ||
-      normalized.startsWith(userDataPath + path.sep)
-    );
-  };
-  const isAllowedOrInternal = (filePath) =>
-    isPathAllowed(filePath) || isInternalPath(filePath);
+  // `isPathAllowed` / `isInternalPath` / `isAllowedOrInternal` are defined at
+  // module scope so the media protocol handler shares them.
   const normalizeNameKey = (name) => name.toLowerCase();
   const getUniqueName = (name, usedNames) => {
     const parsed = path.parse(name);
@@ -2682,6 +2913,10 @@ function setupFileOperationHandlers() {
   });
 
   // Handle listing directory files
+  //
+  // This is the collect-everything form, kept for callers that still want one
+  // array (the dev testers). The library itself streams through the scan
+  // handlers below — see electron/directoryScanner.mjs for why.
   ipcMain.handle(
     "list-directory-files",
     async (event, { dirPath, recursive = false }) => {
@@ -2690,47 +2925,119 @@ function setupFileOperationHandlers() {
           return { success: false, error: "No directory path provided" };
         }
 
-        let imageFiles = [];
+        const { files, truncated } = await listDirectoryFiles(dirPath, {
+          recursive,
+          onError: (directory, error) => {
+            // Ignore errors from directories we can't read, e.g. permissions
+            console.warn(`Could not read directory ${directory}: ${error.message}`);
+          },
+        });
 
-        if (recursive) {
-          imageFiles = await getFilesRecursively(dirPath, dirPath);
-        } else {
-          const files = await fs.readdir(dirPath, { withFileTypes: true });
-
-          for (const file of files) {
-            if (file.isFile()) {
-              const name = file.name.toLowerCase();
-              const isImage =
-                name.endsWith(".png") ||
-                name.endsWith(".jpg") ||
-                name.endsWith(".jpeg") ||
-                name.endsWith(".webp");
-              const isVideo = Array.from(VIDEO_EXTENSIONS).some((ext) =>
-                name.endsWith(ext),
-              );
-              if (isImage || isVideo) {
-                const filePath = path.join(dirPath, file.name);
-                const stats = await fs.stat(filePath);
-                const fileType = getMimeTypeFromName(name);
-                imageFiles.push({
-                  name: file.name, // name is already relative for top-level
-                  lastModified: stats.birthtimeMs,
-                  size: stats.size,
-                  type: fileType,
-                  birthtimeMs: stats.birthtimeMs,
-                });
-              }
-            }
-          }
-        }
-
-        return { success: true, files: imageFiles };
+        return { success: true, files, truncated };
       } catch (error) {
         console.error("Error listing directory files:", error);
         return { success: false, error: error.message };
       }
     },
   );
+
+  // ---------------------------------------------------------------- Scanning
+  //
+  // A library scan is a long-running operation over a folder the user may have
+  // hundreds of thousands of files in, so it is a pull-based stream rather than
+  // one big reply: the renderer asks for the next batch, which means a slow
+  // renderer (indexing, painting, paused) throttles the walk instead of letting
+  // an unbounded queue of batches pile up in the IPC channel.
+  //
+  // `directory-scan-start` returns an id; `directory-scan-next` pulls one batch
+  // at a time and reports `done` on the last; `directory-scan-cancel` stops a
+  // scan whose results are no longer wanted (the folder was removed, the user
+  // hit cancel, indexing was aborted).
+  ipcMain.handle("directory-scan-start", async (event, args) => {
+    try {
+      const { dirPath, recursive = true, batchSize } = args ?? {};
+      if (!dirPath) {
+        return { success: false, error: "No directory path provided" };
+      }
+
+      const scanId = `scan-${nextScanId++}`;
+      const state = {
+        sender: event.sender,
+        cancelled: false,
+        scanned: 0,
+        truncated: false,
+        iterator: scanDirectory(dirPath, {
+          recursive,
+          ...(typeof batchSize === "number" ? { batchSize } : {}),
+          isCancelled: () => state.cancelled || event.sender.isDestroyed(),
+          onError: (directory, error) => {
+            console.warn(`Could not read directory ${directory}: ${error.message}`);
+          },
+        }),
+      };
+
+      activeScans.set(scanId, state);
+      watchSenderDestroyed(event.sender);
+
+      return { success: true, scanId };
+    } catch (error) {
+      return { success: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle("directory-scan-next", async (event, { scanId } = {}) => {
+    const state = activeScans.get(scanId);
+    if (!state) {
+      return { success: false, error: "Unknown scan" };
+    }
+    if (state.cancelled || state.sender.isDestroyed()) {
+      await disposeScan(scanId);
+      return { success: true, files: [], scanned: state.scanned, truncated: false, done: true };
+    }
+
+    try {
+      const { value, done } = await state.iterator.next();
+      if (done) {
+        // The walk returned without a final batch — only possible on the
+        // cancellation path. Report the end plainly.
+        await disposeScan(scanId);
+        return {
+          success: true,
+          files: [],
+          scanned: state.scanned,
+          truncated: state.truncated,
+          done: true,
+        };
+      }
+
+      state.scanned = value.scanned;
+      state.truncated = value.truncated;
+      if (value.done) {
+        await disposeScan(scanId);
+      }
+
+      return {
+        success: true,
+        files: value.files,
+        scanned: value.scanned,
+        truncated: value.truncated,
+        done: value.done,
+      };
+    } catch (error) {
+      await disposeScan(scanId);
+      return { success: false, error: error?.message || String(error) };
+    }
+  });
+
+  ipcMain.handle("directory-scan-cancel", async (event, { scanId } = {}) => {
+    const state = activeScans.get(scanId);
+    if (!state) {
+      // Already finished or already cancelled — cancelling twice is not an error.
+      return { success: true };
+    }
+    await disposeScan(scanId);
+    return { success: true };
+  });
 
   // ============================================================
   // File Watching Handlers
@@ -2873,6 +3180,20 @@ function setupFileOperationHandlers() {
       const metadata = await readVideoMetadataWithFfprobe(filePath);
       return { success: true, ...metadata };
     } catch (error) {
+      // Order matters: a timed-out execFile reports "Command failed: <ffprobe
+      // path> …", so testing for the binary name first would file every
+      // timeout under FFPROBE_NOT_FOUND and hide the real cause.
+      const isTimeout =
+        error?.killed === true ||
+        error?.signal != null ||
+        error?.code === "ETIMEDOUT";
+      if (isTimeout) {
+        return {
+          success: false,
+          error: "FFPROBE_TIMEOUT",
+          errorType: "FFPROBE_TIMEOUT",
+        };
+      }
       const isBinaryMissing =
         error?.code === "ENOENT" || error?.message?.includes("ffprobe");
       return {
@@ -3081,6 +3402,75 @@ function setupFileOperationHandlers() {
       }
     }
     return { success: true };
+  });
+
+  // Handle reading the `moov` atom of video files in a batch.
+  //
+  // Why a dedicated handler: an MP4's metadata lives entirely in `moov`, and
+  // most encoders — ComfyUI's included — write it *after* the media data. The
+  // indexer's 64 KB head read therefore finds `ftyp` and the start of `mdat`
+  // and nothing else, and the previous fallback answered that by reading the
+  // whole video through IPC. That was the single largest source of renderer
+  // memory in a video-heavy library.
+  //
+  // Answering it properly needs a seek, which is a main-process concern. See
+  // electron/mp4Moov.mjs for the box walk; the returned bytes begin at the
+  // `moov` header, which is what lets the renderer's existing parsers consume
+  // them unchanged. Non-MP4 containers (webm/mkv/avi) have their own layouts
+  // and come back NO_MOOV — their metadata path stays ffprobe.
+  ipcMain.handle("read-video-moov-batch", async (event, args) => {
+    try {
+      const filePaths = args?.filePaths;
+      if (!Array.isArray(filePaths) || filePaths.length === 0) {
+        return { success: false, error: "No file paths provided" };
+      }
+
+      // --- SECURITY CHECK ---
+      for (const filePath of filePaths) {
+        if (!isPathAllowed(filePath)) {
+          console.error(
+            "SECURITY VIOLATION: Attempted to read a video outside of allowed directories.",
+          );
+          console.error("  Requested path:", filePath);
+          return {
+            success: false,
+            error:
+              "Access denied: Cannot read files outside of the allowed directories.",
+          };
+        }
+      }
+      // --- END SECURITY CHECK ---
+
+      const maxBytes = Number.isFinite(args?.maxBytes)
+        ? args.maxBytes
+        : MAX_MOOV_BYTES;
+
+      // Bounded concurrency. A batch of videos is a batch of independent seeks,
+      // and opening them all at once would only move the contention down into
+      // the filesystem — the same reason the whole-file reader is pooled.
+      const MOOV_READ_CONCURRENCY = 4;
+      const results = new Array(filePaths.length);
+      let cursor = 0;
+
+      const worker = async () => {
+        while (cursor < filePaths.length) {
+          const index = cursor;
+          cursor += 1;
+          results[index] = await readOneMoov(filePaths[index], maxBytes);
+        }
+      };
+
+      await Promise.all(
+        Array.from(
+          { length: Math.min(MOOV_READ_CONCURRENCY, filePaths.length) },
+          worker,
+        ),
+      );
+
+      return { success: true, files: results };
+    } catch (error) {
+      return { success: false, error: error?.message || String(error) };
+    }
   });
 
   // Handle reading multiple files in a batch

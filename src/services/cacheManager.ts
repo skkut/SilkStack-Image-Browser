@@ -514,14 +514,28 @@ class CacheManager {
   }
 
   // Compares current file system state with the cache to find differences
+  /**
+   * `preloadedCache` lets a caller that has already read the cache hand the
+   * record over instead of paying for a second read. Loading it is not cheap —
+   * the summary plus every chunk, i.e. one object per indexed image — so a
+   * caller that must read it for its own reasons (loadDirectory decides between
+   * a cold streaming scan and a collected diff) should pass it here.
+   *
+   * `undefined` means "read it yourself"; `null` means "there is none", which
+   * is a different answer from an unasked question and must not trigger a read.
+   */
   async validateCacheAndGetDiff(
     directoryPath: string,
     directoryName: string,
     currentFiles: { name: string; lastModified: number; size?: number; type?: string; birthtimeMs?: number }[],
     scanSubfolders: boolean,
-    scopePath?: string
+    scopePath?: string,
+    preloadedCache?: CacheEntry | null
   ): Promise<CacheDiff> {
-    const cached = await this.getCachedData(directoryPath, scanSubfolders);
+    const cached =
+      preloadedCache !== undefined
+        ? preloadedCache
+        : await this.getCachedData(directoryPath, scanSubfolders);
     
     // If no cache exists, all files are new
     if (!cached) {

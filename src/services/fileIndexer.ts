@@ -36,7 +36,12 @@ interface ElectronFileHandle extends FileSystemFileHandle {
   _filePath?: string;
 }
 
-interface CatalogFileEntry {
+/**
+ * One file on its way into the catalog. Exported because the caller can now
+ * hand Phase A a *stream* of these (see `ProcessFilesOptions.fileStream`), so
+ * the shape is part of the module's contract rather than an internal detail.
+ */
+export interface CatalogFileEntry {
   handle: FileSystemFileHandle;
   path: string;
   lastModified: number;
@@ -1022,15 +1027,14 @@ async function processSingleFileOptimized(
       // ffprobe is optional and often absent (readVideoMetadataFromElectron
       // then returns null) — this walker runs on whatever bytes we already
       // have and the tags flow into the normal ComfyUI normalization below.
-      let videoBytes: ArrayBuffer | undefined = fileData;
-      if (!videoBytes) {
-        try {
-          const file = await fileEntry.handle.getFile();
-          videoBytes = await file.arrayBuffer();
-        } catch {
-          videoBytes = undefined;
-        }
-      }
+      //
+      // `fileData` is either the head-read buffer (faststart MP4s keep moov
+      // first, so that is enough) or, for everything else, the moov box that
+      // the caller fetched by seek. There is deliberately no `getFile()`
+      // fallback any more: reading a whole video into the renderer to find a
+      // box the main process can seek straight to is what made a library of
+      // large videos unopenable.
+      const videoBytes: ArrayBuffer | undefined = fileData;
       if (videoBytes) {
         const mdtaTags = extractMp4MdtaTags(new Uint8Array(videoBytes));
         if (Object.keys(mdtaTags).length > 0) {
@@ -1448,6 +1452,8 @@ interface PhaseTelemetry {
   tailReadMs: number;
   tailReadFiles: number;
   tailReadHits: number;
+  moovReadMs: number;
+  moovReadFiles: number;
   fullReadMs: number;
   fullReadFiles: number;
   profileSamples: number;
@@ -1474,6 +1480,23 @@ interface ProcessFilesOptions {
   enrichmentBatchSize?: number;
   onEnrichmentProgress?: (progress: { processed: number; total: number; message?: string } | null) => void;
   hydratePreloadedImages?: boolean;
+  /**
+   * Catalog entries as an async stream instead of a finished array.
+   *
+   * Phase A is a per-file pass with no lookahead — each entry is turned into a
+   * stub and registered — so nothing about it needs the whole list. Handing it
+   * a stream lets the directory walk and the indexing interleave, which is what
+   * puts images on screen while a large folder is still being read rather than
+   * minutes later. When omitted, `fileEntries` is processed as one batch, which
+   * is byte-for-byte the previous behaviour.
+   */
+  fileStream?: AsyncIterable<CatalogFileEntry[]>;
+  /**
+   * Live total when the true one is not known up front (a streamed scan).
+   * Returns how many files have been discovered so far; progress is then
+   * reported against what is known rather than against a number nobody has.
+   */
+  liveTotal?: () => number;
 }
 
 export interface ProcessFilesResult {
@@ -1539,6 +1562,8 @@ export async function processFiles(
     tailReadMs: 0,
     tailReadFiles: 0,
     tailReadHits: 0,
+    moovReadMs: 0,
+    moovReadFiles: 0,
     fullReadMs: 0,
     fullReadFiles: 0,
     profileSamples: 0,
@@ -1560,6 +1585,8 @@ export async function processFiles(
     tailReadMs: 0,
     tailReadFiles: 0,
     tailReadHits: 0,
+    moovReadMs: 0,
+    moovReadFiles: 0,
     fullReadMs: 0,
     fullReadFiles: 0,
     profileSamples: 0,
@@ -1584,6 +1611,15 @@ export async function processFiles(
   const totalNewFiles = fileEntries.length;
   let processedNew = 0;
   let nextPhaseALog = 5000;
+
+  /**
+   * Files Phase A will report against. A finished array knows its own length; a
+   * streamed scan does not, so the stream tells us how many files have been
+   * discovered so far. The percentage then describes what is known rather than
+   * a total nobody has — and it is never zero once a file has been registered,
+   * because a file cannot be processed before it has been found.
+   */
+  const getTotal = () => options.liveTotal?.() ?? totalNewFiles;
 
   const pushUiBatch = async (force = false) => {
     if (uiBatch.length === 0) {
@@ -1753,7 +1789,7 @@ export async function processFiles(
 
     if (countTowardsProgress) {
       processedNew += 1;
-      setProgress({ current: processedNew, total: totalNewFiles, message: image.name });
+      setProgress({ current: processedNew, total: getTotal(), message: image.name });
     }
 
     if (emitToUi) {
@@ -1903,24 +1939,47 @@ export async function processFiles(
     return merged;
   };
 
-  for (const entry of imageFiles) {
-    if (abortSignal?.aborted) {
-      break;
-    }
+  // Phase A: the catalog pass. `fileStream` lets the walk and the indexing
+  // interleave — stubs reach the UI while the directory is still being read —
+  // which is the difference between a large library appearing *during* its
+  // first scan and appearing only after it.
+  // `for await` takes a plain iterable of batches just as happily as a stream,
+  // so the collected path needs no wrapper — one element, the whole listing.
+  const fileStream: AsyncIterable<CatalogFileEntry[]> | CatalogFileEntry[][] =
+    options.fileStream ?? [imageFiles];
 
-    if (waitWhilePaused) {
-      await waitWhilePaused();
+  phaseA: for await (const streamBatch of fileStream) {
+    for (const entry of streamBatch) {
       if (abortSignal?.aborted) {
-        break;
+        break phaseA;
       }
-    }
 
-    const stub = buildCatalogStub(entry, true);
-    await registerCatalogImage(stub, entry, true, true);
+      if (waitWhilePaused) {
+        await waitWhilePaused();
+        if (abortSignal?.aborted) {
+          break phaseA;
+        }
+      }
+
+      const stub = buildCatalogStub(entry, true);
+      await registerCatalogImage(stub, entry, true, true);
+    }
   }
 
   await flushChunk(true);
   await pushUiBatch(true);
+
+  /**
+   * Files Phase A actually handled — the honest denominator for the
+   * per-thousand-file invariants below.
+   *
+   * A streamed scan never materialises an array, so `totalPhaseAFiles` is 0
+   * there and those checks would be skipped precisely where the file counts are
+   * highest. `max` rather than `phaseAStats.processed` alone keeps the array
+   * path byte-identical when an abort cut the loop short: the total stays the
+   * denominator instead of collapsing to the handful that were processed.
+   */
+  const phaseADenominator = Math.max(totalPhaseAFiles, phaseAStats.processed);
 
   if (cacheWriter) {
     const finalizeStart = performance.now();
@@ -1939,7 +1998,7 @@ export async function processFiles(
       const finalizeDuration = performance.now() - finalizeStart;
       const bytesWritten = JSON.stringify({
         id: `${directoryId}-${scanSubfolders ? 'recursive' : 'flat'}`,
-        imageCount: totalPhaseAFiles,
+        imageCount: phaseADenominator,
       }).length;
       phaseAStats.bytesWritten += bytesWritten;
       phaseAStats.diskWrites += 1;
@@ -1954,15 +2013,16 @@ export async function processFiles(
     detail: { elapsedMs: performance.now() - phaseAStats.startTime, files: phaseAStats.processed }
   });
 
-  if (totalNewFiles > 0) {
-    setProgress({ current: totalNewFiles, total: totalNewFiles });
+  const finalTotal = getTotal();
+  if (finalTotal > 0) {
+    setProgress({ current: finalTotal, total: finalTotal });
   }
 
-  const ipcPerThousand = totalPhaseAFiles > 0 ? (phaseAStats.ipcCalls / totalPhaseAFiles) * 1000 : 0;
+  const ipcPerThousand = phaseADenominator > 0 ? (phaseAStats.ipcCalls / phaseADenominator) * 1000 : 0;
   performance.mark('indexing:phaseA:ipc-per-1k', { detail: { value: ipcPerThousand } });
-  const writesPerThousand = totalPhaseAFiles > 0 ? (phaseAStats.diskWrites / totalPhaseAFiles) * 1000 : 0;
+  const writesPerThousand = phaseADenominator > 0 ? (phaseAStats.diskWrites / phaseADenominator) * 1000 : 0;
 
-  if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' && totalPhaseAFiles > 0) {
+  if (typeof process !== 'undefined' && process.env.NODE_ENV !== 'production' && phaseADenominator > 0) {
     if (ipcPerThousand > 10) {
       throw new Error(`Phase A IPC calls per 1k files exceeded limit: ${ipcPerThousand.toFixed(2)}`);
     }
@@ -2106,6 +2166,11 @@ export async function processFiles(
     };
 
     const METAHUB_KEYWORD_BYTES = new TextEncoder().encode('imagemetahub_data');
+    // The moov box type as it appears in a file. Used to answer "did the head
+    // read already reach the metadata box?" — a four-byte match can in
+    // principle occur by chance inside compressed media data, but the cost of
+    // that is only a skipped seek, i.e. today's head-read-only behaviour.
+    const MOOV_BOX_BYTES = new TextEncoder().encode('moov');
     const metahubTailDecoder = new TextDecoder();
     const bufferContainsBytes = (buffer: ArrayBuffer, needle: Uint8Array) => {
       const haystack = new Uint8Array(buffer);
@@ -2257,11 +2322,47 @@ export async function processFiles(
         return false;
       }
       const fileType = entry.source.type ?? inferMimeTypeFromName(entry.source.handle.name);
-      // Videos included: MP4 metadata (moov → udta → meta) sits at the end of
-      // the file when the muxer didn't use faststart, so the head read misses
-      // it. The full read lets extractMp4MdtaTags find it.
-      return fileType === 'image/png' || fileType === 'image/webp' || fileType === 'image/jpeg' ||
-             fileType.startsWith('video/');
+      // Videos are handled by shouldReadMoovForVideo instead: reading one whole
+      // to reach a box that can be seeked to is exactly the cost this path was
+      // meant to avoid.
+      return fileType === 'image/png' || fileType === 'image/webp' || fileType === 'image/jpeg';
+    };
+
+    /**
+     * A video needs its moov box seeked out when the head buffer did not
+     * already contain one.
+     *
+     * The head read is 64 KB. A faststart MP4 puts moov first and parses from
+     * that alone; every other muxer — ComfyUI's included — leaves moov at the
+     * end, so the head buffer holds `ftyp` and the first slice of `mdat` and
+     * nothing else. Looking for the literal box type is cheaper and more
+     * reliable than asking whether the parse "found enough": a video with no
+     * ComfyUI metadata is indistinguishable from a video whose moov was missed,
+     * and treating the former as the latter would seek on every clip.
+     */
+    const shouldReadMoovForVideo = (
+      entry: CatalogEntryState,
+      buffer: ArrayBuffer | undefined,
+      enriched: IndexedImage | null
+    ) => {
+      if (!entry.source) {
+        return false;
+      }
+      const name = entry.source.handle.name.toLowerCase();
+      // Only the ISO base media family. webm/mkv/avi are EBML or RIFF — no
+      // moov box exists, so the seek would be wasted on every one of them.
+      if (!name.endsWith('.mp4') && !name.endsWith('.mov') && !name.endsWith('.m4v')) {
+        return false;
+      }
+      // A moov inside the head buffer already gave up everything it has.
+      if (buffer && bufferContainsBytes(buffer, MOOV_BOX_BYTES)) {
+        return false;
+      }
+      // Otherwise seek. A truncated file is included here rather than filtered
+      // out: the reader reports TRUNCATED and the entry simply keeps whatever
+      // ffprobe found, which is the same outcome as skipping it, minus a
+      // stat() to guess at something the box walk determines exactly.
+      return true;
     };
 
     const shouldCheckTailForMetaHub = (
@@ -2359,6 +2460,11 @@ export async function processFiles(
         const resultsById = new Map<string, { enriched: IndexedImage | null; profile?: PhaseProfileSample }>();
         const fallbackEntries: CatalogEntryState[] = [];
         const tailCheckEntries: CatalogEntryState[] = [];
+        const moovEntries: CatalogEntryState[] = [];
+        // The head-read result for videos awaiting a moov seek. Kept so a failed
+        // seek can fall back to it without re-parsing the file: the head buffer
+        // is already in hand, and the parse is the expensive half.
+        const headOnlyResults = new Map<string, { enriched: IndexedImage | null; profile?: PhaseProfileSample }>();
         const missingEntries = new Set<string>();
 
         const headIterator = async (entry: CatalogEntryState) => {
@@ -2380,6 +2486,14 @@ export async function processFiles(
             ? { totalMs: 0, parseMs: 0, normalizeMs: 0, dimensionsMs: 0 }
             : undefined;
           const enriched = await processSingleFileOptimized(entry.source, directoryId, buffer, profile);
+          if (shouldReadMoovForVideo(entry, buffer, enriched)) {
+            // Deferred to one seek per batch rather than one full read per
+            // video. The head-read result is parked, not discarded — a moov
+            // that turns out not to exist falls back to it below.
+            headOnlyResults.set(entry.image.id, { enriched, profile });
+            moovEntries.push(entry);
+            return null;
+          }
           if (shouldFallbackToFullRead(entry, buffer, enriched)) {
             fallbackEntries.push(entry);
             return null;
@@ -2392,6 +2506,66 @@ export async function processFiles(
         };
 
         await asyncPool(concurrencyLimit, batch, headIterator);
+
+        if (moovEntries.length > 0) {
+          const moovPaths = moovEntries
+            .map(entry => (entry.source?.handle as ElectronFileHandle)?._filePath)
+            .filter((path): path is string => typeof path === 'string' && path.length > 0);
+
+          const moovMap = new Map<string, ArrayBuffer>();
+          if (moovPaths.length > 0) {
+            const moovStart = performance.now();
+            const moovResult = await (window as any).electronAPI.readVideoMoovBatch({
+              filePaths: moovPaths,
+            });
+            phaseBStats.moovReadFiles += moovPaths.length;
+            phaseBStats.moovReadMs += performance.now() - moovStart;
+            phaseBStats.ipcCalls += 1;
+
+            if (moovResult?.success && Array.isArray(moovResult.files)) {
+              for (const file of moovResult.files) {
+                if (!file.success || !file.data) {
+                  continue;
+                }
+                const raw = file.data as ArrayBuffer | ArrayBufferView;
+                if (raw instanceof ArrayBuffer) {
+                  moovMap.set(file.path, raw);
+                } else if (ArrayBuffer.isView(raw)) {
+                  const view = raw as ArrayBufferView;
+                  const copy = new Uint8Array(view.byteLength);
+                  copy.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+                  moovMap.set(file.path, copy.buffer);
+                }
+              }
+            }
+          }
+
+          const moovIterator = async (entry: CatalogEntryState) => {
+            const filePath = (entry.source?.handle as ElectronFileHandle)?._filePath;
+            const moovBuffer = filePath ? moovMap.get(filePath) : undefined;
+            if (!entry.source || !moovBuffer) {
+              // No moov to be had: not an MP4, truncated, or over the size cap.
+              // Fall back to the head-read parse that was set aside — it is
+              // never wrong, just possibly short of tags and dimensions.
+              const headOnly = headOnlyResults.get(entry.image.id);
+              if (headOnly) {
+                resultsById.set(entry.image.id, headOnly);
+              } else {
+                missingEntries.add(entry.image.id);
+              }
+              return null;
+            }
+            const shouldProfile = (profileCounter++ % profileSampleRate) === 0;
+            const profile = shouldProfile
+              ? { totalMs: 0, parseMs: 0, normalizeMs: 0, dimensionsMs: 0 }
+              : undefined;
+            const enriched = await processSingleFileOptimized(entry.source, directoryId, moovBuffer, profile);
+            resultsById.set(entry.image.id, { enriched, profile });
+            return null;
+          };
+
+          await asyncPool(concurrencyLimit, moovEntries, moovIterator);
+        }
 
         if (tailCheckEntries.length > 0 && useTailRead) {
           const tailPaths = tailCheckEntries

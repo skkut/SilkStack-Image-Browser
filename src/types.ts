@@ -69,8 +69,41 @@ export interface ElectronAPI {
       type: string;
       birthtimeMs?: number;
     }[];
+    /** True when the scan hit its entry cap and stopped early. */
+    truncated?: boolean;
     error?: string;
   }>;
+  /**
+   * Start a streaming directory scan. The reply carries only the id — batches
+   * are pulled one at a time with `nextDirectoryScanBatch`, so a renderer that
+   * is busy indexing throttles the walk rather than queueing batches it never
+   * asked for. Always pair with `cancelDirectoryScan` in a `finally`.
+   */
+  startDirectoryScan: (args: {
+    dirPath: string;
+    recursive?: boolean;
+    batchSize?: number;
+  }) => Promise<{ success: boolean; scanId?: string; error?: string }>;
+  nextDirectoryScanBatch: (scanId: string) => Promise<{
+    success: boolean;
+    files?: {
+      name: string;
+      lastModified: number;
+      size: number;
+      type: string;
+      birthtimeMs?: number;
+    }[];
+    /** Matched files so far, across every batch of this scan. */
+    scanned?: number;
+    /** Entry cap reached; the walk stopped early. */
+    truncated?: boolean;
+    /** True on the last batch — after this the scan id is gone. */
+    done?: boolean;
+    error?: string;
+  }>;
+  cancelDirectoryScan: (
+    scanId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   readFile: (
     filePath: string,
   ) => Promise<{
@@ -91,6 +124,28 @@ export interface ElectronAPI {
       error?: string;
       errorType?: string;
       errorCode?: string;
+    }[];
+    error?: string;
+  }>;
+  /**
+   * Read only the `moov` atom of each video, located by walking the top-level
+   * MP4 boxes. `data` begins at the `moov` box header, so the existing MP4
+   * parsers consume it as-is. `reason` is set on failure (`NO_MOOV` for a
+   * non-MP4 container, `MOOV_TOO_LARGE`, `TRUNCATED`, `READ_FAILED`) — none of
+   * which is actionable at the call site, only informative.
+   */
+  readVideoMoovBatch: (args: {
+    filePaths: string[];
+    maxBytes?: number;
+  }) => Promise<{
+    success: boolean;
+    files?: {
+      path: string;
+      success: boolean;
+      data?: Buffer;
+      offset?: number;
+      reason?: string;
+      error?: string;
     }[];
     error?: string;
   }>;

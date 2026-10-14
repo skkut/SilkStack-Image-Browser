@@ -1,18 +1,25 @@
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnimatedMedia, resolveMediaMimeType } from '../utils/mediaTypes';
+import { getImageMediaUrl } from '../utils/mediaUrl';
 
 /**
  * Hover-preview policy for animated media (video + GIF) in the grids.
  *
- * Why this is a coordinator and not just a hook per card: the preview is
- * expensive to produce on the desktop build. The Electron file handle is a
- * mock whose `getFile()` ships the whole file across IPC (see useImageLoader),
- * so every preview is a full read of the media file into renderer memory.
- * Hovering is a very frequent gesture, so the cost is managed centrally:
+ * Why this is a coordinator and not just a hook per card: producing a preview
+ * used to be expensive, and on the browser build still is. There the Electron
+ * file handle is a mock whose `getFile()` ships the whole file across IPC (see
+ * useImageLoader), so every preview is a full read of the media file into
+ * renderer memory. Hovering is a very frequent gesture, so the cost is managed
+ * centrally:
  *
  *  - a dwell delay, so sweeping the pointer across a row of videos costs nothing
  *  - at most one preview loading or playing at any moment
  *  - a small byte- and count-capped cache, since re-hovering the same card is common
+ *
+ * On the desktop build, `silkstack-media://` removes most of that cost: the URL
+ * is derived from the file's path, and the media element range-requests only
+ * what it plays, so neither the size cap nor the byte budget applies. Both
+ * paths stay, because the browser build has no protocol to serve.
  *
  * The public surface is deliberately plain objects and promises (no React), so
  * the ai-intelligence package can consume it through a prop without importing
@@ -21,9 +28,10 @@ import { isAnimatedMedia, resolveMediaMimeType } from '../utils/mediaTypes';
  */
 
 /**
- * Safety valve. Above this the poster is simply left on screen rather than
- * pulling a very large file into renderer memory in one piece. Not user-facing:
- * it exists so a pathological file cannot stall a hover.
+ * Safety valve for the *blob* path only. Above this the poster is simply left
+ * on screen rather than pulling a very large file into renderer memory in one
+ * piece. Not user-facing: it exists so a pathological file cannot stall a
+ * hover. Streaming previews ignore it — their cost does not scale with size.
  */
 export const MAX_PREVIEW_BYTES = 150 * 1024 * 1024;
 
@@ -178,11 +186,26 @@ class HoverPreviewCoordinator implements HoverPreviewApi {
   private isEligible(source: HoverPreviewSource): boolean {
     if (!useSettingsStore.getState().autoplayVideoPreviews) return false;
     if (!isAnimatedMedia(source.name, source.fileType)) return false;
+
+    // Two ways to reach the bytes, with costs that scale differently. A
+    // streaming URL costs a few hundred KB of range reads no matter how long
+    // the clip is, so size is not a reason to refuse. A blob costs the whole
+    // file, so the cap stays for that path.
+    if (this.mediaUrlFor(source)) return true;
+
     if (typeof source.fileSize === 'number' && source.fileSize > MAX_PREVIEW_BYTES) {
       return false;
     }
     const handle = source.handle as { getFile?: unknown } | null | undefined;
     return !!handle && typeof handle.getFile === 'function';
+  }
+
+  /**
+   * Streaming URL for this source, or null when there is none to build (the
+   * browser build, or a stub whose handle carries no `_filePath`).
+   */
+  private mediaUrlFor(source: HoverPreviewSource): string | null {
+    return getImageMediaUrl(source);
   }
 
   private async load(source: HoverPreviewSource, record: ActiveSession): Promise<void> {
@@ -207,6 +230,16 @@ class HoverPreviewCoordinator implements HoverPreviewApi {
     source: HoverPreviewSource,
     key: string,
   ): Promise<string | null> {
+    const mediaUrl = this.mediaUrlFor(source);
+    if (mediaUrl) {
+      // Remembered with a byte cost of zero — nothing is held in renderer
+      // memory — purely so a repeat hover still skips the dwell. `clear()` and
+      // `evict()` call `revokeObjectURL`, which is a documented no-op on a
+      // non-blob URL, so neither needs a special case for these entries.
+      this.remember(key, mediaUrl, 0);
+      return mediaUrl;
+    }
+
     const blob = await this.readBlob(source);
     if (!blob || blob.size > MAX_PREVIEW_BYTES) return null;
 

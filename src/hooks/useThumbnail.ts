@@ -8,70 +8,82 @@ import { useImageStore } from '../store/useImageStore';
 // only earns an INEFFECTIVE_DYNAMIC_IMPORT warning.
 import { thumbnailManager } from '../services/thumbnailManager';
 
+/**
+ * Request a thumbnail for one mounted card.
+ *
+ * Called once per rendered cell. react-window mounts only the visible rows plus
+ * overscan, so "ask for the thumbnail" is already scoped to what is plausibly
+ * on screen — this hook never walks the library.
+ *
+ * Thumbnails are requested *during* indexing too. Suppressing them for the
+ * whole indexing window was the main reason a large library looked broken on
+ * first run: a video's only poster source is its thumbnail, so a video-heavy
+ * folder stayed a wall of blank cards for the length of the run, however well
+ * the catalog itself streamed in. The contention that suppression was guarding
+ * against is real but belongs in the manager — `thumbnailManager` lowers its
+ * concurrency while indexing instead of refusing the work outright.
+ *
+ * Note there is deliberately no `indexingState` subscription here: it existed
+ * only to gate the suppression, and every mounted card re-rendering each time
+ * indexing started or stopped is a cost with no remaining purpose.
+ */
 export function useThumbnail(image: IndexedImage | null): void {
   const disableThumbnails = useSettingsStore((state) => state.disableThumbnails);
-  const indexingState = useImageStore((state) => state.indexingState);
-  const isIndexingRef = useRef(indexingState === 'indexing');
   const loadingRef = useRef<Set<string>>(new Set());
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Update ref without triggering effects
-  isIndexingRef.current = indexingState === 'indexing';
+  const imageId = image?.id ?? null;
 
   useEffect(() => {
-    // Don't load thumbnails during indexing to avoid infinite loops
-    if (disableThumbnails || !image || isIndexingRef.current) {
+    if (disableThumbnails || !imageId) {
       return;
     }
 
-    // Check CURRENT store state (not stale prop) before starting load
+    // Check CURRENT store state (not the possibly stale prop) before starting.
+    // A card can be handed a stub from a render that predates the image's
+    // enrichment, and the fresh record carries the up-to-date handle.
     const storeState = useImageStore.getState();
-    const currentImage = storeState.images.find(img => img.id === image.id);
+    const currentImage = storeState.images.find((img) => img.id === imageId);
 
-    if (currentImage?.thumbnailStatus === 'ready' || currentImage?.thumbnailStatus === 'loading') {
+    if (
+      currentImage?.thumbnailStatus === 'ready' ||
+      currentImage?.thumbnailStatus === 'loading'
+    ) {
       return;
     }
 
-    // Prevent duplicate loads from same hook instance
-    if (loadingRef.current.has(image.id)) {
+    // Prevent duplicate loads from the same hook instance
+    if (loadingRef.current.has(imageId)) {
       return;
     }
 
-    // Debounce: wait one React frame (16ms) before loading
-    // This prevents rapid-fire updates from causing loops
+    // Debounce one React frame. A card scrolled past at speed mounts and
+    // unmounts inside this window, so the job is never created at all.
     timeoutRef.current = setTimeout(() => {
-      let cancelled = false;
-      loadingRef.current.add(image.id);
+      loadingRef.current.add(imageId);
 
-      const run = async () => {
+      void (async () => {
         try {
-          await thumbnailManager.ensureThumbnail(image);
+          await thumbnailManager.ensureThumbnail(currentImage ?? image!);
         } catch (error) {
-          if (!cancelled) {
-            console.error('Failed to ensure thumbnail:', error);
-          }
+          console.error('Failed to ensure thumbnail:', error);
         } finally {
-          if (!cancelled) {
-            loadingRef.current.delete(image.id);
-          }
+          loadingRef.current.delete(imageId);
         }
-      };
-
-      void run();
-
-      return () => {
-        cancelled = true;
-        loadingRef.current.delete(image.id);
-      };
-    }, 16); // One React frame
+      })();
+    }, 16);
 
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      loadingRef.current.delete(image.id);
+      loadingRef.current.delete(imageId);
+      // Drop work that has not started yet. A fast scroll unmounts cards as
+      // quickly as it mounts them, and a queued job for a card that is no
+      // longer on screen competes for a slot with one that is. A load already
+      // in flight is deliberately left alone — it caches its result, so coming
+      // back to the card is instant and the decode is not thrown away.
+      thumbnailManager.cancel(imageId);
     };
-  }, [image?.id, disableThumbnails]);
+  }, [imageId, disableThumbnails]);
 }
-

@@ -25,12 +25,15 @@ export function normalizePath(path: string | null | undefined): string {
 /**
  * The narrow slice of an image this module needs. Deliberately structural
  * rather than `IndexedImage` so the helper stays dependency-free and testable.
+ * Fields are nullable because callers pass whatever shape they have — the
+ * hover-preview coordinator's `HoverPreviewSource`, for one — and every use
+ * below already coalesces.
  */
 export interface PathBearingImage {
   /** `${directoryId}::${relativePath}` — see fileIndexer's IndexedImage builder. */
-  id?: string;
+  id?: string | null;
   /** Basename, though a recursive scan may fold a relative path in here. */
-  name?: string;
+  name?: string | null;
   /** Electron mock handle, which carries the real path as `_filePath`. */
   handle?: unknown;
 }

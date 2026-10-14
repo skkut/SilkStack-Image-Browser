@@ -6,6 +6,7 @@ import { copyImageToClipboard, showInExplorer, openInNativeViewer, getAspectRati
 import { getImageAbsolutePath, quotePathForClipboard } from "../utils/pathUtils";
 import { extractRawMetadataFromFile } from "../services/fileIndexer";
 import { isVideoFileName, resolveMediaMimeType } from "../utils/mediaTypes";
+import { getImageMediaUrl } from "../utils/mediaUrl";
 import {
   Copy,
   Trash2,
@@ -1077,6 +1078,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
   const loadImageToUrl = useCallback(
     async (img: IndexedImage, dirPath: string): Promise<string | null> => {
       try {
+        // Streaming URL first. The viewer is where file size bites hardest: a
+        // 500 MB video opened here would otherwise be copied whole over IPC
+        // (or read whole through the handle) before the first frame appeared.
+        // Over the protocol the element range-requests what it plays. Safe to
+        // cache alongside the blob URLs below — `revokeObjectURL` is a no-op on
+        // a non-blob URL.
+        const mediaUrl = getImageMediaUrl(img, dirPath);
+        if (mediaUrl) return mediaUrl;
+
         const primaryHandle = img.handle;
         const fallbackHandle = img.thumbnailHandle;
         const fileHandle =

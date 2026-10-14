@@ -32,6 +32,7 @@ import {
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
 import { isVideoFileName } from '../utils/mediaTypes';
+import { getImageMediaUrl } from '../utils/mediaUrl';
 import { useImageStacking } from '../hooks/useImageStacking';
 import { useStackingEnabled } from '../services/aiFeatureAccess';
 // Static on purpose: this file already imports useImageStore, which imports
@@ -119,6 +120,11 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
     if (state.disableThumbnails) return null;
     if (image.thumbnailStatus === 'ready' && image.thumbnailUrl) return image.thumbnailUrl;
     if (isVideoFileName(image.name, image.fileType)) return null;
+    // A streaming URL is free to derive and needs no revoke, so a still can
+    // paint on the very first render instead of waiting out the 180 ms
+    // fallback debounce below.
+    const mediaUrl = getImageMediaUrl(image);
+    if (mediaUrl) return mediaUrl;
     return getCachedFallbackUrl(image.id);
   });
 
@@ -170,6 +176,18 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
 
     if (isVideo) {
       setImageUrl(null);
+      return;
+    }
+
+    // Stills stream straight off disk through the media protocol. This is the
+    // hot path for a cold cache: the blob fallback below reads the *entire*
+    // file over IPC for every visible card, so scrolling a folder of 20 MB
+    // PNGs used to move gigabytes through the renderer just to paint the grid.
+    // The URL is rebuilt per render and never revoked, which is exactly why it
+    // also needs no entry in `fallbackUrlCache`.
+    const mediaUrl = getImageMediaUrl(image);
+    if (mediaUrl) {
+      setImageUrl(mediaUrl);
       return;
     }
 

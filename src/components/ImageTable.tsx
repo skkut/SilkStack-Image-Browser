@@ -11,6 +11,7 @@ import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, P
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
 import { isVideoFileName } from '../utils/mediaTypes';
+import { getImageMediaUrl } from '../utils/mediaUrl';
 import { useSettingsStore } from '../store/useSettingsStore';
 
 interface ImageTableProps {
@@ -533,6 +534,15 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
 
     if (isVideo) {
       setImageUrl(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Same as the grid: a still streams off disk over the media protocol
+    // instead of being read whole over IPC into a blob URL.
+    const mediaUrl = getImageMediaUrl(image);
+    if (mediaUrl) {
+      setImageUrl(mediaUrl);
       setIsLoading(false);
       return;
     }

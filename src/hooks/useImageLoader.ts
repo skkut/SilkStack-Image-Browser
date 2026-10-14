@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useImageStore } from "../store/useImageStore";
-import { processFiles } from "../services/fileIndexer";
+import { processFiles, type CatalogFileEntry } from "../services/fileIndexer";
 import { cacheManager, IncrementalCacheWriter } from "../services/cacheManager";
 import { IndexedImage, Directory } from "../types";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { normalizePath } from "../utils/pathUtils";
+import {
+  getScanApi,
+  streamDirectoryScan,
+  type DirectoryScanBatch,
+  type ScannedFile,
+} from "../utils/scanStream";
 import {
   filterRelocatedTargetIds,
   isRelocatedPath,
@@ -948,6 +954,315 @@ export function useImageLoader() {
         // Determine what to scan
         const scanPath = refreshPath || directory.path;
 
+        // Cold-start detection. With no cache record for this directory every
+        // file found is new, there is nothing to hydrate and nothing to delete
+        // — precisely the three questions the collected walk below exists to
+        // answer. That makes this both the "huge library, first setup" case and
+        // the one case where the listing can stream straight into indexing, so
+        // cards appear while the folder is still being walked.
+        //
+        // The cache read is not wasted on the warm path: it is the same record
+        // validateCacheAndGetDiff would have fetched a few lines later.
+        let cachedEntry: Awaited<ReturnType<typeof cacheManager.getCachedData>> | null = null;
+        if (getIsElectron()) {
+          try {
+            cachedEntry = await cacheManager.getCachedData(directory.path, shouldScanSubfolders);
+          } catch (err) {
+            console.warn("[loadDirectory] Cache lookup failed; treating as a cold start", err);
+          }
+        }
+
+        /**
+         * Phase A + Phase B + finalize, shared by both listing strategies.
+         *
+         * A collected listing and a streamed scan differ only in where the
+         * entries come from — the chunk writer, the enrichment queue, the
+         * progress bar and the post-indexing pipeline are identical either way.
+         * Keeping them in one place is what stops the cold path from becoming a
+         * second, subtly different implementation of indexing.
+         */
+        const runIndexingPipeline = async (input: {
+          fileHandles: CatalogFileEntry[];
+          cacheWriter: IncrementalCacheWriter | null;
+          preloadedImages: IndexedImage[];
+          fileStats: Map<string, { size?: number; type?: string; birthtimeMs?: number }>;
+          hydratePreloadedImages: boolean;
+          fileStream?: AsyncIterable<CatalogFileEntry[]>;
+          liveTotal?: () => number;
+        }): Promise<void> => {
+          const {
+            fileHandles,
+            cacheWriter,
+            preloadedImages,
+            fileStats,
+            hydratePreloadedImages,
+            fileStream,
+            liveTotal,
+          } = input;
+
+          const handleBatchProcessed = (batch: IndexedImage[]) => {
+            addImages(batch);
+          };
+
+          const handleEnrichmentBatch = (batch: IndexedImage[]) => {
+            mergeImages(batch);
+            // Data quality: the addImages → flushPendingImages path imports
+            // metadataTags, but the merge path above dropped them — so after a
+            // reprocess every image's metadataTags was empty. Import them
+            // explicitly so auto-tag and semantic indexing see the real
+            // metadata (prompt-derived tags feed both phases).
+            void useImageStore.getState().importMetadataTags(batch);
+          };
+
+          const handleEnrichmentProgress = (
+            progress: { processed: number; total: number; message?: string } | null,
+          ) => {
+            setEnrichmentProgress(progress);
+          };
+
+          const handleDeletion = (deletedFileIds: string[]) => {
+            removeImages(deletedFileIds);
+          };
+
+          const shouldProcessPipeline =
+            fileHandles.length > 0 ||
+            !!cacheWriter ||
+            // A stream is a promise of files that have not been read yet, so it
+            // counts as work even before the first batch arrives — otherwise a
+            // cold start whose cache writer failed would index nothing at all.
+            !!fileStream ||
+            (hydratePreloadedImages && preloadedImages.length > 0);
+
+          if (shouldProcessPipeline) {
+            if (shouldCancelIndexing(suppressIndexingState)) {
+              cancelThrottledProgress();
+              if (suppressIndexingState) {
+                setDirectoryRefreshing(directory.id, false);
+                setProgress(null);
+              } else {
+                setIndexingState("idle");
+                setLoading(false);
+                setProgress(null);
+              }
+              return;
+            }
+
+            const indexingConcurrency =
+              useSettingsStore.getState().indexingConcurrency ?? 4;
+
+            setEnrichmentProgress(null);
+
+            const { phaseB } = await processFiles(
+              fileHandles,
+              throttledSetProgress,
+              handleBatchProcessed,
+              directory.id,
+              directory.name,
+              shouldScanSubfolders,
+              handleDeletion,
+              abortControllerRef.current?.signal,
+              waitWhilePaused,
+              {
+                cacheWriter,
+                concurrency: indexingConcurrency,
+                preloadedImages,
+                fileStats,
+                fileStream,
+                liveTotal,
+                onEnrichmentBatch: handleEnrichmentBatch,
+                onEnrichmentProgress: handleEnrichmentProgress,
+                hydratePreloadedImages,
+              },
+            );
+
+            const phaseBContinuation = phaseB
+              .then(() => {
+                console.log('[Indexing] Phase B enrichment complete — triggering post-indexing pipeline');
+                // Run the unified pipeline AFTER enrichment completes, so
+                // images have their prompt/model metadata populated before
+                // stacking and similarity grouping run. Sequential callers
+                // (reprocess, reconnect) suppress this — they run one round
+                // for ALL directories instead of one per directory.
+                if (!options.suppressPipelineTrigger) {
+                  useImageStore.getState().processPostIndexingPipeline();
+                }
+                // Keep the progress bar visible for 2 seconds after completion
+                setTimeout(() => setEnrichmentProgress(null), 2000);
+              })
+              .catch((err) => {
+                console.error("Phase B enrichment failed", err);
+                // Still attempt pipeline on partial enrichment — some images
+                // may have been enriched successfully.
+                if (!options.suppressPipelineTrigger) {
+                  useImageStore.getState().processPostIndexingPipeline();
+                }
+                // Keep error visible for 2 seconds
+                setTimeout(() => setEnrichmentProgress(null), 2000);
+              });
+
+            // Callers that need enrichment fully finished before proceeding
+            // (sequential reprocess / reconnect) await the continuation — the
+            // normal watcher path stays fire-and-forget. Errors are already
+            // handled above, so don't let a rejection escape.
+            if (options.awaitEnrichment) {
+              await phaseBContinuation.catch(() => {});
+            }
+
+            if (!shouldCancelIndexing(suppressIndexingState)) {
+              finalizeDirectoryLoad(directory, { suppressIndexingState });
+            }
+            // Cancel any pending throttled progress update BEFORE clearing,
+            // otherwise a delayed "N/N" call would overwrite the null and
+            // leave the catalog bar stuck open.
+            cancelThrottledProgress();
+            setProgress(null);
+          } else {
+            if (hydratePreloadedImages && preloadedImages.length > 0) {
+              addImages(preloadedImages);
+            }
+            finalizeDirectoryLoad(directory, { suppressIndexingState });
+            cancelThrottledProgress();
+            setProgress(null);
+          }
+        };
+
+        /**
+         * Cold-start fast path: consume the directory walk as it happens.
+         *
+         * The collected listing exists to answer three questions — what is new,
+         * what still matches the cache, and what has been deleted. With no
+         * cache record all three are trivial (everything is new, nothing
+         * matches, nothing was deleted), which is exactly the "large library,
+         * first setup" case — and it is also the one case where the listing can
+         * stream straight into indexing, so cards land a batch or two in rather
+         * than after the last file has been stat'd.
+         */
+        const loadColdDirectory = async (): Promise<void> => {
+          const fileStream = streamDirectoryScan({
+            dirPath: scanPath,
+            recursive: shouldScanSubfolders,
+          });
+
+          // The first pull doubles as the reachability probe: a missing drive
+          // or a dropped network share surfaces here, while nothing has been
+          // cleared yet, so the images already on screen survive.
+          let firstBatch: DirectoryScanBatch | null = null;
+          try {
+            const first = await fileStream.next();
+            firstBatch = first.done ? null : first.value ?? null;
+          } catch (err) {
+            // Nothing was cleared and no writer exists yet, so rethrowing to
+            // this function's catch is both safe and the only way the user
+            // learns that the folder could not be read.
+            await fileStream.return(undefined);
+            throw err;
+          }
+
+          if (!firstBatch || firstBatch.files.length === 0) {
+            let probeConnected = true;
+            try {
+              const probe = await window.electronAPI.checkDirectoryConnection(directory.path);
+              probeConnected = probe?.isConnected ?? false;
+            } catch {
+              probeConnected = false; // the probe itself failed → treat as offline
+            }
+
+            if (shouldSkipLoadDueToOffline({
+              fileCount: 0,
+              // No cache record on this path — the probe is the only witness.
+              cachedImageCount: 0,
+              probeConnected,
+            })) {
+              console.warn(`[loadDirectory] Directory ${directory.name} is unreachable and has no cache — skipping sync, images preserved`);
+              await fileStream.return(undefined);
+              if (suppressIndexingState) {
+                setDirectoryRefreshing(directory.id, false);
+                setProgress(null);
+              }
+              return;
+            }
+          }
+
+          // With no cache record every file is new and the writer is required.
+          // Both facts are known before the first batch, which is the whole
+          // reason the walk and the indexing can run at the same time.
+          let cacheWriter: IncrementalCacheWriter | null = null;
+          try {
+            cacheWriter = await cacheManager.createIncrementalWriter(
+              directory.path,
+              directory.name,
+              shouldScanSubfolders,
+            );
+          } catch (err) {
+            console.error(
+              "Failed to initialize incremental cache writer:",
+              err,
+            );
+          }
+
+          clearImages(directory.id);
+          setProgress({ current: 0, total: 0 });
+
+          // Files discovered so far. Phase A reports its percentage against
+          // this, so it describes what is known rather than a total nobody has
+          // — and it can never be smaller than what has been processed, because
+          // a file is discovered before it can be indexed.
+          let discovered = 0;
+
+          // A subfolder refresh still caches root-relative names, so the scan
+          // result has to be scoped the same way the collected listing is.
+          const relativePrefixForScan = refreshPath
+            ? getRelativePath(directory.path, refreshPath)
+            : "";
+
+          const preparedBatches = async function* (
+            first: DirectoryScanBatch,
+          ): AsyncGenerator<CatalogFileEntry[]> {
+            let batch: DirectoryScanBatch | null = first;
+            try {
+              while (batch) {
+                const files: ScannedFile[] = relativePrefixForScan
+                  ? batch.files.map((file) => ({
+                      ...file,
+                      name: `${relativePrefixForScan}/${file.name}`,
+                    }))
+                  : batch.files;
+                discovered += files.length;
+
+                yield files.length > 0
+                  ? await getFileHandles(directory.handle, directory.path, files)
+                  : [];
+
+                if (batch.done) return;
+                const next = await fileStream.next();
+                batch = next.done ? null : next.value ?? null;
+              }
+            } finally {
+              // Breaking out of Phase A (an abort) returns early from this
+              // generator; the walk in main has to be released with it, since
+              // nothing else would ever pull it again.
+              await fileStream.return(undefined);
+            }
+          };
+
+          await runIndexingPipeline({
+            fileHandles: [],
+            cacheWriter,
+            preloadedImages: [],
+            // Every entry carries its own stat from the scan, so the fallback
+            // lookup the collected path needs has nothing left to add.
+            fileStats: new Map(),
+            hydratePreloadedImages: true,
+            fileStream: firstBatch ? preparedBatches(firstBatch) : undefined,
+            liveTotal: () => discovered,
+          });
+        };
+
+        if (!cachedEntry && getScanApi()) {
+          await loadColdDirectory();
+          return;
+        }
+
         // Get files from disk (either full directory or specific subfolder)
         let allCurrentFiles = await getDirectoryFiles(
           directory.handle,
@@ -965,8 +1280,7 @@ export function useImageLoader() {
           let probeConnected = true;
           let cachedImageCount = 0;
           if (getIsElectron()) {
-            const cached = await cacheManager.getCachedData(directory.path, shouldScanSubfolders);
-            cachedImageCount = cached?.imageCount ?? 0;
+            cachedImageCount = cachedEntry?.imageCount ?? 0;
             try {
               const probe = await window.electronAPI.checkDirectoryConnection(directory.path);
               probeConnected = probe?.isConnected ?? false;
@@ -1020,6 +1334,9 @@ export function useImageLoader() {
           allCurrentFiles,
           shouldScanSubfolders,
           refreshPath ? relativePrefix : undefined,
+          // Already read above for the cold-start decision — reading it again
+          // here would double the cost of every warm load.
+          cachedEntry,
         );
 
         let cacheWriter: IncrementalCacheWriter | null = null;
@@ -1136,124 +1453,13 @@ export function useImageLoader() {
               )
             : [];
 
-        const handleBatchProcessed = (batch: IndexedImage[]) => {
-          addImages(batch);
-        };
-
-        const handleEnrichmentBatch = (batch: IndexedImage[]) => {
-          mergeImages(batch);
-          // Data quality: the addImages → flushPendingImages path imports
-          // metadataTags, but the merge path above dropped them — so after a
-          // reprocess every image's metadataTags was empty. Import them
-          // explicitly so auto-tag and semantic indexing see the real
-          // metadata (prompt-derived tags feed both phases).
-          void useImageStore.getState().importMetadataTags(batch);
-        };
-
-        const handleEnrichmentProgress = (
-          progress: { processed: number; total: number; message?: string } | null,
-        ) => {
-          setEnrichmentProgress(progress);
-        };
-
-        const handleDeletion = (deletedFileIds: string[]) => {
-          removeImages(deletedFileIds);
-        };
-
-        const shouldProcessPipeline =
-          fileHandles.length > 0 ||
-          !!cacheWriter ||
-          (shouldHydratePreloadedImages && preloadedImages.length > 0);
-
-        if (shouldProcessPipeline) {
-          if (shouldCancelIndexing(suppressIndexingState)) {
-            cancelThrottledProgress();
-            if (suppressIndexingState) {
-              setDirectoryRefreshing(directory.id, false);
-              setProgress(null);
-            } else {
-              setIndexingState("idle");
-              setLoading(false);
-              setProgress(null);
-            }
-            return;
-          }
-
-          const indexingConcurrency =
-            useSettingsStore.getState().indexingConcurrency ?? 4;
-
-          setEnrichmentProgress(null);
-
-          const { phaseB } = await processFiles(
-            fileHandles,
-            throttledSetProgress,
-            handleBatchProcessed,
-            directory.id,
-            directory.name,
-            shouldScanSubfolders,
-            handleDeletion,
-            abortControllerRef.current?.signal,
-            waitWhilePaused,
-            {
-              cacheWriter,
-              concurrency: indexingConcurrency,
-              preloadedImages,
-              fileStats: fileStatsMap,
-              onEnrichmentBatch: handleEnrichmentBatch,
-              onEnrichmentProgress: handleEnrichmentProgress,
-              hydratePreloadedImages: shouldHydratePreloadedImages,
-            },
-          );
-
-          const phaseBContinuation = phaseB
-            .then(() => {
-              console.log('[Indexing] Phase B enrichment complete — triggering post-indexing pipeline');
-              // Run the unified pipeline AFTER enrichment completes, so
-              // images have their prompt/model metadata populated before
-              // stacking and similarity grouping run. Sequential callers
-              // (reprocess, reconnect) suppress this — they run one round
-              // for ALL directories instead of one per directory.
-              if (!options.suppressPipelineTrigger) {
-                useImageStore.getState().processPostIndexingPipeline();
-              }
-              // Keep the progress bar visible for 2 seconds after completion
-              setTimeout(() => setEnrichmentProgress(null), 2000);
-            })
-            .catch((err) => {
-              console.error("Phase B enrichment failed", err);
-              // Still attempt pipeline on partial enrichment — some images
-              // may have been enriched successfully.
-              if (!options.suppressPipelineTrigger) {
-                useImageStore.getState().processPostIndexingPipeline();
-              }
-              // Keep error visible for 2 seconds
-              setTimeout(() => setEnrichmentProgress(null), 2000);
-            });
-
-          // Callers that need enrichment fully finished before proceeding
-          // (sequential reprocess / reconnect) await the continuation — the
-          // normal watcher path stays fire-and-forget. Errors are already
-          // handled above, so don't let a rejection escape.
-          if (options.awaitEnrichment) {
-            await phaseBContinuation.catch(() => {});
-          }
-
-          if (!shouldCancelIndexing(suppressIndexingState)) {
-            finalizeDirectoryLoad(directory, { suppressIndexingState });
-          }
-          // Cancel any pending throttled progress update BEFORE clearing,
-          // otherwise a delayed "N/N" call would overwrite the null and
-          // leave the catalog bar stuck open.
-          cancelThrottledProgress();
-          setProgress(null);
-        } else {
-          if (shouldHydratePreloadedImages && preloadedImages.length > 0) {
-            addImages(preloadedImages);
-          }
-          finalizeDirectoryLoad(directory, { suppressIndexingState });
-          cancelThrottledProgress();
-          setProgress(null);
-        }
+        await runIndexingPipeline({
+          fileHandles,
+          cacheWriter,
+          preloadedImages,
+          fileStats: fileStatsMap,
+          hydratePreloadedImages: shouldHydratePreloadedImages,
+        });
       } catch (err) {
         cancelThrottledProgress();
         if (!(err instanceof DOMException && err.name === "AbortError")) {
