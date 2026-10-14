@@ -305,6 +305,33 @@ describe.skipIf(!import.meta.env.VITE_AI_FEATURES_AVAILABLE)('useImageStacking H
     expect(catStack.subGroups[1].prompt).toBe('a cat sleeping');
   });
 
+  it('groups a pair whose only grouping field is similarityGroupId', () => {
+    useImageStore.setState({ sortOrder: 'date-desc' });
+    useSettingsStore.setState({ displayStarredFirst: false });
+
+    // A MANUAL merge can write similarityGroupId alone — neither image needs a
+    // stackGroupId for the pair to be one stack. The grouping gate therefore
+    // reads resolveStackGroupKey (similarityGroupId || stackGroupId) rather
+    // than a bare `stackGroupId !== undefined`: under the old field check this
+    // pair rendered as two separate cards while the drill-down — which
+    // resolves membership with the same helper — called it a single group.
+    const images: IndexedImage[] = [
+      createImage({ id: '1', prompt: 'a cat sitting', lastModified: 1000, similarityGroupId: 'merged-1' }),
+      createImage({ id: '2', prompt: 'a cat sleeping', lastModified: 900, similarityGroupId: 'merged-1' }),
+    ];
+    // Guard the premise: with a stackGroupId present the gate would pass for
+    // the wrong reason and this test would stop proving anything.
+    expect(images.every(img => img.stackGroupId === undefined)).toBe(true);
+
+    const { result } = renderHook(() => useImageStacking(images, true));
+    const stacked = result.current.stackedItems as any[];
+
+    expect(stacked).toHaveLength(1);
+    expect('coverImage' in stacked[0]).toBe(true);
+    expect(stacked[0].id).toBe('stack-merged-1');
+    expect(stacked[0].images.map((img: IndexedImage) => img.id)).toEqual(['1', '2']);
+  });
+
   it('includes subGroups even for single-prompt stacks', () => {
     useImageStore.setState({ sortOrder: 'date-desc' });
     useSettingsStore.setState({ displayStarredFirst: false });

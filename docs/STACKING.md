@@ -31,13 +31,13 @@ SilkStack provides two complementary systems for grouping similar images: **Libr
 | Feature | Library Stacks | Smart Library Clusters |
 |---|---|---|
 | **Where** | Main library grid | Smart Library view |
-| **Grouping method** | Exact prompt hash (FNV-1a) + async similarity merge (hybrid Jaccard/Levenshtein, 0.85) | 4-phase similarity algorithm (0.88) |
+| **Grouping method** | Exact prompt hash (FNV-1a) + async similarity merge (hybrid Jaccard/Levenshtein bar 0.80, unioned with the vector pass) | 4-phase similarity algorithm (0.88) |
 | **Performance** | Display: O(n) instant. Computation: O(g²) chunked async with UI yielding | O(n²) within buckets — Web Worker |
 | **Persistence** | IndexedDB per-image annotations (`stackGroupId` + `similarityGroupId`) | JSON file cache via `clusterCacheManager` |
 | **Persistence pattern** | Same as auto-tags (`ImageAnnotations`) | Separate `{hash}-clusters.json` file |
 | **Drill-down** | `SimilarityStackExpandedView` with justified layout + prompt-grouped sections | Overlay via `StackExpandedView` |
 | **Membership model** | `similarityGroupId` per image (computed async after indexing) | Explicit `imageIds: string[]` per cluster |
-| **Threshold** | 0.85 | Configurable (default 0.88) |
+| **Threshold** | Lexical hybrid ≥ 0.80; vector pass ≥ 0.90 on the centered cosine — two bars, unioned | Configurable (default 0.88) |
 | **Minimum size** | 2 images | 3 images |
 | **Sub-groups** | `StackSubGroup[]` — one per distinct prompt, always displayed | N/A |
 | **Progress** | Footer progress bar (green pill) | Footer progress bar (blue pill) |
@@ -98,7 +98,7 @@ interface IndexedImage {
 ```
 
 - `stackGroupId` — FNV-1a hash of the normalized prompt. Set by `syncNewImagesToStacks`. Groups exact prompt matches.
-- `similarityGroupId` — ID of the similarity group. Set by `computeSimilarityGroups`. Multiple different `stackGroupId` values that are similar enough (≥0.85) share the same `similarityGroupId`.
+- `similarityGroupId` — ID of the similarity group. Set by `computeSimilarityGroups`, and added to by the vector pass when semantic search is on. Multiple different `stackGroupId` values that are similar enough — lexical hybrid ≥ **0.80**, or a vector cosine ≥ **0.90** once the prompts are embedded — share the same `similarityGroupId`.
 - `isStackAnalyzed` — Prevents re-processing on every indexing cycle (same pattern as `isAutoTagged`).
 
 ### Stack Analysis Flow
@@ -112,12 +112,12 @@ syncNewImagesToStacks()
   ├─ 2. For each unanalyzed image:
   │     stackGroupId = generatePromptHash(normalizePrompt(prompt))
   ├─ 3. Persist via bulkSaveAnnotations() → IndexedDB
-  └─ 4. Schedule computeSimilarityGroups() with 200ms defer
-        │
-        └─ Runs async with chunked yielding (see below)
+  └─ 4. Return — no scheduling. The pipeline coordinator
+        (processPostIndexingPipeline, Phase 2) runs
+        computeSimilarityGroups() next, sequentially
 ```
 
-On app startup, `loadAnnotations()` also checks if any annotations have `stackGroupId` but no `similarityGroupId`, and schedules computation if needed.
+On app startup, `loadAnnotations()` logs whether any annotation still needs processing (`!isStackAnalyzed`, or a `stackGroupId` without `isSimilarityAnalyzed`) but schedules nothing itself — the unified pipeline coordinator (`processPostIndexingPipeline`, triggered from `App.tsx` once annotations are loaded and indexing is idle) runs both phases.
 
 ### Similarity Group Computation
 
@@ -129,13 +129,15 @@ The similarity merge runs as an **async store action** (not in the render path).
 
 **Phase 1 — Token bucketing**: Extracts tokens from each unique prompt (after `normalizePrompt` + `tokenizeForSimilarity`). Groups entries into buckets by shared keywords (≥1). This reduces comparisons — only entries sharing at least one keyword are compared.
 
-**Phase 2 — Similarity clustering**: Within each bucket, all pairs are compared using `hybridSimilarity()` (Jaccard × 0.6 + Levenshtein × 0.4). Merging uses a **Union-Find** data structure for transitive closure. The threshold is **0.85**.
+**Phase 2 — Similarity clustering**: Within each bucket, all pairs are compared using `hybridSimilarity()` (Jaccard × 0.6 + Levenshtein × 0.4). Merging uses a **Union-Find** data structure for transitive closure. The threshold is **0.80** — `SIMILARITY_MATCH_THRESHOLD` in [`src/services/aiBridge.ts`](../src/services/aiBridge.ts), lowered from 0.85 in v4 (2026-09). The same value tunes the internal Jaccard prefilter as `(threshold − 0.4) / 0.6`, so the two must move together or matches silently vanish.
 
 **Phase 3 — Assignment**: Each Union-Find root becomes a similarity group. All entries that were merged together get the same `similarityGroupId`.
 
 **Phase 4 — Persistence**: Updates annotations in memory and persists to IndexedDB via `bulkSaveAnnotations`.
 
 **Chunked yielding**: Every 150 comparisons, the function yields to the event loop (`await setTimeout(resolve, 0)`) to keep the UI responsive. Progress is reported via `similarityGroupProgress` in the store, displayed as a green pill in the footer.
+
+**Vector pass (semantic search on)** — `computeVectorSimilarityGroups()` re-judges the same prompt groups on the embedding cosine once semantic indexing has embedded them, writing the same `similarityGroupId` field. Its bar is **0.90** on the *centered* cosine (`PROMPT_GROUPING_VECTOR_THRESHOLD` in `ai-intelligence/src/core/types.ts`, with a per-model override map) — deliberately a separate constant from the 0.80 lexical bar, because a cosine and a hybrid string score are different metrics on different scales. The two passes are **unioned**: the vector pass can only ADD merges to the lexical partition, never split a stack, so a lexical match always survives.
 
 **Version migration**: A `SIMILARITY_GROUP_VERSION` constant (bumped on algorithm/threshold changes) is tracked in `localStorage`. When the version changes, all existing `similarityGroupId` values are cleared and re-computed with the new parameters.
 
@@ -322,7 +324,7 @@ Unlike library stacks, cluster drill-down uses **local component state** and an 
 |---|---|---|
 | **Trigger** | Toggle in grid toolbar, auto after indexing | "Generate Clusters" button |
 | **Speed** | Display: instant. Computation: chunked async, non-blocking | 4-phase worker, ~30s for 35k images |
-| **Grouping** | Exact hash + similarity merge (0.85), two-level | Similarity threshold 0.88, flat clusters |
+| **Grouping** | Exact hash + similarity merge (lexical ≥ 0.80, unioned with the vector pass), two-level | Similarity threshold 0.88, flat clusters |
 | **Drill-down mechanism** | `LibraryStackContext` in store → `SimilarityStackExpandedView` | `expandedClusterId` local state → `StackExpandedView` |
 | **Filtering** | ID-based Set lookup | Explicit image array prop |
 | **Search bar** | Preserved | N/A (separate view) |
@@ -383,7 +385,7 @@ Future work:
 
 ### Configurable Threshold
 
-The similarity threshold is currently a constant (`0.85` in `computeSimilarityGroups`). A natural extension is making this user-configurable via the Settings UI, similar to the Smart Library threshold slider. This would require bumping `SIMILARITY_GROUP_VERSION` to force re-computation when the threshold changes.
+The lexical threshold is currently a constant (`SIMILARITY_MATCH_THRESHOLD = 0.80` in [`src/services/aiBridge.ts`](../src/services/aiBridge.ts)); the vector bar is a separate constant in the ai-intelligence module (`PROMPT_GROUPING_VECTOR_THRESHOLD = 0.90`, plus a per-model override map). A natural extension is making them user-configurable via the Settings UI, similar to the Smart Library threshold slider. This would require bumping `SIMILARITY_GROUP_VERSION` to force re-computation when the threshold changes.
 
 ### Clearing Stacking Data
 
@@ -415,4 +417,4 @@ The similarity computation currently runs on the main thread with chunked yieldi
 
 ---
 
-*Documentation last updated: 2026-06-03*
+*Documentation last updated: 2026-10-14*

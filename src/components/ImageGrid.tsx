@@ -1186,7 +1186,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
             const closestIndexInNextRow = findClosestItemInRow(targetCenter, nextRow.items, nextRow.height);
             
             // Calculate global index
-            let nextRowStartIndex = startIndexInRow + currentRow.items.length;
+            const nextRowStartIndex = startIndexInRow + currentRow.items.length;
             nextIndex = nextRowStartIndex + closestIndexInNextRow;
         } else {
             nextIndex = -1;

@@ -1193,7 +1193,7 @@ export const useImageStore = create<ImageState>((set, get) => {
     let pendingMergeQueue: IndexedImage[] = [];
     let pendingMergeTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingFilterRecomputeTimer: ReturnType<typeof setTimeout> | null = null;
-    let pendingDimensionUpdates = new Map<string, string>();
+    const pendingDimensionUpdates = new Map<string, string>();
     let pendingDimensionTimer: ReturnType<typeof setTimeout> | null = null;
     const MERGE_FLUSH_INTERVAL_MS = 250;
     const MERGE_FLUSH_INTERVAL_INDEXING_MS = 3000;
@@ -3441,7 +3441,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // embed record — CreateMLCEngine loads both together).
                         useImageStore.getState().setAutoTagModelsStatus(payload);
                         break;
-                    case 'error':
+                    case 'error': {
                         console.error('Auto-tagging error:', payload.error);
                         set({
                             autoTaggingProgress: null,
@@ -3459,6 +3459,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                         __autoTagInFlight = null;
                         resolveAutoTag?.();
                         break;
+                    }
                 }
             };
 
@@ -3620,7 +3621,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             } catch (err) {
                 console.error('[SimilarityGroups] Post-load processing failed (images still loaded):', err);
                 // Ensure version is still written so we don't retry the failing migration
-                try { localStorage.setItem(SIMILARITY_VERSION_KEY, String(SIMILARITY_GROUP_VERSION)); } catch {}
+                try { localStorage.setItem(SIMILARITY_VERSION_KEY, String(SIMILARITY_GROUP_VERSION)); } catch { /* version marker is best-effort */ }
             }
         },
 
@@ -4589,7 +4590,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             // Persist synchronously via localStorage as a backup so the setting
             // survives even when the Electron IPC saveSettings call is delayed
             // or skipped (e.g. during rehydration window, or IPC congestion).
-            try { localStorage.setItem('silkstack-stacking-enabled', String(enabled)); } catch {}
+            try { localStorage.setItem('silkstack-stacking-enabled', String(enabled)); } catch { /* best-effort; the settings-store write below is the primary path */ }
             // Also persist to the settings store (async, via Electron IPC)
             useSettingsStore.getState().setStackingEnabled(enabled);
         },
@@ -5236,7 +5237,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                 const { bulkSaveAnnotations } = await import('../services/imageAnnotationsStorage');
 
-                let currentAnnotations = new Map(annotations);
+                const currentAnnotations = new Map(annotations);
 
                 // ── Step 0: Ensure all images have stackGroupId ──────────
                 // Also tracks which stackGroupIds need similarity assignment

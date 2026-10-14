@@ -10,9 +10,7 @@ import StackCard from './StackCardWrapper';
 import SimilarityStackExpandedView from './SimilarityStackExpandedViewWrapper';
 import Footer from './Footer';
 
-interface StacksProps {}
-
-const Stacks: React.FC<StacksProps> = () => {
+const Stacks: React.FC = () => {
   const filteredImages = useImageStore((state) => state.filteredImages);
   const isAutoTagging = useImageStore((state) => state.isAutoTagging);
   const autoTaggingProgress = useImageStore((state) => state.autoTaggingProgress);
