@@ -97,6 +97,16 @@ interface SettingsState {
 
   isSidebarCollapsed: boolean;
   isStackingEnabled: boolean;
+  /**
+   * Resolve each distinct checkpoint's base model (SD 1.5, SDXL 1.0, Pony, …)
+   * from Civitai / HuggingFace, and cache the answers in an offline table.
+   *
+   * Ships ON: the lookup is per *checkpoint*, not per image — a whole library
+   * is a few dozen requests, and only the first run makes any at all. Turning
+   * it off leaves the table that already exists in place and simply stops new
+   * lookups, so the column keeps whatever it already knows.
+   */
+  onlineModelLookupEnabled: boolean;
   stackGroupByDimensions: StackGroupByDimension[];
   /** Highlight the words that differ between prompts in the stack drill-down,
    *  when grouping by Prompt. Pure render-time markup over data already in
@@ -160,6 +170,7 @@ interface SettingsState {
   setAiTagModel: (value: string) => void;
   setSidebarCollapsed: (value: boolean) => void;
   setStackingEnabled: (enabled: boolean) => void;
+  setOnlineModelLookupEnabled: (enabled: boolean) => void;
   setStackGroupByDimensions: (dimensions: StackGroupByDimension[]) => void;
   setStackHighlightPromptVariations: (value: boolean) => void;
   setAutoplayVideoPreviews: (value: boolean) => void;
@@ -219,6 +230,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       isSidebarCollapsed: true,
       isStackingEnabled: true,
+      onlineModelLookupEnabled: true,
       stackGroupByDimensions: ['prompt'],
       stackHighlightPromptVariations: true,
       autoplayVideoPreviews: true,
@@ -274,6 +286,7 @@ export const useSettingsStore = create<SettingsState>()(
       setAiTagModel: (value) => set({ aiTagModel: value }),
       setSidebarCollapsed: (value) => set({ isSidebarCollapsed: !!value }),
       setStackingEnabled: (enabled) => set({ isStackingEnabled: enabled }),
+      setOnlineModelLookupEnabled: (enabled) => set({ onlineModelLookupEnabled: enabled }),
       setStackGroupByDimensions: (dimensions) => set({ stackGroupByDimensions: dimensions }),
       setStackHighlightPromptVariations: (value) => set({ stackHighlightPromptVariations: !!value }),
       setAutoplayVideoPreviews: (value) => set({ autoplayVideoPreviews: !!value }),
@@ -391,6 +404,13 @@ export const useSettingsStore = create<SettingsState>()(
           } catch {
             state.isStackingEnabled = true;
           }
+        }
+
+        // Shipped after users existed. A `typeof` check, not truthiness: the
+        // preference is ON by default, so an old settings record (no field at
+        // all) gets true while a user who switched it off keeps false.
+        if (state && typeof state.onlineModelLookupEnabled !== 'boolean') {
+          state.onlineModelLookupEnabled = true;
         }
 
         if (state && !Array.isArray(state.stackGroupByDimensions)) {

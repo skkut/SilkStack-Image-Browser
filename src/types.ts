@@ -283,6 +283,26 @@ export interface ElectronAPI {
   }>;
   restartApp: () => Promise<{ success: boolean; error?: string }>;
 
+  // --- Checkpoint → base model lookup (electron/checkpointLookup.mjs) ---
+  //
+  // `results` is positionally aligned with the `refs` that were sent, so the
+  // caller zips them back onto its own list rather than matching on keys.
+  resolveBaseModels: (args: {
+    refs: CheckpointRef[];
+    allowNetwork?: boolean;
+  }) => Promise<{
+    success: boolean;
+    results?: (BaseModelEntry | null)[];
+    stats?: { total: number; fromTable: number; fetched: number } | null;
+    error?: string;
+  }>;
+  getBaseModelTable: () => Promise<{
+    success: boolean;
+    entries?: Record<string, BaseModelEntry>;
+    error?: string;
+  }>;
+  clearBaseModelTable: () => Promise<{ success: boolean; error?: string }>;
+
   onLoadDirectoryFromCLI: (callback: (dirPath: string) => void) => () => void;
   onMenuAddFolder: (callback: () => void) => () => void;
   onMenuOpenSettings: (callback: () => void) => () => void;
@@ -1109,6 +1129,45 @@ export function isComfyUIMetadata(
 }
 
 export type ThumbnailStatus = "pending" | "loading" | "ready" | "error";
+
+/**
+ * A checkpoint as it appears in an image's metadata, reduced to what is needed
+ * to identify it. Built by `buildCheckpointRef` in electron/checkpointLookup.mjs.
+ *
+ * `name` is normalized for comparison; `query` keeps the human spelling so
+ * Civitai's full-text search receives something it recognises. Either field may
+ * be null — some formats record only a hash, others only a filename.
+ */
+export interface CheckpointRef {
+  hash: string | null;
+  name: string | null;
+  query: string | null;
+  key: string | null;
+  isLora: boolean;
+}
+
+/**
+ * One row of the offline base-model table (`<cacheRoot>/checkpoint-base-models.json`).
+ *
+ * A row with `baseModel: null` is a *cached miss*: the checkpoint was looked up
+ * and not found. Those expire (`expiresAt`) so coverage improves as Civitai
+ * grows, whereas hits are kept forever.
+ *
+ * `fileNames` / `checkpointName` are the aliases the entry was learned under —
+ * they let a later, hash-less ComfyUI image of the same file resolve offline.
+ */
+export interface BaseModelEntry {
+  baseModel: string | null;
+  source: "civitai-hash" | "civitai-name" | "huggingface" | "miss";
+  confidence?: number;
+  checkpointName?: string;
+  fileNames?: string[];
+  civitaiModelId?: number;
+  civitaiVersionId?: number;
+  huggingfaceRepo?: string;
+  fetchedAt: number;
+  expiresAt?: number;
+}
 
 export interface IndexedImage {
   id: string; // Unique ID, e.g., file path

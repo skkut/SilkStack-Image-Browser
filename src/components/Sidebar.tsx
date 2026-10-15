@@ -8,14 +8,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface SidebarProps {
   availableModels: string[];
+  /** Base models of the visible images (SD 1.5, SDXL 1.0, Pony, …). */
+  availableBaseModels: string[];
   availableLoras: string[];
   availableSchedulers: string[];
   availableDimensions: string[];
   availableAspectRatios: string[];
   selectedModels: string[];
+  selectedBaseModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
   onModelChange: (models: string[]) => void;
+  onBaseModelChange: (baseModels: string[]) => void;
   onLoraChange: (loras: string[]) => void;
   onSchedulerChange: (schedulers: string[]) => void;
   onClearAllFilters: () => void;
@@ -33,14 +37,17 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({
   availableModels,
+  availableBaseModels,
   availableLoras,
   availableSchedulers,
   availableDimensions,
   availableAspectRatios,
   selectedModels,
+  selectedBaseModels,
   selectedLoras,
   selectedSchedulers,
   onModelChange,
+  onBaseModelChange,
   onLoraChange,
   onSchedulerChange,
   onClearAllFilters,
@@ -58,6 +65,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const [expandedSections, setExpandedSections] = useState({
     models: false,
+    baseModels: false,
     loras: false,
     schedulers: false,
   });
@@ -77,6 +85,14 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  const handleBaseModelToggle = (baseModel: string, checked: boolean) => {
+    if (checked) {
+      onBaseModelChange([...selectedBaseModels, baseModel]);
+    } else {
+      onBaseModelChange(selectedBaseModels.filter(m => m !== baseModel));
+    }
+  };
+
   const handleLoraToggle = (lora: string, checked: boolean) => {
     if (checked) {
       onLoraChange([...selectedLoras, lora]);
@@ -93,10 +109,13 @@ const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const clearSection = (section: 'models' | 'loras' | 'schedulers') => {
+  const clearSection = (section: 'models' | 'baseModels' | 'loras' | 'schedulers') => {
     switch (section) {
       case 'models':
         onModelChange([]);
+        break;
+      case 'baseModels':
+        onBaseModelChange([]);
         break;
       case 'loras':
         onLoraChange([]);
@@ -164,7 +183,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="flex flex-col items-center pt-4 space-y-3 mb-4">
-          {(selectedModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0) && (
+          {(selectedModels.length > 0 || selectedBaseModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0) && (
             <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" title="Active filters"></div>
           )}
         </div>
@@ -312,6 +331,97 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <span className="text-gray-200 text-sm flex-1 truncate" title={model}>{model}</span>
                       </label>
                     ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Base Models Section — derived from the offline checkpoint table, so
+            it appears once the lookup has answered (and only then: an empty
+            section would offer nothing but its "Not resolved" row). */}
+        {availableBaseModels.length > 0 && (
+          <div className="border-b border-gray-700">
+            <button
+              onClick={() => toggleSection('baseModels')}
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-700/50 transition-colors"
+            >
+              <div className="flex items-center space-x-2">
+                <span className="text-gray-300 font-medium">Base Models</span>
+                <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded border border-gray-600">
+                  {availableBaseModels.length}
+                </span>
+                {selectedBaseModels.length > 0 && (
+                  <span className="text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded border border-blue-700/50">
+                    {selectedBaseModels.length} selected
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center space-x-2">
+                {selectedBaseModels.length > 0 && (
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      clearSection('baseModels');
+                    }}
+                    className="text-xs text-gray-400 hover:text-red-400 cursor-pointer"
+                    title="Clear base model filters"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        clearSection('baseModels');
+                      }
+                    }}
+                  >
+                    <X size={16} />
+                  </span>
+                )}
+                <ChevronDown
+                  className={`w-4 h-4 transform transition-transform ${expandedSections.baseModels ? 'rotate-180' : ''}`}
+                />
+              </div>
+            </button>
+            <AnimatePresence>
+              {expandedSections.baseModels && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-4 pb-4 max-h-64 overflow-y-auto scrollbar-thin">
+                    {availableBaseModels
+                      .filter(baseModel => typeof baseModel === 'string' && baseModel.trim() !== '')
+                      .map((baseModel, index) => (
+                      <label key={`base-model-${index}-${baseModel}`} className="flex items-center space-x-2 py-2 hover:bg-gray-700/30 px-2 rounded-lg cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedBaseModels.includes(baseModel)}
+                          onChange={(e) => handleBaseModelToggle(baseModel, e.target.checked)}
+                          className="w-4 h-4 text-accent bg-gray-700 border-gray-600 rounded-md focus:ring-accent focus:ring-2"
+                        />
+                        <span className="text-gray-200 text-sm flex-1 truncate" title={baseModel}>{baseModel}</span>
+                      </label>
+                    ))}
+                    {/* The '' sentinel: images whose checkpoint isn't in the
+                        table (or that carry no checkpoint metadata at all).
+                        Offered as its own row because that bucket is how you
+                        see the lookup's coverage gaps. */}
+                    <label className="flex items-center space-x-2 py-2 hover:bg-gray-700/30 px-2 rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedBaseModels.includes('')}
+                        onChange={(e) => handleBaseModelToggle('', e.target.checked)}
+                        className="w-4 h-4 text-accent bg-gray-700 border-gray-600 rounded-md focus:ring-accent focus:ring-2"
+                      />
+                      <span className="text-gray-400 text-sm flex-1 truncate italic" title="Images whose base model is not known">
+                        Not resolved
+                      </span>
+                    </label>
                   </div>
                 </motion.div>
               )}

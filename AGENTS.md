@@ -11,7 +11,7 @@ When working on this codebase:
 - Always ensure MPL compliance, warn for MPL violations
 - Maintain backward compatibility with cached data
 - Consider performance impact on large collections
-- Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, subscription re-validation, model downloads, update checks - and any new one must be documented in README and here)
+- Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, subscription re-validation, model downloads, checkpoint base-model lookups on civitai.com / huggingface.co, update checks - and any new one must be documented in README and here)
 - Follow TypeScript best practices
 - Write tests for new functionality
 - Do not auto commit to git
@@ -83,7 +83,7 @@ See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known got
 
 ## Key Features to Maintain
 
-1. **Privacy**: All processing is local; the only outbound calls are the documented ones (anonymous usage ping, license activation, subscription re-validation, model downloads, update checks)
+1. **Privacy**: All processing is local; the only outbound calls are the documented ones (anonymous usage ping, license activation, subscription re-validation, model downloads, checkpoint base-model lookups on civitai.com / huggingface.co, update checks)
 2. **Performance**: Optimized for 18,000+ images with smart caching
 3. **Metadata Search**: Full-text search across all metadata fields
 4. **Multi-Format Support**: Handle various AI generator formats
@@ -92,12 +92,31 @@ See [docs/CLI-TOOLS.md](docs/CLI-TOOLS.md) for every script, flag, and known got
 7. **Shadow Metadata**: View original metadata and revert changes (non-destructive editing)
 8. **Subfolder Management**: Ability to exclude specific subfolders from indexing
 9. **Auto-Watch**: Real-time monitoring of output folders during generation
+10. **Base Model Lookup**: Each image's checkpoint is resolved to the architecture it was built on (SD 1.5, SDXL 1.0, Pony, Flux.1 D), cached in an offline table keyed by checkpoint
 
 ## Smart Library & Auto-Tags
 
 - **Clustering & Stacks**: `services/clusteringEngine.ts`, `services/workers/clusteringWorker.ts`, `components/SmartLibrary.tsx`, `components/StackCard.tsx`, `components/StackExpandedView.tsx`
 - **Auto-Tags (TF-IDF)**: `services/autoTaggingEngine.ts`, `services/workers/aiWorker.ts`, `components/TagsAndFavorites.tsx`, `components/ImageModal.tsx`, `components/ImagePreviewSidebar.tsx`
 - **Cluster Cache**: `services/clusterCacheManager.ts` (atomic writes, userData path resolution)
+
+## Base Model Lookup
+
+Keyed by **checkpoint, not image** — a library of tens of thousands of images has only a few dozen
+distinct checkpoints, so the whole feature costs a handful of network requests once and then nothing.
+That is also why there is no IndexedDB store or per-image cache field for it.
+
+- **Identity**: `electron/checkpointKeys.mjs` — pure, dependency-free, imported by **both** the main
+  process and the renderer. The two sides must derive the same key or every lookup misses forever.
+- **Resolution engine**: `electron/checkpointLookup.mjs` — cascade of offline table → Civitai by hash →
+  Civitai by name (exact match only) → HuggingFace. Rate limited, atomic table writes.
+- **IPC**: `get-base-model-table` / `resolve-base-models` / `clear-base-model-table` in
+  `electron/main.mjs`, mirrored in `electron/preload.js` and `ElectronAPI` in `src/types.ts` —
+  three places that must agree, with nothing verifying it.
+- **Renderer**: `src/services/baseModelTable.ts` — holds the table in memory and notifies subscribers.
+  `useImageStore` subscribes to bump `baseModelTableVersion` so derived UI re-filters when an
+  async resolution lands (a value that lives outside the image cannot be seen by a memo comparator —
+  it must be passed as a prop, see `ImageTableRow`).
 
 ## Common Tasks
 

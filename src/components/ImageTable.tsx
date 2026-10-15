@@ -13,6 +13,7 @@ import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
 import { isVideoFileName } from '../utils/mediaTypes';
 import { getImageMediaUrl } from '../utils/mediaUrl';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { baseModelForImage } from '../services/baseModelTable';
 
 interface ImageTableProps {
   images: IndexedImage[];
@@ -44,6 +45,12 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
   const sortField = useImageStore((state) => state.tableSortField);
   const sortDirection = useImageStore((state) => state.tableSortDirection);
   const setTableSort = useImageStore((state) => state.setTableSort);
+  // Subscribe-only: the offline checkpoint table is resolved asynchronously
+  // and lives outside the store (services/baseModelTable, keyed by checkpoint
+  // rather than by image), so its version is the only signal that the Base
+  // Model column has new answers to draw. The value itself is read per row
+  // below; this call exists purely to re-render when it changes.
+  useImageStore((state) => state.baseModelTableVersion);
 
   // Leaving the table (grid, Stacks, Models, stack drill-down) ends the
   // column sort's authority over the library order, so the store list goes
@@ -109,8 +116,11 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
     return <ArrowDown className="w-3 h-3" />;
   };
 
-  // Column resize state
-  const DEFAULT_COLUMN_WIDTHS = [96, 280, 220, 110, 110, 100, 80, 70, 100, 160, 160];
+  // Column resize state. Order must match the header block and the row cells
+  // below, including the literal `handleResizeStart(N)` indices — there is no
+  // column registry, so a column inserted anywhere shifts every index after
+  // it. Base Model (140) sits at index 3, right after Model.
+  const DEFAULT_COLUMN_WIDTHS = [96, 280, 220, 140, 110, 110, 100, 80, 70, 100, 160, 160];
   const MIN_COLUMN_WIDTH = 50;
 
   const [columnWidths, setColumnWidths] = useState<number[]>(DEFAULT_COLUMN_WIDTHS);
@@ -194,6 +204,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
           onImageClick={handleImageClick}
           isSelected={selectedImages.has(image.id)}
           isSemanticMatch={semanticHitIds?.has(image.id)}
+          baseModel={baseModelForImage(image)}
           onContextMenu={handleContextMenu}
           gridTemplateColumns={gridTemplateColumns}
           getDragPayload={getDragPayload}
@@ -255,9 +266,10 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('steps')}
+                  onClick={() => handleSort('baseModel')}
+                  title="Base model of the checkpoint, resolved from Civitai / HuggingFace"
                 >
-                  <span className="flex items-center gap-1">Steps {getSortIcon('steps')}</span>
+                  <span className="flex items-center gap-1">Base Model {getSortIcon('baseModel')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -270,9 +282,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('cfg')}
+                  onClick={() => handleSort('steps')}
                 >
-                  <span className="flex items-center gap-1">CFG {getSortIcon('cfg')}</span>
+                  <span className="flex items-center gap-1">Steps {getSortIcon('steps')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -285,9 +297,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('size')}
+                  onClick={() => handleSort('cfg')}
                 >
-                  <span className="flex items-center gap-1">Resolution {getSortIcon('size')}</span>
+                  <span className="flex items-center gap-1">CFG {getSortIcon('cfg')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -300,9 +312,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('megapixel')}
+                  onClick={() => handleSort('size')}
                 >
-                  <span className="flex items-center gap-1">MP {getSortIcon('megapixel')}</span>
+                  <span className="flex items-center gap-1">Resolution {getSortIcon('size')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -315,9 +327,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('aspect')}
+                  onClick={() => handleSort('megapixel')}
                 >
-                  <span className="flex items-center gap-1">Aspect {getSortIcon('aspect')}</span>
+                  <span className="flex items-center gap-1">MP {getSortIcon('megapixel')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -330,9 +342,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('filesize')}
+                  onClick={() => handleSort('aspect')}
                 >
-                  <span className="flex items-center gap-1">File Size {getSortIcon('filesize')}</span>
+                  <span className="flex items-center gap-1">Aspect {getSortIcon('aspect')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -345,9 +357,9 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
               <div className="relative">
                 <button
                   className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
-                  onClick={() => handleSort('seed')}
+                  onClick={() => handleSort('filesize')}
                 >
-                  <span className="flex items-center gap-1">Seed {getSortIcon('seed')}</span>
+                  <span className="flex items-center gap-1">File Size {getSortIcon('filesize')}</span>
                 </button>
                 <div
                   className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
@@ -355,6 +367,21 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
                   onDoubleClick={() => handleResizeDoubleClick(9)}
                 >
                   <div className={`absolute right-0 top-0 bottom-0 w-px transition-colors ${resizing?.index === 9 ? 'bg-blue-500' : 'bg-gray-700 group-hover:bg-blue-500'}`} />
+                </div>
+              </div>
+              <div className="relative">
+                <button
+                  className="w-full px-3 py-3 text-left text-xs font-semibold text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-700/50 transition-colors flex items-center gap-1"
+                  onClick={() => handleSort('seed')}
+                >
+                  <span className="flex items-center gap-1">Seed {getSortIcon('seed')}</span>
+                </button>
+                <div
+                  className="absolute right-0 top-0 bottom-0 w-[4px] cursor-col-resize z-10 group"
+                  onMouseDown={(e) => handleResizeStart(10, e)}
+                  onDoubleClick={() => handleResizeDoubleClick(10)}
+                >
+                  <div className={`absolute right-0 top-0 bottom-0 w-px transition-colors ${resizing?.index === 10 ? 'bg-blue-500' : 'bg-gray-700 group-hover:bg-blue-500'}`} />
                 </div>
               </div>
               <button
@@ -501,6 +528,15 @@ interface ImageTableRowProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   isSelected: boolean;
   isSemanticMatch?: boolean;
+  /**
+   * Resolved base model for this image's checkpoint, or '' when unknown.
+   *
+   * Passed as a prop rather than read from the service inside the row because
+   * it is not a field on the image: it arrives asynchronously, long after the
+   * row first painted, so the memo comparator below is the only thing that can
+   * notice it changed.
+   */
+  baseModel?: string;
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
   gridTemplateColumns: string;
   /** Selection-aware drag payload — same builder the grid cards use. */
@@ -511,7 +547,7 @@ interface ImageTableRowProps {
  * Exported for tests (the row is what owns the drag gesture; the virtualized
  * list around it renders nothing at jsdom's zero measured height).
  */
-export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, onContextMenu, gridTemplateColumns, getDragPayload }) => {
+export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, baseModel, onContextMenu, gridTemplateColumns, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
@@ -745,6 +781,25 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
       <div className="px-3 py-2 text-gray-400 truncate" title={image.models?.[0] || 'Unknown'}>
         {image.models?.[0] || <span className="text-gray-600">Unknown</span>}
       </div>
+      {/* Base model — the architecture family the checkpoint belongs to
+          ("SD 1.5", "SDXL 1.0", "Pony", …), resolved once per checkpoint from
+          Civitai / HuggingFace and cached in the offline table. Blank means
+          "not resolved", never a guess: the lookup deliberately has no
+          filename heuristic behind it. */}
+      <div
+        className="px-3 py-2 truncate"
+        title={
+          baseModel
+            ? `Base model: ${baseModel}`
+            : 'Base model not resolved — this checkpoint is not in the offline table yet'
+        }
+      >
+        {baseModel ? (
+          <span className="text-gray-300">{baseModel}</span>
+        ) : (
+          <span className="text-gray-600">—</span>
+        )}
+      </div>
       <div className="px-3 py-2 text-center">
         {(() => {
           const steps = image.steps || (image.metadata as any)?.steps || (image.metadata as any)?.normalizedMetadata?.steps;
@@ -835,6 +890,10 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
     prevProps.image.thumbnailStatus === nextProps.image.thumbnailStatus &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isSemanticMatch === nextProps.isSemanticMatch &&
+    // Not a field on `image`, so none of the comparisons above can see it
+    // change — without this line the column would stay blank for every row
+    // that was already on screen when the lookup resolved.
+    prevProps.baseModel === nextProps.baseModel &&
     prevProps.gridTemplateColumns === nextProps.gridTemplateColumns
   );
 });

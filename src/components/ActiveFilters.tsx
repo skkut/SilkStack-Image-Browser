@@ -4,6 +4,7 @@ import { X, Calendar, Settings, Sparkles } from 'lucide-react';
 
 const ActiveFilters: React.FC = () => {
     const selectedModels = useImageStore((state) => state.selectedModels);
+    const selectedBaseModels = useImageStore((state) => state.selectedBaseModels);
     const selectedLoras = useImageStore((state) => state.selectedLoras);
     const selectedSchedulers = useImageStore((state) => state.selectedSchedulers);
     const selectedTags = useImageStore((state) => state.selectedTags);
@@ -22,6 +23,7 @@ const ActiveFilters: React.FC = () => {
 
     const hasActiveFilters =
         selectedModels.length > 0 ||
+        selectedBaseModels.length > 0 ||
         selectedLoras.length > 0 ||
         selectedSchedulers.length > 0 ||
         selectedTags.length > 0 ||
@@ -37,6 +39,12 @@ const ActiveFilters: React.FC = () => {
     const removeModel = (model: string) => {
         setSelectedFilters({
             models: selectedModels.filter((m) => m !== model),
+        });
+    };
+
+    const removeBaseModel = (baseModel: string) => {
+        setSelectedFilters({
+            baseModels: selectedBaseModels.filter((m) => m !== baseModel),
         });
     };
 
@@ -208,6 +216,24 @@ const ActiveFilters: React.FC = () => {
                     <button
                         onClick={() => removeModel(model)}
                         className="ml-1 hover:text-blue-100 rounded-full hover:bg-blue-800/50 p-0.5 transition-colors"
+                    >
+                        <X size={12} />
+                    </button>
+                </div>
+            ))}
+
+            {/* Base Model Tags — indigo, alongside Model's blue. The blank
+                entry is the "not resolved" sentinel and says so. */}
+            {selectedBaseModels.map((baseModel) => (
+                <div
+                    key={`base-model-${baseModel}`}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-900/40 text-indigo-200 border border-indigo-700/50 flex-shrink-0 animate-fade-in"
+                    title="Base model"
+                >
+                    <span className="truncate max-w-[150px]">{baseModel || 'Base model not resolved'}</span>
+                    <button
+                        onClick={() => removeBaseModel(baseModel)}
+                        className="ml-1 hover:text-indigo-100 rounded-full hover:bg-indigo-800/50 p-0.5 transition-colors"
                     >
                         <X size={12} />
                     </button>

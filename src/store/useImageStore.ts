@@ -32,6 +32,16 @@ import {
 } from '../services/imageRelocation';
 import { clearSemanticVectorsStore } from '../services/indexedDb';
 import { processingQueue } from '../services/processingQueue';
+import {
+    baseModelForImage,
+    clearBaseModelTable as clearBaseModelTableRequest,
+    collectCheckpointRefs,
+    getBaseModelMap,
+    isBaseModelLookupAvailable,
+    resolveBaseModels,
+    subscribeToBaseModelTable,
+    type BaseModelResolveStatus,
+} from '../services/baseModelTable';
 
 // Search-enrichment idempotency gate (mirrors SEARCH_ENRICHMENT_VERSION in
 // the ai-intelligence worker — that module is the source of truth). An image
@@ -767,7 +777,19 @@ const buildCatalogSearchText = (image: IndexedImage): string => {
     const metadataTags = (image.metadataTags || []).join(' ').toLowerCase();
     const models = (image.models || []).join(' ').toLowerCase();
 
-    return [name, relativePath, directory, tags, autoTags, metadataTags, models].filter(Boolean).join(' ');
+    // The resolved base model ("SDXL 1.0", "Pony", …) belongs in the catalog
+    // text, not the enriched text: it is available for every image the moment
+    // the table is loaded, regardless of whether enrichment ever ran. It goes
+    // in the same single pass, so it costs one memoized lookup per image —
+    // the checkpoint identity is cached, and there are only a few dozen
+    // distinct checkpoints in a library.
+    //
+    // Lowercased like every other segment: searchTerms are lowercased, and
+    // Civitai hands the value back in its display casing ("Flux.1 D"), which
+    // would otherwise make typing "flux" match nothing.
+    const baseModel = baseModelForImage(image).toLowerCase();
+
+    return [name, relativePath, directory, tags, autoTags, metadataTags, models, baseModel].filter(Boolean).join(' ');
 };
 
 const buildEnrichedSearchText = (image: IndexedImage): string => {
@@ -858,9 +880,33 @@ interface ImageState {
   availableSchedulers: string[];
   availableDimensions: string[];
   availableAspectRatios: string[];
+  /**
+   * Distinct base models among the visible images (`SD 1.5`, `SDXL 1.0`,
+   * `Pony`, …), derived from the offline checkpoint table. Empty until the
+   * table loads — see `baseModelTableVersion`.
+   */
+  availableBaseModels: string[];
   selectedModels: string[];
   selectedLoras: string[];
   selectedSchedulers: string[];
+  /**
+   * Base-model facet selection. Like `selectedModels`, the empty string is a
+   * live sentinel meaning "images whose base model is not known".
+   */
+  selectedBaseModels: string[];
+  /** Progress of the last/current base-model resolution run, for the toolbar chip. */
+  baseModelResolveStatus: BaseModelResolveStatus;
+  /**
+   * Bumped every time the offline checkpoint table gains or loses entries.
+   *
+   * The table itself lives in `services/baseModelTable` rather than in this
+   * store: it is keyed by checkpoint, not by image, so it is a few dozen
+   * entries and every image reads through a lookup. What this counter exists
+   * for is *reactivity* — the resolved base model arrives after the images do,
+   * so rows, facets and the sort all have to be recomputed when it lands. It
+   * is the dependency to key those memos on.
+   */
+  baseModelTableVersion: number;
   sortOrder: SortOrder;
   randomSeed: number;
   advancedFilters: any;
@@ -1001,7 +1047,17 @@ interface ImageState {
   // Filter & Sort Actions
   setSearchQuery: (query: string) => void;
   setFilterOptions: (options: { models: string[]; loras: string[]; schedulers: string[]; dimensions: string[] }) => void;
-  setSelectedFilters: (filters: { models?: string[]; loras?: string[]; schedulers?: string[] }) => void;
+  setSelectedFilters: (filters: { models?: string[]; baseModels?: string[]; loras?: string[]; schedulers?: string[] }) => void;
+  /**
+   * Resolves the base model of every distinct checkpoint in the library.
+   *
+   * Per checkpoint, not per image, and against the offline table first: a
+   * library of tens of thousands of images collapses to a few dozen lookups,
+   * and a second call after the table is warm issues no requests at all.
+   */
+  resolveBaseModelsNow: (options?: { allowNetwork?: boolean }) => Promise<void>;
+  /** Drops the offline table, in memory and on disk. */
+  clearBaseModelTable: () => Promise<void>;
   setSortOrder: (order: SortOrder) => void;
   /**
    * The list view's column sort. Called by ImageTable on a column click
@@ -1176,6 +1232,16 @@ const isStackSizeSort = (order: SortOrder): boolean =>
 // guarantee rather than a convention.
 const isEphemeralSort = (order: SortOrder): order is EphemeralSortOrder =>
     order === 'relevance' || isStackSizeSort(order);
+
+// Shared empty status. Never mutated — a resolution run always assigns a fresh
+// object, so the identity is only ever read.
+const EMPTY_BASE_MODEL_STATUS: BaseModelResolveStatus = {
+    state: 'idle',
+    total: 0,
+    resolved: 0,
+    fetched: 0,
+    error: null,
+};
 
 export const useImageStore = create<ImageState>((set, get) => {
     // --- Throttle map to prevent excessive setImageThumbnail calls ---
@@ -1371,9 +1437,15 @@ export const useImageStore = create<ImageState>((set, get) => {
                     const schedulers = new Set(state.availableSchedulers);
                     const dimensions = new Set(state.availableDimensions);
                     const aspectRatios = new Set(state.availableAspectRatios);
+                    const baseModels = new Set(state.availableBaseModels);
 
                     for (const img of updates.values()) {
                         img.models?.forEach(model => { if (typeof model === 'string' && model) models.add(model); });
+                        // Best effort: during a first index the table may not
+                        // be loaded yet, in which case this adds nothing and
+                        // the table-change subscription rebuilds the facet.
+                        const baseModel = baseModelForImage(img);
+                        if (baseModel) baseModels.add(baseModel);
                         img.loras?.forEach(lora => {
                             if (typeof lora === 'string' && lora) {
                                 loras.add(lora);
@@ -1396,6 +1468,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
                     availableFiltersUpdate = {
                         availableModels: Array.from(models),
+                        availableBaseModels: Array.from(baseModels),
                         availableLoras: Array.from(loras),
                         availableSchedulers: Array.from(schedulers),
                         availableDimensions: Array.from(dimensions),
@@ -1462,6 +1535,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         if (state.selectedTags?.length) return true;
 
         if (state.selectedModels?.length || state.selectedLoras?.length || state.selectedSchedulers?.length) return true;
+        if (state.selectedBaseModels?.length) return true;
         if (state.advancedFilters && Object.keys(state.advancedFilters).length > 0) return true;
         if (state.selectedFolders && state.selectedFolders.size > 0) return true;
         if (state.directories.some(dir => dir.visible === false)) return true;
@@ -1493,9 +1567,12 @@ export const useImageStore = create<ImageState>((set, get) => {
         const schedulers = new Set<string>();
         const dimensions = new Set<string>();
         const aspectRatios = new Set<string>();
+        const baseModels = new Set<string>();
 
         for (const image of visibleImages) {
             image.models?.forEach(model => { if(typeof model === 'string' && model) models.add(model) });
+            const baseModel = baseModelForImage(image);
+            if (baseModel) baseModels.add(baseModel);
             image.loras?.forEach(lora => {
                 if (typeof lora === 'string' && lora) {
                     loras.add(lora);
@@ -1521,6 +1598,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         return {
             availableModels: Array.from(models).sort(caseInsensitiveSort),
+            availableBaseModels: Array.from(baseModels).sort(caseInsensitiveSort),
             availableLoras: Array.from(loras).sort(caseInsensitiveSort),
             availableSchedulers: Array.from(schedulers).sort(caseInsensitiveSort),
             availableDimensions: Array.from(dimensions).sort((a, b) => {
@@ -1642,7 +1720,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
     // --- Helper function for basic filtering and sorting ---
     const filterAndSort = (state: ImageState) => {
-        const { images, annotations, searchQuery, libraryStackContext, selectedModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
+        const { images, annotations, searchQuery, libraryStackContext, selectedModels, selectedBaseModels, selectedLoras, selectedSchedulers, sortOrder, advancedFilters, directories, selectedFolders, excludedFolders, includeSubfolders } = state;
 
         // ── Live drill-down membership ─────────────────────────────────────
         // The stack drill-down is scoped by its GROUP KEY, resolved against
@@ -1700,6 +1778,17 @@ export const useImageStore = create<ImageState>((set, get) => {
                         return true;
                     }
                     return image.models?.length > 0 && selectedModels.some(sm => sm && image.models.includes(sm));
+                });
+            }
+
+            if (selectedBaseModels.length > 0) {
+                out = out.filter(image => {
+                    const baseModel = baseModelForImage(image);
+                    // '' is the "not resolved" sentinel here — it covers both
+                    // images with no checkpoint metadata at all and images
+                    // whose checkpoint simply isn't in the table yet.
+                    if (!baseModel) return selectedBaseModels.includes('');
+                    return selectedBaseModels.includes(baseModel);
                 });
             }
 
@@ -2039,7 +2128,12 @@ export const useImageStore = create<ImageState>((set, get) => {
         // header-sort order (favorites-first, dates, …) exactly as the
         // table drew them.
         if (state.tableSortField && state.tableSortDirection) {
-            filteredImages = applyTableSorting(filteredImages, state.tableSortField, state.tableSortDirection);
+            filteredImages = applyTableSorting(
+                filteredImages,
+                state.tableSortField,
+                state.tableSortDirection,
+                baseModelForImage,
+            );
         }
 
         return {
@@ -2075,6 +2169,31 @@ export const useImageStore = create<ImageState>((set, get) => {
             return _updateState(state, updatedImages);
         });
     };
+
+    // ── Base-model table changes ───────────────────────────────────────────
+    // The offline table is loaded (and later extended by a resolution run)
+    // *after* the images are on screen, so the base model for every row
+    // arrives asynchronously. The table itself lives in
+    // services/baseModelTable — it is keyed by checkpoint rather than by
+    // image, so it is a few dozen entries that every image reads through, and
+    // copying it into state would only create a second place to keep in sync.
+    //
+    // What this subscription supplies is the missing reactivity: a full
+    // re-filter (so `selectedBaseModels` sees the new values), a rebuilt facet
+    // list, and a version bump for anything memoized on it. There are only a
+    // few dozen distinct checkpoints, so this runs a handful of times per
+    // library — not per image.
+    subscribeToBaseModelTable(() => {
+        set(state => {
+            const filteredResult = filterAndSort(state);
+            const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
+            return {
+                ...filteredResult,
+                ...availableFilters,
+                baseModelTableVersion: state.baseModelTableVersion + 1,
+            };
+        });
+    });
 
     return {
         // Initial State
@@ -2112,13 +2231,17 @@ export const useImageStore = create<ImageState>((set, get) => {
         detectedGpuDevices: loadDetectedGpuDevices(),
         aiModelsLoaded: EMPTY_AI_MODELS_STATUS,
         availableModels: [],
+        availableBaseModels: [],
         availableLoras: [],
         availableSchedulers: [],
         availableDimensions: [],
         availableAspectRatios: [],
         selectedModels: [],
+        selectedBaseModels: [],
         selectedLoras: [],
         selectedSchedulers: [],
+        baseModelResolveStatus: EMPTY_BASE_MODEL_STATUS,
+        baseModelTableVersion: 0,
         sortOrder: 'date-desc',
         randomSeed: Date.now(),
         advancedFilters: {},
@@ -2506,6 +2629,48 @@ export const useImageStore = create<ImageState>((set, get) => {
         setSuccess: (success) => set({ success, error: null }),
 
         filterAndSortImages: () => set(state => filterAndSort(state)),
+
+        resolveBaseModelsNow: async (options) => {
+            if (!isBaseModelLookupAvailable()) return;
+
+            // Collected over the whole library, not the filtered list: the
+            // facet should offer every base model present in the collection,
+            // even while a filter is narrowing the grid.
+            const refs = collectCheckpointRefs(get().images);
+
+            set({
+                baseModelResolveStatus: {
+                    state: 'resolving',
+                    total: refs.length,
+                    resolved: Object.keys(getBaseModelMap()).length,
+                    fetched: 0,
+                    error: null,
+                },
+            });
+
+            const { resolved, fetched } = await resolveBaseModels(refs, options);
+            if (refs.length === 0) {
+                set({ baseModelResolveStatus: EMPTY_BASE_MODEL_STATUS });
+                return;
+            }
+
+            // The table-change subscription has already refreshed the facets
+            // and the filtered list by the time this resolves.
+            set({
+                baseModelResolveStatus: {
+                    state: 'done',
+                    total: refs.length,
+                    resolved: Object.keys(getBaseModelMap()).length,
+                    fetched,
+                    error: resolved === 0 && fetched > 0 ? 'No base models could be resolved' : null,
+                },
+            });
+        },
+
+        clearBaseModelTable: async () => {
+            await clearBaseModelTableRequest();
+            set({ baseModelResolveStatus: EMPTY_BASE_MODEL_STATUS });
+        },
 
         setImages: (images) => {
             clearPendingQueue();
@@ -3065,10 +3230,12 @@ export const useImageStore = create<ImageState>((set, get) => {
             ...filterAndSort({
                 ...state,
                 selectedModels: filters.models ?? state.selectedModels,
+                selectedBaseModels: filters.baseModels ?? state.selectedBaseModels,
                 selectedLoras: filters.loras ?? state.selectedLoras,
                 selectedSchedulers: filters.schedulers ?? state.selectedSchedulers,
             }),
             selectedModels: filters.models ?? state.selectedModels,
+            selectedBaseModels: filters.baseModels ?? state.selectedBaseModels,
             selectedLoras: filters.loras ?? state.selectedLoras,
             selectedSchedulers: filters.schedulers ?? state.selectedSchedulers,
         })),
@@ -4518,13 +4685,17 @@ export const useImageStore = create<ImageState>((set, get) => {
             selectionAnchorId: null,
             searchQuery: '',
             availableModels: [],
+            availableBaseModels: [],
             availableLoras: [],
             availableSchedulers: [],
             availableDimensions: [],
             availableAspectRatios: [],
             selectedModels: [],
+            selectedBaseModels: [],
             selectedLoras: [],
             selectedSchedulers: [],
+            baseModelResolveStatus: EMPTY_BASE_MODEL_STATUS,
+            baseModelTableVersion: 0,
             advancedFilters: {},
             indexingState: 'idle',
             focusedImageIndex: null,

@@ -3,6 +3,7 @@ import { useImageStore, runPipelineRound } from './store/useImageStore';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
+import { useBaseModelResolution } from './hooks/useBaseModelResolution';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
 import { Directory, IndexedImage, ImageRelocationMove, type SettingsTab } from './types';
@@ -56,6 +57,11 @@ export default function App() {
   } = useImageLoader();
   const { handleImageSelection, handleDeleteSelectedImages, clearSelection } = useImageSelection();
 
+  // Loads the offline checkpoint → base model table and, when the lookup is
+  // enabled, resolves whatever is still missing (once per distinct checkpoint,
+  // never per image).
+  useBaseModelResolution();
+
   // --- Zustand Store State (Granular Selectors for Performance) ---
   // Data selectors
   const filteredImages = useImageStore((state) => state.filteredImages);
@@ -102,11 +108,13 @@ export default function App() {
   const scanSubfolders = useImageStore((state) => state.scanSubfolders);
   const excludedFolders = useImageStore((state) => state.excludedFolders);
   const availableModels = useImageStore((state) => state.availableModels);
+  const availableBaseModels = useImageStore((state) => state.availableBaseModels);
   const availableLoras = useImageStore((state) => state.availableLoras);
   const availableSchedulers = useImageStore((state) => state.availableSchedulers);
   const availableDimensions = useImageStore((state) => state.availableDimensions);
   const availableAspectRatios = useImageStore((state) => state.availableAspectRatios);
   const selectedModels = useImageStore((state) => state.selectedModels);
+  const selectedBaseModels = useImageStore((state) => state.selectedBaseModels);
   const selectedLoras = useImageStore((state) => state.selectedLoras);
   const selectedSchedulers = useImageStore((state) => state.selectedSchedulers);
   const advancedFilters = useImageStore((state) => state.advancedFilters);
@@ -1349,16 +1357,19 @@ export default function App() {
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(!isSidebarCollapsed)}
             availableModels={availableModels}
+            availableBaseModels={availableBaseModels}
             availableLoras={availableLoras}
             availableSchedulers={availableSchedulers}
             selectedModels={selectedModels}
+            selectedBaseModels={selectedBaseModels}
             selectedLoras={selectedLoras}
             selectedSchedulers={selectedSchedulers}
             onModelChange={(models) => setSelectedFilters({ models })}
+            onBaseModelChange={(baseModels) => setSelectedFilters({ baseModels })}
             onLoraChange={(loras) => setSelectedFilters({ loras })}
             onSchedulerChange={(schedulers) => setSelectedFilters({ schedulers })}
             onClearAllFilters={() => {
-              setSelectedFilters({ models: [], loras: [], schedulers: [] });
+              setSelectedFilters({ models: [], baseModels: [], loras: [], schedulers: [] });
               setAdvancedFilters({});
             }}
             advancedFilters={advancedFilters}

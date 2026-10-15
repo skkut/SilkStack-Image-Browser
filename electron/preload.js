@@ -175,6 +175,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteCacheFolder: () => ipcRenderer.invoke('delete-cache-folder'),
   restartApp: () => ipcRenderer.invoke('restart-app'),
 
+  // --- Checkpoint → base model lookup (Civitai / HuggingFace, cached offline) ---
+  resolveBaseModels: (args) => ipcRenderer.invoke('resolve-base-models', args),
+  getBaseModelTable: () => ipcRenderer.invoke('get-base-model-table'),
+  clearBaseModelTable: () => ipcRenderer.invoke('clear-base-model-table'),
+
   // File watching
   startWatchingDirectory: (args) => ipcRenderer.invoke('start-watching-directory', args),
   stopWatchingDirectory: (args) => ipcRenderer.invoke('stop-watching-directory', args),

@@ -17,7 +17,7 @@ It scans your folders, parses metadata from popular tools (ComfyUI, Automatic111
 - **Rich metadata parsing** for ComfyUI and other tools, including WebP format.
 - **Beautiful Image Grid** with adaptive layout and smooth scrolling.
 - **Auto-Watch functionality** for real-time monitoring of output folders during generation.
-- **Powerful search & filters** by prompt text, model, steps, CFG, sampler, seed, etc.
+- **Powerful search & filters** by prompt text, model, base model, steps, CFG, sampler, seed, etc.
 - **Smart Library** with clustering stacks and collections
 - **Auto-tags and manual tags** for faster organization and discovery (see [Auto-Tagging Documentation](docs/AUTO-TAGGING.md))
 - **Full image viewer** with zoom, a minimap, in-prompt search and a compact window mode
@@ -34,6 +34,7 @@ I have added a lot of new features to this project, notably:
 - **Compact window mode** - The image viewer can collapse into a slim window that shows just the image, so you can keep working in another app while keeping an eye on your latest generations.
 - **Minimap & in-prompt search** - Zoom into a large image and a minimap appears for quick navigation; press `Ctrl+F` to search inside the prompt of the image you are viewing.
 - **Prompt variation highlighting** - In similarity stacks, SilkStack shows you exactly which words differ between the prompts behind each image.
+- **Base model column** - See which architecture each image came from (`SD 1.5`, `SDXL 1.0`, `Pony`, `Flux.1 D`, …), sort and filter by it, and search for it by name. The answer is looked up once per checkpoint and cached locally, so a library full of images from a handful of checkpoints costs a handful of requests, ever.
 - **Easier Themes** - Removed the need to apply themes manually. The app will now automatically apply the system theme (Light/Dark).
 - **Navigation improvements** - Added folders to the sidebar for easier navigation. You can also add emoji icons to folders 😉.
 - **Support for Removable Drives** - You can add folders from removable drives (USB drives, SD cards, mount encrypted drives etc.) to the sidebar and the app will automatically restore the folders when the drive is reconnected.
@@ -94,7 +95,8 @@ Near-identical generations are grouped into **stacks**, so a folder full of 40 v
 - Activating a key contacts Gumroad once to verify it. After that, a **lifetime** license is trusted offline indefinitely; a **subscription** is re-verified at most once a day when the app starts and keeps working offline for up to 14 days between successful checks.
 - Your images, prompts, tags and search queries never leave your machine - all AI processing happens locally.
 - **Anonymous usage ping** - once a day the packaged app sends a random install ID, the app version, the OS and whether a license is active. Nothing from your library is included; the country comes from the connection and the IP is discarded.
-- Network access is limited to the ping above, license activation and subscription re-validation, model downloads on first use and update checks.
+- **Base model lookup** (on by default, one toggle in the top bar) - to show which architecture each image came from, the app asks [civitai.com](https://civitai.com) about the checkpoint that generated it (a file hash if the metadata has one, otherwise the model name) and falls back to [huggingface.co](https://huggingface.co) for checkpoints Civitai does not know. Only the checkpoint is sent - never your prompts, images, folder paths or any identifier of yours. Every answer is cached in an offline table, so each checkpoint is looked up **once, ever**: a library of 18,000 images across 60 checkpoints costs about 60 requests in total, and no requests at all on later runs. Turning the toggle off stops all of it and keeps the table you already have.
+- Network access is limited to the ping above, license activation and subscription re-validation, model downloads on first use, the base model lookups described above and update checks.
 
 ---
 

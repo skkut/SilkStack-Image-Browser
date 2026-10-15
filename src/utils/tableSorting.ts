@@ -12,6 +12,7 @@ import { type IndexedImage } from '../types';
 export type TableSortField =
   | 'filename'
   | 'model'
+  | 'baseModel'
   | 'steps'
   | 'cfg'
   | 'size'
@@ -54,6 +55,13 @@ export function applyTableSorting(
   images: IndexedImage[],
   field: TableSortField | null,
   direction: TableSortDirection,
+  /**
+   * Resolves an image's base model, for the `baseModel` column only. Passed in
+   * rather than imported so this module stays free of the offline checkpoint
+   * table: the store owns that, and a caller with no table simply omits it —
+   * in which case every image compares equal and the incoming order is kept.
+   */
+  lookupBaseModel?: (image: IndexedImage) => string,
 ): IndexedImage[] {
   if (!field || !direction) {
     return images;
@@ -71,6 +79,13 @@ export function applyTableSorting(
       case 'model':
         aValue = (a.models?.[0] || '').toLowerCase();
         bValue = (b.models?.[0] || '').toLowerCase();
+        break;
+      case 'baseModel':
+        // Images whose checkpoint is not (yet) in the table compare as empty
+        // strings, so they collect at one end of the sort instead of shuffling
+        // between known values — and stay in their incoming relative order.
+        aValue = (lookupBaseModel?.(a) || '').toLowerCase();
+        bValue = (lookupBaseModel?.(b) || '').toLowerCase();
         break;
       case 'steps': {
         const aSteps = a.steps || (a.metadata as any)?.steps || (a.metadata as any)?.normalizedMetadata?.steps || 0;

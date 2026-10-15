@@ -40,6 +40,7 @@ import {
   SlidersHorizontal,
   Code,
   Box,
+  Boxes,
   Aperture,
   Cpu,
   Layers,
@@ -83,6 +84,7 @@ import {
 import ImageMinimap from "./ImageMinimap";
 import type { Point } from "../utils/minimapGeometry";
 import { useImageStore } from "../store/useImageStore";
+import { baseModelForImage } from "../services/baseModelTable";
 import { useSettingsStore } from "../store/useSettingsStore";
 
 
@@ -1921,6 +1923,11 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
   // Effective metadata for display
   const nMeta: BaseMetadata | undefined = image.metadata?.normalizedMetadata;
+  // Subscribe-only: the base model is resolved asynchronously from the offline
+  // checkpoint table (which lives outside the store), so the version is what
+  // makes this readout fill in if the answer lands while the modal is open.
+  useImageStore((state) => state.baseModelTableVersion);
+  const baseModel = baseModelForImage(image);
   const effectiveMetadata = nMeta;
 
   // File-level dimensions: prefer normalized metadata, fall back to the
@@ -4360,6 +4367,16 @@ const ImageModal: React.FC<ImageModalProps> = ({
                     icon={Box}
                     value={nMeta.model}
                     onCopy={(v) => copyToClipboard(v, "Model")}
+                  />
+                  {/* Derived, not read from the file: resolved once per
+                      checkpoint from Civitai / HuggingFace and cached offline.
+                      MetaRow drops it when empty, which is exactly right — an
+                      unresolved checkpoint says nothing rather than guessing. */}
+                  <MetaRow
+                    label="Base Model"
+                    icon={Boxes}
+                    value={baseModel}
+                    onCopy={(v) => copyToClipboard(v, "Base Model")}
                   />
                   {((nMeta as any).vae || (nMeta as any).vaes?.[0]?.name) && (
                     <MetaRow

@@ -32,6 +32,12 @@ import {
 } from "./mediaProtocol.mjs";
 import { MAX_MOOV_BYTES, readMoovBox } from "./mp4Moov.mjs";
 import { listDirectoryFiles, scanDirectory } from "./directoryScanner.mjs";
+import {
+  resolveCheckpoints,
+  clearTable,
+  readTable,
+  tablePathFor,
+} from "./checkpointLookup.mjs";
 import archiver from "archiver";
 import ffprobeStatic from "ffprobe-static";
 import { createRequire } from "module";
@@ -2011,6 +2017,59 @@ function setupFileOperationHandlers() {
       // Define a specific subfolder for the cache
       const cachePath = path.join(app.getPath("userData"), "ImageMetaHubCache");
       return { success: true, path: cachePath };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // --- Checkpoint → base model lookup (see electron/checkpointLookup.mjs) ---
+  //
+  // The network call lives here rather than in the renderer for the same
+  // reason the Gumroad proxy does: the packaged app loads from file://, whose
+  // null origin Civitai rejects, so a renderer-side fetch would fail in the
+  // shipped build while working in dev. It also keeps the offline table in one
+  // process, so concurrent resolves cannot clobber each other's writes.
+  //
+  // `refs` and the returned `results` are positionally aligned — the renderer
+  // zips them back onto its own list and never has to agree on a key format.
+  ipcMain.handle("resolve-base-models", async (event, payload) => {
+    try {
+      const args = payload || {};
+      const refs = Array.isArray(args.refs) ? args.refs : [];
+      const tablePath = tablePathFor(await getCacheRootPath());
+
+      const { results, stats } = await resolveCheckpoints({
+        tablePath,
+        refs,
+        // The renderer sends this from the user's setting; main does not
+        // second-guess it, so "offline" means no request is even attempted.
+        allowNetwork: args.allowNetwork !== false,
+        appVersion: app.getVersion(),
+      });
+
+      return { success: true, results, stats };
+    } catch (error) {
+      return { success: false, error: error.message, results: [], stats: null };
+    }
+  });
+
+  // Read-only, never touches the network: answers "what does the table already
+  // know?" for the checkpoints currently on screen.
+  ipcMain.handle("get-base-model-table", async () => {
+    try {
+      const tablePath = tablePathFor(await getCacheRootPath());
+      const table = await readTable(tablePath);
+      return { success: true, entries: table.entries };
+    } catch (error) {
+      return { success: false, error: error.message, entries: {} };
+    }
+  });
+
+  ipcMain.handle("clear-base-model-table", async () => {
+    try {
+      const tablePath = tablePathFor(await getCacheRootPath());
+      await clearTable(tablePath);
+      return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
