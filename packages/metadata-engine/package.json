@@ -48,7 +48,8 @@
     "node": ">=16.0.0"
   },
   "overrides": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "source-map-js": "^1.2.2"
   },
   "dependencies": {
     "exifr": "^7.1.3"

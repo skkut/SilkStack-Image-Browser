@@ -5,6 +5,7 @@ import { cacheManager, IncrementalCacheWriter } from "../services/cacheManager";
 import { IndexedImage, Directory } from "../types";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { normalizePath } from "../utils/pathUtils";
+import { toRelativeWatchPath, watchedFileId } from "../utils/watchedFiles";
 import {
   getScanApi,
   streamDirectoryScan,
@@ -338,19 +339,6 @@ async function getFileHandles(
   }
   return handles;
 }
-
-const toRelativeWatchPath = (filePath: string, rootPath: string) => {
-  const normalizedFilePath = normalizePath(filePath);
-  const normalizedRootPath = normalizePath(rootPath);
-  if (!normalizedFilePath) return "";
-  if (!normalizedRootPath) return normalizedFilePath;
-  if (normalizedFilePath === normalizedRootPath) return "";
-  const prefix = `${normalizedRootPath}/`;
-  if (normalizedFilePath.startsWith(prefix)) {
-    return normalizedFilePath.slice(prefix.length);
-  }
-  return normalizedFilePath;
-};
 
 const getRelativePath = (rootPath: string, targetPath: string) => {
   const normalizedRoot = normalizePath(rootPath);
@@ -1824,7 +1812,7 @@ export function useImageLoader() {
           // drop would destroy exactly what the relocation preserved.
           const staleIds = filterRelocatedTargetIds(
             forceReindexFiles
-              .map((file) => `${directory.id}::${file.relativePath || file.normalizedName}`)
+              .map((file) => watchedFileId(directory, file))
               .filter((id) => existingIdsLower.has(id.toLowerCase())),
           );
           if (staleIds.length > 0) {
@@ -1835,7 +1823,7 @@ export function useImageLoader() {
         }
 
         const newFiles = normalizedFiles.filter((file) => {
-          const imageId = `${directory.id}::${file.relativePath || file.normalizedName}`;
+          const imageId = watchedFileId(directory, file);
           return !existingIdsLower.has(imageId.toLowerCase());
         });
 

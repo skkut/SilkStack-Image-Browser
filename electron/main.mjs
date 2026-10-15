@@ -3269,7 +3269,18 @@ function setupFileOperationHandlers() {
       return { success: false, error: "No window available" };
     }
 
-    return fileWatcher.startWatching(directoryId, dirPath, mainWindow);
+    // The watcher's cross-session "already reported" record. Keyed by path (not
+    // by directory id) so removing and re-adding a folder keeps it, and kept
+    // beside the metadata cache so a custom cachePath moves it too.
+    const rootPath = await getCacheRootPath();
+    const safeDirName = dirPath.replace(/[^a-zA-Z0-9-_]/g, "_");
+    const baselineName =
+      safeDirName.length > 120
+        ? crypto.createHash("md5").update(dirPath).digest("hex")
+        : safeDirName;
+    const baselinePath = path.join(rootPath, "watcher-baseline", `${baselineName}.json`);
+
+    return fileWatcher.startWatching(directoryId, dirPath, mainWindow, baselinePath);
   });
 
   ipcMain.handle("checkDirectoryConnection", async (event, dirPath) => {

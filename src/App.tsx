@@ -33,6 +33,7 @@ import SimilarityStackExpandedView from './components/SimilarityStackExpandedVie
 import { normalizePath } from './utils/pathUtils';
 import { clearStackingState } from './utils/stackingReset';
 import { collectGroupMembers } from './utils/stackGroupKey';
+import { partitionWatchedFiles } from './utils/watchedFiles';
 import { useAiFeaturesEnabled } from './services/aiFeatureAccess';
 import { fetchMainProcessGpuInfo } from './services/mainProcessGpu';
 import { revalidateLicenseIfDue } from './services/licenseRevalidation';
@@ -728,8 +729,15 @@ export default function App() {
 
       if (!directory || !files || files.length === 0) return;
 
-      // Show toast notification
-      setNewImagesToast({ count: files.length, directoryName: directory.name });
+      // The same channel carries already-indexed images whose bytes changed on
+      // disk, so "N new images" is only true for the ones the store does not
+      // hold yet. Those are re-indexed silently — and while an index is still
+      // running the store has not caught up, so nothing is announced at all.
+      const storeState = useImageStore.getState();
+      const { newFiles } = partitionWatchedFiles(directory, files, storeState.images);
+      if (newFiles.length > 0 && storeState.indexingState !== 'indexing') {
+        setNewImagesToast({ count: newFiles.length, directoryName: directory.name });
+      }
 
       // One queued job per event: catalog + enrichment first, then the
       // pipeline round. processNewWatchedFiles fires its own pipeline call

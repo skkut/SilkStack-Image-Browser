@@ -17,6 +17,10 @@ const fsMock = vi.hoisted(() => ({
   watch: vi.fn(),
   statSync: vi.fn(),
   existsSync: vi.fn(),
+  readFileSync: vi.fn(),
+  writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
+  mkdirSync: vi.fn(),
 }));
 
 vi.mock("fs", () => ({ default: fsMock, ...fsMock }));
@@ -46,6 +50,11 @@ function fileStats(mtimeMs: number, size: number, birthtimeMs = mtimeMs - 1000) 
 
 let sends: Array<{ channel: string; payload: any }>;
 
+/** Stands in for the file system the baseline is written to and read back from. */
+const disk = new Map<string, string>();
+
+const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.spyOn(process, "platform", "get").mockReturnValue("win32");
@@ -53,13 +62,33 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 
   sends = [];
+  disk.clear();
   fsMock.watch.mockReset();
   fsMock.statSync.mockReset();
   fsMock.existsSync.mockReset();
+  fsMock.readFileSync.mockReset();
+  fsMock.writeFileSync.mockReset();
+  fsMock.renameSync.mockReset();
+  fsMock.mkdirSync.mockReset();
   chokidarMock.watch.mockReset();
 
   fsMock.watch.mockImplementation(() => makeWatcher());
   chokidarMock.watch.mockImplementation(() => makeWatcher());
+
+  // A tiny in-memory file system, so a baseline written by one session can be
+  // read back by the next one.
+  fsMock.readFileSync.mockImplementation((filePath: string) => {
+    if (!disk.has(filePath)) throw enoent();
+    return disk.get(filePath);
+  });
+  fsMock.writeFileSync.mockImplementation((filePath: string, data: string) => {
+    disk.set(filePath, String(data));
+  });
+  fsMock.renameSync.mockImplementation((from: string, to: string) => {
+    disk.set(to, disk.get(from) ?? "");
+    disk.delete(from);
+  });
+  fsMock.mkdirSync.mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -302,5 +331,144 @@ describe("reporting file changes", () => {
     expect(getWatcherStatus("d-i")).toEqual({ active: false });
     expect(messages("new-images-detected")).toHaveLength(0);
     expect(messages("images-deleted")).toHaveLength(0);
+  });
+
+  it("skips the subtrees chokidar's ignored config excludes", () => {
+    const win = makeWindow();
+    startWatching("d-ign", "C:\\lib-ign", win);
+    const onEvent = fsMock.watch.mock.calls[0][2] as (eventType: string, filename: string) => void;
+
+    // The native watch filters on extension alone, so a library that contains
+    // one of these trees would otherwise report every image in it as new.
+    onEvent("change", "node_modules/pkg/logo.png");
+    onEvent("change", "thumbnails/t1.webp");
+    onEvent("change", "sub/.git/icon.jpg");
+    settle();
+
+    expect(fsMock.statSync).not.toHaveBeenCalled();
+    expect(messages("new-images-detected")).toHaveLength(0);
+  });
+});
+
+describe("the persisted baseline across sessions", () => {
+  const dir = "C:\\lib-baseline";
+  const baselinePath = "C:\\cache\\watcher-baseline\\lib-baseline.json";
+
+  let endSession: (() => void) | null = null;
+
+  /**
+   * A fresh module instance is a fresh app run: `lastReported` starts empty
+   * again, while the baseline file on `disk` carries over. That is the exact
+   * situation the baseline exists for — the first event of a session for a file
+   * the library already indexed.
+   */
+  async function startSession() {
+    vi.resetModules();
+    const fresh = await import("../../electron/fileWatcher.mjs");
+    endSession = () => fresh.stopAllWatchers();
+    fresh.startWatching("d-b", dir, makeWindow(), baselinePath);
+  }
+
+  function lastHandler() {
+    const calls = fsMock.watch.mock.calls;
+    return calls[calls.length - 1][2] as (eventType: string, filename: string) => void;
+  }
+
+  afterEach(() => {
+    endSession?.();
+    endSession = null;
+  });
+
+  it("reports a file it has never seen", async () => {
+    await startSession();
+
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 77));
+    lastHandler()("change", "cat.png");
+    settle();
+
+    expect(messages("new-images-detected")).toHaveLength(1);
+  });
+
+  it("stays quiet for a file whose stamp has not moved since the last run", async () => {
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 77));
+    await startSession();
+    lastHandler()("change", "cat.png");
+    settle();
+    expect(messages("new-images-detected")).toHaveLength(1);
+    endSession?.();
+
+    // Next run: the same event, the same bytes. A re-hydrated OneDrive
+    // placeholder, a backup tool restoring a timestamp or an attribute-only
+    // notification must not look like a change — and must not cost a re-index.
+    await startSession();
+    lastHandler()("change", "cat.png");
+    settle();
+
+    expect(messages("new-images-detected")).toHaveLength(1);
+  });
+
+  it("reports the file again once its contents move", async () => {
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 77));
+    await startSession();
+    lastHandler()("change", "cat.png");
+    settle();
+    endSession?.();
+
+    await startSession();
+    fsMock.statSync.mockReturnValue(fileStats(9_000, 88));
+    lastHandler()("change", "cat.png");
+    settle();
+
+    const detected = messages("new-images-detected");
+    expect(detected).toHaveLength(2);
+    expect(detected[1].files[0]).toMatchObject({ name: "cat.png", size: 88, forceReindex: true });
+  });
+
+  it("re-reports an image whose sidecar JSON changed, even with the image untouched", async () => {
+    // The sidecar branch exists to pick metadata up for an image that is
+    // already indexed, so its own stamp is not evidence of anything — and the
+    // previous session already baselined that stamp.
+    const imagePath = path.join(dir, "cat.png");
+    fsMock.existsSync.mockImplementation((p: string) => p === imagePath);
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 42));
+
+    await startSession();
+    lastHandler()("change", "cat.json");
+    settle();
+    expect(messages("new-images-detected")).toHaveLength(1);
+    endSession?.();
+
+    // The image must be classified as sidecar-triggered on every pass of the
+    // stability wait, not only the first one that saw the .json.
+    await startSession();
+    lastHandler()("change", "cat.json");
+    settle();
+
+    expect(messages("new-images-detected")).toHaveLength(2);
+  });
+
+  it("forgets a deleted path, so a file restored with old timestamps is new again", async () => {
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 77));
+    await startSession();
+    lastHandler()("change", "cat.png");
+    settle();
+    expect(messages("new-images-detected")).toHaveLength(1);
+
+    fsMock.statSync.mockImplementation(() => {
+      throw enoent();
+    });
+    lastHandler()("rename", "cat.png");
+    vi.advanceTimersByTime(500);
+    expect(messages("images-deleted")).toHaveLength(1);
+    endSession?.();
+
+    // Restored from a backup: same mtime, same size, but the library dropped it
+    // when it vanished — so it has to be reported, not silently ignored.
+    await startSession();
+    fsMock.statSync.mockReturnValue(fileStats(5_000, 77));
+    lastHandler()("change", "cat.png");
+    settle();
+
+    expect(messages("new-images-detected")).toHaveLength(2);
   });
 });

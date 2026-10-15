@@ -32,6 +32,17 @@ import fs from 'fs';
  * The renderer already knows every image it has indexed, so "did this change?"
  * is answered by comparing the on-disk stat against what the renderer holds —
  * no per-file OS watches and no crawl are required.
+ *
+ * That comparison only lives as long as the process, though: at every app start
+ * the first event for a file the library already holds looks like a new one (a
+ * OneDrive re-hydration, a backup tool restoring timestamps, an attribute-only
+ * notification). So the stamps outlive the session in a baseline — one JSON per
+ * directory, `<cacheRoot>/watcher-baseline/<dir>.json`, whose path main.mjs
+ * passes to startWatching(). An event whose stamp is already in the baseline is
+ * dropped rather than sent to the renderer as new; a path that vanished drops
+ * out, so a file restored with its old timestamps is reported again. A sidecar
+ * JSON is exempt: it is re-read on purpose, because it can carry new metadata
+ * for an image whose own bytes never moved.
  */
 
 // Active watchers: directoryId -> watcher instance (fs.FSWatcher | chokidar)
@@ -65,6 +76,155 @@ const BATCH_DEBOUNCE_MS = 500;
  */
 const WRITE_STABILITY_MS = 2000;
 const STABILITY_RECHECK_MS = 400;
+
+/**
+ * Subtrees chokidar's `ignored` globs skip. The native recursive watch filters
+ * on file extension alone, so without this list a library containing (say) a
+ * `node_modules` or a stray `thumbnails` folder would report every image in it
+ * as new. Segments match exactly, like the globs they mirror.
+ */
+const IGNORED_DIR_SEGMENTS = new Set([
+  '.thumbnails',
+  'thumbnails',
+  '.cache',
+  'node_modules',
+  '.git',
+]);
+
+/**
+ * The stamp each path had when it was last reported, carried across sessions in
+ * one small JSON file per directory (written beside the metadata cache).
+ *
+ * `lastReported` cannot answer "did this file change?" for a session's FIRST
+ * event on a path — it starts empty — so every event the OS delivers for a file
+ * the library already indexed (OneDrive re-hydrating a placeholder, a backup
+ * tool restoring a timestamp, an attribute-only notification) was reported as a
+ * change, and the renderer honours a report with a full re-index. The baseline
+ * remembers what the file looked like when it was last reported, so an event
+ * that moved neither mtime nor size is recognised as nothing having happened.
+ *
+ * A stamp match is the same evidence the cache diff uses, and it errs the safe
+ * way: anything that touches mtime or size is still reported.
+ */
+const baselines = new Map(); // directoryId -> Map(filePath -> "mtimeMs:size")
+const baselinePaths = new Map(); // directoryId -> persistence path (absent: none)
+const baselineTimers = new Map(); // directoryId -> pending debounced write
+const dirtyBaselines = new Set(); // directoryIds with unwritten changes
+
+const BASELINE_WRITE_DEBOUNCE_MS = 1500;
+const BASELINE_VERSION = 1;
+const MAX_BASELINE_PATHS = 100000;
+
+const isInIgnoredSubtree = (dirPath, filePath) => {
+  const relative = path.relative(dirPath, filePath);
+  if (!relative || relative.startsWith('..')) {
+    return false;
+  }
+  const segments = relative.split(/[\\/]/);
+  segments.pop(); // the file itself is never an ignored directory
+  return segments.some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
+};
+
+function loadBaseline(directoryId, baselinePath) {
+  const stamps = new Map();
+  baselines.set(directoryId, stamps);
+
+  if (!baselinePath) {
+    return; // No persistence configured — the in-memory map still dedupes.
+  }
+  baselinePaths.set(directoryId, baselinePath);
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'));
+    if (parsed?.v === BASELINE_VERSION && parsed.stamps) {
+      for (const [filePath, stamp] of Object.entries(parsed.stamps)) {
+        if (typeof stamp === 'string') {
+          stamps.set(filePath, stamp);
+        }
+      }
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      // A first run has no baseline to read; anything else is worth knowing
+      // about but never fatal — an empty baseline only means a noisy first
+      // session, which is the behavior we had before it existed.
+      console.error(`[FileWatcher] Could not read baseline for ${directoryId}:`, error);
+    }
+  }
+}
+
+/**
+ * Persist one directory's baseline. Written synchronously (tmp file + rename)
+ * on purpose: a deferred async write can land *after* a later mutation has
+ * already been flushed — resurrecting an entry for a file that was deleted in
+ * between — and the map is small enough that the debounce above is the only
+ * throttle this needs. The rename keeps a half-written file from reading back
+ * as "everything changed".
+ */
+function writeBaseline(directoryId) {
+  const baselinePath = baselinePaths.get(directoryId);
+  const stamps = baselines.get(directoryId);
+  if (!baselinePath || !stamps) {
+    return;
+  }
+  dirtyBaselines.delete(directoryId);
+
+  const tempPath = `${baselinePath}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
+    fs.writeFileSync(tempPath, JSON.stringify({ v: BASELINE_VERSION, stamps: Object.fromEntries(stamps) }));
+    fs.renameSync(tempPath, baselinePath);
+  } catch (error) {
+    console.error(`[FileWatcher] Could not write baseline for ${directoryId}:`, error);
+  }
+}
+
+function noteBaselineChange(directoryId) {
+  if (!baselinePaths.has(directoryId)) {
+    return;
+  }
+  dirtyBaselines.add(directoryId);
+  if (baselineTimers.has(directoryId)) {
+    clearTimeout(baselineTimers.get(directoryId));
+  }
+  baselineTimers.set(
+    directoryId,
+    setTimeout(() => {
+      baselineTimers.delete(directoryId);
+      writeBaseline(directoryId);
+    }, BASELINE_WRITE_DEBOUNCE_MS),
+  );
+}
+
+/** Keep the persisted map bounded without re-reporting the whole library. */
+function trimBaseline(stamps) {
+  if (stamps.size <= MAX_BASELINE_PATHS) {
+    return;
+  }
+  // Map iteration is insertion order, i.e. report order: the oldest half is
+  // the coldest. Clearing outright would re-report every path once.
+  const target = MAX_BASELINE_PATHS / 2;
+  for (const filePath of stamps.keys()) {
+    if (stamps.size <= target) {
+      break;
+    }
+    stamps.delete(filePath);
+  }
+}
+
+function forgetBaseline(directoryId) {
+  const timer = baselineTimers.get(directoryId);
+  if (timer) {
+    clearTimeout(timer);
+    baselineTimers.delete(directoryId);
+  }
+  if (dirtyBaselines.has(directoryId)) {
+    writeBaseline(directoryId);
+  }
+  baselines.delete(directoryId);
+  baselinePaths.delete(directoryId);
+  dirtyBaselines.delete(directoryId);
+}
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -158,7 +318,16 @@ function enqueuePath(directoryId, dirPath, mainWindow, filePath) {
  * maps on purpose: the clock for a file has to survive from pass to pass, and
  * `deferred` starts empty every time.
  */
-function classifyPath(filePath, now, previous, addedFiles, deletedFiles, deferred) {
+function classifyPath(
+  directoryId,
+  filePath,
+  now,
+  previous,
+  addedFiles,
+  deletedFiles,
+  deferred,
+  { fromSidecar = false } = {},
+) {
   let stats;
   try {
     stats = fs.statSync(filePath);
@@ -168,6 +337,12 @@ function classifyPath(filePath, now, previous, addedFiles, deletedFiles, deferre
       // Gone before we looked: a delete, a rename-away, or a create that was
       // undone inside the batch window. All three mean "this path is not there".
       lastReported.delete(filePath);
+      // Its baseline is worthless now, and dropping it is what lets a file
+      // re-created with the same timestamps (restored from a backup) be
+      // reported as the new file it is.
+      if (baselines.get(directoryId)?.delete(filePath)) {
+        noteBaselineChange(directoryId);
+      }
       deletedFiles.push(filePath);
     } else {
       // EPERM/EBUSY/… — unreadable right now. Retrying forever would spin, so
@@ -184,6 +359,14 @@ function classifyPath(filePath, now, previous, addedFiles, deletedFiles, deferre
   const stamp = `${stats.mtimeMs}:${stats.size}`;
   const record = previous.get(filePath) ?? { stamp, seenAt: now };
 
+  // A sidecar-triggered path is classified here as its image, and then waits
+  // out the stability gate — during which the pending key becomes the image
+  // path, so the next pass arrives through the plain-image branch and loses the
+  // flag. Carry it on the record, the only thing that survives the wait.
+  if (fromSidecar) {
+    record.fromSidecar = true;
+  }
+
   if (record.stamp !== stamp) {
     // Still growing: restart the stability clock.
     record.stamp = stamp;
@@ -196,6 +379,15 @@ function classifyPath(filePath, now, previous, addedFiles, deletedFiles, deferre
     return;
   }
 
+  const baseline = baselines.get(directoryId);
+  // A sidecar JSON is re-read on purpose: it can carry metadata for an image
+  // whose own bytes never moved, and that is the whole point of that branch.
+  if (!fromSidecar && !record.fromSidecar && baseline?.get(filePath) === stamp) {
+    // Reported in this state already, possibly in an earlier session: the
+    // event moved neither mtime nor size, so nothing about the file changed.
+    return;
+  }
+
   if (lastReported.get(filePath) === stamp) {
     return;
   }
@@ -203,6 +395,12 @@ function classifyPath(filePath, now, previous, addedFiles, deletedFiles, deferre
     lastReported.clear();
   }
   lastReported.set(filePath, stamp);
+
+  if (baseline) {
+    baseline.set(filePath, stamp);
+    trimBaseline(baseline);
+    noteBaselineChange(directoryId);
+  }
 
   addedFiles.push({
     name: path.basename(filePath),
@@ -245,14 +443,16 @@ function processBatch(directoryId, dirPath, mainWindow) {
       for (const imageExt of IMAGE_EXTENSIONS) {
         const candidate = `${basePath}${imageExt}`;
         if (fs.existsSync(candidate)) {
-          classifyPath(candidate, now, pending, addedFiles, deletedFiles, deferred);
+          classifyPath(directoryId, candidate, now, pending, addedFiles, deletedFiles, deferred, {
+            fromSidecar: true,
+          });
         }
       }
       continue;
     }
 
     if (IMAGE_EXTENSIONS.has(ext)) {
-      classifyPath(filePath, now, pending, addedFiles, deletedFiles, deferred);
+      classifyPath(directoryId, filePath, now, pending, addedFiles, deletedFiles, deferred);
     }
   }
 
@@ -320,6 +520,9 @@ function startNativeRecursiveWatcher(directoryId, dirPath, mainWindow) {
     if (!isWatchedExtension(path.extname(filePath).toLowerCase())) {
       return;
     }
+    if (isInIgnoredSubtree(dirPath, filePath)) {
+      return;
+    }
     enqueuePath(directoryId, dirPath, mainWindow, filePath);
   });
 
@@ -383,11 +586,17 @@ function startChokidarWatcher(directoryId, dirPath, mainWindow) {
 
 /**
  * Start watching a directory.
+ *
+ * `baselinePath` is where the cross-session "already reported" record is kept
+ * (one JSON file per directory, beside the metadata cache). Omitting it simply
+ * disables persistence — the watcher still dedupes within the session.
  */
-export function startWatching(directoryId, dirPath, mainWindow) {
+export function startWatching(directoryId, dirPath, mainWindow, baselinePath) {
   if (activeWatchers.has(directoryId)) {
     return { success: true };
   }
+
+  loadBaseline(directoryId, baselinePath);
 
   try {
     let watcher;
@@ -413,6 +622,7 @@ export function startWatching(directoryId, dirPath, mainWindow) {
 
     return { success: true };
   } catch (error) {
+    forgetBaseline(directoryId);
     return { success: false, error: errorMessageOf(error) };
   }
 }
@@ -433,6 +643,10 @@ export function stopWatching(directoryId) {
     }
     pendingFiles.delete(directoryId);
   }
+
+  // Flushes any debounced write before the map goes away (a no-op when this
+  // directory never started a watcher).
+  forgetBaseline(directoryId);
 
   return { success: true };
 }
