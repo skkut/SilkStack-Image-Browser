@@ -9,6 +9,7 @@ import {
 import { useImageStore } from '../store/useImageStore';
 import { type IndexedImage } from '../types';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { useHasActiveFilters } from '../hooks/useHasActiveFilters';
 
 import ActiveFilters from './ActiveFilters';
 
@@ -97,33 +98,10 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
 
 
 
-  const selectedModels = useImageStore((state) => state.selectedModels);
-  const selectedLoras = useImageStore((state) => state.selectedLoras);
-  const selectedSchedulers = useImageStore((state) => state.selectedSchedulers);
-  const selectedTags = useImageStore((state) => state.selectedTags);
-  const searchQuery = useImageStore((state) => state.searchQuery);
-  const showFavoritesOnly = useImageStore((state) => state.showFavoritesOnly);
-
-  const advancedFilters = useImageStore((state) => state.advancedFilters);
-
-  const hasActiveFilters =
-      selectedModels.length > 0 ||
-      selectedLoras.length > 0 ||
-      selectedSchedulers.length > 0 ||
-      selectedTags.length > 0 ||
-      !!searchQuery ||
-      showFavoritesOnly ||
-      (advancedFilters && (
-        !!advancedFilters.dateRange?.from ||
-        !!advancedFilters.dateRange?.to ||
-        (advancedFilters.steps && (advancedFilters.steps.min !== 0 || advancedFilters.steps.max !== 150)) ||
-        (advancedFilters.cfgScale && (advancedFilters.cfgScale.min !== 0 || advancedFilters.cfgScale.max !== 30)) ||
-        (advancedFilters.width && (advancedFilters.width.min !== 64 || advancedFilters.width.max !== 2048)) ||
-        (advancedFilters.height && (advancedFilters.height.min !== 64 || advancedFilters.height.max !== 2048)) ||
-        !!advancedFilters.aspectRatio ||
-        !!advancedFilters.dimension ||
-        advancedFilters.isVerifiedOnly
-      ));
+  // "Is anything narrowing the grid?" — shared with ActiveFilters, which
+  // renders the pills. This gates the whole toolbar, so it has to know about
+  // every filter kind (base models included) or the pills unmount with it.
+  const hasActiveFilters = useHasActiveFilters();
 
   if (selectedCount === 0 && !hasActiveFilters) {
     return null;

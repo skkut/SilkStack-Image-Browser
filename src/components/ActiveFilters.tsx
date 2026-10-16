@@ -1,5 +1,6 @@
 import React from 'react';
 import { useImageStore } from '../store/useImageStore';
+import { useHasActiveFilters } from '../hooks/useHasActiveFilters';
 import { X, Calendar, Settings, Sparkles } from 'lucide-react';
 
 const ActiveFilters: React.FC = () => {
@@ -21,16 +22,9 @@ const ActiveFilters: React.FC = () => {
     const clearSemanticSearch = useImageStore((state) => state.clearSemanticSearch);
     const setSemanticMode = useImageStore((state) => state.setSemanticMode);
 
-    const hasActiveFilters =
-        selectedModels.length > 0 ||
-        selectedBaseModels.length > 0 ||
-        selectedLoras.length > 0 ||
-        selectedSchedulers.length > 0 ||
-        selectedTags.length > 0 ||
-        !!searchQuery ||
-        semanticHits !== null ||
-        showFavoritesOnly ||
-        (advancedFilters && Object.keys(advancedFilters).length > 0);
+    // Shared with GridToolbar's render gate — the two must agree, since that
+    // gate unmounts this component along with the toolbar that hosts it.
+    const hasActiveFilters = useHasActiveFilters();
 
     if (!hasActiveFilters) {
         return null;
