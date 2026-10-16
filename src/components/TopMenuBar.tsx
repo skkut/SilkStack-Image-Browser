@@ -1,11 +1,10 @@
 import React from 'react';
 import CustomMenuBar from './CustomMenuBar';
 import SearchBar from './SearchBar';
-import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw, Boxes, PackageX, Loader2 } from 'lucide-react';
+import { FolderSync, FolderX, Settings, Sparkles, Ban, ChevronDown, RefreshCw } from 'lucide-react';
 import { useAiFeaturesEnabled, useAiMasterEnabled, useAiModelFeaturesEnabled } from '../services/aiFeatureAccess';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { isBaseModelLookupAvailable } from '../services/baseModelTable';
 import { SortOrder, type SettingsTab } from '../types';
 
 interface TopMenuBarProps {
@@ -64,16 +63,6 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
     // App.tsx watches this value and starts/stops the OS watchers on change.
     const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
     const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
-
-    // Checkpoint → base model lookup. On by default, and the button is the
-    // visible switch the feature ships with. Off means "no new lookups" — the
-    // offline table already on disk keeps answering, so the column never goes
-    // blank just because the network was switched off.
-    const onlineModelLookupEnabled = useSettingsStore((state) => state.onlineModelLookupEnabled);
-    const setOnlineModelLookupEnabled = useSettingsStore((state) => state.setOnlineModelLookupEnabled);
-    const baseModelResolveStatus = useImageStore((state) => state.baseModelResolveStatus);
-    const onlineModelLookupAvailable = isBaseModelLookupAvailable();
-    const baseModelResolving = baseModelResolveStatus.state === 'resolving';
 
     // The library's list view sorts from its column headers (ImageTable owns
     // that order), so the header sort box is disabled while it is on screen.
@@ -312,37 +301,6 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     >
                         {globalAutoWatch ? <FolderSync size={20} /> : <FolderX size={20} />}
                     </button>
-                    {/* Base model lookup: resolves each distinct checkpoint to
-                        its architecture family (SD 1.5, SDXL 1.0, Pony, …) via
-                        Civitai / HuggingFace and caches the answers offline.
-                        Desktop-only — in the browser build there is no cache
-                        file to read or write, so the button is not rendered. */}
-                    {onlineModelLookupAvailable && (
-                    <button
-                        onClick={() => setOnlineModelLookupEnabled(!onlineModelLookupEnabled)}
-                        className={`p-1.5 rounded-full transition-all duration-200 ${
-                            baseModelResolving
-                                ? 'text-blue-400 bg-blue-500/10'
-                                : onlineModelLookupEnabled
-                                    ? 'text-blue-400 bg-blue-500/10 shadow-[0_0_10px_rgba(59,130,246,0.4)]'
-                                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/80'
-                        }`}
-                        title={
-                            baseModelResolving
-                                ? `Resolving base models… ${baseModelResolveStatus.resolved} known of ${baseModelResolveStatus.total} checkpoints`
-                                : onlineModelLookupEnabled
-                                    ? 'Base model lookup on — click to stop querying Civitai / HuggingFace (already-resolved models are kept)'
-                                    : 'Base model lookup off — click to resolve checkpoint base models online'
-                        }
-                        aria-label="Toggle online base model lookup"
-                        aria-pressed={onlineModelLookupEnabled}
-                        data-testid="base-model-lookup-toggle-button"
-                    >
-                        {baseModelResolving
-                            ? <Loader2 size={20} className="animate-spin" />
-                            : onlineModelLookupEnabled ? <Boxes size={20} /> : <PackageX size={20} />}
-                    </button>
-                    )}
                     <button
                         onClick={() => onOpenSettings()}
                         className="p-1.5 rounded-full hover:bg-gray-700/80 text-gray-400 hover:text-gray-100 transition-all hover:rotate-45"

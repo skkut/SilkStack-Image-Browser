@@ -131,6 +131,13 @@ That is also why there is no IndexedDB store or per-image cache field for it.
   itself in `ImageModalWindow`. Add a new window that renders generation details and it needs the hook
   too — skipping it shows **no** Base Model row and no error, because `MetaRow` renders nothing for an
   empty value.
+- **Switch**: the on/off toggle, **Resolve now** and **Clear cached table** all live in Settings →
+  Base Models (`components/CheckpointMappingSection.tsx`), *not* in the top bar — it is a network
+  preference, and that screen is the one that lists the checkpoints it is answering for. The card is
+  rendered only when `isBaseModelLookupAvailable()`; the tab itself is gated the same way in
+  `SettingsModal.tsx`, so a browser build has no dead switch. Resolution otherwise runs on its own
+  from `hooks/useBaseModelResolution.ts` in the main window once the library settles (delayed, and
+  skipped mid-index); the toggle only decides whether it may touch the network.
 - **Manual mappings**: Settings → Base Models (`components/CheckpointMappingSection.tsx`) lets the
   user assign a base model to any checkpoint the lookup cannot answer. They are stored as ordinary
   rows with `source: 'manual'` — not in a side file — which is what makes them authoritative for

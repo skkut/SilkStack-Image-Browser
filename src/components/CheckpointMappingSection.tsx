@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { RotateCcw, Search } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import {
   collectCheckpointSummaries,
   getBaseModelEntries,
+  isBaseModelLookupAvailable,
 } from '../services/baseModelTable';
 
 /**
@@ -174,16 +176,23 @@ const CUSTOM_VALUE = '__custom__';
 const slugify = (value: string): string => value.replace(/[^A-Za-z0-9_-]/g, '-');
 
 /**
- * Settings → Base Models: every distinct checkpoint in the library, with a
- * picker to assign it a base model by hand.
+ * Settings → Base Models: the online lookup's switch and maintenance actions,
+ * then every distinct checkpoint in the library with a picker to assign it a
+ * base model by hand.
  *
- * This exists for the checkpoints the online lookup cannot answer — most often
- * because the model file was deleted from disk long ago, which is exactly the
- * case where its base model is still worth knowing. A mapping written here is
- * stored as a `source: 'manual'` row in the main process's offline table, so it
- * is applied to **every image using that checkpoint at once**, survives a
- * restart, is never overwritten by a later lookup, and survives "Clear cached
- * table". It is not per image and nothing is re-indexed.
+ * The switch belongs here rather than in the top bar it started in: it is a
+ * network preference, and the one screen that lists what the network is *for* —
+ * the checkpoints it can and cannot answer — is this one. Everything the
+ * feature needs to be understood is on this screen, so nothing about it has to
+ * be discovered from a toolbar glyph.
+ *
+ * The manual half exists for the checkpoints the online lookup cannot answer —
+ * most often because the model file was deleted from disk long ago, which is
+ * exactly the case where its base model is still worth knowing. A mapping
+ * written here is stored as a `source: 'manual'` row in the main process's
+ * offline table, so it is applied to **every image using that checkpoint at
+ * once**, survives a restart, is never overwritten by a later lookup, and
+ * survives "Clear cached table". It is not per image and nothing is re-indexed.
  *
  * Mounted only while its tab is open (like `AiModelCacheSection`), so the
  * library-wide scan below runs on demand rather than on every store change.
@@ -195,6 +204,16 @@ export const CheckpointMappingSection: React.FC = () => {
   // this list re-render when a resolve lands or a mapping is saved. The table
   // itself lives outside React (see services/baseModelTable.ts).
   useImageStore((state) => state.baseModelTableVersion);
+
+  // The online lookup's own controls. Off means "no new lookups" — the offline
+  // table already on disk keeps answering, so the column never goes blank just
+  // because the network was switched off.
+  const onlineModelLookupEnabled = useSettingsStore((state) => state.onlineModelLookupEnabled);
+  const setOnlineModelLookupEnabled = useSettingsStore((state) => state.setOnlineModelLookupEnabled);
+  const baseModelResolveStatus = useImageStore((state) => state.baseModelResolveStatus);
+  const resolveBaseModelsNow = useImageStore((state) => state.resolveBaseModelsNow);
+  const clearBaseModelTable = useImageStore((state) => state.clearBaseModelTable);
+  const onlineModelLookupAvailable = isBaseModelLookupAvailable();
 
   const [filter, setFilter] = useState('');
   const [onlyUnmapped, setOnlyUnmapped] = useState(false);
@@ -267,9 +286,69 @@ export const CheckpointMappingSection: React.FC = () => {
         Base Models
       </h3>
 
+      {/* The online lookup's switch, which used to be a toolbar button. It sits
+          above the list because it is what answers most of the rows below, and
+          because the status line ("N of M checkpoints known") reads as the
+          heading for the table rather than as a footnote to it. */}
+      {onlineModelLookupAvailable && (
+      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600 mb-6">
+        <div className="flex items-start justify-between">
+          <div className="pr-6">
+            <p className="text-sm font-medium text-gray-200">Resolve checkpoint base models online</p>
+            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+              Looks up each distinct checkpoint's base model — SD 1.5, SDXL 1.0, Pony, Flux.1 D and so on —
+              on Civitai and HuggingFace, and shows it as the list view's Base Model column, a sidebar
+              filter, and a row in the viewer's Generation details.
+            </p>
+            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+              The lookup runs by itself as your library changes, once per <span className="text-gray-300">checkpoint</span> rather
+              than per image, and the answers are cached in an offline table — so a whole library settles
+              after a few dozen requests, and later launches make none at all. Turning this off leaves the
+              cached answers in place and only stops new lookups; the mapping table below works either way.
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+            <input
+              type="checkbox"
+              checked={onlineModelLookupEnabled}
+              onChange={(event) => setOnlineModelLookupEnabled(event.target.checked)}
+              data-testid="base-model-lookup-toggle"
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-700/50">
+          <button
+            onClick={() => void resolveBaseModelsNow()}
+            disabled={baseModelResolveStatus.state === 'resolving'}
+            className="px-3 py-1.5 text-sm rounded-lg bg-blue-600/20 text-blue-300 border border-blue-700/50 hover:bg-blue-600/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {baseModelResolveStatus.state === 'resolving' ? 'Resolving…' : 'Resolve now'}
+          </button>
+          <button
+            onClick={() => void clearBaseModelTable()}
+            className="px-3 py-1.5 text-sm rounded-lg bg-gray-800/80 text-gray-300 border border-gray-700/50 hover:bg-gray-700/80 transition-colors"
+          >
+            Clear cached table
+          </button>
+          <span className="text-xs text-gray-500" data-testid="base-model-resolve-status">
+            {baseModelResolveStatus.state === 'idle'
+              ? 'Resolves using the cache first; only unknown checkpoints are requested.'
+              : `${baseModelResolveStatus.resolved} of ${baseModelResolveStatus.total} checkpoints known${
+                  baseModelResolveStatus.fetched > 0
+                    ? ` — ${baseModelResolveStatus.fetched} requested`
+                    : ''
+                }`}
+          </span>
+        </div>
+      </div>
+      )}
+
       <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-        Assign a base model to any checkpoint the automatic lookup could not
-        answer — typically one whose file you have since deleted. A mapping here
+        Checkpoints the lookup cannot answer — typically ones whose file you have
+        since deleted — can be assigned a base model by hand below. A mapping
         applies to every image made with that checkpoint, and is kept separate
         from the looked-up answers, so <span className="text-gray-300">Clear cached table</span> will
         not remove it.
@@ -421,8 +500,8 @@ export const CheckpointMappingSection: React.FC = () => {
       <p className="text-xs text-gray-500 mt-3 leading-relaxed">
         Mappings are stored with the offline table and never expire. Clearing a
         mapping hands that checkpoint back to the automatic lookup, which will
-        query Civitai and HuggingFace for it again — turn that off in{' '}
-        <span className="text-gray-400">General → Metadata</span> to map everything by hand.
+        query Civitai and HuggingFace for it again — switch the lookup off above
+        to map everything by hand.
       </p>
     </section>
   );

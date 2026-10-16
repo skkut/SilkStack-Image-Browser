@@ -141,14 +141,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const autoplayVideoPreviews = useSettingsStore((state) => state.autoplayVideoPreviews);
   const setAutoplayVideoPreviews = useSettingsStore((state) => state.setAutoplayVideoPreviews);
 
-  // Checkpoint → base model lookup. The toolbar button is the everyday
-  // switch; this section carries the same toggle plus the two maintenance
-  // actions (force a resolve, drop the cache) that have nowhere else to live.
-  const onlineModelLookupEnabled = useSettingsStore((state) => state.onlineModelLookupEnabled);
-  const setOnlineModelLookupEnabled = useSettingsStore((state) => state.setOnlineModelLookupEnabled);
-  const baseModelResolveStatus = useImageStore((state) => state.baseModelResolveStatus);
-  const resolveBaseModelsNow = useImageStore((state) => state.resolveBaseModelsNow);
-  const clearBaseModelTable = useImageStore((state) => state.clearBaseModelTable);
+  // Checkpoint → base model lookup. Its switch and its maintenance actions
+  // live in the Base Models tab itself (`CheckpointMappingSection`) — the only
+  // thing decided here is whether that tab exists at all.
   const onlineModelLookupAvailable = isBaseModelLookupAvailable();
   const globalAutoWatch = useSettingsStore((state) => state.globalAutoWatch);
   const toggleGlobalAutoWatch = useSettingsStore((state) => state.toggleGlobalAutoWatch);
@@ -601,67 +596,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                       </div>
                     </div>
                   </section>
-
-                  {/* Metadata enrichment */}
-                  {onlineModelLookupAvailable && (
-                  <section>
-                    <h3 className="text-lg font-semibold mb-4 text-gray-200 border-b border-gray-700/50 pb-2">Metadata</h3>
-                    <div className="space-y-4">
-                      <div className="bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
-                        <div className="flex items-start justify-between">
-                          <div className="pr-6">
-                            <p className="text-sm font-medium text-gray-200">Resolve checkpoint base models online</p>
-                            <p className="text-sm text-gray-400 mt-1 leading-relaxed">
-                              Looks up each distinct checkpoint's base model — SD 1.5, SDXL 1.0, Pony, Flux.1 D and so on —
-                              on Civitai and HuggingFace, and shows it as the list view's Base Model column, a sidebar
-                              filter, and a row in the viewer's Generation details.
-                            </p>
-                            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-                              The lookup runs once per <span className="text-gray-300">checkpoint</span>, not per image, and
-                              the answers are cached in an offline table — so a whole library settles after a few dozen
-                              requests, and later launches make none at all. Turning this off leaves the cached answers in
-                              place and only stops new lookups.
-                            </p>
-                          </div>
-                          <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
-                            <input
-                              type="checkbox"
-                              checked={onlineModelLookupEnabled}
-                              onChange={(event) => setOnlineModelLookupEnabled(event.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                          </label>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-3 mt-5 pt-4 border-t border-gray-700/50">
-                          <button
-                            onClick={() => void resolveBaseModelsNow()}
-                            disabled={baseModelResolveStatus.state === 'resolving'}
-                            className="px-3 py-1.5 text-sm rounded-lg bg-blue-600/20 text-blue-300 border border-blue-700/50 hover:bg-blue-600/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {baseModelResolveStatus.state === 'resolving' ? 'Resolving…' : 'Resolve now'}
-                          </button>
-                          <button
-                            onClick={() => void clearBaseModelTable()}
-                            className="px-3 py-1.5 text-sm rounded-lg bg-gray-800/80 text-gray-300 border border-gray-700/50 hover:bg-gray-700/80 transition-colors"
-                          >
-                            Clear cached table
-                          </button>
-                          <span className="text-xs text-gray-500">
-                            {baseModelResolveStatus.state === 'idle'
-                              ? 'Resolves using the cache first; only unknown checkpoints are requested.'
-                              : `${baseModelResolveStatus.resolved} of ${baseModelResolveStatus.total} checkpoints known${
-                                  baseModelResolveStatus.fetched > 0
-                                    ? ` — ${baseModelResolveStatus.fetched} requested`
-                                    : ''
-                                }`}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                  )}
 
                   {/* Content Filtering */}
                   <section>

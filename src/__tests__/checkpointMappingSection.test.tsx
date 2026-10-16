@@ -32,6 +32,11 @@ const ipc = vi.hoisted(() => {
     resolveBaseModels: vi.fn(),
     clearBaseModelTable: vi.fn(),
     setBaseModelMappings: vi.fn(),
+    // The settings store persists through this bridge too, and flips of the
+    // online-lookup preference in the tests below would otherwise reject
+    // asynchronously inside zustand's setItem.
+    getSettings: vi.fn().mockResolvedValue({}),
+    saveSettings: vi.fn().mockResolvedValue(undefined),
   };
   (globalThis as any).window = (globalThis as any).window || {};
   (globalThis as any).window.electronAPI = bridge;
@@ -46,6 +51,7 @@ import {
   STANDARD_BASE_MODEL_GROUPS,
 } from '../components/CheckpointMappingSection';
 import { useImageStore } from '../store/useImageStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { loadBaseModelTable } from '../services/baseModelTable';
 import type { BaseModelEntry, IndexedImage } from '../types';
 
@@ -230,6 +236,87 @@ describe('Settings → Base Models mapping table', () => {
     render(<CheckpointMappingSection />);
 
     expect(screen.getByTestId('checkpoint-mapping-empty')).toBeTruthy();
+  });
+});
+
+/**
+ * The online lookup's own controls, which live on this screen and nowhere else:
+ * the top bar's button is gone, so the switch, the manual run and the cached
+ * table's clear are the tab's — and a switch that could not be found again
+ * would leave a network feature with no off.
+ */
+describe('Settings → Base Models online lookup controls', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    ipc.clearBaseModelTable.mockResolvedValue({ success: true });
+    ipc.setBaseModelMappings.mockResolvedValue({ success: true, entries: TABLE });
+    ipc.resolveBaseModels.mockResolvedValue({ success: true, results: [], stats: { fetched: 1, fromTable: 2 } });
+
+    // Both are store state the previous test may have left flipped, and neither
+    // is reset by clearAllMocks.
+    useSettingsStore.setState({ onlineModelLookupEnabled: true });
+    useImageStore.setState({
+      baseModelResolveStatus: { state: 'idle', total: 0, resolved: 0, fetched: 0, error: null },
+    });
+
+    seed();
+    await load(TABLE);
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  // Role queries, not text: "Clear cached table" is also a phrase inside the
+  // section's own prose, which a text query would match first.
+  const toggle = () => screen.getByTestId('base-model-lookup-toggle') as HTMLInputElement;
+  const resolveButton = () => screen.getByRole('button', { name: 'Resolve now' });
+  const clearButton = () => screen.getByRole('button', { name: 'Clear cached table' });
+
+  it('turns the online lookup off and on', () => {
+    render(<CheckpointMappingSection />);
+
+    expect(toggle().checked).toBe(true);
+
+    fireEvent.click(toggle());
+    expect(useSettingsStore.getState().onlineModelLookupEnabled).toBe(false);
+
+    fireEvent.click(toggle());
+    expect(useSettingsStore.getState().onlineModelLookupEnabled).toBe(true);
+  });
+
+  it('runs a resolve on demand, for every distinct checkpoint, and reports the cost', async () => {
+    render(<CheckpointMappingSection />);
+
+    fireEvent.click(resolveButton());
+
+    await waitFor(() => expect(ipc.resolveBaseModels).toHaveBeenCalledTimes(1));
+    const [request] = ipc.resolveBaseModels.mock.calls[0];
+    // Five images, three checkpoints — the count the whole feature is built on.
+    expect(request.refs).toHaveLength(3);
+    expect(request.allowNetwork).toBe(true);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('base-model-resolve-status').textContent).toBe(
+        '2 of 3 checkpoints known — 1 requested',
+      );
+    });
+  });
+
+  it('clears the cached table on request', async () => {
+    render(<CheckpointMappingSection />);
+
+    fireEvent.click(clearButton());
+
+    await waitFor(() => expect(ipc.clearBaseModelTable).toHaveBeenCalledTimes(1));
+  });
+
+  it('shows the cache-first note before any run has happened', () => {
+    render(<CheckpointMappingSection />);
+
+    expect(screen.getByTestId('base-model-resolve-status').textContent).toBe(
+      'Resolves using the cache first; only unknown checkpoints are requested.',
+    );
   });
 });
 
