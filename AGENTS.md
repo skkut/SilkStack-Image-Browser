@@ -122,7 +122,9 @@ That is also why there is no IndexedDB store or per-image cache field for it.
   steps are what let a window that never runs a resolve (the popped-out viewer, the stack window)
   answer a hash-less image at all. `useImageStore` subscribes to bump `baseModelTableVersion` so
   derived UI re-filters when an async resolution lands (a value that lives outside the image cannot be
-  seen by a memo comparator — it must be passed as a prop, see `ImageTableRow`).
+  seen by a memo comparator — it must be passed as a prop, see `ImageTableRow`, or listed as a memo
+  dependency, see `ModelView`'s entry memo, which is what makes a checkpoint answered while the Models
+  tab is open grow its card without a reload).
 - **Per-window state**: that table is *module* state in a renderer, so **every window holds its own
   copy**. Any window that shows a base model has to adopt it — `hooks/useBaseModelResolution.ts` →
   `useBaseModelTable` (load on mount + re-read on `base-model-table-changed`). The main window gets it
