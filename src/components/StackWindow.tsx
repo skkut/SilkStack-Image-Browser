@@ -356,7 +356,14 @@ const StackWindow: React.FC = () => {
             images={images}
             onImageClick={handleImageClick}
             selectedImages={selectedImages}
+            // Nothing in this window draws a "back" affordance — the view drops
+            // both of them in standalone mode — so this is inert today and is
+            // passed only so the callback can never be undefined. Escape and
+            // the drag bar are the ways out.
             onBack={handleClose}
+            // No library behind this window: the header's Library button and
+            // close X mean nothing here, and the window has its own chrome.
+            isStandaloneWindow
             onToggleFavorite={handleToggleFavorite}
             onToggleSelection={handleToggleSelection}
           />

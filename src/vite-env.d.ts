@@ -315,6 +315,8 @@ declare module '@ai-images-browser/ai-intelligence' {
     onImageClick: (image: StackImage, event: React.MouseEvent) => void;
     selectedImages: Set<string>;
     onBack: () => void;
+    /** Omitted → the header's Library and close buttons are not rendered. */
+    isStandaloneWindow?: boolean;
     imageSize?: number;
     thumbnailsDisabled: boolean;
     groupByDimensions?: string[];

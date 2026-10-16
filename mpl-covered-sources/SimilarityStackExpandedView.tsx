@@ -347,6 +347,15 @@ export interface SimilarityStackExpandedViewProps {
   onImageClick: (image: StackImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
   onBack: () => void;
+  /**
+   * Rendered inside a window of its own (the popped-out stack) rather than as
+   * a drill-down over the library. There is no library behind it to go *back*
+   * to, and the window brings its own ways out — the OS close button, the
+   * drag bar and Escape — so the header's two leave-this-view buttons (Library
+   * and the close X) are omitted. `onBack` is then unused rather than wrong:
+   * the caller may still supply one for anything else that asks to leave.
+   */
+  isStandaloneWindow?: boolean;
   /** Target row height for justified layout. */
   imageSize?: number;
   /** Whether thumbnails are disabled (from settings store). */
@@ -386,6 +395,7 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
   onImageClick,
   selectedImages,
   onBack,
+  isStandaloneWindow = false,
   imageSize: imageSizeProp,
   thumbnailsDisabled,
   hoverPreview,
@@ -479,16 +489,20 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header bar */}
+      {/* Header bar. Both leave-this-view buttons are drill-down affordances:
+          they exist to get OUT of a view laid over the library, which the
+          standalone window is not. */}
       <div className="flex flex-wrap items-center gap-3 flex-shrink-0 px-4 py-1.5 bg-gray-900/40 border-b border-gray-800/40">
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-all text-xs font-medium border border-blue-500/20 shadow-sm shrink-0"
-        >
-          <ArrowLeft size={14} />
-          <span>Library</span>
-        </button>
+        {!isStandaloneWindow && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-500/10 text-blue-400 rounded-md hover:bg-blue-500/20 transition-all text-xs font-medium border border-blue-500/20 shadow-sm shrink-0"
+          >
+            <ArrowLeft size={14} />
+            <span>Library</span>
+          </button>
+        )}
         <span className="text-[11px] text-gray-500 select-none">
           {images.length} {images.length === 1 ? 'image' : 'images'}
           {variationCounts.map(c => (
@@ -505,14 +519,16 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
           {/* Group-by toolbar — injected by the wrapper */}
           {groupByToolbar}
 
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-white hover:bg-gray-700/60 transition-all"
-            title="Close stack"
-          >
-            <X size={16} />
-          </button>
+          {!isStandaloneWindow && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-white hover:bg-gray-700/60 transition-all"
+              title="Close stack"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
 

@@ -16,6 +16,16 @@ interface SimilarityStackExpandedViewWrapperProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   selectedImages: Set<string>;
   onBack: () => void;
+  /**
+   * This view is the whole content of a window of its own (the popped-out
+   * stack), not a drill-down laid over the library.
+   *
+   * Forwarded straight to the package view, which then drops the header's two
+   * leave-this-view buttons: there is no grid behind this window to go *back*
+   * to, and it already closes through its own chrome (`StackWindow`'s drag bar
+   * and OS controls) and Escape.
+   */
+  isStandaloneWindow?: boolean;
   imageSize?: number;
   /** Right-click handler — receives the right-clicked image in the drill-down view. */
   onContextMenu?: (image: IndexedImage, event: React.MouseEvent) => void;
@@ -84,6 +94,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   onImageClick,
   selectedImages,
   onBack,
+  isStandaloneWindow = false,
   imageSize: imageSizeProp,
   onContextMenu,
   onToggleFavorite,
@@ -306,6 +317,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
         onImageClick={onImageClick as any}
         selectedImages={selectedImages}
         onBack={onBack}
+        isStandaloneWindow={isStandaloneWindow}
         imageSize={imageSize}
         thumbnailsDisabled={thumbnailsDisabled}
         groupByDimensions={groupByDimensionLabels}

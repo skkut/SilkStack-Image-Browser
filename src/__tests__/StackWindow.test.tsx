@@ -52,11 +52,17 @@ const validLicense = (): {
 };
 
 vi.mock('@ai-images-browser/ai-intelligence', () => ({
-  SimilarityStackExpandedView: ({ images, onBack, onToggleFavorite, onToggleSelection }: any) => (
-    <div>
-      <button onClick={onBack} type="button">
-        Back
-      </button>
+  // The real view drops its two leave-this-view buttons when it is the whole
+  // content of a window, and this window always is one — so the mock mirrors
+  // that, which is what makes `data-standalone` an assertion about the flag
+  // this component passes rather than about the mock's own rendering.
+  SimilarityStackExpandedView: ({ images, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection }: any) => (
+    <div data-testid="stack-view" data-standalone={String(!!isStandaloneWindow)}>
+      {!isStandaloneWindow && (
+        <button onClick={onBack} type="button">
+          Back
+        </button>
+      )}
       {images.map((img: any) => (
         <div
           key={img.id}
@@ -224,19 +230,18 @@ describe('the popped-out stack window', () => {
     expect(api.stackWindowAction).not.toHaveBeenCalled();
   });
 
-  it('closes the window through the main process', async () => {
-    // The view's back button means "leave this window" here, not "go back to
-    // the grid" — there is no grid behind it.
+  it('tells the stack view it is a window of its own', async () => {
+    // That flag is what removes the view's Library button and close X: this
+    // window has no library behind it to go back to, so both would be lies.
     await mountWithPayload();
 
-    await act(async () => {
-      screen.getByText('Back').click();
-    });
-
-    expect(api.stackWindowClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('stack-view').getAttribute('data-standalone')).toBe('true');
+    expect(screen.queryByText('Back')).toBeNull();
   });
 
-  it('closes on Escape like the viewer window does', async () => {
+  it('closes on Escape, through the main process', async () => {
+    // Same close path the view's own buttons use — Escape is now the window's
+    // primary in-app exit, the buttons having been removed as meaningless here.
     await mountWithPayload();
 
     await act(async () => {
