@@ -1,6 +1,6 @@
 # SilkStack Image Browser v2.5.0
 
-**v2.5.0 is the release where SilkStack starts answering a question your files never literally answer: what was this made with?** Every image now knows the architecture its checkpoint was built on — `SD 1.5`, `SDXL 1.0`, `Pony`, `Flux.1 D` — and you can sort by it, filter by it, search it, browse it as cards in the **Models** tab, and fill in the ones nothing knows about by hand.
+**v2.5.0 is the release where SilkStack starts answering a question your files never literally answer: what was this made with?** Every image now knows the architecture its checkpoint was built on — `SD 1.5`, `SDXL 1.0`, `Pony`, `Flux.1 D`, `Krea 2`, `Qwen 2.1`, `ZImageTurbo` — and you can sort by it, filter by it, search it, browse it as cards in the **Models** tab, and fill in the ones nothing knows about by hand.
 
 It is also the release where a large library stops being slow to open. On a 20,000-image folder the first image now paints in **783 ms** instead of **11.8 seconds**, and the index finishes in **2.7 s** instead of **13.7 s** — because the file watcher was spending three of those seconds, and twenty thousand operating-system handles, watching files that never change. A library full of AI video no longer loads those videos into memory either, which is the difference between browsing it and crashing on it.
 

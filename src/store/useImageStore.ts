@@ -883,8 +883,8 @@ interface ImageState {
   availableAspectRatios: string[];
   /**
    * Distinct base models among the visible images (`SD 1.5`, `SDXL 1.0`,
-   * `Pony`, …), derived from the offline checkpoint table. Empty until the
-   * table loads — see `baseModelTableVersion`.
+   * `Krea 2`, `ZImageTurbo`, …), derived from the offline checkpoint table.
+   * Empty until the table loads — see `baseModelTableVersion`.
    */
   availableBaseModels: string[];
   selectedModels: string[];
