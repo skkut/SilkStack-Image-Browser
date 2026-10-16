@@ -13,7 +13,7 @@ vi.hoisted(() => {
 });
 
 import React from 'react';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
 import StackWindow from '../components/StackWindow';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { computeLicenseStamp } from '../services/aiFeatureAccess';
@@ -232,6 +232,66 @@ describe('the popped-out stack window', () => {
     await act(async () => {
       screen.getByText('Back').click();
     });
+
+    expect(api.stackWindowClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on Escape like the viewer window does', async () => {
+    await mountWithPayload();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+
+    expect(api.stackWindowClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on Escape even before the payload arrives', async () => {
+    // The payload is asked for exactly once, on mount, so a handshake that
+    // never completes leaves the spinner up forever. Escape is the one exit
+    // that does not depend on that reply, which is why the listener is
+    // registered by the component rather than by the stack view inside it.
+    render(<StackWindow />);
+    expect(screen.getByText('Loading stack…')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+    });
+
+    expect(api.stackWindowClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Escape to a text field that has focus', async () => {
+    await mountWithPayload();
+
+    const field = document.createElement('input');
+    field.type = 'text';
+    document.body.appendChild(field);
+    field.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Escape' });
+    });
+    field.remove();
+
+    expect(api.stackWindowClose).not.toHaveBeenCalled();
+  });
+
+  it('still closes when a grouping checkbox has focus', async () => {
+    // A checkbox is an <input> too, but Escape is not its to consume — and the
+    // header's Group-by toolbar is nothing but checkboxes, so a blanket INPUT
+    // guard would disable the shortcut for anyone who had just clicked one.
+    await mountWithPayload();
+
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    document.body.appendChild(toggle);
+    toggle.focus();
+
+    await act(async () => {
+      fireEvent.keyDown(toggle, { key: 'Escape' });
+    });
+    toggle.remove();
 
     expect(api.stackWindowClose).toHaveBeenCalledTimes(1);
   });

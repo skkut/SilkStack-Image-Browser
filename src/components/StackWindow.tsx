@@ -86,6 +86,28 @@ const toArrayBuffer = (data: ArrayBuffer | ArrayBufferView): ArrayBuffer => {
   return copy.buffer;
 };
 
+/**
+ * Input types that own Escape while they have focus.
+ *
+ * `<input type="checkbox">` is an `<input>` too, but Escape means nothing to a
+ * checkbox — and clicking one is what a user does in this window's header
+ * before ever reaching for the keyboard — so treating every INPUT as "the user
+ * is typing" would disable the shortcut for exactly those users.
+ */
+const TEXT_ENTRY_INPUT_TYPES = new Set([
+  'text', 'search', 'email', 'url', 'password', 'tel', 'number',
+]);
+
+const isTextEntryTarget = (target: EventTarget | null): boolean => {
+  const element = target as HTMLElement | null;
+  if (!element || !element.tagName) return false;
+  if (element.isContentEditable) return true;
+  if (element.tagName === 'TEXTAREA') return true;
+  if (element.tagName !== 'INPUT') return false;
+  const type = (element as HTMLInputElement).type || 'text';
+  return TEXT_ENTRY_INPUT_TYPES.has(type.toLowerCase());
+};
+
 const StackWindow: React.FC = () => {
   const aiFeaturesEnabled = useAiFeaturesEnabled();
   const [payload, setPayload] = useState<StackWindowPayload | null>(null);
@@ -226,6 +248,23 @@ const StackWindow: React.FC = () => {
       window.close();
     }
   }, []);
+
+  // Escape leaves this window — the same gesture that closes the viewer window
+  // and the in-app drill-down. It is registered here rather than on the stack
+  // view on purpose: the payload handshake can stall (the listener only asks
+  // for the payload once, on mount), and the loading state must not be a room
+  // with no door. A key typed into a text field is that field's to handle; this
+  // window has none today, so the guard is here for whoever adds one.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (isTextEntryTarget(event.target)) return;
+      handleClose();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleClose]);
 
   // ── Opening an image ─────────────────────────────────────────────────
   // Self-contained, like the viewer's own navigation: this window already
