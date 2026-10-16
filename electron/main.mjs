@@ -2031,6 +2031,26 @@ function setupFileOperationHandlers() {
   // shipped build while working in dev. It also keeps the offline table in one
   // process, so concurrent resolves cannot clobber each other's writes.
   //
+  /**
+   * Tells every window *except* the caller that the checkpoint table changed.
+   *
+   * Each window is its own renderer process holding its own copy of the table
+   * (src/services/baseModelTable.ts), and the image viewer — where the modal
+   * actually lives in Electron — is one of them. The caller is skipped because
+   * its own invoke already returned the new table.
+   *
+   * The event carries no payload on purpose: its readers re-read the table from
+   * disk, which keeps *all* of the table's shape in one place — not only the
+   * entries but every rule the write applied, such as manual rows surviving a
+   * clear.
+   */
+  const broadcastBaseModelTableChanged = (sender) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents === sender) continue;
+      win.webContents.send("base-model-table-changed");
+    }
+  };
+
   // `refs` and the returned `results` are positionally aligned — the renderer
   // zips them back onto its own list and never has to agree on a key format.
   ipcMain.handle("resolve-base-models", async (event, payload) => {
@@ -2047,6 +2067,11 @@ function setupFileOperationHandlers() {
         allowNetwork: args.allowNetwork !== false,
         appVersion: app.getVersion(),
       });
+
+      // `fetched` is exactly "the engine wrote the file": it writes only when
+      // at least one checkpoint needed looking up, so a run answered entirely
+      // from the table has nothing to tell anyone.
+      if (stats?.fetched > 0) broadcastBaseModelTableChanged(event.sender);
 
       return { success: true, results, stats };
     } catch (error) {
@@ -2066,10 +2091,13 @@ function setupFileOperationHandlers() {
     }
   });
 
-  ipcMain.handle("clear-base-model-table", async () => {
+  ipcMain.handle("clear-base-model-table", async (event) => {
     try {
       const tablePath = tablePathFor(await getCacheRootPath());
       await clearTable(tablePath);
+      // A window open on the same library is showing values that no longer
+      // exist in the table.
+      broadcastBaseModelTableChanged(event.sender);
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -2087,6 +2115,7 @@ function setupFileOperationHandlers() {
       const mappings = Array.isArray(args.mappings) ? args.mappings : [];
       const tablePath = tablePathFor(await getCacheRootPath());
       const table = await setManualMappings(tablePath, mappings);
+      broadcastBaseModelTableChanged(event.sender);
       return { success: true, entries: table.entries };
     } catch (error) {
       return { success: false, error: error.message, entries: {} };

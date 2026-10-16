@@ -54,6 +54,17 @@ export function normalizeModelName(name) {
 }
 
 /**
+ * The key prefix for a checkpoint identified by name alone.
+ *
+ * Exported because a *manual* row filed this way is recognized by its prefix
+ * (see `buildNameIndex`): a mapping the user attached to a model name is a
+ * statement about the name, so — unlike a hash key, which names one exact file
+ * — it is allowed to answer an image of the same checkpoint that carries a hash
+ * of its own.
+ */
+export const NAME_KEY_PREFIX = 'name:';
+
+/**
  * The key a checkpoint is filed under in the offline table.
  *
  * Hash keys are preferred over name keys because a hash is globally unique
@@ -75,7 +86,7 @@ export function checkpointKey({ hash, name } = {}) {
   }
 
   const cleanName = normalizeModelName(name);
-  return cleanName ? `name:${cleanName}` : null;
+  return cleanName ? `${NAME_KEY_PREFIX}${cleanName}` : null;
 }
 
 /**
@@ -173,6 +184,93 @@ export function isEntryFresh(entry, now = Date.now()) {
   if (!entry) return false;
   if (entry.baseModel) return true;
   return Number.isFinite(entry.expiresAt) && entry.expiresAt > now;
+}
+
+/**
+ * The name index over a table's answers: what a checkpoint can be read as when
+ * its *key* is not the thing you have in hand.
+ *
+ * Two questions get asked of a name, and they are different questions:
+ *
+ *  - `manual` — did the user map this name in Settings? A mapping filed by name
+ *    is a statement about the model, so it answers every image of it, whether
+ *    that image carries a hash or not.
+ *  - `learned` — does the table know this name at all (a looked-up row's
+ *    version name, or one of its filenames)? This is what lets a hash-less
+ *    ComfyUI image be answered from a checkpoint that some other image in the
+ *    library resolved by hash. It is a name match, so it may only be used for a
+ *    ref with no hash to go by.
+ *
+ * Shared by the resolver and by the renderer's display path, so the two cannot
+ * drift: the renderer shows what the resolver would decide, and it has no
+ * engine to ask.
+ *
+ * @param {Record<string, { baseModel?: string | null, source?: string, checkpointName?: string | null, fileNames?: string[], expiresAt?: number }>} entries
+ * @param {number} [now]
+ * @returns {{ manual: Map<string, { baseModel?: string | null }>, learned: Map<string, { baseModel?: string | null }> }}
+ */
+export function buildNameIndex(entries, now = Date.now()) {
+  /** @type {Map<string, { baseModel?: string | null }>} */
+  const manual = new Map();
+  /** @type {Map<string, { baseModel?: string | null }>} */
+  const learned = new Map();
+
+  const rows = Object.entries(entries || {});
+  // Manual rows first. `learned` keeps the *first* entry filed under a name, and
+  // two rows can share one — an answer looked up under `autov2:<hash>`, and the
+  // mapping the user later attached to that same model name — so the row the
+  // user wrote by hand has to come first.
+  const ordered = [
+    ...rows.filter(([, entry]) => entry?.source === 'manual'),
+    ...rows.filter(([, entry]) => entry?.source !== 'manual'),
+  ];
+
+  for (const [key, entry] of ordered) {
+    if (!entry?.baseModel || !isEntryFresh(entry, now)) continue;
+
+    if (entry.source === 'manual' && key.startsWith(NAME_KEY_PREFIX)) {
+      // The key already *is* the name, normalized — read it back from there
+      // rather than depending on the row having restated it in `checkpointName`.
+      const named = key.slice(NAME_KEY_PREFIX.length);
+      if (named && !manual.has(named)) manual.set(named, entry);
+    }
+
+    for (const alias of entryAliases(entry)) {
+      if (!learned.has(alias)) learned.set(alias, entry);
+    }
+  }
+
+  return { manual, learned };
+}
+
+/**
+ * The mapping the user wrote for this checkpoint's name, if there is one.
+ *
+ * Answers the ref outright, hash included: the mapping was made against a name
+ * in Settings, so it speaks for the model — every revision of it, and every
+ * image of it, whatever identity those images happen to carry.
+ *
+ * @param {{ name?: string | null, hash?: string | null }} [ref]
+ * @param {{ manual: Map<string, { baseModel?: string | null }> }} [nameIndex]
+ */
+export function manualMappingFor(ref, nameIndex) {
+  if (!ref?.name || !nameIndex) return undefined;
+  return nameIndex.manual.get(ref.name);
+}
+
+/**
+ * A name the table has learned for this checkpoint, if there is one.
+ *
+ * Undefined for a ref that carries a hash: a name match must never stand in for
+ * a hash, which is the entire reason a hash key exists. Hash-less refs are the
+ * ones this is for — an image whose only identity is the filename.
+ *
+ * @param {{ name?: string | null, hash?: string | null }} [ref]
+ * @param {{ learned: Map<string, { baseModel?: string | null }> }} [nameIndex]
+ */
+export function learnedNameFor(ref, nameIndex) {
+  if (!ref?.name || ref.hash || !nameIndex) return undefined;
+  return nameIndex.learned.get(ref.name);
 }
 
 /**

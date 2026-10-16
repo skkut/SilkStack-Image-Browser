@@ -110,24 +110,48 @@ That is also why there is no IndexedDB store or per-image cache field for it.
   process and the renderer. The two sides must derive the same key or every lookup misses forever.
 - **Resolution engine**: `electron/checkpointLookup.mjs` — cascade of offline table → Civitai by hash →
   Civitai by name (exact match only) → HuggingFace. Rate limited, atomic table writes.
-- **IPC**: `get-base-model-table` / `resolve-base-models` / `clear-base-model-table` in
-  `electron/main.mjs`, mirrored in `electron/preload.js` and `ElectronAPI` in `src/types.ts` —
-  three places that must agree, with nothing verifying it.
+- **IPC**: `get-base-model-table` / `resolve-base-models` / `clear-base-model-table` /
+  `set-base-model-mappings` in `electron/main.mjs`, mirrored in `electron/preload.js` and
+  `ElectronAPI` in `src/types.ts` — three places that must agree, with nothing verifying it. Every
+  write handler then pushes the payload-free `base-model-table-changed` to every window *but the
+  caller* (whose own invoke already returned the new table).
 - **Renderer**: `src/services/baseModelTable.ts` — holds the table in memory and notifies subscribers.
-  `useImageStore` subscribes to bump `baseModelTableVersion` so derived UI re-filters when an
-  async resolution lands (a value that lives outside the image cannot be seen by a memo comparator —
-  it must be passed as a prop, see `ImageTableRow`).
+  `baseModelForImage` runs the resolver's three steps in the resolver's order — a manual mapping filed
+  by name, then the image's own key, then a name the table has learned — through the shared helpers in
+  `checkpointKeys.mjs`, so the column cannot disagree with what `resolveCheckpoints` decided. Those
+  steps are what let a window that never runs a resolve (the popped-out viewer, the stack window)
+  answer a hash-less image at all. `useImageStore` subscribes to bump `baseModelTableVersion` so
+  derived UI re-filters when an async resolution lands (a value that lives outside the image cannot be
+  seen by a memo comparator — it must be passed as a prop, see `ImageTableRow`).
+- **Per-window state**: that table is *module* state in a renderer, so **every window holds its own
+  copy**. Any window that shows a base model has to adopt it — `hooks/useBaseModelResolution.ts` →
+  `useBaseModelTable` (load on mount + re-read on `base-model-table-changed`). The main window gets it
+  via `useBaseModelResolution`; the popped-out image viewer, which is where the image modal actually
+  lives in Electron (`App.tsx` mounts the in-app modal only without `electronAPI`), calls the hook
+  itself in `ImageModalWindow`. Add a new window that renders generation details and it needs the hook
+  too — skipping it shows **no** Base Model row and no error, because `MetaRow` renders nothing for an
+  empty value.
 - **Manual mappings**: Settings → Base Models (`components/CheckpointMappingSection.tsx`) lets the
   user assign a base model to any checkpoint the lookup cannot answer. They are stored as ordinary
   rows with `source: 'manual'` — not in a side file — which is what makes them authoritative for
-  free (`isEntryFresh` never expires a truthy `baseModel`), survive `clearTable`, and alias-match a
-  hash-less image of the same file. Three invariants to preserve when touching this area:
+  free (`isEntryFresh` never expires a truthy `baseModel`), survive `clearTable`, and answer the
+  images of the checkpoint they were filed against. Four invariants to preserve when touching this
+  area:
   1. `resolveCheckpoints` must never overwrite a manual row, and must re-read the table inside
      `withTableLock` before writing — a mapping saved while a lookup is in flight exists only on
      disk, so writing the pre-fetch snapshot would erase it.
-  2. `clearTable` keeps manual rows and drops everything looked up. The renderer's
+  2. **The scope of a mapping is the row the user clicked**, and that is what the name/manual split in
+     `buildNameIndex` encodes. Filed **by name**, it answers every ref carrying that name — hash-bearing
+     ones included — and is checked *before* the ref's own key, so a mapping can correct a checkpoint
+     the lookup already answered. Filed **under a hash** it stays scoped to that file plus its
+     hash-less images: two files sharing a name are not the same checkpoint. Looked-up entries keep the
+     strict rule (`learnedNameFor` is for hash-less refs only) — a name guess must never stand in for a
+     hash. A mapped checkpoint therefore costs **zero** requests, which is the promise the screen makes.
+     `manualMappingFor` / `learnedNameFor` / `buildNameIndex` live in `checkpointKeys.mjs` and are
+     called by *both* the engine and the renderer — never re-implement the rule on one side.
+  3. `clearTable` keeps manual rows and drops everything looked up. The renderer's
      `clearBaseModelTable` mirrors that split in memory; letting the two disagree blanks the column.
-  3. The picker's values are a **hand-copied snapshot of Civitai's own "Base model" filter
+  4. The picker's values are a **hand-copied snapshot of Civitai's own "Base model" filter
      dropdown**, trimmed by hand — grouped and ordered as Civitai presents it (by publisher), which
      makes a refresh a mechanical copy-paste. This is deliberately **not** a live fetch: Civitai
      publishes no endpoint that lists base models, and enumeration-by-sampling would keep only what

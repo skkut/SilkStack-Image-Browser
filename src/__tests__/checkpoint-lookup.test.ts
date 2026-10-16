@@ -341,6 +341,101 @@ describe('checkpointLookup', () => {
       expect(results[0]).toBeNull();
     });
 
+    it('never looks up a checkpoint the user mapped by name, hash or no hash', async () => {
+      // A mapping made in Settings is promised to apply to every image made with
+      // that checkpoint. In a library that is part ComfyUI, that promise used to
+      // hold for the hash-less images only: an image carrying a hash was matched
+      // by its hash, so it went to the network — and the answer could even
+      // differ from the mapping the user had already written.
+      await writeTable(tablePath, {
+        entries: {
+          // What setManualMappings writes for a name-keyed row — the shape the
+          // Settings list produces whenever a checkpoint has no hash.
+          'name:z image turbo bf16': {
+            baseModel: 'Pony',
+            source: 'manual',
+            checkpointName: 'z_image_turbo_bf16',
+            fetchedAt: NOW,
+          },
+        },
+      });
+
+      // A live answer, so a regression is caught by *which* answer came back and
+      // not only by the request count.
+      const { fetchImpl, calls } = installFetch([
+        { match: 'by-hash', body: civitaiHashPayload('SD 1.5') },
+      ]);
+      const ref = buildCheckpointRef({ name: 'z_image_turbo_bf16.safetensors', hash: '6ce0161689' });
+      expect(ref.key).toBe('autov2:6ce0161689');
+
+      const { results, stats } = await resolveCheckpoints({
+        tablePath, refs: [ref], fetchImpl, now: () => NOW,
+      });
+
+      expect(calls).toHaveLength(0);
+      expect(results[0]?.baseModel).toBe('Pony');
+      expect(stats).toMatchObject({ fromTable: 1, fetched: 0 });
+    });
+
+    it('lets a name-filed mapping outrank a looked-up answer for the same model', async () => {
+      // Deliberate direction, and the reason it is not the other way round: the
+      // row the user clicked names the *model*, and their answer is meant to
+      // hold for every image of it. If a looked-up row could hold its ground
+      // here, correcting a checkpoint the app had already answered wrong would
+      // do nothing at all — the one thing Settings exists for.
+      await writeTable(tablePath, {
+        entries: {
+          'autov2:6ce0161689': {
+            baseModel: 'SD 1.5',
+            source: 'civitai-hash',
+            fetchedAt: NOW,
+          },
+          'name:z image turbo bf16': {
+            // No `checkpointName` on purpose: for a name key the key *is* the
+            // name, so the mapping still has to be found.
+            baseModel: 'Pony',
+            source: 'manual',
+            fetchedAt: NOW,
+          },
+        },
+      });
+
+      const { fetchImpl, calls } = installFetch([]);
+      const ref = buildCheckpointRef({ name: 'z_image_turbo_bf16', hash: '6ce0161689' });
+      const { results } = await resolveCheckpoints({
+        tablePath, refs: [ref], fetchImpl, now: () => NOW,
+      });
+
+      expect(calls).toHaveLength(0);
+      expect(results[0]?.baseModel).toBe('Pony');
+    });
+
+    it('does not let a mapping filed under a hash answer a different file of the same name', async () => {
+      // The other edge of the boundary. A row keyed by hash is a statement about
+      // one exact file, so it widens no further than it did before: two files
+      // that merely share a name are not the same checkpoint, and only a mapping
+      // filed by *name* is allowed to speak for a name.
+      await writeTable(tablePath, {
+        entries: {
+          'autov2:aaaaaaaaaa': {
+            baseModel: 'SD 1.5',
+            source: 'manual',
+            fetchedAt: NOW,
+            checkpointName: 'shared-name',
+          },
+        },
+      });
+
+      const { fetchImpl, calls } = installFetch([{ match: 'by-hash', status: 404 }]);
+      const ref = buildCheckpointRef({ name: 'shared-name.safetensors', hash: 'bbbbbbbbbb' });
+      const { results } = await resolveCheckpoints({
+        tablePath, refs: [ref], fetchImpl, now: () => NOW,
+      });
+
+      expect(calls[0].url).toContain('bbbbbbbbbb');
+      expect(results[0]).toBeNull();
+    });
+
     it('makes no requests at all when network access is disabled', async () => {
       const { fetchImpl, calls } = installFetch([
         { match: 'by-hash', body: civitaiHashPayload('SD 1.5') },

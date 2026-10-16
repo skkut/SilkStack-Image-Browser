@@ -143,6 +143,33 @@ describe('base model lookup — offline table', () => {
     const lora = image('l', { models: ['myStyle_lora.safetensors'] });
     expect(baseModelForImage(lora)).toBe('');
   });
+
+  it('answers a hash-less image from a name the table learned, but never a hashed one', async () => {
+    // The resolver answers a hash-less ref from a name that a *hashed* image of
+    // the same file taught the table. This is that same step carried into the
+    // display: only the window that ran the resolve used to end up holding the
+    // answer, so the popped-out viewer — which reads the table and nothing else
+    // — showed nothing at all for these images.
+    await load({
+      [AUTOV2_KEY]: {
+        baseModel: SD15,
+        source: 'civitai-hash',
+        checkpointName: 'dreamshaper_8',
+        fetchedAt: 1,
+      },
+    });
+
+    const comfy = image('comfy', { models: ['dreamshaper_8.safetensors'] });
+    expect(baseModelForImage(comfy)).toBe(SD15);
+
+    // But a hash is an identity, and a name match must never stand in for it:
+    // a different file that merely shares the name gets no answer.
+    const other = image('other', {
+      models: ['dreamshaper_8.safetensors'],
+      metadata: { normalizedMetadata: { model_hash: 'bbbbbbbbbb' } } as any,
+    });
+    expect(baseModelForImage(other)).toBe('');
+  });
 });
 
 describe('base model lookup — store reactivity', () => {
@@ -341,6 +368,32 @@ describe('base model lookup — manual mappings', () => {
     expect(ipc.setBaseModelMappings).toHaveBeenCalledWith({
       mappings: [{ key: 'name:x', baseModel: 'Pony', checkpointName: 'X' }],
     });
+  });
+
+  it('applies a mapping filed by name to an image that carries a hash', async () => {
+    // The mixed-library case, and the one that used to slip past the mapping:
+    // the row was filed against the *name* (what the Settings list shows for a
+    // checkpoint whose images carry no hash), and this image has one. Same
+    // model, so same answer — which is exactly how the resolver reads it, and
+    // the column has to agree with what the resolver decided.
+    const hashed = image('hashed-z', {
+      models: ['z_image_turbo_bf16.safetensors'],
+      metadata: { normalizedMetadata: { model_hash: '6ce0161689' } } as any,
+    });
+
+    // The app's own answer for that exact file…
+    await load({
+      [AUTOV2_KEY]: { baseModel: SD15, source: 'civitai-hash', fetchedAt: 1 },
+    });
+    expect(baseModelForImage(hashed)).toBe(SD15);
+
+    // …and the user's, which outranks it. Mapping a checkpoint the lookup got
+    // wrong is the one thing the mapping UI exists for.
+    await load({
+      [AUTOV2_KEY]: { baseModel: SD15, source: 'civitai-hash', fetchedAt: 1 },
+      'name:z image turbo bf16': { baseModel: 'Pony', source: 'manual', fetchedAt: 1 },
+    });
+    expect(baseModelForImage(hashed)).toBe('Pony');
   });
 
   it('ignores an empty key rather than writing an unmatchable row', async () => {

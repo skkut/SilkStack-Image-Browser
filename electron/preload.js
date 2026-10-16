@@ -180,6 +180,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getBaseModelTable: () => ipcRenderer.invoke('get-base-model-table'),
   clearBaseModelTable: () => ipcRenderer.invoke('clear-base-model-table'),
   setBaseModelMappings: (args) => ipcRenderer.invoke('set-base-model-mappings', args),
+  // Another window wrote the table. Carries no table with it: the reader
+  // re-reads, so there is one shape of the table and it is the file's.
+  onBaseModelTableChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('base-model-table-changed', handler);
+    return () => {
+      ipcRenderer.removeListener('base-model-table-changed', handler);
+    };
+  },
 
   // File watching
   startWatchingDirectory: (args) => ipcRenderer.invoke('start-watching-directory', args),

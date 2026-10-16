@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { type IndexedImage } from "../types";
 import ImageModal from "./ImageModal";
+import { useBaseModelTable } from "../hooks/useBaseModelResolution";
 
 /**
  * ImageModalWindow - A wrapper component that renders ImageModal inside a child Electron window.
@@ -9,6 +10,12 @@ import ImageModal from "./ImageModal";
  * Actions (delete, rename, favorite, tags) are still forwarded to the main window for grid sync.
  */
 const ImageModalWindow: React.FC = () => {
+  // The checkpoint → base model table is per renderer process, and this window
+  // is not the one that resolves it. Without this the modal's "Base Model" row
+  // is blank for every image here — MetaRow hides an empty value, so it simply
+  // never appears rather than showing a placeholder.
+  useBaseModelTable();
+
   const [imageList, setImageList] = useState<IndexedImage[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [directoryPath, setDirectoryPath] = useState("");

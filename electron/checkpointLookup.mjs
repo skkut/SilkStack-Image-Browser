@@ -1,11 +1,13 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+// Only what this module *uses*: the rest of the identity helpers are re-exported
+// below, and a re-export needs no local binding.
 import {
-  buildCheckpointRef,
-  checkpointKey,
-  entryAliases,
+  buildNameIndex,
   isEntryFresh,
+  learnedNameFor,
+  manualMappingFor,
   normalizeModelName,
   readBaseModelTag,
 } from './checkpointKeys.mjs';
@@ -15,9 +17,13 @@ import {
 // dependency-free half that the renderer can also import.
 export {
   buildCheckpointRef,
+  buildNameIndex,
   checkpointKey,
   entryAliases,
   isEntryFresh,
+  learnedNameFor,
+  manualMappingFor,
+  NAME_KEY_PREFIX,
   normalizeModelName,
   readBaseModelTag,
   matchEncodedHash,
@@ -507,6 +513,11 @@ export async function writeTable(tablePath, table, io = {}) {
  * Resolves a batch of checkpoint refs, consulting the offline table first and
  * the network only for what is missing.
  *
+ * Anything the table can answer costs no request at all: a row filed under the
+ * ref's own key, a name the table already learned, and — the one case that has
+ * to outrank the others — a mapping the user wrote by hand, which answers the
+ * images of every ref carrying its name whether or not they have a hash.
+ *
  * The returned array is **positionally aligned with `refs`**, which is what
  * lets the renderer zip results straight back onto its own list without
  * agreeing on a key format with this module.
@@ -546,25 +557,29 @@ export async function resolveCheckpoints({
   const pending = [];
 
   /**
-   * Names the table already has answers for, learned from hash-resolved
-   * checkpoints (a Civitai version's name and its filenames).
-   *
-   * This is what makes a ComfyUI library resolve without any network at all:
-   * its images carry no hash, but the moment *one* A1111/Forge image in the
-   * same library resolves that checkpoint by hash, every ComfyUI image using
-   * the same file can be answered from the table. Matching is exact — this
-   * widens *coverage*, never certainty.
+   * What the table can answer by *name*, for a ref whose key is not the thing
+   * the image carries. Built by the identity module so the renderer's display
+   * path asks the same question of the same rows and gets the same answer —
+   * see `buildNameIndex`.
    */
-  const aliasIndex = new Map();
-  for (const entry of Object.values(table.entries)) {
-    if (!entry?.baseModel || !isEntryFresh(entry, startedAt)) continue;
-    for (const alias of entryAliases(entry)) {
-      if (!aliasIndex.has(alias)) aliasIndex.set(alias, entry);
-    }
-  }
+  const nameIndex = buildNameIndex(table.entries, startedAt);
 
   refs.forEach((ref, index) => {
     if (!ref?.key) return;
+
+    // A mapping the user filed by *name* answers first, ahead of the table's own
+    // answer for this ref. That ordering is the point: the mapping is a
+    // statement about the model, so it holds for every image of it — including
+    // an image whose hash the app already answered (wrongly, or for a different
+    // revision of the same name) and including a cached "not found", which is
+    // the absence of an answer rather than one. Without this, mapping a
+    // checkpoint in Settings would work for some of its images and silently do
+    // nothing for the rest, and the ones it skipped would still be looked up.
+    const mapped = manualMappingFor(ref, nameIndex);
+    if (mapped) {
+      results[index] = mapped;
+      return;
+    }
 
     const entry = table.entries[ref.key];
     if (isEntryFresh(entry, startedAt)) {
@@ -572,12 +587,16 @@ export async function resolveCheckpoints({
       return;
     }
 
-    if (!ref.hash && ref.name) {
-      const aliased = aliasIndex.get(ref.name);
-      if (aliased) {
-        results[index] = aliased;
-        return;
-      }
+    // No hash: the filename is the only identity this image can offer, so any
+    // name the table has learned answers it — that is what makes a ComfyUI
+    // library resolve with no network once one hashed image of the same file
+    // did. Looked-up entries are held to that rule and no further (see
+    // `learnedNameFor`); the manual rows that are allowed past it were matched
+    // above.
+    const aliased = learnedNameFor(ref, nameIndex);
+    if (aliased) {
+      results[index] = aliased;
+      return;
     }
 
     pending.push(index);

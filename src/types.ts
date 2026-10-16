@@ -317,6 +317,18 @@ export interface ElectronAPI {
     entries?: Record<string, BaseModelEntry>;
     error?: string;
   }>;
+  /**
+   * Fires when *another* window wrote the table (a resolve run, a mapping
+   * saved in Settings, or a clear) — the sender already has the new table from
+   * its own call, so it is not told. The event carries nothing: the receiver
+   * re-reads the table, which keeps one shape of it rather than a second copy
+   * crossing IPC.
+   *
+   * Needed because the table is per renderer process and the image viewer is a
+   * window of its own — without this, a viewer opened before the resolve landed
+   * would show no base model for the rest of its life.
+   */
+  onBaseModelTableChanged?: (callback: () => void) => () => void;
 
   onLoadDirectoryFromCLI: (callback: (dirPath: string) => void) => () => void;
   onMenuAddFolder: (callback: () => void) => () => void;

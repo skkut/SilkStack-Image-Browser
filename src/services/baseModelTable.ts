@@ -16,7 +16,12 @@
  * lookup would miss forever and the table would grow without ever being read.
  */
 
-import { buildCheckpointRef } from '../../electron/checkpointKeys.mjs';
+import {
+  buildCheckpointRef,
+  buildNameIndex,
+  learnedNameFor,
+  manualMappingFor,
+} from '../../electron/checkpointKeys.mjs';
 import type { BaseModelEntry, CheckpointRef, IndexedImage } from '../types';
 
 /**
@@ -49,6 +54,13 @@ let baseModelEntries: Record<string, BaseModelEntry> = {};
  * on the hot path) keeps doing a flat object lookup.
  */
 let baseModelMap: Record<string, string> = {};
+
+/**
+ * The same table read by *name* instead of by key, for the images whose key is
+ * not what the table filed them under. Rebuilt with the projection, by the
+ * identity module, so this side asks exactly what the resolver asks.
+ */
+let baseModelNameIndex = buildNameIndex({});
 
 const listeners = new Set<() => void>();
 
@@ -83,6 +95,7 @@ function adoptEntries(entries: Record<string, BaseModelEntry>) {
 
   baseModelEntries = entries;
   baseModelMap = next;
+  baseModelNameIndex = buildNameIndex(entries);
   notify();
 }
 
@@ -164,11 +177,31 @@ export function checkpointRefForImage(image: IndexedImage): CheckpointRef {
  *
  * LoRAs are skipped: a LoRA's own base model says nothing about the checkpoint
  * that rendered the image, and `models[0]` is a checkpoint by construction.
+ *
+ * The three steps are the resolver's, in the resolver's order, so what is shown
+ * here is what `resolveCheckpoints` decided — the renderer has no engine to ask,
+ * and a column that disagreed with the lookup would be worse than either alone:
+ *
+ * 1. a mapping the user filed by name in Settings, which answers every image of
+ *    that model whether or not it carries a hash, and deliberately outranks
+ *    whatever the lookup answered for the same checkpoint;
+ * 2. the image's own checkpoint key, the flat lookup this hot path is built on;
+ * 3. a name the table has learned, for an image with no hash to go by — which
+ *    is every ComfyUI image once one hashed image of the same file resolved,
+ *    and, in a window that never runs a resolve (the popped-out viewer), the
+ *    only way such an image is ever answered at all.
  */
 export function baseModelForImage(image: IndexedImage): string {
   const ref = checkpointRefForImage(image);
   if (!ref.key || ref.isLora) return '';
-  return baseModelMap[ref.key] || '';
+
+  const mapped = manualMappingFor(ref, baseModelNameIndex);
+  if (mapped?.baseModel) return mapped.baseModel;
+
+  const own = baseModelMap[ref.key];
+  if (own) return own;
+
+  return learnedNameFor(ref, baseModelNameIndex)?.baseModel || '';
 }
 
 /**
