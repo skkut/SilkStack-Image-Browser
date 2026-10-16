@@ -1456,9 +1456,13 @@ export default function App() {
                   {activeView === 'smart' ? (
                     aiFeaturesEnabled ? <Stacks /> : null
                   ) : activeView === 'model' ? (
-                    <ModelView 
+                    <ModelView
                       onModelSelect={(modelName) => {
                         setSelectedFilters({ models: [modelName] });
+                        setActiveView('library');
+                      }}
+                      onBaseModelSelect={(baseModel) => {
+                        setSelectedFilters({ baseModels: [baseModel] });
                         setActiveView('library');
                       }}
                     />
