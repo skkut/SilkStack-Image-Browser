@@ -9,6 +9,7 @@ export type SettingsTab =
   | 'general'
   | 'folders'
   | 'hotkeys'
+  | 'baseModels'
   | 'license'
   | 'about'
   | 'ai';
@@ -302,6 +303,20 @@ export interface ElectronAPI {
     error?: string;
   }>;
   clearBaseModelTable: () => Promise<{ success: boolean; error?: string }>;
+  /**
+   * Writes user-authored mappings and returns the whole table back.
+   *
+   * A mapping with an empty `baseModel` clears that checkpoint's manual row.
+   * The returned table is what the renderer adopts, so it never has to guess
+   * at what the write did.
+   */
+  setBaseModelMappings: (args: {
+    mappings: Array<{ key: string; baseModel: string | null; checkpointName?: string | null }>;
+  }) => Promise<{
+    success: boolean;
+    entries?: Record<string, BaseModelEntry>;
+    error?: string;
+  }>;
 
   onLoadDirectoryFromCLI: (callback: (dirPath: string) => void) => () => void;
   onMenuAddFolder: (callback: () => void) => () => void;
@@ -1155,10 +1170,14 @@ export interface CheckpointRef {
  *
  * `fileNames` / `checkpointName` are the aliases the entry was learned under —
  * they let a later, hash-less ComfyUI image of the same file resolve offline.
+ *
+ * `source: "manual"` marks a row the *user* wrote in Settings → Base Models.
+ * Those never expire and are never overwritten by a lookup: a network answer is
+ * not better than the one the user gave for their own checkpoint.
  */
 export interface BaseModelEntry {
   baseModel: string | null;
-  source: "civitai-hash" | "civitai-name" | "huggingface" | "miss";
+  source: "civitai-hash" | "civitai-name" | "huggingface" | "miss" | "manual";
   confidence?: number;
   checkpointName?: string;
   fileNames?: string[];

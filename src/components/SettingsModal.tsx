@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, ExternalLink, Check, Info, Github, Globe, Smile, Tag, GripVertical, ShieldCheck } from 'lucide-react';
+import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, Wrench, Palette, Keyboard, Eye, ExternalLink, Check, Info, Github, Globe, Smile, Tag, GripVertical, ShieldCheck, Boxes } from 'lucide-react';
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { AiModelCacheSection } from './AiModelCacheSection';
+import { CheckpointMappingSection } from './CheckpointMappingSection';
 import { useImageStore } from '../store/useImageStore';
 import { isBaseModelLookupAvailable } from '../services/baseModelTable';
 import { Directory, type SettingsTab } from '../types';
@@ -488,6 +489,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Keyboard Shortcuts</span>
             </button>
 
+            {onlineModelLookupAvailable && (
+            <button
+              onClick={() => setActiveTab('baseModels')}
+              className={`flex items-center space-x-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'baseModels' ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400 hover:bg-gray-800 hover:text-gray-200'}`}
+            >
+              <Boxes size={18} />
+              <span>Base Models</span>
+            </button>
+            )}
+
             {aiFeaturesEnabled && (
             <button
               onClick={() => setActiveTab('ai')}
@@ -520,6 +531,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* Main Content Area */}
           <div className="flex-1 overflow-y-auto bg-gray-800/50 p-6 md:p-8">
             <div className="max-w-2xl mx-auto h-full">
+              {activeTab === 'baseModels' && (
+                <div className="animate-in fade-in duration-300 pb-8">
+                  <CheckpointMappingSection />
+                </div>
+              )}
+
               {activeTab === 'general' && (
                 <div className="space-y-8 animate-in fade-in duration-300 pb-8">
                   {/* Display */}

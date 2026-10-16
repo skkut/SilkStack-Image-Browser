@@ -20,6 +20,7 @@ const ipc = vi.hoisted(() => {
     getBaseModelTable: vi.fn(),
     resolveBaseModels: vi.fn(),
     clearBaseModelTable: vi.fn().mockResolvedValue({ success: true }),
+    setBaseModelMappings: vi.fn().mockResolvedValue({ success: true, entries: {} }),
   };
   (globalThis as any).window = (globalThis as any).window || {};
   (globalThis as any).window.electronAPI = bridge;
@@ -28,7 +29,7 @@ const ipc = vi.hoisted(() => {
 
 import { useImageStore } from '../store/useImageStore';
 import { loadBaseModelTable, baseModelForImage } from '../services/baseModelTable';
-import { type IndexedImage } from '../types';
+import { type BaseModelEntry, type IndexedImage } from '../types';
 
 /**
  * The base-model column is derived, not stored on the image: the offline
@@ -82,7 +83,7 @@ const entries = () => ({
  * below loads an explicit table rather than inheriting whatever the previous
  * test left behind.
  */
-const load = async (table: Record<string, { baseModel: string }>) => {
+const load = async (table: Record<string, Partial<BaseModelEntry> & { baseModel: string }>) => {
   ipc.getBaseModelTable.mockResolvedValue({ success: true, entries: table });
   await loadBaseModelTable();
 };
@@ -295,5 +296,73 @@ describe('base model lookup — resolution run', () => {
     expect(baseModelForImage(HASHED)).toBe('');
     expect(useImageStore.getState().baseModelResolveStatus.state).toBe('idle');
     expect(useImageStore.getState().availableBaseModels).toEqual([]);
+  });
+});
+
+/**
+ * Settings → Base Models writes here. The promise that screen makes is that a
+ * mapping applies to every image using that checkpoint at once, with no
+ * re-index — so what these pin is that a hand-written answer reaches exactly
+ * the same derived state an automatic one does: the per-image lookup and the
+ * sidebar facet.
+ */
+describe('base model lookup — manual mappings', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    ipc.setBaseModelMappings.mockResolvedValue({ success: true, entries: {} });
+    await load(entries());
+    seed();
+  });
+
+  it('applies one mapping to every image using that checkpoint', async () => {
+    const third = image('third', { models: ['krea2_turbo_fp8_scaled.safetensors'] });
+    seed([...IMAGES, third]);
+
+    ipc.setBaseModelMappings.mockResolvedValue({
+      success: true,
+      entries: {
+        ...entries(),
+        'name:krea2 turbo fp8 scaled': { baseModel: 'Krea 2 Turbo', source: 'manual', fetchedAt: 1 },
+      },
+    });
+
+    await useImageStore
+      .getState()
+      .setBaseModelMapping('name:krea2 turbo fp8 scaled', 'Krea 2 Turbo', 'krea2_turbo_fp8_scaled');
+
+    expect(baseModelForImage(third)).toBe('Krea 2 Turbo');
+    // Rebuilt off the same notification, with nothing re-indexed.
+    expect(useImageStore.getState().availableBaseModels).toContain('Krea 2 Turbo');
+  });
+
+  it('sends the checkpoint key, the value and the local name', async () => {
+    await useImageStore.getState().setBaseModelMapping('name:x', 'Pony', 'X');
+
+    expect(ipc.setBaseModelMappings).toHaveBeenCalledWith({
+      mappings: [{ key: 'name:x', baseModel: 'Pony', checkpointName: 'X' }],
+    });
+  });
+
+  it('ignores an empty key rather than writing an unmatchable row', async () => {
+    await useImageStore.getState().setBaseModelMapping('', 'Pony');
+
+    expect(ipc.setBaseModelMappings).not.toHaveBeenCalled();
+  });
+
+  it('keeps the mappings when the looked-up entries are cleared', async () => {
+    const mapped = image('mapped', { models: ['gamma_model.ckpt'] });
+    seed([HASHED, mapped]);
+    await load({
+      ...entries(),
+      'name:gamma model': { baseModel: 'Krea 2', source: 'manual', fetchedAt: 1 },
+    });
+
+    await useImageStore.getState().clearBaseModelTable();
+
+    // The main process carries manual rows across the wipe, so memory has to
+    // agree — otherwise the column would blank until the next launch even
+    // though the mapping is still sitting on disk.
+    expect(baseModelForImage(mapped)).toBe('Krea 2');
+    expect(baseModelForImage(HASHED)).toBe('');
   });
 });

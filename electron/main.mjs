@@ -36,6 +36,7 @@ import {
   resolveCheckpoints,
   clearTable,
   readTable,
+  setManualMappings,
   tablePathFor,
 } from "./checkpointLookup.mjs";
 import archiver from "archiver";
@@ -2072,6 +2073,23 @@ function setupFileOperationHandlers() {
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  });
+
+  // User-authored checkpoint → base model mappings, for the checkpoints Civitai
+  // and HuggingFace do not know or that the user has since deleted from disk.
+  // Unlike `resolve-base-models` this never touches the network, and it returns
+  // the whole table back so the renderer never has to reconstruct it — a second
+  // read would be a round trip that could disagree with what was just written.
+  ipcMain.handle("set-base-model-mappings", async (event, payload) => {
+    try {
+      const args = payload || {};
+      const mappings = Array.isArray(args.mappings) ? args.mappings : [];
+      const tablePath = tablePathFor(await getCacheRootPath());
+      const table = await setManualMappings(tablePath, mappings);
+      return { success: true, entries: table.entries };
+    } catch (error) {
+      return { success: false, error: error.message, entries: {} };
     }
   });
 

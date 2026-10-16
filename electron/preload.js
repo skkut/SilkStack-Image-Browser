@@ -179,6 +179,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resolveBaseModels: (args) => ipcRenderer.invoke('resolve-base-models', args),
   getBaseModelTable: () => ipcRenderer.invoke('get-base-model-table'),
   clearBaseModelTable: () => ipcRenderer.invoke('clear-base-model-table'),
+  setBaseModelMappings: (args) => ipcRenderer.invoke('set-base-model-mappings', args),
 
   // File watching
   startWatchingDirectory: (args) => ipcRenderer.invoke('start-watching-directory', args),

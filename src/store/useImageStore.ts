@@ -39,6 +39,7 @@ import {
     getBaseModelMap,
     isBaseModelLookupAvailable,
     resolveBaseModels,
+    setBaseModelMappings as setBaseModelMappingsRequest,
     subscribeToBaseModelTable,
     type BaseModelResolveStatus,
 } from '../services/baseModelTable';
@@ -1056,8 +1057,24 @@ interface ImageState {
    * and a second call after the table is warm issues no requests at all.
    */
   resolveBaseModelsNow: (options?: { allowNetwork?: boolean }) => Promise<void>;
-  /** Drops the offline table, in memory and on disk. */
+  /** Drops the looked-up entries, keeping any checkpoint mappings the user wrote by hand. */
   clearBaseModelTable: () => Promise<void>;
+  /**
+   * Maps one checkpoint to a base model by hand, or clears that mapping when
+   * `baseModel` is empty.
+   *
+   * This is the escape hatch for the checkpoints Civitai and HuggingFace cannot
+   * answer — most often because the model was deleted from disk long ago, which
+   * is exactly when the base model is still worth knowing. Nothing is requested
+   * from the network, and the answer applies to every image using that
+   * checkpoint at once: the service notifies its subscribers, and this store's
+   * subscription re-filters and rebuilds the sidebar facet.
+   */
+  setBaseModelMapping: (
+    key: string,
+    baseModel: string | null,
+    checkpointName?: string | null,
+  ) => Promise<void>;
   setSortOrder: (order: SortOrder) => void;
   /**
    * The list view's column sort. Called by ImageTable on a column click
@@ -2670,6 +2687,15 @@ export const useImageStore = create<ImageState>((set, get) => {
         clearBaseModelTable: async () => {
             await clearBaseModelTableRequest();
             set({ baseModelResolveStatus: EMPTY_BASE_MODEL_STATUS });
+        },
+
+        setBaseModelMapping: async (key, baseModel, checkpointName) => {
+            if (!key) return;
+            await setBaseModelMappingsRequest([{ key, baseModel, checkpointName }]);
+            // No `set` here on purpose: writing the mapping notifies the table's
+            // subscribers, and this store is one of them — it re-filters and
+            // rebuilds the facet itself (see the subscription at the bottom of
+            // this file). Setting state here too would just duplicate that pass.
         },
 
         setImages: (images) => {

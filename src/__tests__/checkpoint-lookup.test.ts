@@ -13,6 +13,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import type { BaseModelEntry } from '../types';
+
 import {
   buildCheckpointRef,
   checkpointKey,
@@ -23,6 +25,7 @@ import {
   readTable,
   resolveCheckpoints,
   resolveCheckpoint,
+  setManualMappings,
   tablePathFor,
   writeTable,
   NEGATIVE_TTL_MS,
@@ -654,6 +657,162 @@ describe('checkpointLookup', () => {
       await writeTable(tablePath, { entries: { a: { baseModel: 'SD 1.5' } } });
       const files = await fs.readdir(dir);
       expect(files).toEqual([path.basename(tablePath)]);
+    });
+  });
+
+  /**
+   * Settings → Base Models writes here. The point of the whole feature is that
+   * a hand-written answer outranks a looked-up one and is never lost, so most
+   * of these are really about *survival*: past a clear, past a resolve run, and
+   * past a request that was already in the air when the user hit save.
+   */
+  describe('manual mappings', () => {
+    const mappingRow = async (key: string): Promise<BaseModelEntry | undefined> =>
+      (await readTable(tablePath)).entries[key] as BaseModelEntry | undefined;
+
+    it('stores a mapping as a manual row that never expires', async () => {
+      await setManualMappings(tablePath, [
+        {
+          key: 'name:krea2 turbo fp8 scaled',
+          baseModel: 'Krea 2 Turbo',
+          checkpointName: 'krea2_turbo_fp8_scaled',
+        },
+      ]);
+
+      const entry = await mappingRow('name:krea2 turbo fp8 scaled');
+      expect(entry?.baseModel).toBe('Krea 2 Turbo');
+      expect(entry?.source).toBe('manual');
+      // Unlike a cached miss there is no expiry to outlive: the user's answer
+      // does not become less true with age.
+      expect(entry?.expiresAt).toBeUndefined();
+      expect(isEntryFresh(entry, NOW + 10 * 365 * DAY)).toBe(true);
+    });
+
+    it('answers a checkpoint from the mapping without touching the network', async () => {
+      const ref = buildCheckpointRef({ name: 'krea2_turbo_fp8_scaled.safetensors', hash: null });
+      await setManualMappings(tablePath, [{ key: ref.key, baseModel: 'Krea 2 Turbo' }]);
+
+      const { fetchImpl } = installFetch([]);
+      const { results, stats } = await resolveCheckpoints({
+        tablePath,
+        refs: [ref],
+        fetchImpl,
+        now: () => NOW,
+      });
+
+      expect(results[0]?.baseModel).toBe('Krea 2 Turbo');
+      expect(stats).toEqual({ total: 1, fromTable: 1, fetched: 0 });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('outranks a lookup that would have resolved the same checkpoint', async () => {
+      const ref = buildCheckpointRef({ name: 'juggernaut_xl.safetensors', hash: '6ce0161689' });
+      await setManualMappings(tablePath, [{ key: ref.key, baseModel: 'SDXL 1.0' }]);
+
+      // Civitai would say Pony. The user said SDXL. The request is not made.
+      const { fetchImpl } = installFetch([
+        { match: 'by-hash', status: 200, body: civitaiHashPayload('Pony') },
+      ]);
+      const { results } = await resolveCheckpoints({
+        tablePath,
+        refs: [ref],
+        fetchImpl,
+        now: () => NOW,
+      });
+
+      expect(results[0]?.baseModel).toBe('SDXL 1.0');
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('is not clobbered by a lookup that was already in flight', async () => {
+      const ref = buildCheckpointRef({ name: 'race.safetensors', hash: '6ce0161689' });
+
+      // The mapping is saved *while* the request this ref triggered is open —
+      // the one window the read-side short-circuit cannot cover, and the reason
+      // the resolver has to check the source before it writes.
+      const fetchImpl = vi.fn(async () => {
+        await setManualMappings(tablePath, [{ key: ref.key, baseModel: 'Krea 2' }]);
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          json: async () => civitaiHashPayload('Pony'),
+        };
+      });
+
+      const { results } = await resolveCheckpoints({
+        tablePath,
+        refs: [ref],
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        now: () => NOW,
+      });
+
+      expect(results[0]?.baseModel).toBe('Krea 2');
+      expect((await mappingRow(ref.key as string))?.source).toBe('manual');
+    });
+
+    it('carries the checkpoint name so a hash-keyed mapping answers a hash-less image', async () => {
+      const hashed = buildCheckpointRef({ name: 'flux1-dev-fp8.safetensors', hash: 'abc1234567' });
+      await setManualMappings(tablePath, [
+        { key: hashed.key, baseModel: 'Flux.1 D', checkpointName: 'flux1-dev-fp8' },
+      ]);
+
+      // A ComfyUI image of the same file has no hash, so it cannot find the
+      // mapping by key — it needs the alias.
+      const hashless = buildCheckpointRef({ name: 'flux1-dev-fp8.safetensors', hash: null });
+      expect(hashless.key).not.toBe(hashed.key);
+
+      const { fetchImpl } = installFetch([]);
+      const { results, stats } = await resolveCheckpoints({
+        tablePath,
+        refs: [hashless],
+        fetchImpl,
+        now: () => NOW,
+      });
+
+      expect(results[0]?.baseModel).toBe('Flux.1 D');
+      expect(stats.fetched).toBe(0);
+    });
+
+    it('hands a checkpoint back to the lookup when the mapping is cleared', async () => {
+      const ref = buildCheckpointRef({ name: 'krea2.safetensors', hash: null });
+      await setManualMappings(tablePath, [{ key: ref.key, baseModel: 'Krea 2' }]);
+      await setManualMappings(tablePath, [{ key: ref.key, baseModel: '' }]);
+
+      expect(await mappingRow(ref.key as string)).toBeUndefined();
+    });
+
+    it('never removes a looked-up row when clearing', async () => {
+      await writeTable(tablePath, {
+        entries: { 'name:known': { baseModel: 'SD 1.5', source: 'civitai-name', fetchedAt: NOW } },
+      });
+      await setManualMappings(tablePath, [{ key: 'name:known', baseModel: null }]);
+
+      // Clearing addresses manual rows only — dropping a real lookup here would
+      // throw away an answer the user never asked to lose.
+      expect((await mappingRow('name:known'))?.baseModel).toBe('SD 1.5');
+    });
+
+    it('survives clearing the cached table, which drops everything looked up', async () => {
+      await writeTable(tablePath, {
+        entries: { 'name:looked-up': { baseModel: 'Pony', source: 'civitai-name', fetchedAt: NOW } },
+      });
+      await setManualMappings(tablePath, [{ key: 'name:mine', baseModel: 'Krea 2' }]);
+
+      await clearTable(tablePath);
+
+      const entries = (await readTable(tablePath)).entries;
+      expect(entries['name:mine']).toBeDefined();
+      expect(entries['name:looked-up']).toBeUndefined();
+    });
+
+    it('merges, so writing one mapping leaves the others alone', async () => {
+      await setManualMappings(tablePath, [{ key: 'name:a', baseModel: 'SD 1.5' }]);
+      await setManualMappings(tablePath, [{ key: 'name:b', baseModel: 'Pony' }]);
+
+      const entries = (await readTable(tablePath)).entries;
+      expect(entries['name:a']).toBeDefined();
+      expect(entries['name:b']).toBeDefined();
     });
   });
 

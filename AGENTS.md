@@ -117,6 +117,30 @@ That is also why there is no IndexedDB store or per-image cache field for it.
   `useImageStore` subscribes to bump `baseModelTableVersion` so derived UI re-filters when an
   async resolution lands (a value that lives outside the image cannot be seen by a memo comparator —
   it must be passed as a prop, see `ImageTableRow`).
+- **Manual mappings**: Settings → Base Models (`components/CheckpointMappingSection.tsx`) lets the
+  user assign a base model to any checkpoint the lookup cannot answer. They are stored as ordinary
+  rows with `source: 'manual'` — not in a side file — which is what makes them authoritative for
+  free (`isEntryFresh` never expires a truthy `baseModel`), survive `clearTable`, and alias-match a
+  hash-less image of the same file. Three invariants to preserve when touching this area:
+  1. `resolveCheckpoints` must never overwrite a manual row, and must re-read the table inside
+     `withTableLock` before writing — a mapping saved while a lookup is in flight exists only on
+     disk, so writing the pre-fetch snapshot would erase it.
+  2. `clearTable` keeps manual rows and drops everything looked up. The renderer's
+     `clearBaseModelTable` mirrors that split in memory; letting the two disagree blanks the column.
+  3. The picker's values are a **hand-copied snapshot of Civitai's own "Base model" filter
+     dropdown**, trimmed by hand — grouped and ordered as Civitai presents it (by publisher), which
+     makes a refresh a mechanical copy-paste. This is deliberately **not** a live fetch: Civitai
+     publishes no endpoint that lists base models, and enumeration-by-sampling would keep only what
+     is currently popular (a 1,600-version sweep found 33 values and missed 14 that Civitai filters
+     on fine). Do not add one. **To refresh:** copy the dropdown, verify values with
+     `GET /api/v1/models?baseModels=<value>` (any items at all means it is recognised; `Other` is the
+     sole exception — real, but the filter rejects it), then **delete everything named in
+     `EXCLUDED_BASE_MODELS`** in `components/CheckpointMappingSection.tsx`, which records what the
+     user removed by hand on 2026-10-16 and why. That step is not optional bookkeeping: every
+     excluded value is still a real, filterable Civitai value, so a plain paste restores all of them
+     silently. A guard test in `checkpointMappingSection.test.tsx` fails if one reappears.
+     Exactness is the whole point: a guessed or stale string splits the sidebar facet into two
+     entries for one architecture, with half the images behind each.
 
 ## Common Tasks
 

@@ -431,6 +431,33 @@ export async function resolveCheckpoint(ref, options = {}) {
   return sawError ? { outcome: 'error', status: 0 } : { outcome: 'miss', status: 404 };
 }
 
+let tableLock = Promise.resolve();
+
+/**
+ * Serializes read-modify-write cycles on the table file.
+ *
+ * Two writers touch it: a resolve run's write-back and `setManualMappings` from
+ * the settings screen. Both read the file, merge, and write it back with awaits
+ * in between, so the main process can interleave them — and a user saving a
+ * mapping while a resolve is in flight is exactly that case, not a rare one.
+ * Chaining the cycles means the second writer sees the first one's write rather
+ * than a stale snapshot of it.
+ *
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+function withTableLock(fn) {
+  const result = tableLock.then(fn, fn);
+  // The chain must not carry a rejection forward, or one failed write would
+  // poison every later one.
+  tableLock = result.then(
+    () => {},
+    () => {},
+  );
+  return result;
+}
+
 /**
  * Reads the offline table. A missing or corrupt file is an empty table, never
  * an error — the table is a cache, and losing it must cost a re-fetch at worst.
@@ -581,16 +608,37 @@ export async function resolveCheckpoints({
       return { index, key: ref.key, entry, cached: true };
     }, concurrency);
 
+    // Which result slot belongs to which checkpoint key, so the write-back
+    // below can correct a slot when a mapping turns up for it.
+    const resolvedIndexByKey = new Map();
+
     for (const item of resolved) {
       if (!item.cached) continue;
       table.entries[item.key] = item.entry;
       results[item.index] = item.entry.baseModel ? item.entry : null;
+      resolvedIndexByKey.set(item.key, item.index);
       fetched++;
     }
 
     if (fetched > 0) {
       try {
-        await writeTable(tablePath, table, io);
+        await withTableLock(async () => {
+          // Re-read before writing. `table` is a snapshot of the file taken
+          // before these requests were made, so a mapping the user saved while
+          // they were in flight exists *only* on disk — and writing the
+          // snapshot would erase it and answer with the network's value
+          // instead. The latest manual rows are merged in, and the results
+          // computed above are corrected to match.
+          const latest = await readTable(tablePath);
+          for (const [key, entry] of Object.entries(latest.entries)) {
+            if (entry?.source !== 'manual') continue;
+            table.entries[key] = entry;
+            const index = resolvedIndexByKey.get(key);
+            if (index !== undefined) results[index] = entry;
+          }
+
+          await writeTable(tablePath, table, io);
+        });
       } catch {
         // An unwritable cache must not fail the resolve — the caller still
         // gets usable results, it just pays for them again next run.
@@ -605,13 +653,75 @@ export async function resolveCheckpoints({
 }
 
 /**
- * Discards the offline table.
+ * Discards the offline table's *looked-up* entries, keeping any the user wrote
+ * by hand.
+ *
+ * A manual mapping is authored data, not cache: it is the answer for a
+ * checkpoint Civitai and HuggingFace do not know (or that the user has since
+ * deleted), and no amount of re-resolving would ever bring it back. Losing a
+ * whole library's worth of those to a button labelled "clear cached table"
+ * would be the worst kind of surprise, so the manual rows are carried over.
  *
  * @param {string} tablePath
  * @param {{ readFile?: typeof fs.readFile, writeFile?: typeof fs.writeFile, rename?: typeof fs.rename }} [io]
  */
 export async function clearTable(tablePath, io = {}) {
-  await writeTable(tablePath, { entries: {} }, io);
+  return withTableLock(async () => {
+    const table = await readTable(tablePath);
+    const manual = Object.fromEntries(
+      Object.entries(table.entries).filter(([, entry]) => entry?.source === 'manual'),
+    );
+    await writeTable(tablePath, { entries: manual }, io);
+  });
+}
+
+/**
+ * Applies user-authored checkpoint → base model mappings.
+ *
+ * These are stored as ordinary rows carrying `source: 'manual'`, which buys
+ * three things for free: `isEntryFresh` already treats any truthy baseModel as
+ * permanent, the direct key lookup answers them offline like any other hit, and
+ * `entryAliases` lets a later, hash-less image of the same file use them. The
+ * only change that required is in `resolveCheckpoints`, which must decline to
+ * overwrite them.
+ *
+ * A mapping whose `baseModel` is empty *removes* the manual row, handing the
+ * checkpoint back to automatic resolution. An automatic row is never dropped
+ * this way — that would discard a lookup nobody asked to lose.
+ *
+ * @param {string} tablePath
+ * @param {Array<{ key: string, baseModel?: string | null, checkpointName?: string | null }>} mappings
+ * @param {{ readFile?: typeof fs.readFile, writeFile?: typeof fs.writeFile, rename?: typeof fs.rename }} [io]
+ * @returns {Promise<{ version: number, entries: Record<string, object> }>} the table as written
+ */
+export async function setManualMappings(tablePath, mappings, io = {}) {
+  return withTableLock(async () => {
+    const table = await readTable(tablePath);
+
+    for (const mapping of mappings || []) {
+      const key = mapping?.key;
+      if (!key) continue;
+
+      const baseModel = typeof mapping.baseModel === 'string' ? mapping.baseModel.trim() : '';
+
+      if (baseModel) {
+        table.entries[key] = {
+          baseModel,
+          source: 'manual',
+          // The name the checkpoint is known by locally. For a hash-keyed row
+          // this is what lets the same file resolve from a hash-less ComfyUI
+          // image; for a name-keyed row it merely restates the key.
+          ...(mapping.checkpointName ? { checkpointName: mapping.checkpointName } : {}),
+          fetchedAt: Date.now(),
+        };
+      } else if (table.entries[key]?.source === 'manual') {
+        delete table.entries[key];
+      }
+    }
+
+    await writeTable(tablePath, table, io);
+    return table;
+  });
 }
 
 /**
