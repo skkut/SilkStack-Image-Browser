@@ -299,6 +299,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('stack-window-action', handler);
     };
   },
+  // Live refresh, main-window side: re-resolved stack snapshots pushed to open
+  // stack windows as the library changes.
+  updateStackWindow: (windowId, payload) =>
+    ipcRenderer.send('update-stack-window', { windowId, payload }),
+  getOpenStackWindows: () => ipcRenderer.invoke('get-open-stack-windows'),
+  onStackWindowOpened: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('stack-window-opened', handler);
+    return () => {
+      ipcRenderer.removeListener('stack-window-opened', handler);
+    };
+  },
+  onStackWindowClosed: (callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on('stack-window-closed', handler);
+    return () => {
+      ipcRenderer.removeListener('stack-window-closed', handler);
+    };
+  },
 });
 
 // DEBUG: Log that preload script has loaded

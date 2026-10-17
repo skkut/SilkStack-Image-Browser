@@ -4,6 +4,7 @@ import { useSettingsStore } from './store/useSettingsStore';
 import { useImageLoader } from './hooks/useImageLoader';
 import { useImageSelection } from './hooks/useImageSelection';
 import { useBaseModelResolution } from './hooks/useBaseModelResolution';
+import { useStackWindowSync } from './hooks/useStackWindowSync';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
 import { Directory, IndexedImage, ImageRelocationMove, type SettingsTab } from './types';
@@ -61,6 +62,10 @@ export default function App() {
   // enabled, resolves whatever is still missing (once per distinct checkpoint,
   // never per image).
   useBaseModelResolution();
+
+  // Pushes re-resolved stack snapshots to popped-out stack windows as the
+  // library changes (new images, deletions, favourites).
+  useStackWindowSync();
 
   // --- Zustand Store State (Granular Selectors for Performance) ---
   // Data selectors

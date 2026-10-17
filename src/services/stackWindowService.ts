@@ -116,26 +116,29 @@ function stackLabel(image: IndexedImage | undefined): string {
 }
 
 /**
- * Resolve the stack an image belongs to, from the full library.
+ * Resolve a stack by its group key, from the full library.
  *
  * Membership comes from `collectGroupMembers` — the same expression the grid's
- * grouping and the drill-down's live filter use — so the window opened from a
- * right-click always holds exactly the images the stack card shows. Fewer than
- * two members is not a stack: size-1 groups are emitted as bare singletons by
- * the stacking hook, so the menu item stays hidden for them.
+ * grouping and the drill-down's live filter use — so anyone resolving from
+ * this function holds exactly the images the stack card shows.
+ *
+ * Unlike `resolveStackForImage`, a group of one is NOT rejected here: this is
+ * also the popped-out window's refresh path, and a live stack may shrink
+ * while its window is open. Null means the group has no members at all — the
+ * group dissolved, or every member was deleted — and the caller must not
+ * confuse that with "not a stack".
  *
  * Ordered newest-first, matching how a stack orders itself internally.
  */
-export function resolveStackForImage(
-  image: IndexedImage,
+export function resolveStackForGroupKey(
+  groupKey: string,
   images: IndexedImage[],
   annotations: Map<string, ImageAnnotations>,
 ): ImageStack | null {
-  const groupKey = resolveStackGroupKey(image);
   if (!groupKey) return null;
 
   const memberIds = collectGroupMembers(images, annotations, groupKey);
-  if (memberIds.size < 2) return null;
+  if (memberIds.size === 0) return null;
 
   const members = images
     .filter((candidate) => memberIds.has(candidate.id))
@@ -149,4 +152,25 @@ export function resolveStackForImage(
     count: members.length,
     basePrompt: stackLabel(members[0]),
   };
+}
+
+/**
+ * Resolve the stack an image belongs to, for the right-click menu.
+ *
+ * Fewer than two members is not a stack here: size-1 groups are emitted as
+ * bare singletons by the stacking hook, so the menu item stays hidden for
+ * them.
+ */
+export function resolveStackForImage(
+  image: IndexedImage,
+  images: IndexedImage[],
+  annotations: Map<string, ImageAnnotations>,
+): ImageStack | null {
+  const groupKey = resolveStackGroupKey(image);
+  if (!groupKey) return null;
+
+  const stack = resolveStackForGroupKey(groupKey, images, annotations);
+  if (!stack || stack.count < 2) return null;
+
+  return stack;
 }

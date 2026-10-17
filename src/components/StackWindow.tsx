@@ -146,13 +146,42 @@ const StackWindow: React.FC = () => {
   }, []);
 
   // ── Payload handshake ────────────────────────────────────────────────
+  // The first payload is the snapshot the window opened with; later ones are
+  // live refreshes from the main window (see `useStackWindowSync`), which
+  // re-resolves this stack whenever the library changes. An empty list is a
+  // valid refresh: the group dissolved or every member was deleted, and the
+  // window must drop the images rather than keep showing ghosts.
   useEffect(() => {
     if (!window.electronAPI?.onStackWindowUpdate) return;
     const unsubscribe = window.electronAPI.onStackWindowUpdate((data) => {
-      if (!data || !Array.isArray(data.imageList) || data.imageList.length === 0) return;
+      if (!data || !Array.isArray(data.imageList)) return;
+
       setPayload(data);
-      setImages(data.imageList.map(reconstructImage));
-      setSelectedImages(new Set());
+      setImages((previous) => {
+        // Carry a resolved thumbnail across a refresh. A new image joining
+        // the stack re-sends the whole member list, and re-resolving every
+        // member would mean a cache read and a fresh blob URL for images that
+        // are already on screen. The key includes `lastModified` because a
+        // replaced file must be re-read, not shown from the old bytes.
+        const reusable = new Map<string, string>(
+          previous
+            .filter((image) => image.thumbnailStatus === 'ready' && image.thumbnailUrl)
+            .map((image) => [`${image.id}-${image.lastModified}`, image.thumbnailUrl as string]),
+        );
+        return data.imageList.map((raw: any) => {
+          const rebuilt = reconstructImage(raw);
+          const url = reusable.get(`${rebuilt.id}-${rebuilt.lastModified}`);
+          return url
+            ? { ...rebuilt, thumbnailUrl: url, thumbnailStatus: 'ready' as const }
+            : rebuilt;
+        });
+      });
+      // Selection is this window's own state; keep the part of it that still
+      // refers to images in the refreshed stack.
+      setSelectedImages((previous) => {
+        const ids = new Set(data.imageList.map((raw: any) => raw.id));
+        return new Set([...previous].filter((id) => ids.has(id)));
+      });
     });
     return () => unsubscribe();
   }, []);
@@ -198,7 +227,17 @@ const StackWindow: React.FC = () => {
     };
 
     void (async () => {
-      const resolved = await Promise.all(images.map(resolveUrl));
+      // A refresh keeps the ready thumbnails of members that were already on
+      // screen (see the payload handler), so only the newcomers need a lookup.
+      const pending = images
+        .map((image, index) => ({ image, index }))
+        .filter(
+          ({ image }) => !(image.thumbnailStatus === 'ready' && image.thumbnailUrl),
+        );
+
+      const resolved = await Promise.all(
+        pending.map(({ image }) => resolveUrl(image)),
+      );
       if (cancelled) {
         resolved.forEach((url) => url && URL.revokeObjectURL(url));
         return;
@@ -209,9 +248,14 @@ const StackWindow: React.FC = () => {
       const created = resolved.filter((url): url is string => !!url && url.startsWith('blob:'));
       objectUrlsRef.current.push(...created);
 
+      const byIndex = new Map<number, string | null>(
+        pending.map(({ index }, position) => [index, resolved[position]] as const),
+      );
+
       setImages((previous) =>
         previous.map((image, index) => {
-          const url = resolved[index];
+          if (!byIndex.has(index)) return image;
+          const url = byIndex.get(index);
           // The URL and the status have to land together, because the card
           // draws an <img> for `ready`+URL and its spinner for anything else —
           // there is no third branch. A URL without the status spins forever
@@ -314,7 +358,10 @@ const StackWindow: React.FC = () => {
     });
   }, []);
 
-  if (!payload || images.length === 0) {
+  // Only the ABSENCE of a payload means "still loading" — an empty image list
+  // is a real answer (the stack emptied while the window was open) and has its
+  // own state below.
+  if (!payload) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-950 text-gray-400">
         <div className="flex flex-col items-center gap-3">
@@ -345,13 +392,24 @@ const StackWindow: React.FC = () => {
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
-        {/* The stack view itself is an AI feature and renders nothing without
-            one (see the gate in SimilarityStackExpandedViewWrapper). Without
-            this, a window opened by a user who is not entitled to it would be a
-            drag bar over an empty pane, which reads as a broken window rather
-            than a feature that is switched off. The drag bar above deliberately
-            stays: it carries the label, the count and the close button. */}
-        {aiFeaturesEnabled ? (
+        {/* A live refresh can empty the stack entirely: the group dissolved,
+            or every member was deleted. Saying so is better than the spinner
+            the loading state would otherwise show forever. */}
+        {images.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6">
+            <Layers size={22} className="text-gray-600" />
+            <p className="text-sm text-gray-400">This stack is empty</p>
+            <p className="text-xs text-gray-500 max-w-sm">
+              Its images were removed from the library or moved to another stack.
+            </p>
+          </div>
+        ) : aiFeaturesEnabled ? (
+          /* The stack view itself is an AI feature and renders nothing without
+             one (see the gate in SimilarityStackExpandedViewWrapper). Without
+             this, a window opened by a user who is not entitled to it would be a
+             drag bar over an empty pane, which reads as a broken window rather
+             than a feature that is switched off. The drag bar above deliberately
+             stays: it carries the label, the count and the close button. */
           <SimilarityStackExpandedViewWrapper
             images={images}
             onImageClick={handleImageClick}

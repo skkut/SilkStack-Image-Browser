@@ -189,6 +189,83 @@ describe('the popped-out stack window', () => {
     expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
   });
 
+  it('follows the stack as the main window refreshes it', async () => {
+    // A popped-out stack is live: `useStackWindowSync` re-resolves the group
+    // in the main window and sends a new payload whenever the library changes.
+    // The window must replace its image list rather than keep the snapshot it
+    // opened with.
+    await mountWithPayload();
+
+    await act(async () => {
+      deliver?.({
+        ...PAYLOAD,
+        imageList: [payloadImage(1), payloadImage(2), payloadImage(3)] as any,
+      });
+    });
+
+    expect(screen.getByText('3 images')).toBeTruthy();
+    expect(screen.getByTestId('card-dir-1::img-3.png')).toBeTruthy();
+  });
+
+  it('drops images that left the stack', async () => {
+    await mountWithPayload();
+
+    await act(async () => {
+      deliver?.({ ...PAYLOAD, imageList: [payloadImage(2)] as any });
+    });
+
+    expect(screen.getByText('1 image')).toBeTruthy();
+    expect(screen.queryByTestId('card-dir-1::img-1.png')).toBeNull();
+    expect(screen.getByTestId('card-dir-1::img-2.png')).toBeTruthy();
+  });
+
+  it('reuses a thumbnail it already resolved when a newcomer arrives', async () => {
+    // Re-resolving every member on each refresh would mean a cache read and a
+    // fresh blob URL per image for a stack that may hold dozens — the refresh
+    // only has to look up the images it has not drawn yet.
+    api.getThumbnail.mockResolvedValue({
+      success: true,
+      data: new Uint8Array([1, 2, 3]).buffer,
+    });
+
+    await mountWithPayload();
+    await waitFor(() =>
+      expect(screen.getByTestId('card-dir-1::img-2.png').getAttribute('data-status')).toBe('ready'),
+    );
+    api.getThumbnail.mockClear();
+
+    await act(async () => {
+      deliver?.({
+        ...PAYLOAD,
+        imageList: [payloadImage(1), payloadImage(2), payloadImage(3)] as any,
+      });
+    });
+
+    expect(api.getThumbnail).toHaveBeenCalledTimes(1);
+    expect(api.getThumbnail).toHaveBeenCalledWith('dir-1::img-3.png-1700000000003');
+    // The retained cards still hold the URLs they resolved with.
+    expect(screen.getByTestId('card-dir-1::img-1.png').getAttribute('data-thumbnail')).toBe(
+      'blob:stack-thumb',
+    );
+    expect(screen.getByTestId('card-dir-1::img-2.png').getAttribute('data-thumbnail')).toBe(
+      'blob:stack-thumb',
+    );
+  });
+
+  it('says the stack is empty when every image is gone, instead of spinning', async () => {
+    // The group dissolved or its files were deleted. An empty image list is a
+    // completed answer, not a missing one — only `payload === null` means the
+    // handshake has not finished.
+    await mountWithPayload();
+
+    await act(async () => {
+      deliver?.({ ...PAYLOAD, imageList: [] });
+    });
+
+    expect(screen.getByText('This stack is empty')).toBeTruthy();
+    expect(screen.queryByText('Loading stack…')).toBeNull();
+  });
+
   it('reconstructs the images with a handle the view can render', async () => {
     // The whole image list arrives without handles (they cannot cross IPC), and
     // the cards read `image.handle` for their preview paths — so the rebuild is

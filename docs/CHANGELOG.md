@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 - **Keyword search understands the AI's hidden vocabulary** — normal search now matches the synonyms and subject categories the auto-tag pass writes, with semantic search off. A result that only matched this way carries a cyan **AI tag** badge in the grid and list (hover: *AI tag*), so it never appears unexplained.
 
+### Fixed
+
+- **A popped-out stack window follows its stack live** — new images join it, deleted images leave it, and an emptied stack says so instead of showing images that no longer exist. The main window re-resolves the group and pushes a fresh snapshot as the library changes.
+- **A stack window remembers its size, position and maximised state** — resizing, moving or maximising it now survives closing and reopening, instead of every window starting at the default size.
+
 ## [2.5.0] - 2026-10-16
 
 ### Added

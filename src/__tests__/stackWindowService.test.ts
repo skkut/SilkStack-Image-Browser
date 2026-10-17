@@ -6,6 +6,7 @@ import {
   buildStackWindowPayload,
   canOpenStackWindow,
   openStackInNewWindow,
+  resolveStackForGroupKey,
   resolveStackForImage,
 } from '../services/stackWindowService';
 import type { ImageAnnotations, IndexedImage, ImageStack, StackWindowPayload } from '../types';
@@ -276,6 +277,64 @@ describe('resolving the stack behind a right-click', () => {
 
     expect(stack.groupKey).toBe('hash-prompt');
     expect(stack.count).toBe(2);
+  });
+});
+
+describe('resolving a stack by its key (the live-refresh path)', () => {
+  it('returns a group of one, which the menu deliberately hides', () => {
+    // The window's refresh path must answer with what is actually left. A
+    // group that shrank to one member is still a stack the open window has to
+    // render; only the CONTEXT MENU refuses to offer it.
+    const only = image('dir-1::a.png', { stackGroupId: 'hash-prompt' });
+
+    const stack = resolveStackForGroupKey('hash-prompt', [only], annotationsOf({}));
+
+    expect(stack?.count).toBe(1);
+    expect(stack?.images.map((i) => i.id)).toEqual(['dir-1::a.png']);
+  });
+
+  it('picks up an image that joined after the window was opened', () => {
+    // The whole point of the refresh: membership is resolved from the live
+    // library, never from the snapshot the window was handed at open time.
+    const first = image('dir-1::first.png', { stackGroupId: 'hash-prompt', lastModified: 100 });
+    const second = image('dir-1::second.png', { stackGroupId: 'hash-prompt', lastModified: 200 });
+
+    const before = resolveStackForGroupKey('hash-prompt', [first], annotationsOf({}))!;
+    expect(before.images.map((i) => i.id)).toEqual(['dir-1::first.png']);
+
+    const after = resolveStackForGroupKey(
+      'hash-prompt',
+      [first, second],
+      annotationsOf({}),
+    )!;
+
+    // Newest first, same order the stack card uses.
+    expect(after.images.map((i) => i.id)).toEqual(['dir-1::second.png', 'dir-1::first.png']);
+    expect(after.count).toBe(2);
+  });
+
+  it('reports an emptied group as nothing, not as a stack of one', () => {
+    // Null is the signal the sync hook turns into an empty image list; a
+    // non-null answer here would leave deleted images on screen.
+    const stray = image('dir-1::other.png', { stackGroupId: 'hash-other' });
+
+    expect(resolveStackForGroupKey('hash-prompt', [stray], annotationsOf({}))).toBeNull();
+    expect(resolveStackForGroupKey('', [stray], annotationsOf({}))).toBeNull();
+  });
+
+  it('honours grouping that lives only in the annotation map', () => {
+    // Same fallback `collectGroupMembers` provides everywhere else: an image
+    // may be grouped in the persisted annotations before its object is patched.
+    const target = image('dir-1::a.png', { stackGroupId: 'hash-prompt' });
+    const notYetMerged = image('dir-1::b.png');
+
+    const stack = resolveStackForGroupKey(
+      'hash-prompt',
+      [target, notYetMerged],
+      annotationsOf({ 'dir-1::b.png': { stackGroupId: 'hash-prompt' } }),
+    )!;
+
+    expect(stack.images.map((i) => i.id)).toContain('dir-1::b.png');
   });
 });
 

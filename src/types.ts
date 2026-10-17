@@ -534,6 +534,19 @@ export interface ElectronAPI {
   onStackWindowAction: (
     callback: (action: { type: 'toggleFavorite'; imageId: string; windowId?: number }) => void,
   ) => () => void;
+  /**
+   * Main-window side of the live refresh: hand an open stack window a
+   * re-resolved snapshot. The payload is parked in the main process as well,
+   * so a window that is still loading (or reloads) gets the latest copy when
+   * it signals ready.
+   */
+  updateStackWindow: (windowId: number, payload: StackWindowPayload) => void;
+  /** The open stack windows, for a renderer that missed the open events. */
+  getOpenStackWindows: () => Promise<{ windowId: number; groupKey: string }[]>;
+  onStackWindowOpened: (
+    callback: (data: { windowId: number; groupKey: string }) => void,
+  ) => () => void;
+  onStackWindowClosed: (callback: (data: { windowId: number }) => void) => () => void;
 }
 
 /**

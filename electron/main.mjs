@@ -276,9 +276,14 @@ const stackWindows = new Map();
 let devToolsWindow = null;
 // Pending image data for windows that haven't signalled ready yet (windowId -> data)
 const pendingViewerData = new Map();
-// Same handshake for stack windows: the payload is parked here until the
-// child asks for it, because `open-stack-window` returns before it has loaded.
-const pendingStackData = new Map();
+// The latest payload for each open stack window (windowId -> data). It starts
+// as the snapshot the window was opened with and is replaced by every live
+// refresh, so a window that has not finished loading yet — or reloads — is
+// handed the newest copy when it signals ready, not a stale one.
+const lastStackData = new Map();
+// The group each stack window was opened for (windowId -> groupKey), so a live
+// refresh can only ever name the stack its window is showing.
+const stackWindowGroupKeys = new Map();
 let skippedVersions = new Set();
 
 // --- Image viewer "compact" (frame-the-image) mode ---
@@ -621,6 +626,25 @@ async function readSettings() {
 async function saveSettings(settings) {
   try {
     await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
+  } catch (error) {
+    console.error("Error saving settings:", error);
+  }
+}
+
+// Synchronous variants for the window `close` path. A window close handler
+// cannot await: Electron destroys the window and may quit the app before an
+// async write lands, so the remembered bounds would silently be lost.
+function readSettingsSync() {
+  try {
+    return JSON.parse(fsSync.readFileSync(settingsPath, "utf-8"));
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveSettingsSync(settings) {
+  try {
+    fsSync.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
   } catch (error) {
     console.error("Error saving settings:", error);
   }
@@ -1757,6 +1781,7 @@ function setupFileOperationHandlers() {
   // and sharing `viewerWindowState` would make the two fight over one set of
   // bounds and have a popped-out stack open at the viewer's compact size.
   ipcMain.handle("open-stack-window", async (event, data) => {
+    const opener = event.sender;
     try {
       if (!data || typeof data !== "object" || !Array.isArray(data.imageList)) {
         return { success: false, error: "Invalid stack payload" };
@@ -1777,6 +1802,14 @@ function setupFileOperationHandlers() {
       const cascadeOffset = stackWindows.size * 30;
       const baseX = windowState.x !== undefined ? windowState.x + cascadeOffset : undefined;
       const baseY = windowState.y !== undefined ? windowState.y + cascadeOffset : undefined;
+
+      // Restore the maximised state alongside the bounds. A maximised window
+      // saves its NORMAL bounds (see the close handler), so recreating at
+      // those bounds and maximising reproduces what the user left. Only the
+      // first window restores it: a second stack should cascade as a normal
+      // window rather than cover the screen too.
+      const shouldMaximize =
+        Boolean(windowState.isMaximized) && stackWindows.size === 0;
 
       const stackWindow = new BrowserWindow({
         x: baseX,
@@ -1822,8 +1855,17 @@ function setupFileOperationHandlers() {
       });
 
       const windowId = stackWindow.id;
+      const groupKey = typeof data.groupKey === "string" ? data.groupKey : "";
       stackWindows.set(windowId, stackWindow);
-      pendingStackData.set(windowId, data);
+      stackWindowGroupKeys.set(windowId, groupKey);
+      lastStackData.set(windowId, data);
+
+      // Tell the renderer that owns the library which stack this window holds.
+      // It re-resolves that group as images come and go; without this it has
+      // no idea there is a window to refresh.
+      if (opener && !opener.isDestroyed()) {
+        opener.send("stack-window-opened", { windowId, groupKey });
+      }
 
       // Keep a remembered position on screen if displays changed since.
       if (baseX !== undefined && baseY !== undefined) {
@@ -1836,7 +1878,9 @@ function setupFileOperationHandlers() {
             baseY < b.y + b.height
           );
         });
-        if (!isVisible) stackWindow.center();
+        // A maximised window ignores its position, so there is nothing to
+        // salvage from a remembered coordinate in that case.
+        if (!isVisible && !shouldMaximize) stackWindow.center();
       }
 
       const queryString = `?stackWindow=true`;
@@ -1850,28 +1894,50 @@ function setupFileOperationHandlers() {
       }
 
       stackWindow.once("ready-to-show", () => {
+        // Maximise before showing, so the window never flashes at its normal
+        // size first. Doing it here rather than at construction is the
+        // reliable order on every platform.
+        if (shouldMaximize) {
+          stackWindow.maximize();
+        }
         stackWindow.show();
       });
 
-      stackWindow.on("close", async () => {
+      stackWindow.on("close", () => {
         if (!stackWindow || stackWindow.isDestroyed()) return;
-        const bounds = stackWindow.isMaximized()
+
+        // Read every native property BEFORE anything else: `close` does not
+        // wait for this handler, and querying a destroyed window throws. The
+        // write is synchronous for the same reason — an async one could be
+        // cut short when closing this window also quits the app.
+        const isMaximized = stackWindow.isMaximized();
+        const bounds = isMaximized
           ? stackWindow.getNormalBounds()
           : stackWindow.getBounds();
-        const currentSettings = await readSettings();
-        currentSettings.stackWindowState = {
-          x: bounds.x,
-          y: bounds.y,
-          width: bounds.width,
-          height: bounds.height,
-          isMaximized: stackWindow.isMaximized(),
-        };
-        await saveSettings(currentSettings);
+
+        try {
+          const currentSettings = readSettingsSync();
+          currentSettings.stackWindowState = {
+            x: bounds.x,
+            y: bounds.y,
+            width: bounds.width,
+            height: bounds.height,
+            isMaximized,
+          };
+          saveSettingsSync(currentSettings);
+        } catch (error) {
+          console.error("Error saving stack window state:", error);
+        }
       });
 
       stackWindow.on("closed", () => {
         stackWindows.delete(windowId);
-        pendingStackData.delete(windowId);
+        stackWindowGroupKeys.delete(windowId);
+        lastStackData.delete(windowId);
+
+        if (opener && !opener.isDestroyed()) {
+          opener.send("stack-window-closed", { windowId });
+        }
       });
 
       const themeHandler = () => {
@@ -1897,7 +1963,9 @@ function setupFileOperationHandlers() {
     }
   });
 
-  // The stack window signals it is ready to receive its payload
+  // The stack window signals it is ready to receive its payload. The latest
+  // copy is kept (not consumed): live refreshes replace it, so a window that
+  // reloads is handed the current stack rather than getting stuck loading.
   ipcMain.on("stack-window-ready", (event) => {
     const senderWebContentsId = event.sender.id;
     const entry = [...stackWindows.entries()].find(
@@ -1906,11 +1974,49 @@ function setupFileOperationHandlers() {
     if (!entry) return;
 
     const [windowId, stackWindow] = entry;
-    const pending = pendingStackData.get(windowId);
-    if (pending && !stackWindow.isDestroyed()) {
-      stackWindow.webContents.send("stack-window-update", pending);
-      pendingStackData.delete(windowId);
+    const latest = lastStackData.get(windowId);
+    if (latest && !stackWindow.isDestroyed()) {
+      stackWindow.webContents.send("stack-window-update", latest);
     }
+  });
+
+  // A live refresh from the renderer that owns the library. Membership is
+  // resolved there; this only routes the snapshot to the window that was
+  // opened for that group and keeps the latest copy for the ready handshake.
+  ipcMain.on("update-stack-window", (event, data) => {
+    const windowId = Number(data?.windowId);
+    const payload = data?.payload;
+    if (!Number.isFinite(windowId)) return;
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.imageList)) {
+      return;
+    }
+
+    const stackWindow = stackWindows.get(windowId);
+    if (!stackWindow || stackWindow.isDestroyed()) return;
+
+    // A window only ever shows the stack it was opened for.
+    const groupKey = stackWindowGroupKeys.get(windowId);
+    if (groupKey && payload.groupKey !== groupKey) return;
+
+    lastStackData.set(windowId, payload);
+
+    // The drag bar reads the payload, but the OS taskbar/alt-tab title does
+    // not — keep both saying the same thing.
+    const label = typeof payload.basePrompt === "string" ? payload.basePrompt.trim() : "";
+    stackWindow.setTitle(label ? `Stack — ${label.slice(0, 80)}` : "Stack");
+
+    stackWindow.webContents.send("stack-window-update", payload);
+  });
+
+  // Every open stack window and the group it is showing. The renderer calls
+  // this after a reload, when it has missed the open events.
+  ipcMain.handle("get-open-stack-windows", () => {
+    return [...stackWindows.entries()]
+      .filter(([, w]) => !w.isDestroyed())
+      .map(([windowId]) => ({
+        windowId,
+        groupKey: stackWindowGroupKeys.get(windowId) || "",
+      }));
   });
 
   // Stack window is requesting to close itself (its Back / close button)
