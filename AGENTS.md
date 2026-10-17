@@ -14,6 +14,7 @@ When working on this codebase:
 - Keep privacy-first approach (all processing stays local; the only outbound calls allowed are the documented ones - anonymous usage ping, license activation, subscription re-validation, model downloads, checkpoint base-model lookups on civitai.com / huggingface.co, update checks - and any new one must be documented in README and here)
 - Follow TypeScript best practices
 - Write tests for new functionality
+- **Always keep `docs/CHANGELOG.md`'s `## [Unreleased]` section current** — add a short, value-first entry as each user-facing feature or fix is completed (create the section above the newest release if absent), and mirror the file byte-for-byte to `public/CHANGELOG.md`
 - Do not auto commit to git
 - Do not run deploy scripts automatically
 - **NEVER add the project folder (`C:\Projects\AI-Images-Browser`) as a library folder in the app** — including in dev mode and including "just to try something". Use only `C:\Projects\TestImages` for test data (see [Test Data Folder Rule](#test-data-folder-rule-strict))

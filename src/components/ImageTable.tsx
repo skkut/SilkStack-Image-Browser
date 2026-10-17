@@ -7,7 +7,7 @@ import { type TableSortField, type TableSortDirection } from '../utils/tableSort
 import { useContextMenu } from '../hooks/useContextMenu';
 import { useImageStore } from '../store/useImageStore';
 import { buildDragPayload, type DraggedItemRef } from '../services/imageRelocation';
-import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles, Layers } from 'lucide-react';
+import { Copy, ExternalLink, Folder, ArrowUpDown, ArrowUp, ArrowDown, Package, Play, Sparkles, Layers, Tag } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
 import { isVideoFileName } from '../utils/mediaTypes';
@@ -25,6 +25,8 @@ interface ImageTableProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent, displayOrder?: string[]) => void;
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
+  /** Ids whose keyword match depended on hidden AI vocabulary — "AI tag" badge. */
+  aiTagHitIds?: Set<string>;
 }
 
 const formatFileSize = (bytes?: number): string => {
@@ -36,7 +38,7 @@ const formatFileSize = (bytes?: number): string => {
   return `${i === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[i]}`;
 };
 
-const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, semanticHitIds }) => {
+const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedImages, semanticHitIds, aiTagHitIds }) => {
   const directories = useImageStore((state) => state.directories);
   // The column sort lives in the store while this table is mounted: the
   // store re-orders `filteredImages` with it (see setTableSort), so the
@@ -204,6 +206,7 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
           onImageClick={handleImageClick}
           isSelected={selectedImages.has(image.id)}
           isSemanticMatch={semanticHitIds?.has(image.id)}
+          isAiTagMatch={aiTagHitIds?.has(image.id)}
           baseModel={baseModelForImage(image)}
           onContextMenu={handleContextMenu}
           gridTemplateColumns={gridTemplateColumns}
@@ -528,6 +531,8 @@ interface ImageTableRowProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   isSelected: boolean;
   isSemanticMatch?: boolean;
+  /** Keyword match depended on hidden AI vocabulary — show the "AI tag" badge. */
+  isAiTagMatch?: boolean;
   /**
    * Resolved base model for this image's checkpoint, or '' when unknown.
    *
@@ -547,7 +552,7 @@ interface ImageTableRowProps {
  * Exported for tests (the row is what owns the drag gesture; the virtualized
  * list around it renders nothing at jsdom's zero measured height).
  */
-export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, baseModel, onContextMenu, gridTemplateColumns, getDragPayload }) => {
+export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, onImageClick, isSelected, isSemanticMatch, isAiTagMatch, baseModel, onContextMenu, gridTemplateColumns, getDragPayload }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
@@ -769,6 +774,16 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
                   <Sparkles className="h-3 w-3" />
                 </div>
               )}
+              {isAiTagMatch && (
+                // AI-tag badge — bottom corner so it can coexist with the
+                // semantic sparkle on the same 48px thumbnail.
+                <div
+                  className="absolute bottom-0.5 right-0.5 z-10 p-0.5 rounded-full bg-cyan-500/10 text-cyan-400 pointer-events-none"
+                  title="AI tag"
+                >
+                  <Tag className="h-3 w-3" />
+                </div>
+              )}
             </>
           ) : (
             <span className="text-xs text-gray-500">ERR</span>
@@ -890,6 +905,7 @@ export const ImageTableRow: React.FC<ImageTableRowProps> = React.memo(({ image, 
     prevProps.image.thumbnailStatus === nextProps.image.thumbnailStatus &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.isSemanticMatch === nextProps.isSemanticMatch &&
+    prevProps.isAiTagMatch === nextProps.isAiTagMatch &&
     // Not a field on `image`, so none of the comparisons above can see it
     // change — without this line the column would stay blank for every row
     // that was already on screen when the lookup resolved.

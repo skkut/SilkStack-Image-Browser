@@ -66,6 +66,7 @@ Keyword search matches words. Semantic search matches *meaning*, so you can desc
 
 - A small local LLM reads the prompt embedded in each image and writes up to **15 tags** - subjects, styles, lighting, concepts ("red fox", "snowy forest", "neon lights"). 
 - Auto-tags are searchable, and they sit alongside your manual tags. Any tag the model got wrong can simply be deleted.
+- The model also writes hidden **synonyms and subject categories** for each image. Keyword search understands them too, even with semantic search off — a result that only matched through this vocabulary is marked with a **tag badge** (hover: *AI tag*) so it never appears unexplained.
 - **Generate Tags** only visits images it has not seen yet, and saves each image the moment it finishes - so a cancelled or interrupted run resumes instead of starting over. **Clear Auto-Tags** resets everything for a fresh re-run.
 
 ### Similarity stacks & prompt variation highlighting

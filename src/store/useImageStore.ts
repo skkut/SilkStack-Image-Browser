@@ -835,6 +835,24 @@ const buildEnrichedSearchText = (image: IndexedImage): string => {
     return segments.join(' ');
 };
 
+/**
+ * Hidden search-only vocabulary written by the auto-tag pass: synonyms and
+ * main-subject categories. It is kept in its own blob rather than folded into
+ * the catalog text because a hit that depends on these terms has to be
+ * distinguishable — that is what the "AI tag" badge reports.
+ *
+ * The terms are still matched with the same per-blob AND rule the catalog
+ * and enriched blobs use: every query term must occur in this text.
+ * Synonym entries are phrases ("winter woods"), so joining with spaces keeps
+ * both single-word and full-phrase queries working.
+ */
+const buildSynonymSearchText = (image: IndexedImage): string => {
+    if (!image.synonymTags?.length) {
+        return '';
+    }
+    return image.synonymTags.join(' ').toLowerCase();
+};
+
 interface ImageState {
   // Core Data
   images: IndexedImage[];
@@ -876,6 +894,14 @@ interface ImageState {
 
   // Filter & Sort State
   searchQuery: string;
+  /**
+   * Ids of the images in `filteredImages` that the active search found only
+   * through hidden AI vocabulary (`synonymTags` — synonyms and subject
+   * categories) — not through the catalog or prompt text. Rebuilt on every
+   * filter pass, so it empties the moment the query is cleared. Drives the
+   * "AI tag" badge in the grid and list.
+   */
+  aiTagHitIds: Set<string>;
   availableModels: string[];
   availableLoras: string[];
   availableSchedulers: string[];
@@ -1750,6 +1776,11 @@ export const useImageStore = create<ImageState>((set, get) => {
             ? collectGroupMembers(images, annotations, libraryStackContext.groupKey)
             : null;
 
+        // Rebuilt on every pass, so a cleared query publishes an empty set and
+        // the badges disappear with the results they explain. Populated only
+        // by the synonym branch in applyNonTagFilters below.
+        const aiTagHitIds = new Set<string>();
+
         // ── Filtering helpers ──────────────────────────────────────────────
         // The non-tag filters below (stack/search, models, LoRAs, schedulers,
         // advanced) are AND-intersections, so they commute with the tag
@@ -1779,11 +1810,25 @@ export const useImageStore = create<ImageState>((set, get) => {
                         }
 
                         const enrichedText = buildEnrichedSearchText(image);
-                        if (!enrichedText) {
-                            return false;
+                        if (enrichedText && searchTerms.every(term => enrichedText.includes(term))) {
+                            return true;
                         }
 
-                        return searchTerms.every(term => enrichedText.includes(term));
+                        // Third text source: the hidden synonyms/categories the
+                        // auto-tag pass wrote. They are search-only (never shown
+                        // as chips), so the keyword filter is the one place they
+                        // are allowed to pull an image into the results — and a
+                        // result that got here by this branch is exactly what
+                        // the "AI tag" badge reports.
+                        const synonymText = buildSynonymSearchText(image);
+                        if (!synonymText) {
+                            return false;
+                        }
+                        if (!searchTerms.every(term => synonymText.includes(term))) {
+                            return false;
+                        }
+                        aiTagHitIds.add(image.id);
+                        return true;
                     });
                 }
             }
@@ -2155,6 +2200,7 @@ export const useImageStore = create<ImageState>((set, get) => {
 
         return {
             filteredImages,
+            aiTagHitIds,
             selectionTotalImages: totalInScope,
             selectionDirectoryCount,
             selectionFavoriteCount,
@@ -2238,6 +2284,7 @@ export const useImageStore = create<ImageState>((set, get) => {
         isStackingEnabled: true,
         undoAvailable: false,
         searchQuery: '',
+        aiTagHitIds: new Set<string>(),
         semanticMode: 'off',
         semanticHits: null,
         semanticSearchStatus: 'idle',

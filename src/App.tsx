@@ -193,6 +193,11 @@ export default function App() {
         : undefined,
     [semanticMode, semanticHits],
   );
+  // AI-tag badges: ids whose keyword match came only from the hidden
+  // synonyms/categories the auto-tag pass wrote. The store rebuilds the set on
+  // every filter pass, so it is always in step with the visible results and is
+  // empty when no query is active.
+  const aiTagHitIds = useImageStore((state) => state.aiTagHitIds);
   const updateDirectoryStatus = useImageStore((state) => state.updateDirectoryStatus);
   const restoreSmartLibraryCache = useImageStore((state) => state.restoreSmartLibraryCache);
   const processPostIndexingPipeline = useImageStore((state) => state.processPostIndexingPipeline);
@@ -1485,6 +1490,7 @@ export default function App() {
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
                           semanticHitIds={semanticHitIds}
+                          aiTagHitIds={aiTagHitIds}
                         />
                       ) : (
                         <ImageTable
@@ -1492,6 +1498,7 @@ export default function App() {
                           onImageClick={handleImageSelection}
                           selectedImages={safeSelectedImages}
                           semanticHitIds={semanticHitIds}
+                          aiTagHitIds={aiTagHitIds}
                         />
                       )}
                     </div>

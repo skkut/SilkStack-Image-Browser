@@ -30,7 +30,8 @@ import {
   Trash2,
   ExternalLink,
   Layers,
-  Layers2
+  Layers2,
+  Tag
 } from 'lucide-react';
 import { useThumbnail } from '../hooks/useThumbnail';
 import { useHoverMediaPreview } from '../hooks/useHoverMediaPreview';
@@ -82,6 +83,11 @@ interface ImageCardProps {
   getDragPayload?: (image: IndexedImage) => DraggedItemRef[];
   /** Image matched semantically for the active query — show the sparkle badge. */
   isSemanticMatch?: boolean;
+  /**
+   * Keyword match depended on hidden AI vocabulary (synonyms/categories) —
+   * show the "AI tag" badge so the result explains itself.
+   */
+  isAiTagMatch?: boolean;
 }
 
 // Global cache to prevent flickering when react-window shifts ImageCards across rows (triggering unmount/remount)
@@ -116,7 +122,7 @@ const releaseCachedFallbackUrl = (id: string) => {
   }
 };
 
-export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload, isSemanticMatch }) => {
+export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload, isSemanticMatch, isAiTagMatch }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     // Determine initial state safely before thumbnail hook runs
     const state = useSettingsStore.getState();
@@ -424,6 +430,18 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
           </div>
         )}
 
+        {isAiTagMatch && (
+          // AI-tag badge — the keyword match only happened because the
+          // auto-tag pass wrote a synonym or subject category for this image.
+          // Sits left of the semantic badge; same pointer-events rule.
+          <div
+            className="absolute top-2 right-16 z-10 p-1 rounded-full bg-cyan-500/10 text-cyan-400 pointer-events-none"
+            title="AI tag"
+          >
+            <Tag className="h-3.5 w-3.5" />
+          </div>
+        )}
+
         {imageUrl === 'ERROR' ? (
           <div className="w-full h-full flex items-center justify-center bg-gray-900">
             <div className="text-center text-gray-400 px-4">
@@ -566,6 +584,7 @@ interface ImageGridRowData {
   blurSensitiveImages: boolean;
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
+  aiTagHitIds?: Set<string>;
   focusedItemId: string | null;
   onImageClick: (image: IndexedImage, event: React.MouseEvent) => void;
   handleStackClick: (stack: ImageStack) => void;
@@ -578,7 +597,7 @@ interface ImageGridRowData {
 }
 
 const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildComponentProps<ImageGridRowData>) => {
-  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, semanticHitIds, focusedItemId, onImageClick, handleStackClick, onStackOpenInNewWindow, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
+  const { rows, enableSafeMode, sensitiveTagSet, blurSensitiveImages, selectedImages, semanticHitIds, aiTagHitIds, focusedItemId, onImageClick, handleStackClick, onStackOpenInNewWindow, handleImageLoad, handleContextMenu, registerCardRef, getDragPayload } = data;
   const row = rows[index];
   if (!row) return null;
   
@@ -612,6 +631,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                                   onContextMenu={handleContextMenu}
                                   baseWidth={itemWidth}
                                   isSemanticMatch={semanticHitIds?.has(item.coverImage.id)}
+                                  isAiTagMatch={aiTagHitIds?.has(item.coverImage.id)}
 
                                   registerCardRef={registerCardRef}
                                   isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
@@ -652,6 +672,7 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                           onContextMenu={handleContextMenu}
                           baseWidth={itemWidth}
                           isSemanticMatch={semanticHitIds?.has(image.id)}
+                          isAiTagMatch={aiTagHitIds?.has(image.id)}
 
                           registerCardRef={registerCardRef}
                           isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
@@ -675,10 +696,12 @@ interface ImageGridProps {
   onImageClick: (image: IndexedImage, event: React.MouseEvent, displayOrder?: string[]) => void;
   selectedImages: Set<string>;
   semanticHitIds?: Set<string>;
+  /** Ids whose keyword match depended on hidden AI vocabulary — "AI tag" badge. */
+  aiTagHitIds?: Set<string>;
   disableStacking?: boolean;
 }
 
-const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = React.memo(({ width, height, images, onImageClick, selectedImages, semanticHitIds, disableStacking }) => {
+const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = React.memo(({ width, height, images, onImageClick, selectedImages, semanticHitIds, aiTagHitIds, disableStacking }) => {
   const imageSize = useSettingsStore((state) => state.viewZoomLevels.library);
   const sensitiveTags = useSettingsStore((state) => state.sensitiveTags);
   const blurSensitiveImages = useSettingsStore((state) => state.blurSensitiveImages);
@@ -1549,6 +1572,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     blurSensitiveImages,
     selectedImages,
     semanticHitIds,
+    aiTagHitIds,
     focusedItemId,
 
     onImageClick: handleImageClick,
@@ -1565,6 +1589,7 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     blurSensitiveImages,
     selectedImages,
     semanticHitIds,
+    aiTagHitIds,
     focusedItemId,
 
     handleImageClick,

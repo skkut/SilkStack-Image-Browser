@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Keyword search understands the AI's hidden vocabulary** — normal search now matches the synonyms and subject categories the auto-tag pass writes, with semantic search off. A result that only matched this way carries a cyan **AI tag** badge in the grid and list (hover: *AI tag*), so it never appears unexplained.
+
 ## [2.5.0] - 2026-10-16
 
 ### Added
