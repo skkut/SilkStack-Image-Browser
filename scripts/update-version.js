@@ -8,7 +8,7 @@
  * Example: node update-version.js 1.0.0
  */
 
-import { readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 
 const NEW_VERSION = process.argv[2];
@@ -75,17 +75,6 @@ updateFile(
   `- **Version:** ${NEW_VERSION}`,
   'ARCHITECTURE.md current version'
 );
-
-// ============================================================
-// 3. Sync CHANGELOG.md to public/ (Important for build)
-// ============================================================
-try {
-  copyFileSync('docs/CHANGELOG.md', 'public/CHANGELOG.md');
-  console.log(`✅ [${++updatedCount}] Synced CHANGELOG.md to public/`);
-} catch (error) {
-  errors.push(`Failed to sync CHANGELOG.md: ${error.message}`);
-  console.error(`❌ Failed to sync CHANGELOG.md: ${error.message}`);
-}
 
 // ============================================================
 // Note: UI components (Header, StatusBar, FolderSelector) 

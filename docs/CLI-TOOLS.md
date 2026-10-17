@@ -17,7 +17,7 @@ alias (`npm run <alias>`) or directly with `node` / `tsx`.
 |---|---|
 | [1. Metadata & prompt extraction](#1-metadata--prompt-extraction) | `extract-prompt`, `parse-comfy-workflow`, `parse-comfy-batch`, `SilkStack-cli` |
 | [2. Development & build](#2-development--build) | `build-ai-intelligence`, `build-and-run-dev`, `build-prod`, `start-dev`, `verify-build-without-ai` |
-| [3. Release & versioning](#3-release--versioning) | `auto-release`, `release-workflow`, `generate-release`, `update-version`, `sync-changelog`, `build-mpl-archive` |
+| [3. Release & versioning](#3-release--versioning) | `auto-release`, `release-workflow`, `generate-release`, `update-version`, `build-mpl-archive` |
 | [3b. Release automation](#3b-release-automation-github-actions) | `.github/workflows/release.yml` — what runs on a `v*` tag |
 | [4. Data maintenance](#4-data-maintenance--one-off-utilities) | `reset-cache`, `clear-manual-tags`, `clear-stacking-tags`, `cleanup-clustering`, `cleanup-clustering-v2` |
 | [5. Application launch flags](#5-application-launch-flags) | `electron/main.mjs` |
@@ -44,7 +44,6 @@ npm run generate-release # generate release notes
 npm run release-workflow # version + notes + tag + push (no build)
 npm run auto-release     # full release pipeline
 npm run reset-cache      # clear app caches (⚠️ deletes app data — read §4 first)
-npm run sync-changelog   # copy CHANGELOG.md → public/
 ```
 
 **Legend:** ⚠️ marks commands that destroy data or deploy, not commands that are
@@ -322,23 +321,15 @@ jq -r '.metadata.loras[]?.name' index.jsonl | sort | uniq -c
 | `build-and-run-dev.ps1` | — | none |
 | `build-prod.ps1` | — | none (⚠️ **deploys**) |
 
-`npm run build` is a three-stage chain, and one hook that runs before it:
+`npm run build` is a three-stage chain:
 
 ```
-prebuild  →  copy docs/CHANGELOG.md → public/CHANGELOG.md
-build     →  npm run build:ai  &&  tsc -b  &&  vite build
+build  →  npm run build:ai  &&  tsc -b  &&  vite build
 ```
 
-The `prebuild` hook is an npm lifecycle script, so it fires automatically on
-every `npm run build` whether you invoke it directly or through
-`package-win`. That copy is what makes the changelog visible inside the app —
-editing `docs/CHANGELOG.md` alone is enough, and [sync-changelog](#3-release--versioning)
-does the same copy as a standalone step.
-
-> **Note:** `public/CHANGELOG.md` is **tracked in git**, not gitignored. It is a
-> committed duplicate of `docs/CHANGELOG.md`, and the two can drift if you edit
-> the doc and commit without running a build. If you change the changelog,
-> either run `npm run sync-changelog` or `npm run build` before committing.
+`docs/CHANGELOG.md` is the single copy of the changelog. It is not copied into
+`public/`, and the packaged app does not ship it; release notes read the file
+directly (see [`generate-release.js`](#generate-releasejs)). Edit it in place.
 
 ### `start-dev.js`
 
@@ -463,15 +454,14 @@ code if packaging fails. The repo path is hardcoded, as with the dev script.
 > automatically. See [RELEASE-GUIDE.md](RELEASE-GUIDE.md) for the maintainer
 > workflow.
 
-All five take the version as a single positional argument and parse
+All four take the version as a single positional argument and parse
 `process.argv` directly — there is no `--help`, no dry-run, and no
 confirmation prompt anywhere in the group.
 
 | Script | Validates semver? | Writes files | Commits / pushes |
 |---|---|---|---|
-| `update-version.js` | ✅ `MAJOR.MINOR.PATCH[-pre]` | 3 files | — |
+| `update-version.js` | ✅ `MAJOR.MINOR.PATCH[-pre]` | 2 files | — |
 | `generate-release.js` | ❌ any non-empty string | 1 file (never overwrites) | — |
-| `sync-changelog.js` | n/a | 1 file (overwrites) | — |
 | `release-workflow.js` | ❌ | via the two above | ✅ commit, tag, 2× push |
 | `auto-release.js` | ❌ | via the two above | ✅ commit, tag, 2× push |
 
@@ -483,11 +473,10 @@ node scripts/update-version.js <version>
 ```
 
 Validates the version against `^\d+\.\d+\.\d+(-[a-z0-9.-]+)?$` and exits 1 if it
-doesn't match. Updates exactly **three** targets:
+doesn't match. Updates exactly **two** targets:
 
 1. `package.json` — the `"version"` field
 2. `docs/ARCHITECTURE.md` — the `- **Version:**` line
-3. `public/CHANGELOG.md` — copied from `docs/CHANGELOG.md`
 
 Each step is independently try/caught; a missing pattern prints
 `⚠️ [SKIP]` and is not counted, and any I/O error is collected and reported at
@@ -495,7 +484,7 @@ the end with exit code 1.
 
 > **Note:** [RELEASE-AUTOMATION.md](RELEASE-AUTOMATION.md) states this script
 > updates **11 files** (components, `index.html`, `electron.mjs`, …). That is
-> out of date — the current script touches the three targets listed above.
+> out of date — the current script touches the two targets listed above.
 
 ### `generate-release.js`
 
@@ -513,24 +502,6 @@ the section headed `## [<version>]` (falling back to the version with any
 - If the version has no changelog section, it lists every version it did find
   and exits 1.
 - Writes no git state and makes no network calls.
-
-### `sync-changelog.js`
-
-```bash
-npm run sync-changelog -- [--to-public|--to-root]
-```
-
-Two directions, defaulting to `--to-public`:
-
-| Argument | Direction |
-|---|---|
-| `--to-public` (default) | `docs/CHANGELOG.md` → `public/CHANGELOG.md` |
-| `--to-root` | `public/CHANGELOG.md` → `docs/CHANGELOG.md` |
-
-Both directions **overwrite** the destination. Paths resolve from the script's
-own location, not the cwd, so it works from any directory. An unrecognised
-argument exits 1. (Its header comment says "root CHANGELOG.md", but the source
-path is `docs/CHANGELOG.md`.)
 
 ### `release-workflow.js`
 

@@ -47,14 +47,9 @@ export default defineConfig({
     {
       name: 'copy-assets',
       closeBundle() {
-        // Copy CHANGELOG.md and logo to dist folder after build
+        // Copy the logo to dist after the build. The changelog is deliberately
+        // not bundled into the app.
         try {
-          copyFileSync(
-            resolve(__dirname, 'docs/CHANGELOG.md'),
-            resolve(__dirname, 'dist/CHANGELOG.md')
-          )
-          console.log('✅ CHANGELOG.md copied to dist/')
-          
           copyFileSync(
             resolve(__dirname, 'public/logo1.png'),
             resolve(__dirname, 'dist/logo1.png')

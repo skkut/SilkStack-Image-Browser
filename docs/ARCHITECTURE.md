@@ -178,7 +178,7 @@ The application provides bidirectional workflow with Automatic1111 WebUI, enabli
 
 - **Vitest** powers unit tests for the parser suite and utility layers.
 - **ESLint** enforces consistent code style, especially across the large parser surface.
-- **Pre-release scripts** (`generate-release.js`, `auto-release.js`, etc.) automate changelog syncing and release packaging.
+- **Pre-release scripts** (`generate-release.js`, `auto-release.js`, etc.) automate release notes generation and release packaging.
 
 ## Version Update Guide
 
@@ -202,7 +202,6 @@ When updating the application version, the following files must be updated to en
 - [ ] Update `docs/CHANGELOG.md` with release notes for the new version
 - [ ] Run automated script: `npm run update-version <VERSION>`
 - [ ] Verify `package.json` and `docs/ARCHITECTURE.md` are updated
-- [ ] Verify `public/CHANGELOG.md` is synchronized
 - [ ] Check `npm run dev` to ensure UI version reflects the change
 - [ ] Verify all changes with search: `grep -r "OLD_VERSION" .`
 

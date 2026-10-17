@@ -21,7 +21,6 @@ Este script atualiza automaticamente:
 - ✅ `electron.mjs` - título da janela e mock update (2 ocorrências)
 - ✅ `cli.ts` - versão da CLI
 - ✅ `components/ChangelogModal.tsx` - referência de versão
-- ✅ `public/CHANGELOG.md` - sincroniza com CHANGELOG.md
 
 **Total: 11 arquivos atualizados automaticamente!**
 

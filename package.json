@@ -10,7 +10,6 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:app": "node scripts/start-dev.js",
-    "prebuild": "node -e \"require('fs').copyFileSync('docs/CHANGELOG.md', 'public/CHANGELOG.md')\"",
     "build:ai": "node scripts/build-ai-intelligence.cjs",
     "build": "npm run build:ai && tsc -b && vite build",
     "lint": "eslint .",
@@ -26,7 +25,6 @@
     "release-workflow": "node scripts/release-workflow.js",
     "auto-release": "node scripts/auto-release.js",
     "reset-cache": "node scripts/reset-cache.js",
-    "sync-changelog": "node scripts/sync-changelog.js",
     "test": "vitest",
     "cli:parse": "tsx scripts/cli.ts parse",
     "cli:index": "tsx scripts/cli.ts index",
