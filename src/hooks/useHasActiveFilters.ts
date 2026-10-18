@@ -12,6 +12,7 @@ import { useImageStore } from '../store/useImageStore';
 export interface AdvancedFiltersState {
     dimension?: string | null;
     aspectRatio?: string | null;
+    megapixels?: { min?: number | null; max?: number | null } | null;
     steps?: { min?: number | null; max?: number | null } | null;
     cfg?: { min?: number | null; max?: number | null } | null;
     date?: { from?: string | null; to?: string | null } | null;
@@ -44,6 +45,7 @@ const hasActiveAdvancedFilters = (filters?: AdvancedFiltersState | null): boolea
     return (
         !!filters.dimension ||
         !!filters.aspectRatio ||
+        !!filters.megapixels ||
         !!filters.steps ||
         !!filters.cfg ||
         !!(filters.date && (filters.date.from || filters.date.to))

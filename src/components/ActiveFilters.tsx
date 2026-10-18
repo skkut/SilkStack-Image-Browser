@@ -1,6 +1,7 @@
 import React from 'react';
 import { useImageStore } from '../store/useImageStore';
 import { useHasActiveFilters } from '../hooks/useHasActiveFilters';
+import { MEGAPIXEL_MAX_LABEL, MIN_MEGAPIXELS, formatMegapixels } from '../utils/megapixels';
 import { X, Calendar, Settings, Sparkles } from 'lucide-react';
 
 const ActiveFilters: React.FC = () => {
@@ -148,6 +149,20 @@ const ActiveFilters: React.FC = () => {
                     <span>Aspect: {advancedFilters.aspectRatio.charAt(0).toUpperCase() + advancedFilters.aspectRatio.slice(1)}</span>
                     <button
                         onClick={() => removeAdvancedFilter('aspectRatio')}
+                        className="ml-1 hover:text-indigo-100 rounded-full hover:bg-indigo-800/50 p-0.5 transition-colors"
+                    >
+                        <X size={12} />
+                    </button>
+                </div>
+            )}
+
+            {/* Megapixels Tag */}
+            {advancedFilters?.megapixels && (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-indigo-900/40 text-indigo-200 border border-indigo-700/50 flex-shrink-0 animate-fade-in">
+                    <Settings size={10} />
+                    <span>MP: {formatMegapixels(advancedFilters.megapixels.min ?? MIN_MEGAPIXELS)}-{typeof advancedFilters.megapixels.max === 'number' ? formatMegapixels(advancedFilters.megapixels.max) : MEGAPIXEL_MAX_LABEL}</span>
+                    <button
+                        onClick={() => removeAdvancedFilter('megapixels')}
                         className="ml-1 hover:text-indigo-100 rounded-full hover:bg-indigo-800/50 p-0.5 transition-colors"
                     >
                         <X size={12} />

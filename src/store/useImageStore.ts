@@ -13,6 +13,7 @@ import {
 
 import { normalizePath } from '../utils/pathUtils';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
+import { getMegapixels } from '../utils/megapixels';
 import { applyTableSorting, type TableSortField, type TableSortDirection } from '../utils/tableSorting';
 import { collectGroupMembers } from '../utils/stackGroupKey';
 import { useSettingsStore } from './useSettingsStore';
@@ -1893,6 +1894,17 @@ export const useImageStore = create<ImageState>((set, get) => {
                         if (advancedFilters.aspectRatio === 'landscape') return w > h;
                         if (advancedFilters.aspectRatio === 'square') return w === h;
                         return getImageAspectRatio(w, h) === advancedFilters.aspectRatio;
+                    });
+                }
+                if (advancedFilters.megapixels) {
+                    out = out.filter(image => {
+                        // Unknown dimensions count as outside every range —
+                        // the image's size cannot be proven to fit.
+                        const megapixels = getMegapixels(image.dimensions);
+                        if (megapixels === null) return false;
+                        const min = advancedFilters.megapixels.min ?? 0;
+                        const max = advancedFilters.megapixels.max ?? Infinity;
+                        return megapixels >= min && megapixels <= max;
                     });
                 }
                 if (advancedFilters.steps) {

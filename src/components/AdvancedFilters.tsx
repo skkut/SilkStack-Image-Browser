@@ -50,7 +50,7 @@ const AdvancedFilters: React.FC<AdvancedFiltersProps> = ({
           delete newFilters[k];
         }
       }
-      // For steps/cfg objects, remove if both min and max are null/undefined
+      // For range objects, remove if both min and max are null/undefined
       else if ((k === 'steps' || k === 'cfg') && typeof newFilters[k] === 'object') {
         const rangeObj = newFilters[k];
         if ((rangeObj.min === null || rangeObj.min === undefined) &&
@@ -69,7 +69,13 @@ const AdvancedFilters: React.FC<AdvancedFiltersProps> = ({
     setLocalFilters(newFilters);
   };
 
-  const hasActiveFilters = Object.keys(advancedFilters || {}).length > 0;
+  // Megapixels has its own section under Folders; it shares the store slice
+  // but is not an "advanced" filter, so it neither lights this badge nor is
+  // cleared by this panel's X.
+  const activeFilterKeys = Object.keys(advancedFilters || {}).filter(
+    (key) => key !== 'megapixels'
+  );
+  const hasActiveFilters = activeFilterKeys.length > 0;
 
   return (
     <div className="border-b border-gray-700">
@@ -83,7 +89,7 @@ const AdvancedFilters: React.FC<AdvancedFiltersProps> = ({
             <span className="text-gray-300 font-medium">Advanced Filters</span>
             {hasActiveFilters && (
               <span className="text-xs bg-blue-900/40 text-blue-300 px-2 py-0.5 rounded border border-blue-700/50">
-                {Object.keys(advancedFilters).length} active
+                {activeFilterKeys.length} active
               </span>
             )}
           </div>

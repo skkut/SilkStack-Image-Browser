@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import SearchBar from './SearchBar';
 import AdvancedFilters from './AdvancedFilters';
+import MegapixelFilter from './MegapixelFilter';
 import TagsAndFavorites from './TagsAndFavorites';
 import { ChevronLeft, X, ChevronDown, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -183,7 +184,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         <div className="flex flex-col items-center pt-4 space-y-3 mb-4">
-          {(selectedModels.length > 0 || selectedBaseModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0) && (
+          {(selectedModels.length > 0 || selectedBaseModels.length > 0 || selectedLoras.length > 0 || selectedSchedulers.length > 0 || Boolean(advancedFilters?.megapixels)) && (
             <div className="w-2 h-2 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse" title="Active filters"></div>
           )}
         </div>
@@ -260,6 +261,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         ) : (
           children
         )}
+
+        {/* Megapixels — directly below Folders. Image size is a primary way
+            to slice a library, so it is not tucked inside Advanced Filters. */}
+        <MegapixelFilter
+          advancedFilters={advancedFilters}
+          onAdvancedFiltersChange={onAdvancedFiltersChange}
+        />
 
         {/* Tags and Favorites Section */}
         <TagsAndFavorites />

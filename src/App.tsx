@@ -1384,7 +1384,12 @@ export default function App() {
             }}
             advancedFilters={advancedFilters}
             onAdvancedFiltersChange={setAdvancedFilters}
-            onClearAdvancedFilters={() => setAdvancedFilters({})}
+            onClearAdvancedFilters={() => {
+              // Megapixels is its own control under Folders now; clearing the
+              // Advanced panel must not silently reset it.
+              const { megapixels } = useImageStore.getState().advancedFilters || {};
+              setAdvancedFilters(megapixels ? { megapixels } : {});
+            }}
             availableDimensions={availableDimensions}
             availableAspectRatios={availableAspectRatios}
             isIndexing={indexingState === 'indexing' || indexingState === 'completed'}

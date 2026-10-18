@@ -17,7 +17,7 @@ It scans your folders, parses metadata from popular tools (ComfyUI, Automatic111
 - **Rich metadata parsing** for ComfyUI and other tools, including WebP format.
 - **Beautiful Image Grid** with adaptive layout and smooth scrolling.
 - **Auto-Watch functionality** for real-time monitoring of output folders during generation.
-- **Powerful search & filters** by prompt text, model, base model, steps, CFG, sampler, seed, etc.
+- **Powerful search & filters** by prompt text, model, base model, steps, CFG, megapixels, sampler, seed, etc.
 - **Smart Library** with clustering stacks and collections
 - **Auto-tags and manual tags** for faster organization and discovery (see [Auto-Tagging Documentation](docs/AUTO-TAGGING.md))
 - **Full image viewer** with zoom, a minimap, in-prompt search and a compact window mode
