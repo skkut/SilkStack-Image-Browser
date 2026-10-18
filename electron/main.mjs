@@ -2110,6 +2110,18 @@ function setupFileOperationHandlers() {
     const currentSettings = await readSettings();
     const mergedSettings = { ...currentSettings, ...newSettings };
     await saveSettings(mergedSettings);
+
+    // Every renderer — the main window, the popped-out stack window and the
+    // image viewer — keeps its own in-memory settings store, so a preference
+    // changed in one of them (the stack's Group by selection is the one users
+    // notice) would otherwise be invisible to the others until they reload.
+    // The event carries no payload on purpose: each window re-reads the file,
+    // so there is one shape of the settings and it is the file's. The sender
+    // is skipped because its own `set` already updated its state.
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents === event.sender) continue;
+      win.webContents.send("settings-changed");
+    }
   });
 
   // Renderer → main: visibility of the native Help → "Try Premium" item (see

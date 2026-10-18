@@ -214,6 +214,12 @@ export interface ElectronAPI {
   saveSettings: (
     settings: any,
   ) => Promise<{ success: boolean; error?: string }>;
+  /**
+   * Another window persisted a settings change. Carries no payload: the
+   * listener re-reads the settings file, so every window converges on the
+   * file's values. Optional because older preloads and test stubs lack it.
+   */
+  onSettingsChanged?: (callback: () => void) => () => void;
   getDefaultCachePath: () => Promise<{
     success: boolean;
     path?: string;

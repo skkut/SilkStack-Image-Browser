@@ -468,6 +468,21 @@ export const useSettingsStore = create<SettingsState>()(
   )
 );
 
+// ── Cross-window settings sync ─────────────────────────────────────────
+// Each renderer (the main window, the popped-out stack window, the viewer)
+// instantiates this store independently and holds its own in-memory copy.
+// Without this subscription, a persisted preference changed in one window —
+// the stack view's Group by selection is the one users notice — would not
+// reach the others until they were reloaded. The main process announces
+// every `save-settings` write; `rehydrate()` applies the file through
+// persist's raw setter, which does NOT write back, so applying the change
+// cannot start an echo loop between windows.
+if (typeof window !== 'undefined' && window.electronAPI?.onSettingsChanged) {
+  window.electronAPI.onSettingsChanged(() => {
+    void useSettingsStore.persist.rehydrate();
+  });
+}
+
 /**
  * @deprecated Import from '../services/aiFeatureAccess' instead.
  * The authoritative stamp-validating check lives there.

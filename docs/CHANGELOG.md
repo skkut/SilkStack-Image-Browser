@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 - **A popped-out stack window follows its stack live** — new images join it, deleted images leave it, and an emptied stack says so instead of showing images that no longer exist. The main window re-resolves the group and pushes a fresh snapshot as the library changes.
 - **A stack window remembers its size, position and maximised state** — resizing, moving or maximising it now survives closing and reopening, instead of every window starting at the default size.
+- **The stack view's Group by selection is shared everywhere** — choosing Prompt, Model and/or Loras now applies to the in-app drill-down and every popped-out stack window, live in both directions, and the next stack opens with it. Each window used to keep its own copy until restart.
 
 ## [2.5.0] - 2026-10-16
 

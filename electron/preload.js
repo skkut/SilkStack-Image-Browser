@@ -21,6 +21,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
 
+  // Another window persisted a settings change. Carries no settings with it:
+  // the store re-reads the file (see useSettingsStore), so the file stays the
+  // one source of truth.
+  onSettingsChanged: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('settings-changed', handler);
+    return () => {
+      ipcRenderer.removeListener('settings-changed', handler);
+    };
+  },
+
   onIndexingProgress: (callback) => {
     const handler = (event, ...args) => callback(...args);
     ipcRenderer.on('indexing-progress', handler);
