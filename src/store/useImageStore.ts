@@ -2470,7 +2470,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             set(state => {
                 const newExcluded = new Set(state.excludedFolders);
                 newExcluded.add(normalizedPath);
-                
+
                 // If the folder was selected, deselect it
                 const newSelected = new Set(state.selectedFolders);
                 if (newSelected.has(normalizedPath)) {
@@ -2480,7 +2480,14 @@ export const useImageStore = create<ImageState>((set, get) => {
                 saveExcludedFolders(Array.from(newExcluded));
                 saveSelectedFolders(Array.from(newSelected));
 
-                return _updateState({ ...state, excludedFolders: newExcluded, selectedFolders: newSelected }, state.images);
+                // Exclusion is a filter input, not an image change, so
+                // `_updateState` would early-return on the unchanged image
+                // array and leave `filteredImages` stale. Filter directly —
+                // the same way the folder-selection setters below do.
+                const newState = { ...state, excludedFolders: newExcluded, selectedFolders: newSelected };
+                const resultState = { ...newState, ...filterAndSort(newState) };
+                const availableFilters = recalculateAvailableFilters(resultState.filteredImages);
+                return { ...resultState, ...availableFilters };
             });
         },
 
@@ -2490,7 +2497,13 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const newExcluded = new Set(state.excludedFolders);
                 newExcluded.delete(normalizedPath);
                 saveExcludedFolders(Array.from(newExcluded));
-                return _updateState({ ...state, excludedFolders: newExcluded }, state.images);
+
+                // Removing an exclusion must restore its images immediately,
+                // for the same reason as `addExcludedFolder` above.
+                const newState = { ...state, excludedFolders: newExcluded };
+                const resultState = { ...newState, ...filterAndSort(newState) };
+                const availableFilters = recalculateAvailableFilters(resultState.filteredImages);
+                return { ...resultState, ...availableFilters };
             });
         },
 

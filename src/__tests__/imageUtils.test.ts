@@ -91,6 +91,35 @@ describe('copyImageToClipboard', () => {
     expect(writeMock).not.toHaveBeenCalled();
   });
 
+  it('falls back to the media protocol when the handle cannot read the file', async () => {
+    // Child windows rebuild images across IPC, where a FileSystemFileHandle
+    // cannot survive — the stub deliberately has no getFile. The absolute path
+    // does survive, and the media protocol serves those bytes to fetch, so a
+    // Copy to Clipboard from the stack or viewer window still works.
+    (window as any).electronAPI = {};
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(['png-bytes'], { type: 'image/png' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const result = await copyImageToClipboard({
+        name: 'render.png',
+        fileType: 'image/png',
+        handle: { _filePath: 'C:\\Pics\\render.png' },
+      } as any);
+
+      expect(result.success).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0][0])).toMatch(/^silkstack-media:\/\/local\//);
+      expect(Object.keys(writtenItems[0].items)).toEqual(['image/png']);
+    } finally {
+      delete (window as any).electronAPI;
+    }
+  });
+
   it('reports clipboard write failures', async () => {
     writeMock.mockRejectedValueOnce(new Error('Type Image/jpeg not supported on write'));
     const result = await copyImageToClipboard(makeImage('photo.jpg', 'image/jpeg'));

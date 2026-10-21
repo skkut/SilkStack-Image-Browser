@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Right-click a subfolder to exclude it** — the sidebar's folder menu now offers **Exclude Folder** for subfolders, hiding that folder and everything under it while its siblings stay visible. Library roots are left out (removing one stays in **Settings → Folders**). The same screen lists every exclusion, and restoring one now brings its images back immediately.
 - **Child windows are named in their title bar and taskbar** — image viewers show **Image: <file name>** at the top of the window, follow navigation, renaming and deletion, and carry the same name in the taskbar; popped-out stack windows show **Stack: <prompt>**.
 - **Megapixel filter** — a two-knob **Megapixels** slider sits in the sidebar right below **Folders** and narrows the grid by image size, from **0.5 MP to 50+ MP**. The steps follow real output — 0.5, 1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30 and 50+ — and the top stop is open-ended, so images above 50 MP stay visible. The chosen range also appears as a removable pill in the footer.
 - **Keyword search understands the AI's hidden vocabulary** — normal search now matches the synonyms and subject categories the auto-tag pass writes, with semantic search off. A result that only matched this way carries a cyan **AI tag** badge in the grid and list (hover: *AI tag*), so it never appears unexplained.
@@ -15,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - **A popped-out stack window follows its stack live** — new images join it, deleted images leave it, and an emptied stack says so instead of showing images that no longer exist. The main window re-resolves the group and pushes a fresh snapshot as the library changes.
 - **A stack window remembers its size, position and maximised state** — resizing, moving or maximising it now survives closing and reopening, instead of every window starting at the default size.
 - **The stack view's Group by selection is shared everywhere** — choosing Prompt, Model and/or Loras now applies to the in-app drill-down and every popped-out stack window, live in both directions, and the next stack opens with it. Each window used to keep its own copy until restart.
+- **Right-click works in popped-out stack windows** — an image card there opens the same copy, path and folder menu as the library. **Copy to Clipboard** works there too: child windows cannot use the file handle, so the image's bytes now come through the local media protocol instead.
 
 ## [2.5.0] - 2026-10-16
 

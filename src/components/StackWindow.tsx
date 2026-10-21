@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Layers } from 'lucide-react';
 import { type IndexedImage, type StackWindowPayload } from '../types';
 import SimilarityStackExpandedViewWrapper from './SimilarityStackExpandedViewWrapper';
+import ImageContextMenu from './ImageContextMenu';
+import { useContextMenu } from '../hooks/useContextMenu';
 import { getImageMediaUrl } from '../utils/mediaUrl';
 import { compactOpenHint } from '../hooks/useImageSelection';
 import { serializeStackImages } from '../services/stackWindowService';
@@ -113,6 +115,23 @@ const StackWindow: React.FC = () => {
   const [payload, setPayload] = useState<StackWindowPayload | null>(null);
   const [images, setImages] = useState<IndexedImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(() => new Set());
+  // Right-click menu. The hook is store-blind for everything this window
+  // offers — its one store-dependent item ("Open Stack in New Window") stays
+  // hidden here because this window's store holds no images, which is exactly
+  // right: the stack is already popped out.
+  const {
+    contextMenu,
+    showContextMenu,
+    copyImage,
+    copyPrompt,
+    copyNegativePrompt,
+    copySeed,
+    copyModel,
+    copyRawMetadata,
+    copyPath,
+    showInFolder,
+    openWithNativeViewer,
+  } = useContextMenu();
   // Every blob URL this window creates, so they are all revoked on unmount and
   // when a new payload replaces the old one (a refreshed stack).
   const objectUrlsRef = useRef<string[]>([]);
@@ -334,6 +353,18 @@ const StackWindow: React.FC = () => {
       });
   }, [images, payload]);
 
+  // ── Context menu ─────────────────────────────────────────────────────
+  // The package view forwards every card's right-click here (see its
+  // `onContextMenu` prop). The directory path comes from the payload because
+  // path-based actions — Copy Image Path, Show in Folder, Open in Native
+  // Viewer — must resolve real locations, and this window has no directory
+  // store to look one up in.
+  const handleContextMenu = useCallback((image: IndexedImage, event: React.MouseEvent) => {
+    const directoryPath =
+      (image.directoryId && payload?.directoryPaths[image.directoryId]) || '';
+    showContextMenu(event, image, directoryPath);
+  }, [payload, showContextMenu]);
+
   // ── Favourites ───────────────────────────────────────────────────────
   // Toggled locally for an instant star, and forwarded so the main window's
   // store — the real one — records it.
@@ -430,6 +461,7 @@ const StackWindow: React.FC = () => {
             isStandaloneWindow
             onToggleFavorite={handleToggleFavorite}
             onToggleSelection={handleToggleSelection}
+            onContextMenu={handleContextMenu}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center px-6">
@@ -441,6 +473,20 @@ const StackWindow: React.FC = () => {
           </div>
         )}
       </div>
+
+      <ImageContextMenu
+        contextMenu={contextMenu}
+        onCopyImage={copyImage}
+        onCopyPrompt={copyPrompt}
+        onCopyNegativePrompt={copyNegativePrompt}
+        onCopySeed={copySeed}
+        onCopyModel={copyModel}
+        onCopyRawMetadata={copyRawMetadata}
+        onCopyPath={copyPath}
+        onOpenWithNativeViewer={openWithNativeViewer}
+        onShowInFolder={showInFolder}
+        // No "Open Stack in New Window": this window *is* that window.
+      />
     </div>
   );
 };

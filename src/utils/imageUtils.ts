@@ -1,5 +1,6 @@
 import { type IndexedImage } from '../types';
 import { getImageAbsolutePath, quotePathForClipboard } from './pathUtils';
+import { getImageMediaUrl } from './mediaUrl';
 
 // Utility functions for image operations
 
@@ -9,6 +10,46 @@ export interface OperationResult {
 }
 
 /**
+ * The image's bytes, from whichever source this window can actually reach.
+ *
+ * A `FileSystemFileHandle` cannot cross an IPC boundary, so the child windows
+ * (the popped-out viewer and the stack window) rebuild images with a stub
+ * handle that deliberately has no `getFile` — see `StackWindow`'s
+ * `reconstructImage`. The file's absolute path does survive, and the media
+ * protocol serves exactly those bytes to `fetch`, so a stub can still be
+ * copied. `directoryPath` is the child's map of directoryId → absolute folder
+ * path, used when the rebuilt handle carries no `_filePath` of its own.
+ */
+const readImageSource = async (
+  image: IndexedImage,
+  directoryPath?: string,
+): Promise<File | Blob> => {
+  const handle = image.handle as (FileSystemFileHandle & { _filePath?: string }) | undefined;
+  if (typeof handle?.getFile === 'function') {
+    return handle.getFile();
+  }
+
+  const url = getImageMediaUrl(image, directoryPath);
+  if (!url) {
+    throw new Error(
+      'Cannot read this image: it has no usable file handle or absolute path.'
+    );
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to read image (HTTP ${response.status}).`);
+  }
+  const blob = await response.blob();
+  // The protocol sets a content type from the extension, but a bare blob would
+  // otherwise be rejected by the image checks below for having no type at all.
+  if (!blob.type && image.fileType) {
+    return new File([blob], image.name || 'image', { type: image.fileType });
+  }
+  return blob;
+};
+
+/**
  * Copies an image to the clipboard using the Clipboard API.
  *
  * Chromium (Electron) only accepts `image/png` (and `image/webp`) for
@@ -16,11 +57,16 @@ export interface OperationResult {
  * not supported on write". Files in any other image format are therefore
  * re-encoded to PNG via a canvas before being written.
  * @param image - The IndexedImage object containing the file handle
+ * @param directoryPath - Absolute folder for the image's directory, used by
+ *   the media-protocol fallback when the handle cannot read the file
  * @returns Promise with operation result
  */
-export const copyImageToClipboard = async (image: IndexedImage): Promise<OperationResult> => {
+export const copyImageToClipboard = async (
+  image: IndexedImage,
+  directoryPath?: string,
+): Promise<OperationResult> => {
   try {
-    const file = await image.handle.getFile();
+    const file = await readImageSource(image, directoryPath);
 
     // PNG and WebP are natively writable — no re-encoding needed.
     if (file.type === 'image/png' || file.type === 'image/webp') {

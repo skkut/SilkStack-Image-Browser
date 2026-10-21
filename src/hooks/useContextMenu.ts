@@ -6,7 +6,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { openStackInNewWindow, resolveStackForImage, canOpenStackWindow } from '../services/stackWindowService';
 
-interface ContextMenuState {
+export interface ContextMenuState {
   x: number;
   y: number;
   visible: boolean;
@@ -141,7 +141,7 @@ export const useContextMenu = () => {
   const copyImage = async () => {
     if (!contextMenu.image) return;
     hideContextMenu();
-    const result = await copyImageToClipboard(contextMenu.image);
+    const result = await copyImageToClipboard(contextMenu.image, contextMenu.directoryPath);
     if (result.success) {
       showNotification('Image copied to clipboard!');
     } else {

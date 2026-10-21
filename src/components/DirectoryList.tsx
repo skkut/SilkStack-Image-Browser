@@ -3,6 +3,7 @@ import { Directory } from "../types";
 import { useImageStore } from "../store/useImageStore";
 import {
   FolderOpen,
+  FolderX,
   RotateCcw,
   Trash2,
   ChevronDown,
@@ -105,7 +106,12 @@ export default function DirectoryList({
   );
   const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].name);
 
-  const { folderPreferences, setFolderEmoji } = useImageStore();
+  const {
+    folderPreferences,
+    setFolderEmoji,
+    addExcludedFolder,
+    setSuccess,
+  } = useImageStore();
 
   const inflightRequests = useRef<Set<string>>(new Set());
 
@@ -263,6 +269,35 @@ export default function DirectoryList({
       });
     },
     [],
+  );
+
+  /**
+   * A library root is not a subfolder: excluding one would hide every image it
+   * contains while its row stays in the sidebar — with nothing on screen
+   * saying why the library looks empty. Removing a root is
+   * Settings → Folders → Remove from library instead.
+   */
+  const isLibraryRoot = useCallback(
+    (path: string) =>
+      directories.some(
+        (directory) => normalizePath(directory.path) === normalizePath(path),
+      ),
+    [directories],
+  );
+
+  /**
+   * Excluding a subfolder is a display filter, not a deletion: the folder
+   * disappears from this tree and its images leave the grid, and
+   * Settings → Folders lists it for one-click restoration. Say where it went
+   * — the row vanishing is the only feedback.
+   */
+  const handleExcludeFolder = useCallback(
+    (path: string) => {
+      const name = path.split(/[/\\]/).filter(Boolean).pop() || path;
+      addExcludedFolder(path);
+      setSuccess(`"${name}" excluded — restore it in Settings → Folders.`);
+    },
+    [addExcludedFolder, setSuccess],
   );
 
   // Click outside handler to close context menu
@@ -747,6 +782,19 @@ export default function DirectoryList({
           <RotateCcw className={`w-4 h-4 ${isIndexing ? "text-gray-600" : ""}`} />
           Refresh Folder
         </button>
+
+        {!isLibraryRoot(contextMenu.path) && (
+          <button
+            className="w-full px-4 py-2 mt-1 pt-2 text-left text-sm text-gray-300 hover:bg-red-900/30 hover:text-red-300 flex items-center gap-2 border-t border-gray-700/60"
+            onClick={() => {
+              handleExcludeFolder(contextMenu.path);
+              setContextMenu(null);
+            }}
+          >
+            <FolderX className="w-4 h-4" />
+            Exclude Folder
+          </button>
+        )}
 
         {onManageFolders && (
           <button

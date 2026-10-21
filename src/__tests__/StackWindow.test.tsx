@@ -56,7 +56,7 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
   // content of a window, and this window always is one — so the mock mirrors
   // that, which is what makes `data-standalone` an assertion about the flag
   // this component passes rather than about the mock's own rendering.
-  SimilarityStackExpandedView: ({ images, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection }: any) => (
+  SimilarityStackExpandedView: ({ images, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection, onContextMenu }: any) => (
     <div data-testid="stack-view" data-standalone={String(!!isStandaloneWindow)}>
       {!isStandaloneWindow && (
         <button onClick={onBack} type="button">
@@ -69,6 +69,10 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
           data-testid={`card-${img.id}`}
           data-thumbnail={img.thumbnailUrl ?? ''}
           data-status={img.thumbnailStatus ?? ''}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            onContextMenu?.(img, event);
+          }}
         >
           <span>{img.isFavorite ? 'starred' : 'unstarred'}</span>
           <button onClick={() => onToggleFavorite(img.id)} type="button">
@@ -187,6 +191,42 @@ describe('the popped-out stack window', () => {
     expect(screen.getByText('Stack: a blue cat')).toBeTruthy();
     expect(screen.getByText('2 images')).toBeTruthy();
     expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
+  });
+
+  it('opens the image context menu on right-click', async () => {
+    // The package view forwards every card's right-click through its
+    // `onContextMenu` prop. This window used to pass none, so the menu simply
+    // never appeared — there is no OS-provided menu in an Electron renderer.
+    await mountWithPayload();
+
+    fireEvent.contextMenu(screen.getByTestId('card-dir-1::img-1.png'));
+
+    expect(screen.getByText('Copy Prompt')).toBeTruthy();
+    expect(screen.getByText('Copy Image Path')).toBeTruthy();
+    // The stack is already popped out; there is nothing left to open.
+    expect(screen.queryByText('Open Stack in New Window')).toBeNull();
+  });
+
+  it('resolves the menu path actions through the payload directory map', async () => {
+    // This window has no directory store, so the hook cannot look up where a
+    // file lives — the payload's directoryPaths is the only map it has.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    });
+
+    await mountWithPayload();
+    fireEvent.contextMenu(screen.getByTestId('card-dir-1::img-1.png'));
+    fireEvent.click(screen.getByText('Copy Image Path'));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith('"C:\\Images\\img-1.png"'),
+    );
   });
 
   it('follows the stack as the main window refreshes it', async () => {
