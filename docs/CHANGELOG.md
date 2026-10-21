@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Child windows are named in their title bar and taskbar** — image viewers show **Image: <file name>** at the top of the window, follow navigation, renaming and deletion, and carry the same name in the taskbar; popped-out stack windows show **Stack: <prompt>**.
 - **Megapixel filter** — a two-knob **Megapixels** slider sits in the sidebar right below **Folders** and narrows the grid by image size, from **0.5 MP to 50+ MP**. The steps follow real output — 0.5, 1, 2, 3, 5, 8, 10, 12, 15, 20, 25, 30 and 50+ — and the top stop is open-ended, so images above 50 MP stay visible. The chosen range also appears as a removable pill in the footer.
 - **Keyword search understands the AI's hidden vocabulary** — normal search now matches the synonyms and subject categories the auto-tag pass writes, with semantic search off. A result that only matched this way carries a cyan **AI tag** badge in the grid and list (hover: *AI tag*), so it never appears unexplained.
 

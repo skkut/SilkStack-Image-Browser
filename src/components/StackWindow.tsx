@@ -372,6 +372,12 @@ const StackWindow: React.FC = () => {
     );
   }
 
+  // The same text main puts in the OS window title, so the bar and the taskbar
+  // entry cannot disagree. Read from the payload rather than from state: the
+  // label follows a live refresh exactly when the image list does.
+  const stackPrompt = payload.basePrompt?.trim() || '';
+  const stackTitle = stackPrompt ? `Stack: ${stackPrompt}` : 'Stack';
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
       {/* Drag bar. The window is frameless with a 32px title-bar overlay, so
@@ -384,7 +390,7 @@ const StackWindow: React.FC = () => {
       >
         <Layers size={14} className="text-blue-400 shrink-0" />
         <span className="text-xs font-semibold text-gray-300 truncate">
-          {payload.basePrompt || 'Stack'}
+          {stackTitle}
         </span>
         <span className="text-[11px] text-gray-500 shrink-0">
           {images.length} {images.length === 1 ? 'image' : 'images'}

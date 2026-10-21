@@ -58,6 +58,17 @@ const ImageModalWindow: React.FC = () => {
     }
   }, []);
 
+  // The window title is the image's identity everywhere the OS shows it
+  // (taskbar, Alt+Tab). Navigation is local to this window, so it is the only
+  // one that knows which image is current — publishing the name through the
+  // document title is how Electron learns it. A rename arrives as an
+  // onImageViewerUpdate that replaces the list entry, so the title follows.
+  // An absent image leaves the initial title set by the main process in place.
+  const imageName = image?.name;
+  useEffect(() => {
+    if (imageName) document.title = `Image: ${imageName}`;
+  }, [imageName]);
+
   // Helper: reconstruct an IndexedImage with a mock handle for Electron
   const reconstructImage = (raw: any): IndexedImage => ({
     ...raw,

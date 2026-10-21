@@ -1501,6 +1501,31 @@ function setupFileOperationHandlers() {
         parent: null, // Independent window, not modal
       });
 
+      // The title bar is hidden, so the OS taskbar / Alt+Tab entry is the only
+      // place this window's title is visible. Name the image it opens right
+      // away, before its first paint, so the window is identifiable while the
+      // renderer is still loading.
+      const initialImages = Array.isArray(data?.imageList) ? data.imageList : [];
+      const indexedImage = initialImages[data?.currentIndex];
+      const initialImage =
+        indexedImage?.id === data?.imageId
+          ? indexedImage
+          : initialImages.find((candidate) => candidate?.id === data?.imageId);
+      const initialImageName =
+        typeof initialImage?.name === "string" ? initialImage.name.trim() : "";
+      viewerWindow.setTitle(
+        initialImageName ? `Image: ${initialImageName}` : "Image",
+      );
+
+      // index.html's own <title> fires page-title-updated once the page loads
+      // and would replace the name above with the app's generic title. Only
+      // that generic title is refused: navigation is local to this window, so
+      // it alone knows which image is current, and it publishes the name
+      // through document.title — which Electron mirrors to the OS title.
+      viewerWindow.on("page-title-updated", (e, title) => {
+        if (title === "SilkStack Image Browser") e.preventDefault();
+      });
+
       const windowId = viewerWindow.id;
       imageViewerWindows.set(windowId, viewerWindow);
 
@@ -1842,7 +1867,7 @@ function setupFileOperationHandlers() {
       // itself is frameless, so nothing else surfaces it.
       const label = typeof data.basePrompt === "string" ? data.basePrompt.trim() : "";
       stackWindow.setTitle(
-        label ? `Stack — ${label.slice(0, 80)}` : "Stack",
+        label ? `Stack: ${label.slice(0, 80)}` : "Stack",
       );
 
       // index.html's own <title> fires page-title-updated once the page loads,
@@ -2001,9 +2026,9 @@ function setupFileOperationHandlers() {
     lastStackData.set(windowId, payload);
 
     // The drag bar reads the payload, but the OS taskbar/alt-tab title does
-    // not — keep both saying the same thing.
+    // not — keep both showing the same prompt.
     const label = typeof payload.basePrompt === "string" ? payload.basePrompt.trim() : "";
-    stackWindow.setTitle(label ? `Stack — ${label.slice(0, 80)}` : "Stack");
+    stackWindow.setTitle(label ? `Stack: ${label.slice(0, 80)}` : "Stack");
 
     stackWindow.webContents.send("stack-window-update", payload);
   });

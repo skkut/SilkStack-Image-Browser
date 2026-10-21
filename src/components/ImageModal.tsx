@@ -3478,14 +3478,15 @@ const ImageModal: React.FC<ImageModalProps> = ({
           className="bg-gray-900/40 backdrop-blur-md border-b border-gray-800/60 z-[1010] select-none shadow-sm flex items-center pt-0.5 pb-0.5 shrink-0 w-full"
           style={{ height: '32px', WebkitAppRegion: 'drag' } as any}
         >
-          {/* Dropped while compact: the window *is* the image, and the label is
-              what pushes the buttons under the OS window controls on tall
-              portrait images. The flex-1 spacer keeps the drag region. */}
-          {!isCompactMode && (
-            <div className="px-4 flex items-center text-xs font-semibold text-gray-400">
-              SilkStack Viewer
-            </div>
-          )}
+          {/* Shown whenever the window has room. Compact mode used to drop the
+              label outright, which left every remembered-compact viewer with a
+              titleless bar even when it was wide (a landscape image can fill
+              the screen). The breakpoint sits well clear of the compact floor:
+              the four buttons (~126px) and the OS control reserve (140px) are
+              fixed, so below it there is genuinely no space for a label. */}
+          <div className="hidden min-[420px]:flex px-4 min-w-0 items-center text-xs font-semibold text-gray-400">
+            <span className="truncate">Image: {image.name}</span>
+          </div>
           <div className="flex-1" />
           <div className="flex items-center gap-1 pr-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
             <button

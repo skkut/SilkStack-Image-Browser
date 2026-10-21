@@ -184,7 +184,7 @@ describe('the popped-out stack window', () => {
     await mountWithPayload();
 
     expect(screen.queryByText('Loading stack…')).toBeNull();
-    expect(screen.getByText('a blue cat')).toBeTruthy();
+    expect(screen.getByText('Stack: a blue cat')).toBeTruthy();
     expect(screen.getByText('2 images')).toBeTruthy();
     expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
   });
@@ -523,6 +523,6 @@ describe('the popped-out stack window', () => {
 
     expect(screen.getByText('Stack view is not available')).toBeTruthy();
     // The bar above it still carries what the window is.
-    expect(screen.getByText('a blue cat')).toBeTruthy();
+    expect(screen.getByText('Stack: a blue cat')).toBeTruthy();
   });
 });
