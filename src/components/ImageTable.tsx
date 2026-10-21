@@ -86,7 +86,19 @@ const ImageTable: React.FC<ImageTableProps> = ({ images, onImageClick, selectedI
 
   const handleContextMenu = (image: IndexedImage, e: React.MouseEvent) => {
     const directoryPath = directories.find(d => d.id === image.directoryId)?.path;
-    showContextMenu(e, image, directoryPath);
+    // Snapshot what is selected now: the menu is opened once and acts later.
+    // Only a right-click *inside* the selection may act on all of it — see
+    // useContextMenu's pathTargets.
+    const menuSelection =
+      selectedImages.has(image.id) && selectedImages.size > 1
+        ? images
+            .filter((candidate) => selectedImages.has(candidate.id))
+            .map((candidate) => ({
+              image: candidate,
+              directoryPath: directories.find(d => d.id === candidate.directoryId)?.path,
+            }))
+        : undefined;
+    showContextMenu(e, image, directoryPath, menuSelection);
   };
 
 

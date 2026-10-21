@@ -97,8 +97,24 @@ export default function App() {
 
   const handleContextMenu = useCallback((image: IndexedImage, e: React.MouseEvent) => {
     const directoryPath = directories.find(d => d.id === image.directoryId)?.path;
-    showContextMenu(e, image, directoryPath);
-  }, [directories, showContextMenu]);
+    // Snapshot what is selected now: the menu is opened once and acts later.
+    // Only a right-click *inside* the selection may act on all of it — see
+    // useContextMenu's pathTargets. This handler serves the stack drill-down,
+    // which shares the library's selection. The guards mirror the `safe*`
+    // values below, which are declared too late to be referenced here.
+    const candidates = Array.isArray(filteredImages) ? filteredImages : [];
+    const selected = selectedImages instanceof Set ? selectedImages : new Set<string>();
+    const menuSelection =
+      selected.has(image.id) && selected.size > 1
+        ? candidates
+            .filter((candidate) => selected.has(candidate.id))
+            .map((candidate) => ({
+              image: candidate,
+              directoryPath: directories.find(d => d.id === candidate.directoryId)?.path,
+            }))
+        : undefined;
+    showContextMenu(e, image, directoryPath, menuSelection);
+  }, [directories, filteredImages, selectedImages, showContextMenu]);
 
   // Loading & progress selectors
   const indexingState = useImageStore((state) => state.indexingState);

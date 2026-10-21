@@ -6,12 +6,31 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { openStackInNewWindow, resolveStackForImage, canOpenStackWindow } from '../services/stackWindowService';
 
+/**
+ * One entry of the selection a surface had when its menu opened.
+ *
+ * The directory path is optional because most images resolve through their
+ * file handle; it is what the popped-out stack window supplies from its
+ * payload, since that window has no directory store to look one up in.
+ */
+export interface ContextMenuSelectionItem {
+  image: IndexedImage;
+  directoryPath?: string;
+}
+
 export interface ContextMenuState {
   x: number;
   y: number;
   visible: boolean;
   image?: IndexedImage;
   directoryPath?: string;
+  /**
+   * The surface's multi-selection, snapshotted when the menu opened. Actions
+   * that can act on several images (Copy Image Paths) read it; every other
+   * action still targets `image` alone. Absent means the surface had nothing
+   * selected beyond the right-clicked image.
+   */
+  selectedImages?: readonly ContextMenuSelectionItem[];
   /**
    * Whether the right-clicked image is part of a stack, and this build can pop
    * one out. Resolved once, when the menu opens — the menu itself is not
@@ -75,7 +94,12 @@ export const useContextMenu = () => {
   }, [contextMenu.visible, hideContextMenu]);
 
 
-  const showContextMenu = (e: React.MouseEvent, image: IndexedImage, directoryPath?: string) => {
+  const showContextMenu = (
+    e: React.MouseEvent,
+    image: IndexedImage,
+    directoryPath?: string,
+    selectedImages?: readonly ContextMenuSelectionItem[],
+  ) => {
     e.preventDefault();
     setContextMenu({
       x: e.clientX,
@@ -83,6 +107,7 @@ export const useContextMenu = () => {
       visible: true,
       image,
       directoryPath,
+      selectedImages,
       // Read imperatively: this decides whether one menu item is rendered, and
       // subscribing to the whole image list for it would re-render every view
       // that mounts this hook on every indexing batch.
@@ -164,13 +189,49 @@ export const useContextMenu = () => {
   const resolvePath = () =>
     getImageAbsolutePath(contextMenu.image, contextMenu.directoryPath) || null;
 
+  /**
+   * The images a path action should act on: the whole selection when the
+   * right-clicked image is part of a multi-selection, otherwise just that
+   * image. Right-clicking outside the selection must not act on files the
+   * user did not point at — Windows Explorer resets the selection there for
+   * the same reason; this menu cannot, so it narrows the action instead.
+   */
+  const pathTargets = (): readonly ContextMenuSelectionItem[] => {
+    const target = contextMenu.image;
+    if (!target) return [];
+    const selection = contextMenu.selectedImages;
+    if (selection && selection.length > 1 && selection.some((item) => item.image.id === target.id)) {
+      return selection;
+    }
+    return [{ image: target, directoryPath: contextMenu.directoryPath }];
+  };
+
+  /**
+   * Resolves one path-target to its absolute path. The directory the surface
+   * handed over wins; otherwise the store's directory map is used, since a
+   * handle-less image (a stack-window payload) cannot resolve on its own.
+   */
+  const resolveTargetPath = ({ image, directoryPath }: ContextMenuSelectionItem): string => {
+    const directory = directoryPath
+      ?? useImageStore.getState().directories.find((dir) => dir.id === image.directoryId)?.path;
+    return getImageAbsolutePath(image, directory);
+  };
+
   const copyPath = () => {
-    const path = resolvePath();
-    if (!path) {
+    const paths = pathTargets()
+      .map(resolveTargetPath)
+      .filter((path) => path.length > 0);
+
+    if (paths.length === 0) {
       alert('Cannot determine file path: directory path is missing.');
       return;
     }
-    copyToClipboardElectron(quotePathForClipboard(path), 'Image Path');
+
+    // One quoted path per line, as Explorer's "Copy as path" does. Joined with
+    // a bare newline — no commas or semicolons — so shells and scripts read it
+    // as a plain path list.
+    const label = paths.length > 1 ? `${paths.length} Image Paths` : 'Image Path';
+    copyToClipboardElectron(paths.map(quotePathForClipboard).join('\n'), label);
   };
 
   const showInFolder = () => {

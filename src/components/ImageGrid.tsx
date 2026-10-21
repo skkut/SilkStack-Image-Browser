@@ -1373,8 +1373,20 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
   // Memoized callbacks - MUST be before early return
   const handleContextMenu = useCallback((image: IndexedImage, e: React.MouseEvent) => {
     const directoryPath = directories.find(d => d.id === image.directoryId)?.path;
-    showContextMenu(e, image, directoryPath);
-  }, [directories, showContextMenu]);
+    // Snapshot what is selected now: the menu is opened once and acts later.
+    // Only a right-click *inside* the selection may act on all of it — see
+    // useContextMenu's pathTargets.
+    const menuSelection =
+      selectedImages.has(image.id) && selectedImages.size > 1
+        ? images
+            .filter((candidate) => selectedImages.has(candidate.id))
+            .map((candidate) => ({
+              image: candidate,
+              directoryPath: directories.find(d => d.id === candidate.directoryId)?.path,
+            }))
+        : undefined;
+    showContextMenu(e, image, directoryPath, menuSelection);
+  }, [directories, images, selectedImages, showContextMenu]);
 
   // Memoized cardRef callback factory
   const registerCardRef = useCallback((imageId: string, el: HTMLDivElement | null) => {

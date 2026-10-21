@@ -18,6 +18,10 @@ All notable changes to this project will be documented in this file.
 - **The stack view's Group by selection is shared everywhere** — choosing Prompt, Model and/or Loras now applies to the in-app drill-down and every popped-out stack window, live in both directions, and the next stack opens with it. Each window used to keep its own copy until restart.
 - **Right-click works in popped-out stack windows** — an image card there opens the same copy, path and folder menu as the library. **Copy to Clipboard** works there too: child windows cannot use the file handle, so the image's bytes now come through the local media protocol instead.
 
+### Changed
+
+- **Copy every selected path at once** — with several images selected, right-clicking one of them and choosing **Copy Image Path** now copies all selected paths, one quoted path per line, ready to paste into a script or terminal. Right-clicking outside the selection still copies only the image you clicked.
+
 ## [2.5.0] - 2026-10-16
 
 ### Added

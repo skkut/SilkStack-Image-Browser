@@ -362,8 +362,21 @@ const StackWindow: React.FC = () => {
   const handleContextMenu = useCallback((image: IndexedImage, event: React.MouseEvent) => {
     const directoryPath =
       (image.directoryId && payload?.directoryPaths[image.directoryId]) || '';
-    showContextMenu(event, image, directoryPath);
-  }, [payload, showContextMenu]);
+    // The selection this window shows is its own state — the hook's store has
+    // no images here — so snapshot it from the live list. Only a right-click
+    // *inside* the selection may act on all of it (see pathTargets).
+    const menuSelection =
+      selectedImages.has(image.id) && selectedImages.size > 1
+        ? images
+            .filter((candidate) => selectedImages.has(candidate.id))
+            .map((candidate) => ({
+              image: candidate,
+              directoryPath:
+                (candidate.directoryId && payload?.directoryPaths[candidate.directoryId]) || '',
+            }))
+        : undefined;
+    showContextMenu(event, image, directoryPath, menuSelection);
+  }, [images, payload, selectedImages, showContextMenu]);
 
   // ── Favourites ───────────────────────────────────────────────────────
   // Toggled locally for an instant star, and forwarded so the main window's
