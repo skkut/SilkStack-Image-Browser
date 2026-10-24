@@ -122,6 +122,7 @@ const StackWindow: React.FC = () => {
   const {
     contextMenu,
     showContextMenu,
+    hideContextMenu,
     copyImage,
     copyPrompt,
     copyNegativePrompt,
@@ -375,7 +376,10 @@ const StackWindow: React.FC = () => {
                 (candidate.directoryId && payload?.directoryPaths[candidate.directoryId]) || '',
             }))
         : undefined;
-    showContextMenu(event, image, directoryPath, menuSelection);
+    // This window IS the stack, so hand its membership over explicitly: the
+    // hook's store has no images to resolve one from. The menu item then acts
+    // on the stack exactly as the payload refresh last delivered it.
+    showContextMenu(event, image, directoryPath, menuSelection, images.map(member => member.id));
   }, [images, payload, selectedImages, showContextMenu]);
 
   // ── Favourites ───────────────────────────────────────────────────────
@@ -401,6 +405,18 @@ const StackWindow: React.FC = () => {
       return next;
     });
   }, []);
+
+  // This window's selection lives here, not in a store — so "select all" is a
+  // local set of every member. Used by both the header control and the
+  // right-click menu.
+  const handleSelectAll = useCallback(() => {
+    setSelectedImages(new Set(images.map(image => image.id)));
+  }, [images]);
+
+  const handleSelectAllFromMenu = useCallback(() => {
+    hideContextMenu();
+    handleSelectAll();
+  }, [handleSelectAll, hideContextMenu]);
 
   // Only the ABSENCE of a payload means "still loading" — an empty image list
   // is a real answer (the stack emptied while the window was open) and has its
@@ -474,6 +490,7 @@ const StackWindow: React.FC = () => {
             isStandaloneWindow
             onToggleFavorite={handleToggleFavorite}
             onToggleSelection={handleToggleSelection}
+            onSelectAll={handleSelectAll}
             onContextMenu={handleContextMenu}
           />
         ) : (
@@ -498,6 +515,7 @@ const StackWindow: React.FC = () => {
         onCopyPath={copyPath}
         onOpenWithNativeViewer={openWithNativeViewer}
         onShowInFolder={showInFolder}
+        onSelectAllInStack={handleSelectAllFromMenu}
         // No "Open Stack in New Window": this window *is* that window.
       />
     </div>

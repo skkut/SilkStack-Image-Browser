@@ -8,7 +8,7 @@ import { useStackWindowSync } from './hooks/useStackWindowSync';
 import { useHotkeys } from './hooks/useHotkeys';
 import { useContextMenu } from './hooks/useContextMenu';
 import { Directory, IndexedImage, ImageRelocationMove, type SettingsTab } from './types';
-import { X, ArrowLeft, Copy, ExternalLink, Folder, Layers } from 'lucide-react';
+import { X, ArrowLeft, CheckSquare, Copy, ExternalLink, Folder, Layers } from 'lucide-react';
 
 import FolderSelector from './components/FolderSelector';
 import ImageGrid from './components/ImageGrid';
@@ -92,7 +92,8 @@ export default function App() {
     showInFolder,
     openWithNativeViewer,
     copyRawMetadata,
-    openStackInNewWindow
+    openStackInNewWindow,
+    selectAllInStack
   } = useContextMenu();
 
   const handleContextMenu = useCallback((image: IndexedImage, e: React.MouseEvent) => {
@@ -1695,8 +1696,18 @@ export default function App() {
 
           <div className="border-t border-gray-600 my-1"></div>
 
-          {/* Only rendered for an image that belongs to a stack — the flag is
-              resolved when the menu opens (see useContextMenu). */}
+          {/* Both stack items are decided when the menu opens (see
+              useContextMenu): one needs Electron child windows, the other only
+              needs a stack of 2+ members. */}
+          {contextMenu.stackImageIds && contextMenu.stackImageIds.length > 1 && (
+            <button
+              onClick={selectAllInStack}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <CheckSquare className="w-4 h-4" />
+              Select All {contextMenu.stackImageIds.length} Images in Stack
+            </button>
+          )}
           {contextMenu.canOpenStackInNewWindow && (
             <button
               onClick={openStackInNewWindow}

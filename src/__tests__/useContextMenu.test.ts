@@ -96,7 +96,14 @@ beforeEach(() => {
     configurable: true,
     value: true,
   });
-  useImageStore.setState({ directories: [] });
+  useImageStore.setState({
+    directories: [],
+    images: [],
+    filteredImages: [],
+    annotations: new Map(),
+    selectedImages: new Set(),
+    selectionAnchorId: null,
+  });
 });
 
 afterEach(() => {
@@ -182,5 +189,90 @@ describe('Copy Image Paths', () => {
     expect(writeText).toHaveBeenCalledWith(
       '"D:\\Other\\a.png"\n"C:\\Images\\b.png"',
     );
+  });
+});
+
+/**
+ * "Select All in Stack".
+ *
+ * The menu snapshots the stack's membership when it opens (the item's label
+ * reports that count), and the action replaces the selection with exactly that
+ * set. Membership is intersected with the filtered list, so a stack card whose
+ * members are narrowed by a search cannot select images the user cannot see.
+ */
+describe('Select All in Stack', () => {
+  /** A stack member: same stackGroupId as its siblings, whatever its path. */
+  const stacked = (id: string, group = 'group-1'): IndexedImage =>
+    ({ ...imageAt(`C:\\Images\\${id}.png`), id, stackGroupId: group }) as IndexedImage;
+
+  const openOn = (
+    hook: { current: ReturnType<typeof useContextMenu> },
+    target: IndexedImage,
+  ) => {
+    act(() => {
+      hook.current.showContextMenu(menuEvent(), target);
+    });
+  };
+
+  it('selects every visible member of the stack and closes the menu', () => {
+    const a = stacked('a');
+    const b = stacked('b');
+    useImageStore.setState({
+      images: [a, b] as any,
+      filteredImages: [a, b] as any,
+      selectedImages: new Set(['stale']),
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    openOn(result, a);
+    expect(result.current.contextMenu.stackImageIds).toEqual(['a', 'b']);
+
+    act(() => result.current.selectAllInStack());
+
+    // It replaces, not unions: the menu's bulk action must not drag in a
+    // selection the user made somewhere else.
+    expect([...useImageStore.getState().selectedImages].sort()).toEqual(['a', 'b']);
+    expect(result.current.contextMenu.visible).toBe(false);
+  });
+
+  it('does not offer the action when the filter leaves fewer than two members', () => {
+    const a = stacked('a');
+    const hidden = stacked('hidden');
+    useImageStore.setState({
+      images: [a, hidden] as any,
+      filteredImages: [a] as any,
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    openOn(result, a);
+
+    expect(result.current.contextMenu.stackImageIds).toBeUndefined();
+  });
+
+  it('does not offer the action for a standalone image', () => {
+    const standalone = imageAt('C:\\Images\\solo.png');
+    useImageStore.setState({ images: [standalone] as any, filteredImages: [standalone] as any });
+
+    const { result } = renderHook(() => useContextMenu());
+    openOn(result, standalone);
+
+    expect(result.current.contextMenu.stackImageIds).toBeUndefined();
+  });
+
+  it('honours an explicit membership list (the popped-out stack window)', () => {
+    // That renderer's store holds no images, so the hook cannot resolve a
+    // stack there; the window that owns the payload supplies the ids.
+    const { result } = renderHook(() => useContextMenu());
+    act(() => {
+      result.current.showContextMenu(
+        menuEvent(),
+        imageAt('C:\\Images\\a.png'),
+        undefined,
+        undefined,
+        ['x', 'y'],
+      );
+    });
+
+    expect(result.current.contextMenu.stackImageIds).toEqual(['x', 'y']);
   });
 });

@@ -37,6 +37,13 @@ export interface ContextMenuState {
    * reactive, so a value computed at render time would go stale behind it.
    */
   canOpenStackInNewWindow?: boolean;
+  /**
+   * Member ids of the stack the right-clicked image belongs to, snapshotted
+   * when the menu opened. Present only for a stack of 2+ images, so the menu
+   * can offer "Select All in Stack" and act on exactly the set the label
+   * describes.
+   */
+  stackImageIds?: string[];
 }
 
 const showNotification = (message: string) => {
@@ -99,8 +106,34 @@ export const useContextMenu = () => {
     image: IndexedImage,
     directoryPath?: string,
     selectedImages?: readonly ContextMenuSelectionItem[],
+    stackImageIds?: readonly string[],
   ) => {
     e.preventDefault();
+    // Read imperatively: this decides which menu items are rendered, and
+    // subscribing to the whole image list for it would re-render every view
+    // that mounts this hook on every indexing batch.
+    const store = useImageStore.getState();
+    const resolvedStack = stackImageIds === undefined
+      ? resolveStackForImage(image, store.images, store.annotations)
+      : null;
+
+    // A surface that already knows the stack (the popped-out stack window
+    // holds the whole stack in its payload) hands the ids over. Otherwise use
+    // the same resolve every stack surface uses. Intersecting with the
+    // filtered list keeps the count equal to what the stack card shows while a
+    // search or a facet narrows the grid — selecting images the user cannot
+    // see would make the label lie.
+    const resolvedStackIds = stackImageIds !== undefined
+      ? [...stackImageIds]
+      : resolvedStack
+        ? (() => {
+            const visibleIds = new Set(store.filteredImages.map(candidate => candidate.id));
+            return resolvedStack.images
+              .map(member => member.id)
+              .filter(id => visibleIds.has(id));
+          })()
+        : [];
+
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -108,11 +141,12 @@ export const useContextMenu = () => {
       image,
       directoryPath,
       selectedImages,
-      // Read imperatively: this decides whether one menu item is rendered, and
-      // subscribing to the whole image list for it would re-render every view
-      // that mounts this hook on every indexing batch.
+      // A single member is not a stack — the same rule `resolveStackForImage`
+      // applies, kept here too because an explicit surface list can be any
+      // length.
+      stackImageIds: resolvedStackIds.length > 1 ? resolvedStackIds : undefined,
       canOpenStackInNewWindow: canOpenStackWindow()
-        && !!resolveStackForImage(image, useImageStore.getState().images, useImageStore.getState().annotations),
+        && (stackImageIds !== undefined ? stackImageIds.length > 1 : !!resolvedStack),
     });
   };
 
@@ -281,6 +315,22 @@ export const useContextMenu = () => {
     }
   };
 
+  /**
+   * Replace the selection with the stack the menu was opened on.
+   *
+   * Membership is the snapshot taken when the menu opened, not a fresh
+   * resolve: the menu's own label reports that count, so acting on a stack
+   * that changed behind the open menu would select a set the user was never
+   * shown. Surfaces with their own selection state (the popped-out stack
+   * window) supply their own handler instead of this one.
+   */
+  const selectAllInStack = () => {
+    const ids = contextMenu.stackImageIds;
+    hideContextMenu();
+    if (!ids || ids.length < 2) return;
+    useImageStore.getState().selectImagesByIds(ids);
+  };
+
   return {
     contextMenu,
     showContextMenu,
@@ -295,5 +345,6 @@ export const useContextMenu = () => {
     openWithNativeViewer,
     copyRawMetadata,
     openStackInNewWindow: openStackInNewWindowFromMenu,
+    selectAllInStack,
   };
 };

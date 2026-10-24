@@ -56,8 +56,13 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
   // content of a window, and this window always is one — so the mock mirrors
   // that, which is what makes `data-standalone` an assertion about the flag
   // this component passes rather than about the mock's own rendering.
-  SimilarityStackExpandedView: ({ images, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection, onContextMenu }: any) => (
-    <div data-testid="stack-view" data-standalone={String(!!isStandaloneWindow)}>
+  SimilarityStackExpandedView: ({ images, selectedImages, groupByToolbar, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection, onContextMenu }: any) => (
+    <div
+      data-testid="stack-view"
+      data-standalone={String(!!isStandaloneWindow)}
+      data-selected={[...(selectedImages ?? [])].sort().join(',')}
+    >
+      {groupByToolbar}
       {!isStandaloneWindow && (
         <button onClick={onBack} type="button">
           Back
@@ -205,6 +210,33 @@ describe('the popped-out stack window', () => {
     expect(screen.getByText('Copy Image Path')).toBeTruthy();
     // The stack is already popped out; there is nothing left to open.
     expect(screen.queryByText('Open Stack in New Window')).toBeNull();
+  });
+
+  it('selects every image in the stack from the header control', async () => {
+    // This window has no store-driven selection, so the wrapper's default
+    // action would be a no-op here — the window passes its own local set.
+    await mountWithPayload();
+
+    fireEvent.click(await screen.findByRole('button', { name: /select all/i }));
+
+    expect(screen.getByTestId('stack-view').getAttribute('data-selected')).toBe(
+      'dir-1::img-1.png,dir-1::img-2.png',
+    );
+    // Once every member is selected the control stops pretending to act.
+    expect(screen.getByRole('button', { name: /all selected/i })).toBeTruthy();
+  });
+
+  it('selects every image in the stack from the right-click menu', async () => {
+    await mountWithPayload();
+
+    fireEvent.contextMenu(screen.getByTestId('card-dir-1::img-1.png'));
+    fireEvent.click(screen.getByText('Select All 2 Images in Stack'));
+
+    expect(screen.getByTestId('stack-view').getAttribute('data-selected')).toBe(
+      'dir-1::img-1.png,dir-1::img-2.png',
+    );
+    // The action closes the menu like every other item.
+    expect(screen.queryByText('Select All 2 Images in Stack')).toBeNull();
   });
 
   it('resolves the menu path actions through the payload directory map', async () => {

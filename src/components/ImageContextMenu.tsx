@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, ExternalLink, Folder, Layers } from 'lucide-react';
+import { CheckSquare, Copy, ExternalLink, Folder, Layers } from 'lucide-react';
 import type { ContextMenuState } from '../hooks/useContextMenu';
 
 /**
@@ -16,6 +16,10 @@ import type { ContextMenuState } from '../hooks/useContextMenu';
  * The `context-menu-class` marker is what `useContextMenu`'s click-outside
  * handler looks for — without it, clicking an item would close the menu before
  * the item's own handler ran.
+ *
+ * "Select All in Stack" stays store-blind too: the stack's membership arrives
+ * in the menu state (`stackImageIds`), and the caller supplies the handler
+ * because selection is renderer-local in the stack window.
  */
 export interface ImageContextMenuProps {
   contextMenu: ContextMenuState;
@@ -35,6 +39,11 @@ export interface ImageContextMenuProps {
    * pop out, and their store holds no images for the hook to resolve against.
    */
   onOpenStackInNewWindow?: () => void;
+  /**
+   * Select every image in the right-clicked image's stack. Rendered only when
+   * the menu state carries the stack's members.
+   */
+  onSelectAllInStack?: () => void;
 }
 
 const ITEM_CLASS =
@@ -52,6 +61,7 @@ const ImageContextMenu: React.FC<ImageContextMenuProps> = ({
   onOpenWithNativeViewer,
   onShowInFolder,
   onOpenStackInNewWindow,
+  onSelectAllInStack,
 }) => {
   if (!contextMenu.visible) return null;
 
@@ -108,8 +118,15 @@ const ImageContextMenu: React.FC<ImageContextMenuProps> = ({
 
       <div className="border-t border-gray-600 my-1"></div>
 
-      {/* Only rendered for an image that belongs to a stack — the flag is
-          resolved when the menu opens (see useContextMenu). */}
+      {/* Both stack items are decided when the menu opens (see
+          useContextMenu): one needs Electron child windows, the other only
+          needs a stack of 2+ members. */}
+      {contextMenu.stackImageIds && contextMenu.stackImageIds.length > 1 && onSelectAllInStack && (
+        <button onClick={onSelectAllInStack} className={ITEM_CLASS}>
+          <CheckSquare className="w-4 h-4" />
+          Select All {contextMenu.stackImageIds.length} Images in Stack
+        </button>
+      )}
       {contextMenu.canOpenStackInNewWindow && onOpenStackInNewWindow && (
         <button onClick={onOpenStackInNewWindow} className={ITEM_CLASS}>
           <Layers className="w-4 h-4" />

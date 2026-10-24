@@ -209,6 +209,40 @@ describe('Stacks Scroll Position and DOM Preservation', () => {
     fireEvent.click(document.body);
     expect(container.querySelector('.context-menu-class')).toBeNull();
   });
+
+  it('selects every image in the stack from the right-click menu', async () => {
+    const mockImages = [
+      { id: '1', prompt: 'test prompt A', directoryId: 'dir1', lastModified: 1000, stackGroupId: 'hash-a', metadata: {} },
+      { id: '2', prompt: 'test prompt A', directoryId: 'dir1', lastModified: 900, stackGroupId: 'hash-a', metadata: {} },
+    ] as any;
+
+    useImageStore.setState({
+      images: mockImages,
+      filteredImages: mockImages,
+      directories: [{ id: 'dir1', path: 'C:/test' }] as any,
+      annotations: new Map(),
+      selectedImages: new Set(),
+      selectionAnchorId: null,
+      scanSubfolders: false,
+    });
+
+    useSettingsStore.setState(validLicense());
+
+    const { container } = render(<Stacks />);
+
+    fireEvent.click(await screen.findByText(/images/i));
+    fireEvent.contextMenu(await screen.findByTestId('expanded-card-1'));
+
+    // The item carries the count the menu resolved when it opened.
+    fireEvent.click(screen.getByText('Select All 2 Images in Stack'));
+
+    expect([...useImageStore.getState().selectedImages].sort()).toEqual(['1', '2']);
+    expect(container.querySelector('.context-menu-class')).toBeNull();
+
+    // The footer toolbar is the selection's feedback and action surface. The
+    // Stacks tab had neither before this menu item existed.
+    expect(await screen.findByText('2 selected')).toBeTruthy();
+  });
 });
 
 describe('Stacks view — sort by number of images', () => {

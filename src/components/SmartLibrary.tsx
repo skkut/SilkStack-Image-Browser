@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
-import { Layers, Copy, ExternalLink, Folder } from 'lucide-react';
+import { CheckSquare, Layers, Copy, ExternalLink, Folder } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStacking } from '../hooks/useImageStacking';
@@ -8,6 +8,7 @@ import { useContextMenu } from '../hooks/useContextMenu';
 import { IndexedImage, ImageStack } from '../types';
 import StackCard from './StackCardWrapper';
 import SimilarityStackExpandedView from './SimilarityStackExpandedViewWrapper';
+import GridToolbar from './GridToolbar';
 import Footer from './Footer';
 // Aliased: the context menu's own action is called openStackInNewWindow too.
 import { openStackInNewWindow as openStackWindow } from '../services/stackWindowService';
@@ -24,10 +25,15 @@ const Stacks: React.FC = () => {
   const enrichmentProgress = useImageStore((state) => state.enrichmentProgress);
   const similarityGroupProgress = useImageStore((state) => state.similarityGroupProgress);
   const directories = useImageStore((state) => state.directories);
+  // Selection is the library's — the Stacks tab shows the same images, so a
+  // stack-wide selection made here must ring the cards in the drill-down and
+  // feed the footer toolbar exactly as it does in the Library tab.
+  const selectedImages = useImageStore((state) => state.selectedImages);
+  const mergeSelectedToStack = useImageStore((state) => state.mergeSelectedToStack);
 
   // Use the same selection handler as the library grid so image clicks
   // correctly open the viewer window (Electron) or in-app modal (browser).
-  const { handleImageSelection } = useImageSelection();
+  const { handleImageSelection, handleDeleteSelectedImages, clearSelection } = useImageSelection();
 
   // Right-click context menu — same hook + menu as the library grid/table.
   const {
@@ -43,7 +49,8 @@ const Stacks: React.FC = () => {
     showInFolder,
     openWithNativeViewer,
     copyRawMetadata,
-    openStackInNewWindow
+    openStackInNewWindow,
+    selectAllInStack
   } = useContextMenu();
 
   // Resolve the image's directory path (needed by "Show in Folder" / "Open in
@@ -148,7 +155,7 @@ const Stacks: React.FC = () => {
           <SimilarityStackExpandedView
             images={activeStack.images}
             onImageClick={handleImageSelection}
-            selectedImages={new Set()}
+            selectedImages={selectedImages}
             onBack={handleCloseStack}
             imageSize={imageSize}
             onContextMenu={handleContextMenu}
@@ -215,7 +222,21 @@ const Stacks: React.FC = () => {
         onAutoTag={handleGenerateAutoTags}
         isAutoTagging={isAutoTagging}
         hasDirectories={hasDirectories}
-      />
+      >
+        {/* The Stacks tab has no libraryStackContext, so the selection actions
+            that depend on it (unmerge) stay off; favourite, delete and merge
+            work from the selection alone. */}
+        {hasDirectories && (
+          <GridToolbar
+            selectedImages={selectedImages}
+            images={safeFilteredImages}
+            directories={directories}
+            onDeleteSelected={handleDeleteSelectedImages}
+            onClearSelection={clearSelection}
+            onMergeSelected={mergeSelectedToStack}
+          />
+        )}
+      </Footer>
 
       {/* Right-click context menu (same as the library grid/table) */}
       {contextMenu.visible && (
@@ -279,8 +300,18 @@ const Stacks: React.FC = () => {
 
           <div className="border-t border-gray-600 my-1"></div>
 
-          {/* Only rendered for an image that belongs to a stack — the flag is
-              resolved when the menu opens (see useContextMenu). */}
+          {/* Both stack items are decided when the menu opens (see
+              useContextMenu): one needs Electron child windows, the other only
+              needs a stack of 2+ members. */}
+          {contextMenu.stackImageIds && contextMenu.stackImageIds.length > 1 && (
+            <button
+              onClick={selectAllInStack}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <CheckSquare className="w-4 h-4" />
+              Select All {contextMenu.stackImageIds.length} Images in Stack
+            </button>
+          )}
           {contextMenu.canOpenStackInNewWindow && (
             <button
               onClick={openStackInNewWindow}

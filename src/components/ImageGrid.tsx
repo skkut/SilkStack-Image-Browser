@@ -88,6 +88,14 @@ interface ImageCardProps {
    * show the "AI tag" badge so the result explains itself.
    */
   isAiTagMatch?: boolean;
+  /**
+   * Every member of the stack this card represents.
+   *
+   * Only the grid's stacked rendering passes it: its checkbox is the stack's
+   * selection control, so Ctrl/Cmd+click selects the whole stack. A
+   * standalone card omits it and keeps the plain one-image toggle.
+   */
+  stackImageIds?: readonly string[];
 }
 
 // Global cache to prevent flickering when react-window shifts ImageCards across rows (triggering unmount/remount)
@@ -122,7 +130,7 @@ const releaseCachedFallbackUrl = (id: string) => {
   }
 };
 
-export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload, isSemanticMatch, isAiTagMatch }) => {
+export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageClick, isSelected, isFocused, onImageLoad, onContextMenu, baseWidth, registerCardRef, isBlurred, getDragPayload, isSemanticMatch, isAiTagMatch, stackImageIds }) => {
   const [imageUrl, setImageUrl] = useState<string | null>(() => {
     // Determine initial state safely before thumbnail hook runs
     const state = useSettingsStore.getState();
@@ -270,10 +278,28 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
       return;
     }
 
+    // Ctrl/Cmd+click on a STACK card's box selects the whole stack. Ctrl is
+    // the one modifier free here: Shift already means range selection, and
+    // Ctrl+click on the stack's browse badge opens it in a new window. The
+    // action is additive like every other Ctrl+click — a selection made
+    // elsewhere survives — and it must not fall through to the card path,
+    // which would open the viewer.
+    if ((e.ctrlKey || e.metaKey) && stackImageIds && stackImageIds.length > 1) {
+      useImageStore.getState().addImagesToSelection(stackImageIds, image.id);
+      return;
+    }
+
     // Plain (or Ctrl) click: a pure toggle. It must never fall through to the
     // card path, which would open the viewer.
     toggleImageSelection(image.id);
   };
+
+  // The box is the stack's selection control, so its tooltip is where the
+  // Ctrl+click gesture is taught — the same way the browse badge advertises
+  // Ctrl+click for a new window.
+  const selectionTitle = stackImageIds && stackImageIds.length > 1
+    ? `${isSelected ? 'Deselect image' : 'Select image'} — Ctrl+click selects all ${stackImageIds.length} in stack`
+    : (isSelected ? 'Deselect image' : 'Select image');
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     if (!canDragExternally) {
@@ -397,7 +423,7 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
               ? 'bg-blue-500 text-white opacity-100'
               : 'bg-black/50 text-white opacity-0 group-hover:opacity-100 hover:bg-blue-500/80'
           }`}
-          title={isSelected ? 'Deselect image' : 'Select image'}
+          title={selectionTitle}
         >
           {isSelected ? (
             <CheckSquare className="h-5 w-5" />
@@ -636,6 +662,9 @@ const ImageGridRowComponent = React.memo(({ index, style, data }: ListChildCompo
                                   registerCardRef={registerCardRef}
                                   isBlurred={isSensitive && enableSafeMode && blurSensitiveImages}
                                   getDragPayload={getDragPayload}
+                                  // The card stands for the whole stack, so its
+                                  // checkbox may select every member.
+                                  stackImageIds={item.images.map(member => member.id)}
                               />
                               <div
                                 onClick={(e) => {
@@ -1018,7 +1047,8 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
     showInFolder,
     openWithNativeViewer,
     copyRawMetadata,
-    openStackInNewWindow
+    openStackInNewWindow,
+    selectAllInStack
   } = useContextMenu();
 
 
@@ -1463,8 +1493,18 @@ const ImageGrid: React.FC<ImageGridProps & { width: number; height: number }> = 
 
           <div className="border-t border-gray-600 my-1"></div>
 
-          {/* Only rendered for an image that belongs to a stack — the flag is
-              resolved when the menu opens (see useContextMenu). */}
+          {/* Both stack items are decided when the menu opens (see
+              useContextMenu): one needs Electron child windows, the other only
+              needs a stack of 2+ members. */}
+          {contextMenu.stackImageIds && contextMenu.stackImageIds.length > 1 && (
+            <button
+              onClick={selectAllInStack}
+              className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors flex items-center gap-2"
+            >
+              <CheckSquare className="w-4 h-4" />
+              Select All {contextMenu.stackImageIds.length} Images in Stack
+            </button>
+          )}
           {contextMenu.canOpenStackInNewWindow && (
             <button
               onClick={openStackInNewWindow}

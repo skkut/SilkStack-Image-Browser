@@ -1133,6 +1133,21 @@ interface ImageState {
    */
   selectImageRange: (imageId: string, displayOrder?: string[]) => void;
   selectAllImages: () => void;
+  /**
+   * Replace the selection with exactly these image ids.
+   *
+   * The stack-level "Select All in Stack" actions use this instead of
+   * `selectAllImages`: outside the library drill-down, `filteredImages` spans
+   * the whole library (the Stacks tab) or holds no images at all (the popped-
+   * out stack window), so "select everything filtered" is not the stack.
+   */
+  selectImagesByIds: (imageIds: Iterable<string>) => void;
+  /**
+   * Add these image ids to the selection, keeping everything already selected
+   * — the stack card's Ctrl+click. The clicked card becomes the Shift+click
+   * anchor, exactly as a single Ctrl+click would.
+   */
+  addImagesToSelection: (imageIds: readonly string[], anchorId?: string) => void;
   clearImageSelection: () => void;
   deleteSelectedImages: () => Promise<void>; // This will require file operations logic
   setScanSubfolders: (scan: boolean) => void;
@@ -4684,6 +4699,22 @@ export const useImageStore = create<ImageState>((set, get) => {
         selectAllImages: () => set(state => {
             const allImageIds = new Set(state.filteredImages.map(img => img.id));
             return { selectedImages: allImageIds };
+        }),
+
+        selectImagesByIds: (imageIds) => set({
+            selectedImages: new Set(imageIds),
+            // A bulk selection has no "last picked" anchor for Shift+click.
+            selectionAnchorId: null,
+        }),
+
+        addImagesToSelection: (imageIds, anchorId) => set(state => {
+            const newSelection = new Set(state.selectedImages);
+            for (const imageId of imageIds) newSelection.add(imageId);
+            // The clicked card is the pick that made the addition, so it
+            // anchors the next Shift+click (toggleImageSelection's rule).
+            return anchorId
+                ? { selectedImages: newSelection, selectionAnchorId: anchorId }
+                : { selectedImages: newSelection };
         }),
 
         clearImageSelection: () => set({ selectedImages: new Set(), selectionAnchorId: null }),

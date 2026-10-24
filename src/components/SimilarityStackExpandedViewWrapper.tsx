@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { Box, FileText, Puzzle } from 'lucide-react';
+import { Box, CheckSquare, FileText, Puzzle } from 'lucide-react';
 import { IndexedImage, StackGroupByDimension } from '../types';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
@@ -40,6 +40,12 @@ interface SimilarityStackExpandedViewWrapperProps {
    */
   onToggleFavorite?: (imageId: string) => void;
   onToggleSelection?: (imageId: string) => void;
+  /**
+   * Select every image in this stack. Defaults to replacing the store
+   * selection with the ids this view was given; the popped-out stack window
+   * passes its own because that renderer's store holds no images.
+   */
+  onSelectAll?: () => void;
 }
 
 // ── Thumbnail preloader ────────────────────────────────────────────────
@@ -99,6 +105,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   onContextMenu,
   onToggleFavorite,
   onToggleSelection,
+  onSelectAll,
 }) => {
   const aiFeaturesEnabled = useAiFeaturesEnabled();
   const libraryImageSize = useSettingsStore(s => s.viewZoomLevels.library);
@@ -149,6 +156,25 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
       setStackGroupByDimensions([...current, dim]);
     }
   }, [setStackGroupByDimensions]);
+
+  // ── Select all ───────────────────────────────────────────────────────
+
+  // Stack-level selection. Replacing the selection is deliberate: the footer's
+  // bulk actions (favorite, delete, unmerge) then act on exactly this stack,
+  // not on whatever happened to be selected behind it.
+  const handleSelectAll = useCallback(() => {
+    if (onSelectAll) {
+      onSelectAll();
+      return;
+    }
+    useImageStore.getState().selectImagesByIds(images.map(image => image.id));
+  }, [images, onSelectAll]);
+
+  // Once every member is selected the control is a no-op, so it says so rather
+  // than leaving a button that silently does nothing. This is also the only
+  // feedback the popped-out stack window has: it has no footer toolbar.
+  const allSelected =
+    images.length > 1 && images.every(image => selectedImages.has(image.id));
 
   // ── Build the group-by segmented control as a ReactNode ─────────────
 
@@ -225,6 +251,35 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
           <div className="w-8 h-4 bg-gray-700/80 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-300 peer-checked:after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-500 shadow-inner"></div>
         </div>
       </label>
+
+      <div className="w-px h-4 bg-gray-700/60 shrink-0" />
+
+      {/* Stack-wide selection — a text control in the header, never an icon
+          over the cards themselves. Hidden for a one-image group, where
+          "select all" would be indistinguishable from selecting the image. */}
+      {images.length > 1 && (
+        <button
+          type="button"
+          onClick={handleSelectAll}
+          disabled={allSelected}
+          title={
+            allSelected
+              ? 'Every image in this stack is selected'
+              : `Select all ${images.length} images in this stack`
+          }
+          className={[
+            'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium select-none shrink-0',
+            'border transition-all duration-200 ease-out',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900',
+            allSelected
+              ? 'text-blue-400 bg-blue-500/10 border-blue-500/20 cursor-default'
+              : 'text-gray-400 hover:text-gray-200 hover:bg-white/5 border-transparent',
+          ].join(' ')}
+        >
+          <CheckSquare size={13} className={allSelected ? 'opacity-100' : 'opacity-70'} />
+          {allSelected ? 'All selected' : 'Select all'}
+        </button>
+      )}
     </div>
   ), [
     stackGroupByDimensions,
@@ -232,6 +287,9 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
     promptGroupingActive,
     stackHighlightPromptVariations,
     setStackHighlightPromptVariations,
+    images.length,
+    allSelected,
+    handleSelectAll,
   ]);
 
   // ── Callback bridges ─────────────────────────────────────────────────

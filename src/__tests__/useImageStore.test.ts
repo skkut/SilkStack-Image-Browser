@@ -761,6 +761,38 @@ describe('useImageStore shift+click range selection', () => {
   });
 });
 
+// ── Adding a group to the selection (the stack card's Ctrl+click) ─────
+
+describe('useImageStore addImagesToSelection', () => {
+  it('adds every member without dropping anything already selected', () => {
+    useImageStore.setState({
+      selectedImages: new Set(['other']),
+      selectionAnchorId: 'other',
+    });
+
+    useImageStore.getState().addImagesToSelection(['img0', 'img1', 'img2'], 'img0');
+
+    expect(Array.from(useImageStore.getState().selectedImages).sort())
+      .toEqual(['img0', 'img1', 'img2', 'other']);
+  });
+
+  it('records the clicked card as the Shift+click anchor', () => {
+    useImageStore.setState({ selectedImages: new Set(), selectionAnchorId: null });
+
+    useImageStore.getState().addImagesToSelection(['img0', 'img1'], 'img0');
+
+    expect(useImageStore.getState().selectionAnchorId).toBe('img0');
+  });
+
+  it('leaves the anchor alone when the caller supplies none', () => {
+    useImageStore.setState({ selectedImages: new Set(), selectionAnchorId: 'old' });
+
+    useImageStore.getState().addImagesToSelection(['img0', 'img1']);
+
+    expect(useImageStore.getState().selectionAnchorId).toBe('old');
+  });
+});
+
 // ── Enrichment gate semantics (pure function) ─────────────────────────
 
 describe('needsSearchEnrichment', () => {
