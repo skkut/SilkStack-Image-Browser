@@ -271,6 +271,10 @@ export interface ElectronAPI {
   clearCacheData: (
     cacheId: string,
   ) => Promise<{ success: boolean; error?: string }>;
+  deleteCacheEntries: (args: {
+    cacheIds: string[];
+    imageIds: string[];
+  }) => Promise<{ success: boolean; deletedCount?: number; error?: string }>;
   getThumbnail: (
     thumbnailId: string,
   ) => Promise<{ success: boolean; data?: Buffer; error?: string }>;

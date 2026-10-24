@@ -4,7 +4,7 @@ import { processFiles, type CatalogFileEntry } from "../services/fileIndexer";
 import { cacheManager, IncrementalCacheWriter } from "../services/cacheManager";
 import { IndexedImage, Directory } from "../types";
 import { useSettingsStore } from "../store/useSettingsStore";
-import { normalizePath } from "../utils/pathUtils";
+import { normalizePath, getImageAbsolutePath } from "../utils/pathUtils";
 import { toRelativeWatchPath, watchedFileId } from "../utils/watchedFiles";
 import {
   getScanApi,
@@ -1406,9 +1406,20 @@ export function useImageLoader() {
           });
         }
 
-        // Remove deleted files from the UI (if any were detected)
+        // Remove deleted files from the UI (if any were detected). The diff
+        // carries lastModified alongside each id because a thumbnail on disk is
+        // named `${id}-${lastModified}`; without it the file cannot be
+        // unlinked, and a library scanned once then never refreshed would keep
+        // it forever. The metadata cache itself is rebuilt by the writer below,
+        // which is already active for a diff that contains deletions.
         if (diff.deletedFileIds.length > 0) {
           removeImages(diff.deletedFileIds);
+          if (getIsElectron() && diff.deletedImages.length > 0) {
+            await cacheManager.deleteImageCaches(
+              directory.path,
+              diff.deletedImages,
+            );
+          }
         }
 
         const totalNewFiles = diff.newAndModifiedFiles.length;
@@ -1986,24 +1997,35 @@ export function useImageLoader() {
 
       const { removeImagesByPaths } = useImageStore.getState();
 
+      // Resolve the rows while the store still holds them. The thumbnail cache
+      // key is `${id}-${lastModified}` (see ThumbnailManager) and this event
+      // carries absolute paths only; removing first would erase the only
+      // source of the timestamp and leave a `.webp` no later scan can name.
+      const removedAbsolutePaths = new Set(
+        removedPaths.map((filePath) => normalizePath(filePath)),
+      );
+      const deletedImages = useImageStore
+        .getState()
+        .images.filter((image) => {
+          if (image.directoryId !== directory.id) return false;
+          const absolutePath = getImageAbsolutePath(image, directory.path);
+          return absolutePath
+            ? removedAbsolutePaths.has(normalizePath(absolutePath))
+            : false;
+        })
+        .map((image) => ({
+          id: image.id,
+          lastModified: image.lastModified,
+        }));
+
       // Update UI state immediately by removing images from store
       removeImagesByPaths(removedPaths);
 
-      // Optional: Cleanup thumbnails in background
-      if (getIsElectron()) {
-        try {
-          // We need to derive image IDs for thumbnail cleanup
-          // imageId format is ${directory.id}::${relativePath}
-          const imageIds = removedPaths.map(filePath => {
-            const relativePath = toRelativeWatchPath(filePath, directory.path);
-            const fileName = filePath.split(/[\\/]/).pop() || filePath;
-            return `${directory.id}::${relativePath || fileName}`;
-          });
-
-          await cacheManager.deleteThumbnails(imageIds);
-        } catch (err) {
-          console.error("Failed to cleanup thumbnails for deleted images:", err);
-        }
+      // Purge the deleted images' disk derivations: their thumbnails and their
+      // metadata-cache entries. The id alone is not enough for a thumbnail;
+      // the lastModified captured above is what names the file.
+      if (getIsElectron() && deletedImages.length > 0) {
+        await cacheManager.deleteImageCaches(directory.path, deletedImages);
       }
     },
     []

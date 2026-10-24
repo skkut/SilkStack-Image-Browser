@@ -18,7 +18,12 @@ export interface FileOperationsResult {
 export class FileOperations {
   
   /**
-   * Delete file to trash/recycle bin
+   * Delete file to trash/recycle bin.
+   *
+   * This removes the FILE only. Callers must also purge what the index derived
+   * from the image (`cacheManager.deleteImageCaches`), in one batch per
+   * directory, after a successful delete — see `handleDeleteSelectedImages`
+   * and `ImageModal.handleDelete`.
    */
   static async deleteFile(image: IndexedImage): Promise<FileOperationsResult> {
     try {

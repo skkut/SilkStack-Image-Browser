@@ -133,6 +133,10 @@ describe("validateCacheAndGetDiff with an injected cache", () => {
       "touched.png",
     ]);
     expect(diff.deletedFileIds).toEqual(["dir::gone.png"]);
+    // The same deletions with the timestamp thumbnails are keyed by.
+    expect(diff.deletedImages).toEqual([
+      { id: "dir::gone.png", lastModified: 100 },
+    ]);
     expect(diff.needsFullRefresh).toBe(false);
   });
 

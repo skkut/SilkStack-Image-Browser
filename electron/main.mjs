@@ -23,6 +23,7 @@ import { promisify } from "util";
 import * as fileWatcher from "./fileWatcher.mjs";
 import { maybeSendUsagePing } from "./usagePing.mjs";
 import { relocateCacheRecord } from "./cacheRelocation.mjs";
+import { pruneCacheEntries } from "./cachePruner.mjs";
 import {
   MEDIA_SCHEME,
   getMediaContentType,
@@ -2330,6 +2331,20 @@ function setupFileOperationHandlers() {
   // with a writer that is rebuilding them from scratch.
   const activeCacheWrites = new Set();
 
+  // Deletes can arrive from several windows at once, and a prune is a
+  // read-modify-write of shared chunk files. Interleaving two of them would
+  // let the later write rebuild a chunk from its pre-delete snapshot and
+  // resurrect the earlier deletion, so prunes run one at a time.
+  let cachePruneChain = Promise.resolve();
+  const runCachePruneExclusive = (work) => {
+    const run = cachePruneChain.then(work, work);
+    cachePruneChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
+
   ipcMain.handle("cache-data", async (event, { cacheId, data }) => {
     const safeCacheId = cacheId.replace(/[^a-zA-Z0-9-_]/g, "_");
     const { metadata, ...cacheRecord } = data;
@@ -2456,6 +2471,82 @@ function setupFileOperationHandlers() {
         }
       }
       return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Remove specific images from the metadata cache when their files are
+  // deleted. The cache is per DIRECTORY, so this rewrites only the chunks that
+  // hold a removed id; the next scan would otherwise carry the ghost entries
+  // until it rebuilt every chunk.
+  //
+  // The renderer sends both cache variants (`-recursive` / `-flat`) because a
+  // folder can legitimately have either record and only main can see which
+  // exists. Caches with an incremental write in flight are skipped: that writer
+  // is rebuilding them without the deleted files anyway, and must not have its
+  // chunks rewritten underneath it.
+  ipcMain.handle("delete-cache-entries", async (event, args) => {
+    try {
+      const cacheIds = Array.isArray(args?.cacheIds) ? args.cacheIds : [];
+      const imageIds = Array.isArray(args?.imageIds) ? args.imageIds : [];
+      if (cacheIds.length === 0 || imageIds.length === 0) {
+        return { success: false, error: "Invalid arguments" };
+      }
+
+      const rootPath = await getCacheRootPath();
+      const cacheDir = path.join(rootPath, "json_cache");
+
+      const cacheIo = {
+        readMain: async (cacheId) => {
+          try {
+            const data = await fs.readFile(
+              await getCacheFilePath(cacheId),
+              "utf-8",
+            );
+            return JSON.parse(data);
+          } catch {
+            return null; // missing/unreadable — nothing to prune
+          }
+        },
+        readChunk: async (cacheId, index) => {
+          const safeCacheId = String(cacheId).replace(/[^a-zA-Z0-9-_]/g, "_");
+          try {
+            const data = await fs.readFile(
+              path.join(cacheDir, `${safeCacheId}_${index}.json`),
+              "utf-8",
+            );
+            return JSON.parse(data);
+          } catch {
+            return null;
+          }
+        },
+        writeMain: async (cacheId, record) => {
+          await fs.writeFile(
+            await getCacheFilePath(cacheId),
+            JSON.stringify(record, null, 2),
+          );
+        },
+        writeChunk: async (cacheId, index, records) => {
+          const safeCacheId = String(cacheId).replace(/[^a-zA-Z0-9-_]/g, "_");
+          await fs.writeFile(
+            path.join(cacheDir, `${safeCacheId}_${index}.json`),
+            JSON.stringify(records),
+          );
+        },
+      };
+
+      let deletedCount = 0;
+      for (const cacheId of cacheIds) {
+        if (typeof cacheId !== "string" || cacheId.length === 0) continue;
+        const outcome = await runCachePruneExclusive(async () => {
+          if (activeCacheWrites.has(cacheId)) return { removed: 0 };
+          return pruneCacheEntries(cacheIo, { cacheId, imageIds });
+        });
+        deletedCount += outcome.removed;
+      }
+
+      return { success: true, deletedCount };
     } catch (error) {
       return { success: false, error: error.message };
     }

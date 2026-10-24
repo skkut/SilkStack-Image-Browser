@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import { useImageStore } from '../store/useImageStore';
 import { IndexedImage } from '../types';
 import { FileOperations } from '../services/fileOperations';
+import { cacheManager } from '../services/cacheManager';
 import {
     COMPACT_MODE_STORAGE_KEY,
     COMPACT_PANEL_STORAGE_KEY,
@@ -207,6 +208,7 @@ export function useImageSelection() {
         }
 
         const imagesToDelete = Array.from(selectedImages);
+        const deletedImages: IndexedImage[] = [];
         for (const imageId of imagesToDelete) {
             const image = images.find(img => img.id === imageId);
             if (image) {
@@ -214,6 +216,7 @@ export function useImageSelection() {
                     const result = await FileOperations.deleteFile(image);
                     if (result.success) {
                         removeImage(imageId);
+                        deletedImages.push(image);
                     } else {
                         setError(`Failed to delete ${image.name}: ${result.error}`);
                     }
@@ -222,6 +225,24 @@ export function useImageSelection() {
                 }
             }
         }
+
+        // The files are gone and the store no longer holds them; drop the
+        // caches derived from them on disk too. Grouped per directory and
+        // awaited once: the metadata cache is one record per folder, so a
+        // per-image prune would re-read the same chunks for every deletion.
+        const deletedByDirectory = new Map<string, IndexedImage[]>();
+        for (const image of deletedImages) {
+            if (!image.directoryId) continue;
+            const group = deletedByDirectory.get(image.directoryId) ?? [];
+            group.push(image);
+            deletedByDirectory.set(image.directoryId, group);
+        }
+        await Promise.all(
+            Array.from(deletedByDirectory, ([directoryPath, imageGroup]) =>
+                cacheManager.deleteImageCaches(directoryPath, imageGroup),
+            ),
+        );
+
         clearImageSelection();
     }, [selectedImages, images, removeImage, setError, clearImageSelection]);
 

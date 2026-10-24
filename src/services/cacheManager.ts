@@ -45,6 +45,12 @@ export interface CacheEntry {
 export interface CacheDiff {
   newAndModifiedFiles: { name: string; lastModified: number; size?: number; type?: string; birthtimeMs?: number }[];
   deletedFileIds: string[];
+  /**
+   * The same deletions as `deletedFileIds`, carrying the cache's lastModified.
+   * Thumbnails are keyed `${id}-${lastModified}`, so the id alone cannot name
+   * the file to unlink; this is why the diff hands both to the caller.
+   */
+  deletedImages: { id: string; lastModified: number }[];
   cachedImages: IndexedImage[];
   needsFullRefresh: boolean;
 }
@@ -488,7 +494,7 @@ class CacheManager {
   async deleteThumbnails(imageIds: string[]): Promise<void> {
     if (!this.isElectron) return;
     if (!imageIds || imageIds.length === 0) return;
-    
+
     // Process in batches of 50 to avoid overloading IPC
     const BATCH_SIZE = 50;
     for (let i = 0; i < imageIds.length; i += BATCH_SIZE) {
@@ -500,7 +506,75 @@ class CacheManager {
     }
   }
 
-  
+  /**
+   * Remove images from a directory's JSON metadata cache.
+   *
+   * Both cache variants are sent because the folder's `scanSubfolders`
+   * preference — which decides the `-recursive` / `-flat` suffix — belongs to
+   * the folder, not to the file, and is not carried on `IndexedImage`. Main
+   * prunes whichever record actually exists.
+   */
+  async deleteCacheEntries(directoryPath: string, imageIds: string[]): Promise<void> {
+    if (!this.isElectron || !directoryPath) return;
+    if (!imageIds || imageIds.length === 0) return;
+
+    try {
+      const result = await window.electronAPI.deleteCacheEntries({
+        cacheIds: [
+          `${directoryPath}-recursive`,
+          `${directoryPath}-flat`,
+        ],
+        imageIds,
+      });
+      if (!result.success) {
+        console.error("Failed to delete cache entries:", result.error);
+      }
+    } catch (error) {
+      console.error("Failed to delete cache entries:", error);
+    }
+  }
+
+  /**
+   * Purge every on-disk derivation of deleted images: their thumbnails and
+   * their JSON cache entries.
+   *
+   * Call this after the files are gone and the images were removed from the
+   * store. Thumbnails are keyed `${id}-${lastModified}` (see ThumbnailManager
+   * and the main-process `cache-thumbnail` handler); the metadata cache is
+   * keyed by id. An image without a numeric `lastModified` cannot be named in
+   * the thumbnail cache, so only its metadata entry is removed.
+   *
+   * Call it once per deletion batch, not once per image: the cache prune reads
+   * and rewrites the directory's chunks, and doing that per file in a large
+   * selection would re-read the same cache repeatedly.
+   */
+  async deleteImageCaches(
+    directoryPath: string,
+    images: Array<{ id: string; lastModified?: number }>,
+  ): Promise<void> {
+    if (!this.isElectron || !directoryPath || images.length === 0) return;
+
+    const thumbnailIds = images
+      .filter((image) => typeof image.lastModified === "number")
+      .map((image) => `${image.id}-${image.lastModified}`);
+
+    try {
+      await Promise.all([
+        thumbnailIds.length > 0
+          ? this.deleteThumbnails(thumbnailIds)
+          : Promise.resolve(),
+        this.deleteCacheEntries(
+          directoryPath,
+          images.map((image) => image.id),
+        ),
+      ]);
+    } catch (error) {
+      // A failed cleanup must never turn a successful file delete into an
+      // error: both caches rebuild from the file listing on the next scan.
+      console.warn("Failed to clean up caches for deleted images:", error);
+    }
+  }
+
   // Deletes the JSON cache file via IPC
   async clearDirectoryCache(directoryPath: string, scanSubfolders: boolean): Promise<void> {
     if (!this.isElectron) return;
@@ -542,6 +616,7 @@ class CacheManager {
       return {
         newAndModifiedFiles: currentFiles,
         deletedFileIds: [],
+        deletedImages: [],
         cachedImages: [],
         needsFullRefresh: true,
       };
@@ -598,23 +673,27 @@ class CacheManager {
 
     // Find files that were in the cache but are no longer on disk
     // If scopePath is provided, ONLY consider files within that scope for deletion
-    const deletedFileIds = cached.metadata
-      .filter(m => {
+    const deletedMetadata = cached.metadata.filter(m => {
         // If scope is defined, ignore files outside the scope
         if (normalizedScope) {
            const authorized = m.name.startsWith(normalizedScope + '/') || m.name === normalizedScope;
            if (!authorized) return false;
         }
         return !currentFileNames.has(m.name);
-      })
-      .map(m => m.id);
+      });
+    const deletedFileIds = deletedMetadata.map(m => m.id);
+    const deletedImages = deletedMetadata.map(m => ({
+      id: m.id,
+      lastModified: m.lastModified,
+    }));
 
     return {
       newAndModifiedFiles,
       deletedFileIds,
+      deletedImages,
       cachedImages,
       // If scoped, we NEVER need a full refresh, just an update
-      needsFullRefresh: false, 
+      needsFullRefresh: false,
     };
   }
 }

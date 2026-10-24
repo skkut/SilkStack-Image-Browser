@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useState, FC, useCallback, useRef } 
 import { flushSync } from "react-dom";
 import { type IndexedImage, type BaseMetadata, type LoRAInfo } from "../types";
 import { FileOperations } from "../services/fileOperations";
+import { cacheManager } from "../services/cacheManager";
 import { copyImageToClipboard, showInExplorer, openInNativeViewer, getAspectRatio } from "../utils/imageUtils";
 import { getImageAbsolutePath, quotePathForClipboard } from "../utils/pathUtils";
 import { extractRawMetadataFromFile } from "../services/fileIndexer";
@@ -3316,6 +3317,18 @@ const ImageModal: React.FC<ImageModalProps> = ({
 
       const result = await FileOperations.deleteFile(imageToDelete);
       if (result.success) {
+        // The file is in the trash; remove what the index derived from it so
+        // a cached thumbnail or metadata record can never outlive the image.
+        // Not awaited: the invokes are already on their way to main, and the
+        // modal should close/navigate immediately.
+        if (imageToDelete.directoryId) {
+          void cacheManager.deleteImageCaches(imageToDelete.directoryId, [
+            {
+              id: imageToDelete.id,
+              lastModified: imageToDelete.lastModified,
+            },
+          ]);
+        }
         onImageDeleted?.(idToDelete);
 
         // Only close if we didn't have anywhere to navigate (last image deleted)
