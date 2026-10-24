@@ -275,9 +275,13 @@ export interface ElectronAPI {
     cacheIds: string[];
     imageIds: string[];
   }) => Promise<{ success: boolean; deletedCount?: number; error?: string }>;
-  getThumbnail: (
-    thumbnailId: string,
-  ) => Promise<{ success: boolean; data?: Buffer; error?: string }>;
+  getThumbnail: (thumbnailId: string) => Promise<{
+    success: boolean;
+    data?: Buffer;
+    error?: string;
+    /** Cached bytes were withheld because the source image file is gone. */
+    sourceMissing?: boolean;
+  }>;
   cacheThumbnail: (args: {
     thumbnailId: string;
     data: Uint8Array;

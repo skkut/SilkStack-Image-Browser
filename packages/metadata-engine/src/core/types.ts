@@ -32,7 +32,7 @@ export interface ElectronAPI {
   writeCacheChunk: (args: { cacheId: string; chunkIndex: number; data: any }) => Promise<{ success: boolean; error?: string }>;
   finalizeCacheWrite: (args: { cacheId: string; record: any }) => Promise<{ success: boolean; error?: string }>;
   clearCacheData: (cacheId: string) => Promise<{ success: boolean; error?: string }>;
-  getThumbnail: (thumbnailId: string) => Promise<{ success: boolean; data?: Buffer; error?: string }>;
+  getThumbnail: (thumbnailId: string) => Promise<{ success: boolean; data?: Buffer; error?: string; sourceMissing?: boolean }>;
   cacheThumbnail: (args: { thumbnailId: string; data: Uint8Array }) => Promise<{ success: boolean; error?: string; errorCode?: string }>;
   clearMetadataCache: () => Promise<{ success: boolean; error?: string }>;
   clearThumbnailCache: () => Promise<{ success: boolean; error?: string }>;

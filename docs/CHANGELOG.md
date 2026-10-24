@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Deleted images can no longer reappear as thumbnails** — when a file was removed outside the app and that folder's rescan was skipped (an offline drive, an unreachable share, an empty listing from a failed read), the grid kept painting the image from its cached thumbnail on every launch. A cached thumbnail is now served only while its source file is confirmed present; a missing one drops the image, its thumbnail and its metadata-cache record on the spot.
 - **Deleted images take their cached data with them** — deleting an image now also removes its thumbnail and its metadata-cache entry immediately, whether the deletion happens in the grid, in the viewer, or outside the app with auto-watch on. Previously thumbnails were left on disk forever in most paths, and the metadata cache kept a ghost record until that folder was next rescanned.
 - **A popped-out stack window follows its stack live** — new images join it, deleted images leave it, and an emptied stack says so instead of showing images that no longer exist. The main window re-resolves the group and pushes a fresh snapshot as the library changes.
 - **A stack window remembers its size, position and maximised state** — resizing, moving or maximising it now survives closing and reopening, instead of every window starting at the default size.

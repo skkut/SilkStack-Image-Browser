@@ -36,6 +36,17 @@ const THUMBNAIL_JOB_TIMEOUT_MS = 30_000;
  */
 const FAILED_THUMBNAIL_CACHE_LIMIT = 5000;
 
+/**
+ * How long dropped images wait for company before their caches are purged.
+ *
+ * `deleteImageCaches` re-reads and rewrites the directory's metadata chunks,
+ * so one call per dropped card would repeat that work once per ghost. A
+ * screenful of ghosts in one folder is common (a file wiped, a scan skipped),
+ * and they arrive within a few hundred milliseconds of each other — one short
+ * window turns N prunes into one.
+ */
+const PURGE_FLUSH_DELAY_MS = 250;
+
 const VIDEO_EXTENSIONS = new Set([".mp4", ".webm", ".mkv", ".mov", ".avi"]);
 
 const isVideoAsset = (image: IndexedImage, file?: File): boolean => {
@@ -375,6 +386,12 @@ class ThumbnailManager {
   private requestCounter = 0;
   /** Cache keys that already failed to decode this session — see the limit's comment. */
   private failed = new Set<string>();
+  /** Dropped images awaiting one batched cache purge, keyed by directory id. */
+  private pendingPurges = new Map<
+    string,
+    Map<string, { id: string; lastModified?: number }>
+  >();
+  private purgeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** `${id}-${lastModified}`, matching the on-disk thumbnail cache key. */
   private thumbnailKeyOf(image: IndexedImage): string {
@@ -539,6 +556,73 @@ class ThumbnailManager {
     }
   }
 
+  /**
+   * Drop an image whose source file is gone.
+   *
+   * A cached thumbnail can outlive its image: deleting the file outside the app
+   * leaves the metadata record in place until a scan notices, and a scan that
+   * is skipped (offline drive, a failed listing read) leaves it there forever —
+   * so the grid paints a ghost card from the orphaned thumbnail. Main has just
+   * confirmed the file is missing, so remove the row and purge every derivation
+   * of it; that is what keeps the ghost from returning on the next launch.
+   *
+   * Token-guarded: an in-app move/rename re-keys the image id
+   * (`renameEntry`), and a job still holding the old id must not delete its
+   * relocated successor.
+   */
+  private dropDeletedImage(image: IndexedImage, token: number): void {
+    if (this.isStale(image.id, token)) return;
+
+    useImageStore.getState().removeImage(image.id);
+
+    // A missing directoryId only skips the cache purge, not the row removal:
+    // the thumbnail of an id in this shape cannot be named on disk either.
+    if (image.directoryId) {
+      this.queueCachePurge(image.directoryId, image);
+    }
+  }
+
+  /** Add one dropped image to the next per-directory purge batch. */
+  private queueCachePurge(directoryId: string, image: IndexedImage): void {
+    let images = this.pendingPurges.get(directoryId);
+    if (!images) {
+      images = new Map();
+      this.pendingPurges.set(directoryId, images);
+    }
+    images.set(image.id, { id: image.id, lastModified: image.lastModified });
+
+    if (this.purgeTimer === null) {
+      this.purgeTimer = setTimeout(
+        () => this.flushCachePurges(),
+        PURGE_FLUSH_DELAY_MS,
+      );
+    }
+  }
+
+  /**
+   * Purge every queued dropped image, one `deleteImageCaches` per directory.
+   *
+   * Public so a window that is closing can flush instead of losing the batch;
+   * a lost purge is not fatal (the ghost is rediscovered and re-dropped on the
+   * next launch), but it costs a repeated prune.
+   */
+  flushCachePurges(): void {
+    if (this.purgeTimer !== null) {
+      clearTimeout(this.purgeTimer);
+      this.purgeTimer = null;
+    }
+    if (this.pendingPurges.size === 0) return;
+
+    const pending = this.pendingPurges;
+    this.pendingPurges = new Map();
+    for (const [directoryId, images] of pending) {
+      void cacheManager.deleteImageCaches(
+        directoryId,
+        Array.from(images.values()),
+      );
+    }
+  }
+
   private async loadThumbnail(
     image: IndexedImage,
     token: number,
@@ -565,9 +649,13 @@ class ThumbnailManager {
         return;
       }
 
-      const cachedBlob = await cacheManager.getCachedThumbnail(thumbnailKey);
-      if (cachedBlob) {
-        const url = this.updateObjectUrl(image.id, cachedBlob);
+      const cached = await cacheManager.getCachedThumbnail(thumbnailKey);
+      if (cached.sourceMissing) {
+        this.dropDeletedImage(image, token);
+        return;
+      }
+      if (cached.blob) {
+        const url = this.updateObjectUrl(image.id, cached.blob);
         setSafe({ status: "ready", thumbnailUrl: url });
         return;
       }

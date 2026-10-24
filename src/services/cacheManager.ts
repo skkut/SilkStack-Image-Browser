@@ -477,18 +477,34 @@ class CacheManager {
     }
   }
 
-  async getCachedThumbnail(imageId: string): Promise<Blob | null> {
-    if (!this.isElectron) return null;
+  /**
+   * Read a cached thumbnail.
+   *
+   * `sourceMissing` reports that main withheld the bytes because the image file
+   * itself is gone while its cache record survived — a file deleted outside the
+   * app, in a folder whose background scan was skipped. The caller must drop
+   * the image rather than render it (see `ThumbnailManager.loadThumbnail`);
+   * returning the blob anyway is what paints a deleted image in the grid.
+   */
+  async getCachedThumbnail(
+    imageId: string,
+  ): Promise<{ blob: Blob | null; sourceMissing: boolean }> {
+    if (!this.isElectron) return { blob: null, sourceMissing: false };
     const result = await window.electronAPI.getThumbnail(imageId);
-    if (result.success && result.data) {
-      return new Blob([new Uint8Array(result.data)], { type: 'image/webp' });
+    if (result.success) {
+      return {
+        blob: result.data
+          ? new Blob([new Uint8Array(result.data)], { type: 'image/webp' })
+          : null,
+        sourceMissing: result.sourceMissing === true,
+      };
     }
     // Don't log errors for thumbnails that don't exist yet (expected during first load)
     // Only log unexpected errors
-    if (!result.success && result.error && !result.error.includes('ENOENT')) {
+    if (result.error && !result.error.includes('ENOENT')) {
       console.error("Failed to get cached thumbnail:", result.error);
     }
-    return null;
+    return { blob: null, sourceMissing: false };
   }
 
   async deleteThumbnails(imageIds: string[]): Promise<void> {

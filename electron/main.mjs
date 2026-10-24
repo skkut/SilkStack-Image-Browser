@@ -25,6 +25,10 @@ import { maybeSendUsagePing } from "./usagePing.mjs";
 import { relocateCacheRecord } from "./cacheRelocation.mjs";
 import { pruneCacheEntries } from "./cachePruner.mjs";
 import {
+  classifyThumbnailSource,
+  parseThumbnailKey,
+} from "./thumbnailSource.mjs";
+import {
   MEDIA_SCHEME,
   getMediaContentType,
   isWithinRoots,
@@ -2576,17 +2580,68 @@ function setupFileOperationHandlers() {
     return path.join(cacheDir, `${safeId}.webp`);
   };
 
+  /**
+   * The filesystem view `classifyThumbnailSource` needs: one existence probe
+   * and one directory listing (see electron/thumbnailSource.mjs).
+   *
+   * Only a clean ENOENT/ENOTDIR is a "no". EACCES, EBUSY, an I/O error or an
+   * offline drive all mean the path could not be checked — answering "no"
+   * there would let a temporary failure delete a library's worth of rows.
+   */
+  const thumbnailSourceIo = {
+    stat: async (filePath) => {
+      try {
+        await fs.stat(filePath);
+        return "yes";
+      } catch (error) {
+        if (error?.code === "ENOENT" || error?.code === "ENOTDIR") return "no";
+        return "unknown";
+      }
+    },
+    list: async (directoryPath) => {
+      try {
+        return await fs.readdir(directoryPath);
+      } catch {
+        // Unreadable directory = cannot verify = never "missing".
+        return null;
+      }
+    },
+  };
+
   ipcMain.handle("get-thumbnail", async (event, thumbnailId) => {
     const filePath = await getThumbnailCachePath(thumbnailId);
+    let data = null;
     try {
-      const data = await fs.readFile(filePath);
-      return { success: true, data };
+      data = await fs.readFile(filePath);
     } catch (error) {
-      if (error.code === "ENOENT") {
-        return { success: true, data: null }; // Not an error
+      if (error.code !== "ENOENT") {
+        return { success: false, error: error.message };
       }
-      return { success: false, error: error.message };
     }
+
+    // A cached thumbnail can outlive its image: a file deleted outside the app
+    // leaves the .webp behind, and the metadata record survives until a
+    // background scan notices — which never happens for a folder whose scan is
+    // skipped. Painting those bytes is what puts deleted images back in the
+    // grid, so withhold them when the source is provably gone and let the
+    // renderer drop the image and purge its caches. This also covers a record
+    // whose thumbnail was already deleted (no bytes to withhold, but no reason
+    // to spend a decode failing on a missing file either). The allow-list
+    // check is the second half of "provably": an id can only be probed if it
+    // names a path inside a library the user actually has open, so a
+    // mis-parsed or stale key can never cause a row to be dropped.
+    const source = parseThumbnailKey(thumbnailId);
+    if (source && isPathAllowed(source.file)) {
+      const verdict = await classifyThumbnailSource(
+        thumbnailId,
+        thumbnailSourceIo,
+      );
+      if (verdict === "missing") {
+        return { success: true, data: null, sourceMissing: true };
+      }
+    }
+
+    return { success: true, data };
   });
 
   ipcMain.handle("cache-thumbnail", async (event, { thumbnailId, data }) => {
