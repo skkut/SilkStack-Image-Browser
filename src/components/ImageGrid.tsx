@@ -146,6 +146,10 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
   });
 
   const thumbnailsDisabled = useSettingsStore((state) => state.disableThumbnails);
+  // File-name strip policy: always visible, or only while the card is hovered.
+  // Read as a store subscription rather than a prop so the exported ImageCard
+  // works the same way wherever it is rendered.
+  const alwaysShowFilenames = useSettingsStore((state) => state.alwaysShowFilenames);
 
   const toggleImageSelection = useImageStore((state) => state.toggleImageSelection);
   const setDraggedItems = useImageStore((state) => state.setDraggedItems);
@@ -549,7 +553,12 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
           </div>
         )}
 
-        <div className="absolute left-0 right-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+        {/* File-name strip, pinned to the bottom of the card. The setting swaps
+            the reveal: hover-only (opacity-0 → group-hover), or always shown.
+            Same element and position either way. */}
+        <div className={`absolute left-0 right-0 bottom-0 p-2 bg-gradient-to-t from-black/80 to-transparent transition-opacity duration-300 ${
+          alwaysShowFilenames ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}>
           <p className="text-white text-xs truncate">{displayName}</p>
         </div>
       </div>

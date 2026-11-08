@@ -140,6 +140,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
   const autoplayVideoPreviews = useSettingsStore((state) => state.autoplayVideoPreviews);
   const setAutoplayVideoPreviews = useSettingsStore((state) => state.setAutoplayVideoPreviews);
+  const alwaysShowFilenames = useSettingsStore((state) => state.alwaysShowFilenames);
+  const setAlwaysShowFilenames = useSettingsStore((state) => state.setAlwaysShowFilenames);
 
   // Checkpoint → base model lookup. Its switch and its maintenance actions
   // live in the Base Models tab itself (`CheckpointMappingSection`) — the only
@@ -571,6 +573,24 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             type="checkbox"
                             checked={confirmOnDelete}
                             onChange={(event) => setConfirmOnDelete(event.target.checked)}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                        </label>
+                      </div>
+
+                      <div className="flex items-start justify-between bg-gray-900/80 p-5 rounded-xl border border-gray-700/50 shadow-sm transition-all hover:border-gray-600">
+                        <div className="pr-6">
+                          <p className="text-sm font-medium text-gray-200">Always show file names</p>
+                          <p className="text-sm text-gray-400 mt-1 leading-relaxed">
+                            Keep each image's file name visible at the bottom of its card, in the grid and in stack views, instead of showing it only while the card is hovered.
+                          </p>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                          <input
+                            type="checkbox"
+                            checked={alwaysShowFilenames}
+                            onChange={(event) => setAlwaysShowFilenames(event.target.checked)}
                             className="sr-only peer"
                           />
                           <div className="w-11 h-6 bg-gray-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>

@@ -110,6 +110,10 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
   const aiFeaturesEnabled = useAiFeaturesEnabled();
   const libraryImageSize = useSettingsStore(s => s.viewZoomLevels.library);
   const thumbnailsDisabled = useSettingsStore(s => s.disableThumbnails);
+  // Same persisted preference the library grid reads; the popped-out stack
+  // window gets it through the settings store's cross-window sync, so both
+  // stack surfaces reveal file names identically.
+  const alwaysShowFilenames = useSettingsStore(s => s.alwaysShowFilenames);
   const displayStarredFirst = useSettingsStore(s => s.displayStarredFirst);
   const stackGroupByDimensions = useSettingsStore(s => s.stackGroupByDimensions);
   const setStackGroupByDimensions = useSettingsStore(s => s.setStackGroupByDimensions);
@@ -378,6 +382,7 @@ const SimilarityStackExpandedViewWrapper: React.FC<SimilarityStackExpandedViewWr
         isStandaloneWindow={isStandaloneWindow}
         imageSize={imageSize}
         thumbnailsDisabled={thumbnailsDisabled}
+        alwaysShowFilenames={alwaysShowFilenames}
         groupByDimensions={groupByDimensionLabels}
         groupByToolbar={groupByToolbar}
         onToggleFavorite={handleToggleFavorite}

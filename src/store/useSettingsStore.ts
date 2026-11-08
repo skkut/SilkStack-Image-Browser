@@ -73,6 +73,10 @@ interface SettingsState {
   blurSensitiveImages: boolean;
   enableSafeMode: boolean;
   displayStarredFirst: boolean;
+  /** Keep each card's file-name strip visible at all times instead of only on
+   *  hover. Applies to the library grid and the stack views (in-app drill-down
+   *  and the popped-out window, which read the same persisted setting). */
+  alwaysShowFilenames: boolean;
   confirmOnDelete: boolean;
   disableAiFallback: boolean;
   aiDevicePreference: AiDevicePreference;
@@ -157,6 +161,7 @@ interface SettingsState {
   setBlurSensitiveImages: (value: boolean) => void;
   setEnableSafeMode: (value: boolean) => void;
   setDisplayStarredFirst: (value: boolean) => void;
+  setAlwaysShowFilenames: (value: boolean) => void;
   setA1111ServerUrl: (url: string) => void;
   toggleA1111AutoStart: () => void;
   setA1111ConnectionStatus: (status: 'unknown' | 'connected' | 'error') => void;
@@ -212,6 +217,7 @@ export const useSettingsStore = create<SettingsState>()(
       blurSensitiveImages: true,
       enableSafeMode: true,
       displayStarredFirst: false,
+      alwaysShowFilenames: false,
       confirmOnDelete: true,
       disableAiFallback: false,
       aiDevicePreference: 'auto',
@@ -278,6 +284,7 @@ export const useSettingsStore = create<SettingsState>()(
       setBlurSensitiveImages: (value) => set({ blurSensitiveImages: !!value }),
       setEnableSafeMode: (value) => set({ enableSafeMode: !!value }),
       setDisplayStarredFirst: (value) => set({ displayStarredFirst: !!value }),
+      setAlwaysShowFilenames: (value) => set({ alwaysShowFilenames: !!value }),
       setConfirmOnDelete: (value) => set({ confirmOnDelete: !!value }),
       setDisableAiFallback: (value) => set({ disableAiFallback: !!value }),
       setAiDevicePreference: (value) => set({ aiDevicePreference: value }),
@@ -336,6 +343,7 @@ export const useSettingsStore = create<SettingsState>()(
         blurSensitiveImages: true,
         enableSafeMode: true,
         displayStarredFirst: false,
+        alwaysShowFilenames: false,
         a1111ServerUrl: 'http://127.0.0.1:7860',
         a1111AutoStart: false,
         a1111LastConnectionStatus: 'unknown',
@@ -376,6 +384,13 @@ export const useSettingsStore = create<SettingsState>()(
 
         if (state && typeof state.displayStarredFirst !== 'boolean') {
           state.displayStarredFirst = false;
+        }
+
+        // Shipped after users existed — hover-only is the established behavior,
+        // so an old settings record (no field at all) keeps it. A `typeof`
+        // check, not truthiness, so a user who turned it on keeps it on.
+        if (state && typeof state.alwaysShowFilenames !== 'boolean') {
+          state.alwaysShowFilenames = false;
         }
 
         if (state && typeof state.confirmOnDelete !== 'boolean') {

@@ -63,6 +63,8 @@ interface SubGroupImageCardProps {
   onContextMenu?: (image: StackImage, event: React.MouseEvent) => void;
   thumbnailsDisabled: boolean;
   hoverPreview?: StackHoverPreviewApi;
+  /** Keep the file-name strip visible instead of revealing it on hover. */
+  alwaysShowFilenames?: boolean;
 }
 
 const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
@@ -76,6 +78,7 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
   onContextMenu,
   thumbnailsDisabled,
   hoverPreview,
+  alwaysShowFilenames = false,
 }) => {
   // Thumbnail state — the parent wrapper triggers thumbnail loading via useThumbnail.
   // This component passively reacts to thumbnailUrl / thumbnailStatus becoming ready.
@@ -270,8 +273,12 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
         />
       )}
 
-      {/* Hover overlay with filename */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+      {/* File-name strip, pinned to the bottom of the card. The app decides
+          whether it is always visible or only on hover; the element and its
+          position are the same either way. */}
+      <div className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2 transition-opacity pointer-events-none ${
+        alwaysShowFilenames ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+      }`}>
         <p className="text-[10px] text-white truncate leading-tight">
           {(image.name || '').split(/[/\\]/).pop() || 'Unknown'}
         </p>
@@ -295,6 +302,8 @@ interface JustifiedRowProps {
   onContextMenu?: (image: StackImage, event: React.MouseEvent) => void;
   thumbnailsDisabled: boolean;
   hoverPreview?: StackHoverPreviewApi;
+  /** Keep the file-name strip visible instead of revealing it on hover. */
+  alwaysShowFilenames?: boolean;
 }
 
 const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
@@ -308,6 +317,7 @@ const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
   onContextMenu,
   thumbnailsDisabled,
   hoverPreview,
+  alwaysShowFilenames = false,
 }) => {
   return (
     <div className="flex flex-row" style={{ height: row.height, gap: GAP_SIZE }}>
@@ -329,6 +339,7 @@ const JustifiedRow: React.FC<JustifiedRowProps> = React.memo(({
               onContextMenu={onContextMenu}
               thumbnailsDisabled={thumbnailsDisabled}
               hoverPreview={hoverPreview}
+              alwaysShowFilenames={alwaysShowFilenames}
             />
           </div>
         );
@@ -360,6 +371,9 @@ export interface SimilarityStackExpandedViewProps {
   imageSize?: number;
   /** Whether thumbnails are disabled (from settings store). */
   thumbnailsDisabled: boolean;
+  /** Keep every card's file-name strip visible instead of revealing it on
+   *  hover. Supplied by the app wrapper from the user's setting. */
+  alwaysShowFilenames?: boolean;
   /** Hover-preview host — plays videos/GIFs while the pointer rests on a card.
    *  Supplied by the app wrapper; absent means hover previews are off. */
   hoverPreview?: StackHoverPreviewApi;
@@ -398,6 +412,7 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
   isStandaloneWindow = false,
   imageSize: imageSizeProp,
   thumbnailsDisabled,
+  alwaysShowFilenames = false,
   hoverPreview,
   onToggleFavorite,
   onToggleSelection,
@@ -638,6 +653,7 @@ const SimilarityStackExpandedView: React.FC<SimilarityStackExpandedViewProps> = 
                         onContextMenu={onContextMenu}
                         thumbnailsDisabled={thumbnailsDisabled}
                         hoverPreview={hoverPreview}
+                        alwaysShowFilenames={alwaysShowFilenames}
                       />
                     </div>
                   ))}
