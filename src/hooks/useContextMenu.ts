@@ -4,7 +4,13 @@ import { copyImageToClipboard, showInExplorer, openInNativeViewer } from '../uti
 import { getImageAbsolutePath, quotePathForClipboard } from '../utils/pathUtils';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
-import { openStackInNewWindow, resolveStackForImage, canOpenStackWindow } from '../services/stackWindowService';
+import {
+  openStackInNewWindow,
+  resolveStackForImage,
+  restrictStackToFolderVisibility,
+  canOpenStackWindow,
+} from '../services/stackWindowService';
+import type { FolderVisibilityContext } from '../utils/folderVisibility';
 
 /**
  * One entry of the selection a surface had when its menu opened.
@@ -45,6 +51,20 @@ export interface ContextMenuState {
    */
   stackImageIds?: string[];
 }
+
+/**
+ * The folder-selection slice of the image store, read imperatively at menu
+ * open / click time. Shared by the two stack-window decisions below so the
+ * offered action and the opened window cannot disagree.
+ */
+const folderVisibilityContextOf = (
+  store: ReturnType<typeof useImageStore.getState>,
+): FolderVisibilityContext => ({
+  directories: store.directories,
+  selectedFolders: store.selectedFolders,
+  excludedFolders: store.excludedFolders,
+  includeSubfolders: store.includeSubfolders,
+});
 
 const showNotification = (message: string) => {
   const notification = document.createElement('div');
@@ -116,6 +136,14 @@ export const useContextMenu = () => {
     const resolvedStack = stackImageIds === undefined
       ? resolveStackForImage(image, store.images, store.annotations)
       : null;
+    // The group the library holds is not necessarily a stack in the CURRENT
+    // folder context — its other members can live in a deselected folder or on
+    // a disconnected drive. The window this menu opens contains only the
+    // members the sidebar currently shows, so offer the action on the same
+    // narrowed set.
+    const visibleStack = resolvedStack
+      ? restrictStackToFolderVisibility(resolvedStack, folderVisibilityContextOf(store))
+      : null;
 
     // A surface that already knows the stack (the popped-out stack window
     // holds the whole stack in its payload) hands the ids over. Otherwise use
@@ -146,7 +174,11 @@ export const useContextMenu = () => {
       // length.
       stackImageIds: resolvedStackIds.length > 1 ? resolvedStackIds : undefined,
       canOpenStackInNewWindow: canOpenStackWindow()
-        && (stackImageIds !== undefined ? stackImageIds.length > 1 : !!resolvedStack),
+        && (stackImageIds !== undefined
+          ? stackImageIds.length > 1
+          // Two members in the folder context, not just in the whole library:
+          // a lone visible member is a singleton card, not a stack to pop out.
+          : (visibleStack?.count ?? 0) > 1),
     });
   };
 
@@ -301,7 +333,10 @@ export const useContextMenu = () => {
    * Membership is resolved from the live store at click time, not from the
    * flag that decided the item was visible — the two are the same instant in
    * practice, and resolving here means the window matches the stack as it
-   * stands rather than as it stood when the menu opened.
+   * stands rather than as it stood when the menu opened. The folder-context
+   * narrowing is the same one the menu used to decide the item should exist:
+   * the window holds what the sidebar shows, never images from a deselected or
+   * disconnected folder.
    */
   const openStackInNewWindowFromMenu = () => {
     const image = contextMenu.image;
@@ -310,8 +345,13 @@ export const useContextMenu = () => {
 
     const store = useImageStore.getState();
     const stack = resolveStackForImage(image, store.images, store.annotations);
-    if (stack) {
-      void openStackInNewWindow(stack, store.directories);
+    const visibleStack = stack
+      ? restrictStackToFolderVisibility(stack, folderVisibilityContextOf(store))
+      : null;
+    // >= 2, the same rule `resolveStackForImage` applies before narrowing: a
+    // window holding one image is not a stack.
+    if (visibleStack && visibleStack.count > 1) {
+      void openStackInNewWindow(visibleStack, store.directories);
     }
   };
 

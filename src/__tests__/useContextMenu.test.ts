@@ -108,6 +108,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  delete (window as any).electronAPI;
 });
 
 describe('Copy Image Paths', () => {
@@ -274,5 +275,119 @@ describe('Select All in Stack', () => {
     });
 
     expect(result.current.contextMenu.stackImageIds).toEqual(['x', 'y']);
+  });
+});
+
+/**
+ * "Open Stack in New Window" and the folder context.
+ *
+ * The group is resolved from the whole library, but the window it opens must
+ * hold only the members the current sidebar selection shows — the same set the
+ * stack card on screen stands for. Images from a deselected folder or a
+ * disconnected drive do not belong in it, and a group that narrows to one
+ * visible member is a singleton card, not a stack.
+ */
+describe('Open Stack in New Window', () => {
+  const stacked = (id: string, directoryId = 'dir-1'): IndexedImage =>
+    ({ ...imageAt(`C:\\Images\\${id}.png`), id, directoryId, stackGroupId: 'group-1' }) as IndexedImage;
+
+  const directories = [
+    { id: 'dir-1', name: 'Images', path: 'C:\\Images', handle: {} },
+    { id: 'dir-2', name: 'More', path: 'D:\\More', handle: {} },
+  ] as any;
+
+  const openStackWindow = () => {
+    const mock = vi.fn().mockResolvedValue({ success: true, windowId: 7 });
+    (window as any).electronAPI = { openStackWindow: mock };
+    return mock;
+  };
+
+  it('opens only the members the selected folders contain', async () => {
+    const mock = openStackWindow();
+    const a = stacked('dir-1::a.png');
+    const b = stacked('dir-1::b.png');
+    const elsewhere = stacked('dir-2::c.png', 'dir-2');
+    useImageStore.setState({
+      images: [a, b, elsewhere],
+      filteredImages: [a, b] as any,
+      directories,
+      selectedFolders: new Set(['c:/images']),
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    act(() => result.current.showContextMenu(menuEvent(), a));
+    await act(async () => {
+      result.current.openStackInNewWindow();
+    });
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+
+    const payload = mock.mock.calls[0][0];
+    expect(payload.imageList.map((raw: any) => raw.id)).toEqual([
+      'dir-1::a.png',
+      'dir-1::b.png',
+    ]);
+  });
+
+  it('does not open images from a disconnected drive', async () => {
+    const mock = openStackWindow();
+    const a = stacked('dir-1::a.png');
+    const b = stacked('dir-1::b.png');
+    const offline = stacked('dir-2::c.png', 'dir-2');
+    useImageStore.setState({
+      images: [a, b, offline],
+      filteredImages: [a, b] as any,
+      directories: [
+        directories[0],
+        { ...directories[1], isConnected: false },
+      ],
+      selectedFolders: new Set(),
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    act(() => result.current.showContextMenu(menuEvent(), a));
+    await act(async () => {
+      result.current.openStackInNewWindow();
+    });
+    await vi.waitFor(() => expect(mock).toHaveBeenCalledTimes(1));
+
+    expect(mock.mock.calls[0][0].imageList.map((raw: any) => raw.id)).toEqual([
+      'dir-1::a.png',
+      'dir-1::b.png',
+    ]);
+  });
+
+  it('offers nothing when only one member is in the folder context', () => {
+    openStackWindow();
+    const a = stacked('dir-1::a.png');
+    const elsewhere = stacked('dir-2::b.png', 'dir-2');
+    useImageStore.setState({
+      images: [a, elsewhere],
+      filteredImages: [a] as any,
+      directories,
+      selectedFolders: new Set(['c:/images']),
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    act(() => result.current.showContextMenu(menuEvent(), a));
+
+    expect(result.current.contextMenu.canOpenStackInNewWindow).toBe(false);
+  });
+
+  it('offers the action when two members are in the folder context', () => {
+    openStackWindow();
+    const a = stacked('dir-1::a.png');
+    const b = stacked('dir-1::b.png');
+    const elsewhere = stacked('dir-2::c.png', 'dir-2');
+    useImageStore.setState({
+      images: [a, b, elsewhere],
+      filteredImages: [a, b] as any,
+      directories,
+      selectedFolders: new Set(),
+    });
+
+    const { result } = renderHook(() => useContextMenu());
+    act(() => result.current.showContextMenu(menuEvent(), a));
+
+    expect(result.current.contextMenu.canOpenStackInNewWindow).toBe(true);
   });
 });

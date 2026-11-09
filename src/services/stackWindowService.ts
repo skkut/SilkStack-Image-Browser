@@ -1,5 +1,9 @@
 import { IndexedImage, ImageStack, ImageAnnotations, StackWindowPayload } from '../types';
 import { resolveStackGroupKey, collectGroupMembers } from '../utils/stackGroupKey';
+import {
+  createFolderVisibilityPredicate,
+  type FolderVisibilityContext,
+} from '../utils/folderVisibility';
 
 /**
  * Popping a similarity stack out into its own Electron window.
@@ -173,4 +177,40 @@ export function resolveStackForImage(
   if (!stack || stack.count < 2) return null;
 
   return stack;
+}
+
+/**
+ * Narrow a resolved stack to the images the current folder context shows.
+ *
+ * A stack window must hold what the library card it was opened from holds:
+ * resolve-from-the-whole-library answers a group's full membership, which
+ * includes images from folders the sidebar has deselected and from drives that
+ * are no longer connected. The window would then show thumbnails the user
+ * cannot see anywhere else in the app. Membership itself is still the group
+ * key, so live refreshes keep doing this on every pass — a drive that
+ * disconnects while a window is open must drop its images too.
+ *
+ * Returns null when nothing in the group is visible. A caller that decides
+ * whether to OFFER the action applies the stack-of-two-or-more rule itself;
+ * the refresh path must keep a window alive even if it has shrunk to one.
+ */
+export function restrictStackToFolderVisibility(
+  stack: ImageStack,
+  context: FolderVisibilityContext,
+): ImageStack | null {
+  const isVisible = createFolderVisibilityPredicate(context);
+  const images = stack.images.filter(isVisible);
+  if (images.length === 0) return null;
+
+  // Members arrive newest-first (`resolveStackForGroupKey`), so the filtered
+  // head is exactly the cover the grid would show for this narrower stack.
+  const coverImage = images[0];
+  return {
+    id: stack.id,
+    groupKey: stack.groupKey,
+    coverImage,
+    images,
+    count: images.length,
+    basePrompt: stackLabel(coverImage),
+  };
 }

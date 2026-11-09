@@ -8,6 +8,7 @@ import {
   openStackInNewWindow,
   resolveStackForGroupKey,
   resolveStackForImage,
+  restrictStackToFolderVisibility,
 } from '../services/stackWindowService';
 import type { ImageAnnotations, IndexedImage, ImageStack, StackWindowPayload } from '../types';
 
@@ -335,6 +336,91 @@ describe('resolving a stack by its key (the live-refresh path)', () => {
     )!;
 
     expect(stack.images.map((i) => i.id)).toContain('dir-1::b.png');
+  });
+});
+
+describe('narrowing a stack to the folder context', () => {
+  const context = (
+    overrides: Partial<Parameters<typeof restrictStackToFolderVisibility>[1]> = {},
+  ) => ({
+    directories: [DIRECTORY],
+    selectedFolders: new Set<string>(),
+    excludedFolders: new Set<string>(),
+    includeSubfolders: true,
+    ...overrides,
+  });
+
+  it('drops members that live on a disconnected drive', () => {
+    // The group is intact in the library — the cached images are still in the
+    // store — but a stack window must not render thumbnails from a folder that
+    // is offline.
+    const onDisk = image('dir-1::a.png', {
+      similarityGroupId: 'group-9',
+      lastModified: 100,
+    });
+    const offline = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+      lastModified: 200,
+    });
+    const stack = resolveStackForImage(onDisk, [onDisk, offline], annotationsOf({}))!;
+
+    const narrowed = restrictStackToFolderVisibility(
+      stack,
+      context({
+        directories: [
+          DIRECTORY,
+          { id: 'dir-2', path: 'D:\\More', isConnected: false },
+        ],
+      }),
+    )!;
+
+    expect(narrowed.images.map((i) => i.id)).toEqual(['dir-1::a.png']);
+    expect(narrowed.count).toBe(1);
+    // The cover is the newest VISIBLE member, so the window's title and
+    // thumbnail describe what it actually holds.
+    expect(narrowed.coverImage.id).toBe('dir-1::a.png');
+    // Identity stays the group key: the window keeps following the same group
+    // as images come and go.
+    expect(narrowed.id).toBe(stack.id);
+    expect(narrowed.groupKey).toBe('group-9');
+  });
+
+  it('drops members outside the selected folders', () => {
+    const selected = image('dir-1::a.png', { similarityGroupId: 'group-9' });
+    const other = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+    });
+    const stack = resolveStackForImage(selected, [selected, other], annotationsOf({}))!;
+
+    const narrowed = restrictStackToFolderVisibility(
+      stack,
+      context({
+        directories: [DIRECTORY, { id: 'dir-2', path: 'D:\\More' }],
+        selectedFolders: new Set(['c:/images']),
+      }),
+    )!;
+
+    expect(narrowed.images.map((i) => i.id)).toEqual(['dir-1::a.png']);
+  });
+
+  it('returns null when nothing in the group is in the folder context', () => {
+    const only = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+    });
+    const stack = resolveStackForGroupKey('group-9', [only], annotationsOf({}))!;
+
+    expect(
+      restrictStackToFolderVisibility(
+        stack,
+        context({
+          directories: [DIRECTORY, { id: 'dir-2', path: 'D:\\More' }],
+          selectedFolders: new Set(['c:/images']),
+        }),
+      ),
+    ).toBeNull();
   });
 });
 

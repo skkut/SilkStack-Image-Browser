@@ -12,6 +12,7 @@ import {
 } from '../services/imageAnnotationsStorage';
 
 import { normalizePath } from '../utils/pathUtils';
+import { createFolderVisibilityPredicate } from '../utils/folderVisibility';
 import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { getMegapixels } from '../utils/megapixels';
 import { applyTableSorting, type TableSortField, type TableSortDirection } from '../utils/tableSorting';
@@ -726,24 +727,6 @@ const updateRecentTags = (currentTags: string[], tag: string): string[] => {
     return next.slice(0, MAX_RECENT_TAGS);
 };
 
-
-const getImageFolderPath = (image: IndexedImage, directoryPath: string): string => {
-    const normalizedDirectory = normalizePath(directoryPath);
-    const idParts = image.id.split('::');
-    if (idParts.length !== 2) {
-        return normalizedDirectory;
-    }
-
-    const relativePath = idParts[1];
-    const segments = relativePath.split(/[/\\]/).filter(Boolean);
-    if (segments.length <= 1) {
-        return normalizedDirectory;
-    }
-
-    const folderSegments = segments.slice(0, -1);
-    const folderRelativePath = folderSegments.join('/');
-    return joinPath(normalizedDirectory, folderRelativePath);
-};
 
 const detectSeparator = (path: string) => (path.includes('\\') && !path.includes('/')) ? '\\' : '/';
 
@@ -1975,66 +1958,18 @@ export const useImageStore = create<ImageState>((set, get) => {
             });
         };
 
-        const visibleDirectoryIds = new Set(
-            directories.filter(dir => (dir.visible ?? true) && (dir.isConnected !== false)).map(dir => dir.id)
+        // Folder-selection filtering is shared with the stack-window paths
+        // (`utils/folderVisibility`) so all of them apply the same rule: hidden
+        // folders and disconnected drives contribute nothing, exclusions win
+        // over selection, and `includeSubfolders` extends a selection downward.
+        const selectionFiltered = images.filter(
+            createFolderVisibilityPredicate({
+                directories,
+                selectedFolders,
+                excludedFolders,
+                includeSubfolders,
+            }),
         );
-
-
-        const directoryPathMap = new Map<string, string>();
-        directories.forEach(dir => {
-            const normalized = normalizePath(dir.path);
-            directoryPathMap.set(dir.id, normalized);
-        });
-
-        // Filter images based on folder selection and exclusion
-        const selectionFiltered = images.filter((img) => {
-            if (!visibleDirectoryIds.has(img.directoryId || '')) {
-                return false;
-            }
-
-            const parentPath = directoryPathMap.get(img.directoryId || '');
-            if (!parentPath) {
-                return false;
-            }
-
-            const folderPath = normalizePath(getImageFolderPath(img, parentPath));
-
-            // EXCLUSION CHECK: If folder is excluded, hide image
-            if (excludedFolders && excludedFolders.size > 0) {
-                for (const excludedFolder of excludedFolders) {
-                    const normalizedExcluded = normalizePath(excludedFolder);
-                    // Check if folderPath IS the excluded folder or IS A CHILD of the excluded folder
-                    if (folderPath === normalizedExcluded ||
-                        folderPath.startsWith(normalizedExcluded + '/') ||
-                        folderPath.startsWith(normalizedExcluded + '\\')) {
-                        return false;
-                    }
-                }
-            }
-
-            // If no folders are selected, show all images from visible directories (unless excluded)
-            if (selectedFolders.size === 0) {
-                return true;
-            }
-
-            // Direct matching - check if folder is explicitly selected
-            if (selectedFolders.has(folderPath)) {
-                return true;
-            }
-
-            // If includeSubfolders is enabled, check if any parent folder is selected
-            if (includeSubfolders) {
-                for (const selectedFolder of selectedFolders) {
-                    const normalizedSelected = normalizePath(selectedFolder);
-                    // Check if folderPath is a subfolder of selectedFolder
-                    if (folderPath.startsWith(normalizedSelected + '/') || folderPath.startsWith(normalizedSelected + '\\')) {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        });
 
         const selectionFavoriteCount = selectionFiltered.filter(img => img.isFavorite).length;
 

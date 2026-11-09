@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
 - **A stack window remembers its size, position and maximised state** — resizing, moving or maximising it now survives closing and reopening, instead of every window starting at the default size.
 - **The stack view's Group by selection is shared everywhere** — choosing Prompt, Model and/or Loras now applies to the in-app drill-down and every popped-out stack window, live in both directions, and the next stack opens with it. Each window used to keep its own copy until restart.
 - **Right-click works in popped-out stack windows** — an image card there opens the same copy, path and folder menu as the library. **Copy to Clipboard** works there too: child windows cannot use the file handle, so the image's bytes now come through the local media protocol instead.
+- **Stack windows follow the folder sidebar** — **Open Stack in New Window** now holds only the stack's images from the folders currently selected. Images from a deselected folder or a disconnected drive are left out, and the window keeps applying both rules as they change — a drive that disconnects drops its thumbnails immediately. A group with fewer than two members in the current context no longer offers the action, matching the single card it is shown as.
 
 ### Changed
 

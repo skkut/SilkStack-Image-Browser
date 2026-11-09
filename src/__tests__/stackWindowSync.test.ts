@@ -78,6 +78,9 @@ beforeEach(() => {
     images: [],
     annotations: new Map(),
     directories: [DIRECTORY],
+    selectedFolders: new Set(),
+    excludedFolders: new Set(),
+    includeSubfolders: true,
   });
 });
 
@@ -175,6 +178,111 @@ describe('keeping an open stack window current', () => {
     expect(lastPayload().imageList).toEqual([]);
     // The window keeps the title it had rather than being blanked.
     expect(lastPayload().basePrompt).toBe('Untitled stack');
+  });
+
+  it('never pushes members from a disconnected drive', () => {
+    // Offline folders stay in the library (their cached images are still in
+    // the store) but a stack window must not draw their thumbnails.
+    const onDisk = image('dir-1::a.png', { similarityGroupId: 'group-9', lastModified: 100 });
+    const offline = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+      lastModified: 200,
+    });
+    const alsoOnDisk = image('dir-1::c.png', { similarityGroupId: 'group-9', lastModified: 300 });
+    useImageStore.setState({
+      images: [onDisk],
+      directories: [
+        DIRECTORY,
+        { id: 'dir-2', path: 'D:\\More', isConnected: false } as any,
+      ],
+    });
+
+    mountWithOpenWindow();
+
+    act(() => {
+      useImageStore.setState({ images: [onDisk, offline, alsoOnDisk] });
+    });
+    flushPush();
+
+    expect(updateStackWindow).toHaveBeenCalledTimes(1);
+    expect(lastPayload().imageList.map((raw: any) => raw.id)).toEqual([
+      'dir-1::c.png',
+      'dir-1::a.png',
+    ]);
+  });
+
+  it('drops a member when its drive disconnects while the window is open', () => {
+    // Connectivity is not fixed at open time; the refresh has to re-apply the
+    // folder rule, or a drive that goes away leaves its thumbnails on screen.
+    const onDisk = image('dir-1::a.png', { similarityGroupId: 'group-9', lastModified: 100 });
+    const removable = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+      lastModified: 200,
+    });
+    useImageStore.setState({
+      images: [onDisk, removable],
+      directories: [DIRECTORY, { id: 'dir-2', path: 'D:\\More' } as any],
+    });
+
+    mountWithOpenWindow();
+    act(() => {
+      useImageStore.setState({ images: [onDisk, removable] });
+    });
+    flushPush();
+    expect(lastPayload().imageList.map((raw: any) => raw.id)).toEqual([
+      'dir-2::b.png',
+      'dir-1::a.png',
+    ]);
+    updateStackWindow.mockClear();
+
+    act(() => {
+      useImageStore.setState({
+        directories: [DIRECTORY, { id: 'dir-2', path: 'D:\\More', isConnected: false } as any],
+      });
+    });
+    flushPush();
+
+    expect(updateStackWindow).toHaveBeenCalledTimes(1);
+    expect(lastPayload().imageList.map((raw: any) => raw.id)).toEqual(['dir-1::a.png']);
+  });
+
+  it('narrows to the selected folders and follows a change to them', () => {
+    const selected = image('dir-1::a.png', { similarityGroupId: 'group-9', lastModified: 100 });
+    const elsewhere = image('dir-2::b.png', {
+      directoryId: 'dir-2',
+      similarityGroupId: 'group-9',
+      lastModified: 200,
+    });
+    useImageStore.setState({
+      images: [selected],
+      directories: [DIRECTORY, { id: 'dir-2', path: 'D:\\More' } as any],
+      selectedFolders: new Set(),
+    });
+
+    mountWithOpenWindow();
+
+    act(() => {
+      useImageStore.setState({ images: [selected, elsewhere] });
+    });
+    flushPush();
+    // No selection means the whole library — both members are in context.
+    expect(lastPayload().imageList.map((raw: any) => raw.id)).toEqual([
+      'dir-2::b.png',
+      'dir-1::a.png',
+    ]);
+    updateStackWindow.mockClear();
+
+    // Selecting only C:\Images re-narrows an already-open window, so it keeps
+    // describing the folder context the sidebar is showing.
+    act(() => {
+      useImageStore.setState({ selectedFolders: new Set(['c:/images']) });
+    });
+    flushPush();
+
+    expect(updateStackWindow).toHaveBeenCalledTimes(1);
+    expect(lastPayload().imageList.map((raw: any) => raw.id)).toEqual(['dir-1::a.png']);
   });
 
   it('stops pushing once the window has closed', () => {

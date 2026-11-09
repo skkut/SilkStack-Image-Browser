@@ -3,6 +3,7 @@ import { useImageStore } from '../store/useImageStore';
 import {
   buildStackWindowPayload,
   resolveStackForGroupKey,
+  restrictStackToFolderVisibility,
 } from '../services/stackWindowService';
 
 /**
@@ -19,6 +20,12 @@ import {
  * expression the grid and drill-down use — so a window that was opened for a
  * group key follows that group as images are indexed, deleted, refavourited
  * or regrouped.
+ *
+ * Every push is narrowed to the current folder context as well. A window must
+ * never show a thumbnail from a folder the sidebar has deselected or from a
+ * drive that has since disconnected — and those can change while the window is
+ * open, so the narrowing has to happen on each pass rather than only when the
+ * window was created.
  */
 
 /**
@@ -33,6 +40,9 @@ export function useStackWindowSync(): void {
   const images = useImageStore((state) => state.images);
   const annotations = useImageStore((state) => state.annotations);
   const directories = useImageStore((state) => state.directories);
+  const selectedFolders = useImageStore((state) => state.selectedFolders);
+  const excludedFolders = useImageStore((state) => state.excludedFolders);
+  const includeSubfolders = useImageStore((state) => state.includeSubfolders);
 
   // `windowId -> groupKey` for every open stack window. A ref, because
   // membership of this map must never re-render the app.
@@ -94,17 +104,31 @@ export function useStackWindowSync(): void {
       const api = window.electronAPI;
       if (!api?.updateStackWindow) return;
 
+      const folderContext = {
+        directories,
+        selectedFolders,
+        excludedFolders,
+        includeSubfolders,
+      };
+
       for (const [windowId, groupKey] of openWindowsRef.current) {
         const stack = resolveStackForGroupKey(groupKey, images, annotations);
+        // The group is narrowed to what the current folder selection shows
+        // before the window sees it. A null here (no member left in context)
+        // is the same signal as a dissolved group: send an empty list, let the
+        // window render its empty state, and keep the title it had.
+        const visibleStack = stack
+          ? restrictStackToFolderVisibility(stack, folderContext)
+          : null;
         // A dissolved/emptied group sends an empty list rather than nothing:
         // the window must drop images that no longer exist anywhere, and it
         // renders its own empty state for that payload.
         const basePrompt =
-          stack?.basePrompt ?? lastLabelRef.current.get(windowId) ?? '';
+          visibleStack?.basePrompt ?? lastLabelRef.current.get(windowId) ?? '';
         const payload = buildStackWindowPayload(
           groupKey,
           basePrompt,
-          stack?.images ?? [],
+          visibleStack?.images ?? [],
           directories,
         );
 
@@ -121,5 +145,5 @@ export function useStackWindowSync(): void {
     }, PUSH_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [images, annotations, directories]);
+  }, [images, annotations, directories, selectedFolders, excludedFolders, includeSubfolders]);
 }
