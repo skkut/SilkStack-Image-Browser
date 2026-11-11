@@ -1131,6 +1131,14 @@ interface ImageState {
    * anchor, exactly as a single Ctrl+click would.
    */
   addImagesToSelection: (imageIds: readonly string[], anchorId?: string) => void;
+  /**
+   * Remove these ids from the selection, leaving the rest untouched.
+   *
+   * Used when images are deleted through another window (a popped-out stack):
+   * they leave this store too, and a selection holding their dead ids would
+   * keep the footer's count and bulk actions pointed at nothing.
+   */
+  deselectImages: (imageIds: readonly string[]) => void;
   clearImageSelection: () => void;
   deleteSelectedImages: () => Promise<void>; // This will require file operations logic
   setScanSubfolders: (scan: boolean) => void;
@@ -1146,6 +1154,17 @@ interface ImageState {
   handleStackImageDeletion: (deletedImageIds: string[]) => void;
   mergeSelectedToStack: () => Promise<void>;
   unmergeSelectedFromStack: () => Promise<void>;
+  /**
+   * Remove SPECIFIC images from whatever stack they belong to by clearing
+   * their stack/similarity group ids.
+   *
+   * The selection-based action above resolves its ids from the library
+   * drill-down's context, which a popped-out stack window does not have — it
+   * holds a snapshot and forwards the ids the user removed. Resolves to true
+   * when the annotations were changed and persisted, so a caller that owns its
+   * own selection only clears it on a real change.
+   */
+  unmergeImagesFromStack: (imageIds: readonly string[]) => Promise<boolean>;
   tryUndo: () => Promise<boolean>;
   /**
    * LEXICAL similarity pass — the hybrid Jaccard/Levenshtein clustering.
@@ -4652,6 +4671,23 @@ export const useImageStore = create<ImageState>((set, get) => {
                 : { selectedImages: newSelection };
         }),
 
+        deselectImages: (imageIds) => set(state => {
+            const idsToRemove = new Set(imageIds);
+            let changed = false;
+            const selectedImages = new Set(state.selectedImages);
+            for (const imageId of idsToRemove) {
+                if (selectedImages.delete(imageId)) changed = true;
+            }
+            // Nothing was selected from that list — return the state object
+            // itself so Zustand does not notify subscribers for a no-op.
+            if (!changed) return state;
+            // The anchor is left as it was, deliberately: a removed anchor is
+            // re-derived on the next Shift+click (see resolveSelectionAnchorId),
+            // which is the same rule toggleImageSelection follows when the
+            // anchor is deselected by hand.
+            return { selectedImages };
+        }),
+
         clearImageSelection: () => set({ selectedImages: new Set(), selectionAnchorId: null }),
 
         deleteSelectedImages: async () => {
@@ -5238,27 +5274,29 @@ export const useImageStore = create<ImageState>((set, get) => {
         },
 
         /**
-         * Remove selected images from their current stack by clearing
-         * their similarityGroupId.  Only meaningful when viewing a stack
-         * drill-down (libraryStackContext is set).
+         * Remove SPECIFIC images from their current stack by clearing their
+         * similarityGroupId / stackGroupId.
+         *
+         * This is the explicit-id half of the unmerge pair. The library's
+         * drill-down delegates to it after resolving its selection against the
+         * group key; a popped-out stack window calls it directly because its
+         * selection lives in the child renderer, not in this store.
+         *
+         * Returns true only when annotations were actually changed AND
+         * persisted — a no-op or a failed write leaves the images where they
+         * are, and callers keep their selection so the click stays retryable.
          */
-        unmergeSelectedFromStack: async () => {
-            if (!isAiFeaturesEnabled()) return;
+        unmergeImagesFromStack: async (imageIds) => {
+            if (!isAiFeaturesEnabled()) return false;
 
             const state = get();
-            const { selectedImages, annotations, libraryStackContext } = state;
+            const { annotations } = state;
 
-            if (selectedImages.size === 0 || !libraryStackContext) return;
-
-            // Only unmerge images that are actually in the current stack —
-            // membership resolved live from the group key.
-            const stackImageIds = collectGroupMembers(state.images, annotations, libraryStackContext.groupKey);
-            const toUnmerge = [...selectedImages].filter(id => stackImageIds.has(id));
-            if (toUnmerge.length === 0) return;
+            if (imageIds.length === 0) return false;
 
             // Save pre-unmerge snapshot for Ctrl+Z undo
             const preUnmergeSnapshot: UndoEntry['previousAnnotations'] = [];
-            for (const imageId of toUnmerge) {
+            for (const imageId of imageIds) {
                 const ann = annotations.get(imageId);
                 preUnmergeSnapshot.push({
                     imageId,
@@ -5271,7 +5309,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             const updatedAnnotations: ImageAnnotations[] = [];
             const newAnnotations = new Map(annotations);
 
-            for (const imageId of toUnmerge) {
+            for (const imageId of imageIds) {
                 const existing = annotations.get(imageId);
                 if (!existing?.similarityGroupId && !existing?.stackGroupId) continue; // already standalone
 
@@ -5288,31 +5326,31 @@ export const useImageStore = create<ImageState>((set, get) => {
                 newAnnotations.set(imageId, updated);
             }
 
-            if (updatedAnnotations.length === 0) return;
+            if (updatedAnnotations.length === 0) return false;
 
-            // Persist
+            // Persist before touching memory: a failed write must leave the
+            // stack exactly as the user found it.
             try {
                 const { bulkSaveAnnotations } = await import('../services/imageAnnotationsStorage');
                 await bulkSaveAnnotations(updatedAnnotations);
 
                 // Push undo entry
                 __undoStack.push({
-                    description: `Unmerge ${toUnmerge.length} image${toUnmerge.length > 1 ? 's' : ''} from stack`,
+                    description: `Unmerge ${updatedAnnotations.length} image${updatedAnnotations.length > 1 ? 's' : ''} from stack`,
                     previousAnnotations: preUnmergeSnapshot,
                 });
                 while (__undoStack.length > MAX_UNDO_STACK) {
                     __undoStack.shift();
                 }
             } catch (err) {
-                console.error('[unmergeSelectedFromStack] Failed to persist:', err);
-                return;
+                console.error('[unmergeImagesFromStack] Failed to persist:', err);
+                return false;
             }
 
             // No context surgery needed: the unmerged images just lost their
-            // group ids, and the drill-down's membership is resolved live from
-            // that group key — they drop out of the view on this very set().
+            // group ids, and drill-down membership is resolved live from that
+            // group key — they drop out of the view on this very set().
 
-            // Update in-memory state + clear selection
             const updatedImages = applyAnnotationsToImages(state.images, newAnnotations);
             const filteredResult = filterAndSort({ ...state, images: updatedImages, annotations: newAnnotations });
             const availableFilters = recalculateAvailableFilters(filteredResult.filteredImages);
@@ -5322,10 +5360,34 @@ export const useImageStore = create<ImageState>((set, get) => {
                 ...availableFilters,
                 images: updatedImages,
                 annotations: newAnnotations,
-                selectedImages: new Set(),
-                selectionAnchorId: null,
                 undoAvailable: __undoStack.length > 0,
             });
+            return true;
+        },
+
+        /**
+         * Remove selected images from their current stack by clearing
+         * their similarityGroupId.  Only meaningful when viewing a stack
+         * drill-down (libraryStackContext is set).
+         */
+        unmergeSelectedFromStack: async () => {
+            const state = get();
+            const { selectedImages, annotations, libraryStackContext } = state;
+
+            if (selectedImages.size === 0 || !libraryStackContext) return;
+
+            // Only unmerge images that are actually in the current stack —
+            // membership resolved live from the group key.
+            const stackImageIds = collectGroupMembers(state.images, annotations, libraryStackContext.groupKey);
+            const toUnmerge = [...selectedImages].filter(id => stackImageIds.has(id));
+            if (toUnmerge.length === 0) return;
+
+            const unmerged = await get().unmergeImagesFromStack(toUnmerge);
+            // The selection named images that just left the view; hold it until
+            // the write lands so a failed unmerge stays retryable.
+            if (unmerged) {
+                set({ selectedImages: new Set(), selectionAnchorId: null });
+            }
         },
 
         /**

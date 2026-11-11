@@ -79,3 +79,33 @@ describe('cacheManager.deleteImageCaches', () => {
     ).resolves.toBeUndefined();
   });
 });
+
+describe('cacheManager.deleteImageCachesFor', () => {
+  it('prunes once per directory for a batch spanning several folders', async () => {
+    // A popped-out stack can hold images from more than one library folder;
+    // the per-directory rule (one metadata-cache prune, not one per image)
+    // must survive that.
+    await cacheManager.deleteImageCachesFor([
+      { id: 'A::a.png', directoryId: 'C:\\A', lastModified: 111 },
+      { id: 'B::b.png', directoryId: 'C:\\B', lastModified: 222 },
+      { id: 'A::c.png', directoryId: 'C:\\A', lastModified: 333 },
+    ]);
+
+    expect(api.deleteThumbnailsBatch).toHaveBeenCalledTimes(2);
+    expect(api.deleteThumbnailsBatch).toHaveBeenCalledWith(['A::a.png-111', 'A::c.png-333']);
+    expect(api.deleteThumbnailsBatch).toHaveBeenCalledWith(['B::b.png-222']);
+    expect(api.deleteCacheEntries).toHaveBeenCalledTimes(2);
+    expect(api.deleteCacheEntries).toHaveBeenCalledWith({
+      cacheIds: ['C:\\A-recursive', 'C:\\A-flat'],
+      imageIds: ['A::a.png', 'A::c.png'],
+    });
+  });
+
+  it('skips images with no directory and an empty batch', async () => {
+    await cacheManager.deleteImageCachesFor([{ id: 'no-dir', lastModified: 1 }]);
+    await cacheManager.deleteImageCachesFor([]);
+
+    expect(api.deleteThumbnailsBatch).not.toHaveBeenCalled();
+    expect(api.deleteCacheEntries).not.toHaveBeenCalled();
+  });
+});

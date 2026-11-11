@@ -1315,17 +1315,62 @@ export default function App() {
   // the library. Nothing is broadcast back — the stack window already flipped
   // its own copy optimistically, and the two only diverge if the store refuses
   // (an image deleted while the window was open), where the next open repairs it.
+  //
+  // A bulk favourite from the selection bar travels as one action and is
+  // applied image by image — the same toggle-each semantics the footer gives a
+  // mixed selection.
+  //
+  // An unmerge is likewise a request: the child has no annotations map, so it
+  // hands over the ids and this side clears their group ids. The live refresh
+  // then carries the smaller stack back to every open window.
+  //
+  // A delete is the same shape with the file operation already done: the stack
+  // window moved the files to the trash (it has the payload's directory paths
+  // and must report failures beside the click), so this side only forgets the
+  // images in the store, drops them from the selection and purges their caches.
+  // The live refresh then carries the smaller stack back to every open window.
   useEffect(() => {
     if (!window.electronAPI?.onStackWindowAction) return;
 
     const unsubscribe = window.electronAPI.onStackWindowAction(async (action) => {
       if (action?.type === 'toggleFavorite' && action.imageId) {
         await toggleFavorite(action.imageId);
+        return;
+      }
+      if (action?.type === 'toggleFavorites' && Array.isArray(action.imageIds)) {
+        for (const imageId of action.imageIds) {
+          await toggleFavorite(imageId);
+        }
+        return;
+      }
+      if (action?.type === 'unmerge' && Array.isArray(action.imageIds)) {
+        await useImageStore.getState().unmergeImagesFromStack(action.imageIds);
+        return;
+      }
+      if (action?.type === 'delete' && Array.isArray(action.imageIds)) {
+        const store = useImageStore.getState();
+        const deletedIds = new Set(action.imageIds);
+        const deletedImages = store.images.filter((image) => deletedIds.has(image.id));
+        // Already gone from the store (a repeated event, or the watcher beat
+        // us to it) — nothing left to do.
+        if (deletedImages.length === 0) return;
+
+        // One store write for the batch: `removeImages` clears the annotations
+        // and pipeline stamps of every removed id and recomputes the derived
+        // filters once, rather than once per image.
+        store.removeImages(deletedImages.map((image) => image.id));
+        store.deselectImages(action.imageIds);
+        if (store.selectedImage && deletedIds.has(store.selectedImage.id)) {
+          setSelectedImage(null);
+        }
+        // Not awaited: the files are already gone, and the library should not
+        // wait on a cache prune it can rebuild from the next scan anyway.
+        void cacheManager.deleteImageCachesFor(deletedImages);
       }
     });
 
     return () => unsubscribe();
-  }, [toggleFavorite]);
+  }, [toggleFavorite, setSelectedImage]);
 
   // Listen for viewer window closed — only reset selectedImage when all viewer windows are gone
   useEffect(() => {

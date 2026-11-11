@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Layers } from 'lucide-react';
+import { Layers, Star, Trash2, Unlink, X } from 'lucide-react';
 import { type IndexedImage, type StackWindowPayload } from '../types';
 import SimilarityStackExpandedViewWrapper from './SimilarityStackExpandedViewWrapper';
 import ImageContextMenu from './ImageContextMenu';
@@ -8,6 +8,8 @@ import { getImageMediaUrl } from '../utils/mediaUrl';
 import { compactOpenHint } from '../hooks/useImageSelection';
 import { serializeStackImages } from '../services/stackWindowService';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
+import { FileOperations } from '../services/fileOperations';
+import { useSettingsStore } from '../store/useSettingsStore';
 
 /**
  * StackWindow — a similarity stack popped out into its own Electron window
@@ -20,9 +22,19 @@ import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
  * store-bound `thumbnailManager`, and edits are forwarded back to the main
  * window, which owns the real store.
  *
- * Everything the user can DO here is deliberately read-mostly: browse the
- * stack, favourite an image, open one in the image viewer, change the
- * grouping dimensions (a persisted setting, shared through the settings file).
+ * Everything the user can DO here is read-mostly: browse the stack, favourite
+ * an image, open one in the image viewer, change the grouping dimensions (a
+ * persisted setting, shared through the settings file), and — for a selection
+ * — favourite, remove from the stack, or delete. Favourites and unmerges are
+ * flipped in this window's own snapshot for an instant response and forwarded
+ * to the store that owns the library. Deletions are the one write this window
+ * performs itself — it holds the payload's directory paths (the file operation
+ * needs nothing else) and the user must see a failure where they clicked. The
+ * window that owns the store is then told which ids are gone, so it can drop
+ * them and their caches.
+ *
+ * The window has no footer, so a selection's bulk actions live on a floating
+ * bar that exists only while something is selected.
  */
 
 /** Height of the drag bar — matches the OS title-bar overlay the window uses. */
@@ -115,6 +127,9 @@ const StackWindow: React.FC = () => {
   const [payload, setPayload] = useState<StackWindowPayload | null>(null);
   const [images, setImages] = useState<IndexedImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(() => new Set());
+  // True while a delete batch is running, so the bar's button cannot start a
+  // second pass over the same files and says what it is doing.
+  const [isDeleting, setIsDeleting] = useState(false);
   // Right-click menu. The hook is store-blind for everything this window
   // offers — its one store-dependent item ("Open Stack in New Window") stays
   // hidden here because this window's store holds no images, which is exactly
@@ -418,6 +433,136 @@ const StackWindow: React.FC = () => {
     handleSelectAll();
   }, [handleSelectAll, hideContextMenu]);
 
+  // ── Selection bar actions ────────────────────────────────────────────
+  // This window has no footer, so deselect and delete live on a floating bar
+  // attached to the selection itself (see the JSX below).
+  const handleClearSelection = useCallback(() => {
+    setSelectedImages(new Set());
+  }, []);
+
+  /**
+   * Flip the star on every selected image.
+   *
+   * Same semantics as the library footer's star: each image is toggled
+   * individually, so a mixed selection has every member flipped rather than
+   * all being forced into one state. The local snapshot flips immediately —
+   * the same optimistic update a single card's star makes — and one forwarded
+   * action carries the whole batch to the store that owns the library.
+   */
+  const handleToggleSelectedFavorites = useCallback(() => {
+    const ids = images
+      .filter((image) => selectedImages.has(image.id))
+      .map((image) => image.id);
+    if (ids.length === 0) return;
+
+    const targets = new Set(ids);
+    setImages((previous) =>
+      previous.map((image) =>
+        targets.has(image.id) ? { ...image, isFavorite: !image.isFavorite } : image,
+      ),
+    );
+    window.electronAPI?.stackWindowAction?.({ type: 'toggleFavorites', imageIds: ids });
+  }, [images, selectedImages]);
+
+  /**
+   * Remove every selected image from this stack.
+   *
+   * "Removing" is clearing the group ids the stack is resolved from; only the
+   * window that owns the annotations map can write that, so this is a
+   * request. The snapshot drops the images right away — in this view they are
+   * no longer members — and a successful write makes the owner's debounced
+   * refresh confirm it. A failed write is logged there and is repaired by the
+   * next refresh this window receives.
+   */
+  const handleRemoveSelectedFromStack = useCallback(() => {
+    const ids = images
+      .filter((image) => selectedImages.has(image.id))
+      .map((image) => image.id);
+    if (ids.length === 0) return;
+
+    const removed = new Set(ids);
+    setImages((previous) => previous.filter((image) => !removed.has(image.id)));
+    setSelectedImages((previous) => {
+      const next = new Set(previous);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+    window.electronAPI?.stackWindowAction?.({ type: 'unmerge', imageIds: ids });
+  }, [images, selectedImages]);
+
+  /**
+   * Move every selected image's file to the trash.
+   *
+   * The file operation is done here, in the window the user is looking at:
+   * `FileOperations.deleteFile` needs only the image's directory id and name,
+   * both of which the payload carries, and a failure must be reported where
+   * the click happened rather than in a window that may be behind this one.
+   * The images that left the disk are then removed from this snapshot and
+   * forwarded to the window that owns the store, which drops them from the
+   * library and purges the caches derived from them.
+   *
+   * The confirmation follows the same persisted preference as every other
+   * delete path (`Settings → General → Confirm before deleting`); asking here
+   * also means the owner never has to prompt on our behalf.
+   */
+  const handleDeleteSelected = useCallback(async () => {
+    if (isDeleting) return;
+    const targets = images.filter((image) => selectedImages.has(image.id));
+    if (targets.length === 0) return;
+
+    if (useSettingsStore.getState().confirmOnDelete) {
+      const what = targets.length === 1 ? 'this image' : `${targets.length} images`;
+      if (!window.confirm(`Are you sure you want to delete ${what}? This action cannot be undone.`)) {
+        return;
+      }
+    }
+
+    setIsDeleting(true);
+    const deletedIds: string[] = [];
+    const failures: { name: string; error?: string }[] = [];
+    try {
+      // Sequential on purpose: each delete is a trash operation on disk, and a
+      // stack's batch is small enough that the ordering costs nothing while
+      // keeping the failure report deterministic.
+      for (const image of targets) {
+        const result = await FileOperations.deleteFile(image);
+        if (result.success) {
+          deletedIds.push(image.id);
+        } else {
+          failures.push({ name: image.name, error: result.error });
+        }
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+
+    if (deletedIds.length > 0) {
+      const deleted = new Set(deletedIds);
+      setImages((previous) => previous.filter((image) => !deleted.has(image.id)));
+      setSelectedImages((previous) => {
+        const next = new Set(previous);
+        deletedIds.forEach((id) => next.delete(id));
+        return next;
+      });
+      // The files are already in the trash; this hands the one store that
+      // owns the library the ids to forget. A refresh will also arrive from
+      // `useStackWindowSync`, which is what repairs the two windows if this
+      // one ever diverged.
+      window.electronAPI?.stackWindowAction?.({ type: 'delete', imageIds: deletedIds });
+    }
+
+    if (failures.length > 0) {
+      // One alert for the batch: a per-image alert would stack windows on
+      // top of each other. The successful deletions above still stand.
+      const [first] = failures;
+      window.alert(
+        failures.length === 1
+          ? `Failed to delete ${first.name}: ${first.error ?? 'Unknown error'}`
+          : `${failures.length} images could not be deleted. First error — ${first.name}: ${first.error ?? 'Unknown error'}`,
+      );
+    }
+  }, [images, selectedImages, isDeleting]);
+
   // Only the ABSENCE of a payload means "still loading" — an empty image list
   // is a real answer (the stack emptied while the window was open) and has its
   // own state below.
@@ -438,8 +583,14 @@ const StackWindow: React.FC = () => {
   const stackPrompt = payload.basePrompt?.trim() || '';
   const stackTitle = stackPrompt ? `Stack: ${stackPrompt}` : 'Stack';
 
+  // The bar's star mirrors the library footer's: filled, and worded as a
+  // removal, only when every selected image is already a favourite.
+  const selectedList = images.filter((image) => selectedImages.has(image.id));
+  const allSelectedFavorites =
+    selectedList.length > 0 && selectedList.every((image) => image.isFavorite);
+
   return (
-    <div className="h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
+    <div className="relative h-screen w-screen overflow-hidden bg-gray-950 flex flex-col">
       {/* Drag bar. The window is frameless with a 32px title-bar overlay, so
           this strip is both the only place the window can be dragged from and
           the spacer that keeps the stack's own header out from under the OS
@@ -503,6 +654,73 @@ const StackWindow: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Floating selection bar. There is no footer in this window, so the
+          bulk actions that live there in the main library follow the
+          selection instead: the bar exists only while something is selected
+          and disappears with the last deselected card. */}
+      {selectedImages.size > 0 && (
+        <div
+          role="toolbar"
+          aria-label="Selection actions"
+          className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1 pl-3 pr-1.5 py-1.5 rounded-full bg-gray-900/95 backdrop-blur-md border border-gray-700/60 shadow-xl shadow-black/40 select-none animate-in fade-in slide-in-from-bottom-2"
+        >
+          <span className="text-xs font-medium text-gray-300 whitespace-nowrap">
+            {selectedImages.size} selected
+          </span>
+          <div className="w-px h-4 bg-gray-700/60 mx-1.5" />
+          <button
+            type="button"
+            onClick={handleClearSelection}
+            title="Deselect All"
+            aria-label="Deselect All"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-gray-400 hover:text-gray-100 hover:bg-white/10 transition-colors"
+          >
+            <X size={14} />
+            Deselect
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleSelectedFavorites}
+            title={allSelectedFavorites ? 'Remove from Favorites' : 'Add to Favorites'}
+            aria-label={allSelectedFavorites ? 'Remove from Favorites' : 'Add to Favorites'}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+              allSelectedFavorites
+                ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/15'
+                : 'text-gray-400 hover:text-yellow-400 hover:bg-white/10'
+            }`}
+          >
+            <Star size={14} className={allSelectedFavorites ? 'fill-current' : ''} />
+            {allSelectedFavorites ? 'Unfavorite' : 'Favorite'}
+          </button>
+          {/* Unmerging writes annotations, which is an AI-feature capability —
+              the same gate the library's own toolbar puts on this action. */}
+          {aiFeaturesEnabled && (
+            <button
+              type="button"
+              onClick={handleRemoveSelectedFromStack}
+              title="Remove selected images from this stack"
+              aria-label="Remove from Stack"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-amber-400 hover:text-amber-300 hover:bg-amber-500/15 transition-colors"
+            >
+              <Unlink size={14} />
+              Remove from Stack
+            </button>
+          )}
+          <div className="w-px h-4 bg-gray-700/60 mx-1.5" />
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            disabled={isDeleting}
+            title="Delete Selected"
+            aria-label="Delete Selected"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/15 transition-colors disabled:opacity-50 disabled:cursor-wait"
+          >
+            <Trash2 size={14} />
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      )}
 
       <ImageContextMenu
         contextMenu={contextMenu}

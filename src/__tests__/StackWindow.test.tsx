@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-vi.hoisted(() => {
+const { deleteFileMock } = vi.hoisted(() => {
   // The settings/image stores read localStorage at module load.
   global.localStorage = {
     getItem: vi.fn().mockReturnValue('true'),
@@ -10,7 +10,16 @@ vi.hoisted(() => {
     length: 0,
     key: vi.fn(),
   } as any;
+  return { deleteFileMock: vi.fn() };
 });
+
+// The delete bar moves the files to the trash itself; only the IPC-backed
+// operation is replaced, so the test can assert the batch and its failures.
+vi.mock('../services/fileOperations', () => ({
+  FileOperations: {
+    deleteFile: deleteFileMock,
+  },
+}));
 
 import React from 'react';
 import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
@@ -138,8 +147,21 @@ const PAYLOAD: StackWindowPayload = {
 let deliver: ((payload: StackWindowPayload) => void) | null;
 let api: Record<string, ReturnType<typeof vi.fn>>;
 
+/** The window-confirmation stubs every delete path reads. */
+const confirmMock = vi.fn();
+const alertMock = vi.fn();
+
 beforeEach(() => {
   deliver = null;
+  deleteFileMock.mockReset();
+  deleteFileMock.mockResolvedValue({ success: true });
+  confirmMock.mockReset();
+  confirmMock.mockReturnValue(true);
+  alertMock.mockReset();
+  // jsdom does not implement either dialog; the delete flow calls both.
+  (window as any).confirm = confirmMock;
+  (window as any).alert = alertMock;
+  useSettingsStore.setState({ confirmOnDelete: true } as any);
   api = {
     stackWindowReady: vi.fn(),
     stackWindowClose: vi.fn(),
@@ -596,5 +618,171 @@ describe('the popped-out stack window', () => {
     expect(screen.getByText('Stack view is not available')).toBeTruthy();
     // The bar above it still carries what the window is.
     expect(screen.getByText('Stack: a blue cat')).toBeTruthy();
+  });
+});
+
+/**
+ * This window has no footer, so the library's bulk selection actions live on a
+ * floating bar that follows the selection. The bar itself and the delete path
+ * are this component's own; the main window's half of a delete (store removal
+ * and cache purge) is asserted in `useImageSelection`'s own coverage.
+ */
+describe('the popped-out stack window — selection bar', () => {
+  const bar = () => screen.queryByRole('toolbar', { name: 'Selection actions' });
+
+  it('exists only while something is selected', async () => {
+    await mountWithPayload();
+    expect(bar()).toBeNull();
+
+    await act(async () => {
+      screen.getByText('sel-dir-1::img-1.png').click();
+    });
+
+    expect(bar()).not.toBeNull();
+    expect(screen.getByText('1 selected')).toBeTruthy();
+
+    await act(async () => {
+      screen.getByText('sel-dir-1::img-1.png').click();
+    });
+    expect(bar()).toBeNull();
+  });
+
+  it('deselects everything from the bar', async () => {
+    await mountWithPayload();
+    fireEvent.click(await screen.findByRole('button', { name: /^select all/i }));
+    expect(screen.getByTestId('stack-view').getAttribute('data-selected')).toBe(
+      'dir-1::img-1.png,dir-1::img-2.png',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Deselect All' }));
+
+    expect(screen.getByTestId('stack-view').getAttribute('data-selected')).toBe('');
+    expect(bar()).toBeNull();
+  });
+
+  it('favourites every selected image in one forwarded action', async () => {
+    await mountWithPayload();
+    fireEvent.click(await screen.findByRole('button', { name: /^select all/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Favorites' }));
+
+    // Same semantics as the library footer's star: each selected image is
+    // toggled, and the whole batch travels as one action.
+    expect(screen.getAllByText('starred')).toHaveLength(2);
+    expect(api.stackWindowAction).toHaveBeenCalledWith({
+      type: 'toggleFavorites',
+      imageIds: ['dir-1::img-1.png', 'dir-1::img-2.png'],
+    });
+    // Every selected image is now a favourite, so the star turns into its
+    // removal form without the selection changing.
+    expect(screen.getByRole('button', { name: 'Remove from Favorites' })).toBeTruthy();
+  });
+
+  it('offers to unfavourite when the whole selection is already starred', async () => {
+    await mountWithPayload({
+      ...PAYLOAD,
+      imageList: [
+        payloadImage(1, { isFavorite: true }),
+        payloadImage(2, { isFavorite: true }),
+      ] as any,
+    });
+    fireEvent.click(await screen.findByRole('button', { name: /^select all/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from Favorites' }));
+
+    expect(screen.getAllByText('unstarred')).toHaveLength(2);
+    expect(api.stackWindowAction).toHaveBeenCalledWith({
+      type: 'toggleFavorites',
+      imageIds: ['dir-1::img-1.png', 'dir-1::img-2.png'],
+    });
+  });
+
+  it('removes the selection from the stack and hands the ids to the library', async () => {
+    await mountWithPayload();
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from Stack' }));
+
+    // The group ids can only be cleared in the window that owns the
+    // annotations map, so this is a request; the card leaves this view at
+    // once, which is also what the owner's refresh will confirm.
+    expect(api.stackWindowAction).toHaveBeenCalledWith({
+      type: 'unmerge',
+      imageIds: ['dir-1::img-1.png'],
+    });
+    expect(screen.queryByTestId('card-dir-1::img-1.png')).toBeNull();
+    expect(screen.getByTestId('card-dir-1::img-2.png')).toBeTruthy();
+    expect(screen.getByText('1 image')).toBeTruthy();
+    expect(bar()).toBeNull();
+  });
+
+  it('moves the selection to the trash and hands its ids to the library', async () => {
+    await mountWithPayload();
+    fireEvent.click(await screen.findByRole('button', { name: /^select all/i }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+
+    await waitFor(() => expect(deleteFileMock).toHaveBeenCalledTimes(2));
+    expect(deleteFileMock.mock.calls.map((call) => call[0].id)).toEqual([
+      'dir-1::img-1.png',
+      'dir-1::img-2.png',
+    ]);
+    // The confirmation is the same preference the library's delete honors, and
+    // it is asked HERE — the user must see it in the window they clicked in.
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    expect(confirmMock.mock.calls[0][0]).toContain('2 images');
+
+    await waitFor(() =>
+      expect(api.stackWindowAction).toHaveBeenCalledWith({
+        type: 'delete',
+        imageIds: ['dir-1::img-1.png', 'dir-1::img-2.png'],
+      }),
+    );
+
+    // The snapshot follows the deletion immediately — no waiting for the
+    // debounced refresh from the main window.
+    expect(screen.queryByTestId('card-dir-1::img-1.png')).toBeNull();
+    expect(screen.queryByTestId('card-dir-1::img-2.png')).toBeNull();
+    expect(screen.getByText('0 images')).toBeTruthy();
+    expect(bar()).toBeNull();
+  });
+
+  it('deletes nothing when the confirmation is declined', async () => {
+    confirmMock.mockReturnValue(false);
+    await mountWithPayload();
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+
+    expect(deleteFileMock).not.toHaveBeenCalled();
+    expect(api.stackWindowAction).not.toHaveBeenCalled();
+    expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
+    // The selection is left alone, so the user can retry.
+    expect(screen.getByText('1 selected')).toBeTruthy();
+  });
+
+  it('skips the confirmation when the preference is off', async () => {
+    useSettingsStore.setState({ confirmOnDelete: false } as any);
+    await mountWithPayload();
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+
+    await waitFor(() => expect(deleteFileMock).toHaveBeenCalledTimes(1));
+    expect(confirmMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a failed delete and keeps the image', async () => {
+    deleteFileMock.mockResolvedValue({ success: false, error: 'file is locked' });
+    await mountWithPayload();
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Selected' }));
+
+    await waitFor(() => expect(alertMock).toHaveBeenCalledTimes(1));
+    expect(alertMock.mock.calls[0][0]).toContain('file is locked');
+    // A failed trash leaves both the card and the library record in place.
+    expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
+    expect(api.stackWindowAction).not.toHaveBeenCalled();
   });
 });

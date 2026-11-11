@@ -596,6 +596,32 @@ class CacheManager {
     }
   }
 
+  /**
+   * Prune the caches for a deletion batch that may span several folders.
+   *
+   * `deleteImageCaches` takes one folder because the metadata cache is one
+   * record per folder; a batch is usually drawn from a single folder, but a
+   * popped-out stack can hold images from more than one. Doing the grouping
+   * here keeps the "one prune per folder" rule without repeating it at every
+   * caller.
+   */
+  async deleteImageCachesFor(
+    images: Array<{ id: string; lastModified?: number; directoryId?: string }>,
+  ): Promise<void> {
+    const byDirectory = new Map<string, Array<{ id: string; lastModified?: number }>>();
+    for (const image of images) {
+      if (!image.directoryId) continue;
+      const group = byDirectory.get(image.directoryId) ?? [];
+      group.push({ id: image.id, lastModified: image.lastModified });
+      byDirectory.set(image.directoryId, group);
+    }
+    await Promise.all(
+      Array.from(byDirectory, ([directoryPath, group]) =>
+        this.deleteImageCaches(directoryPath, group),
+      ),
+    );
+  }
+
   // Deletes the JSON cache file via IPC
   async clearDirectoryCache(directoryPath: string, scanSubfolders: boolean): Promise<void> {
     if (!this.isElectron) return;

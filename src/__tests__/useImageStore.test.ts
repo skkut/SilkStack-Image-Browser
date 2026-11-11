@@ -704,6 +704,34 @@ describe('useImageStore shift+click range selection', () => {
     expect(useImageStore.getState().selectionAnchorId).toBeNull();
   });
 
+  // Used when a popped-out stack window deletes images: they leave this store
+  // too, and the ids must not linger in the selection behind the footer.
+  it('deselectImages drops only the named ids', () => {
+    seed(rangeImages(4));
+    const store = useImageStore.getState();
+    store.selectImagesByIds(['img0', 'img1', 'img2']);
+    // Re-pick img1 so it is the Shift anchor, to prove the anchor survives
+    // the removal of the OTHER ids.
+    store.toggleImageSelection('img1');
+    store.toggleImageSelection('img1');
+
+    useImageStore.getState().deselectImages(['img0', 'img2']);
+
+    expect(selectedIds()).toEqual(['img1']);
+    expect(useImageStore.getState().selectionAnchorId).toBe('img1');
+  });
+
+  it('deselectImages is a no-op state-wise when none of the ids are selected', () => {
+    seed(rangeImages(4));
+    useImageStore.getState().selectImagesByIds(['img0']);
+    const selection = useImageStore.getState().selectedImages;
+
+    useImageStore.getState().deselectImages(['img3', 'not-in-the-library']);
+
+    // The same Set (and the same state object) — no subscriber re-render.
+    expect(useImageStore.getState().selectedImages).toBe(selection);
+  });
+
   // ── Runs are measured in the DISPLAYED order ────────────────────────
   // With stacking on, the grid draws one card per stack and re-sorts the
   // items, so the displayed order is not `filteredImages` — the caller passes
@@ -1586,6 +1614,111 @@ describe('useImageStore annotation enrichment preservation', () => {
     expect(a.isSemanticIndexed).toBe(false); // gate re-opened for the post-rescan round
     expect(a.isFavorite).toBe(true);         // user data still kept
     expect(a.tags).toEqual(['manual']);
+  });
+});
+
+// ── Unmerge by explicit ids (popped-out stack windows) ─────────────────
+// The library drill-down unmerges its selection through `libraryStackContext`.
+// A popped-out stack window keeps its selection in the child renderer and can
+// only send ids, so the store exposes the same annotation write against an
+// explicit list.
+
+describe('useImageStore unmergeImagesFromStack', () => {
+  const GROUPED: ImageAnnotations = {
+    imageId: 'img1',
+    isFavorite: true,
+    tags: ['manual'],
+    autoTags: ['dragon'],
+    isAutoTagged: true,
+    metadataTags: [],
+    addedAt: 1000,
+    updatedAt: 1000,
+    synonymTags: ['wyvern'],
+    searchTagVersion: 2,
+    isSemanticIndexed: true,
+    stackGroupId: 'stack-1',
+    isStackAnalyzed: true,
+    similarityGroupId: 'sim-1',
+    isSimilarityAnalyzed: true,
+  };
+
+  const seed = (annotation: ImageAnnotations = { ...GROUPED }) => {
+    const image = createImage({
+      id: 'img1',
+      prompt: 'a dragon',
+      stackGroupId: annotation.stackGroupId,
+      similarityGroupId: annotation.similarityGroupId,
+      isStackAnalyzed: annotation.isStackAnalyzed,
+      isSimilarityAnalyzed: annotation.isSimilarityAnalyzed,
+    });
+    useImageStore.setState({
+      images: [image],
+      filteredImages: [image],
+      annotations: new Map([['img1', annotation]]),
+      isAnnotationsLoaded: true,
+      directories: [],
+      selectedFolders: new Set(),
+      excludedFolders: new Set(),
+      selectedImages: new Set(),
+      selectionAnchorId: null,
+    });
+  };
+
+  beforeEach(() => {
+    vi.mocked(bulkSaveAnnotations).mockClear();
+    vi.mocked(bulkSaveAnnotations).mockResolvedValue(true as any);
+  });
+
+  it('clears both group ids, keeps the analysed flag, and persists', async () => {
+    seed();
+
+    await expect(
+      useImageStore.getState().unmergeImagesFromStack(['img1']),
+    ).resolves.toBe(true);
+
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.stackGroupId).toBeUndefined();
+    expect(a.similarityGroupId).toBeUndefined();
+    expect(a.isSimilarityAnalyzed).toBe(false);
+    // Stays analysed so the next sync cannot re-group it automatically.
+    expect(a.isStackAnalyzed).toBe(true);
+    // Index text unchanged → the semantic stamp survives.
+    expect(a.isSemanticIndexed).toBe(true);
+    expect(a.synonymTags).toEqual(['wyvern']);
+    expect(vi.mocked(bulkSaveAnnotations)).toHaveBeenCalledTimes(1);
+
+    const image = useImageStore.getState().images.find((candidate) => candidate.id === 'img1')!;
+    expect(image.stackGroupId).toBeUndefined();
+    expect(image.similarityGroupId).toBeUndefined();
+  });
+
+  it('skips the write when the images are already standalone', async () => {
+    // Unmerge is idempotent by design: a second click (or the card's star
+    // forwarding an id the owner already fixed) must not rewrite anything.
+    seed({ ...GROUPED, stackGroupId: undefined, similarityGroupId: undefined, isSimilarityAnalyzed: false });
+
+    await expect(
+      useImageStore.getState().unmergeImagesFromStack(['img1']),
+    ).resolves.toBe(false);
+    expect(vi.mocked(bulkSaveAnnotations)).not.toHaveBeenCalled();
+  });
+
+  it('leaves the annotations untouched when persisting fails', async () => {
+    seed();
+    vi.mocked(bulkSaveAnnotations).mockRejectedValueOnce(new Error('disk full'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      useImageStore.getState().unmergeImagesFromStack(['img1']),
+    ).resolves.toBe(false);
+
+    // The failure is a no-op in memory too, so the stack keeps the image and
+    // the caller keeps its selection.
+    const a = useImageStore.getState().annotations.get('img1')!;
+    expect(a.stackGroupId).toBe('stack-1');
+    expect(a.similarityGroupId).toBe('sim-1');
+    expect(a.isSimilarityAnalyzed).toBe(true);
+    errorSpy.mockRestore();
   });
 });
 

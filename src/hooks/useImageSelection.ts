@@ -230,18 +230,7 @@ export function useImageSelection() {
         // caches derived from them on disk too. Grouped per directory and
         // awaited once: the metadata cache is one record per folder, so a
         // per-image prune would re-read the same chunks for every deletion.
-        const deletedByDirectory = new Map<string, IndexedImage[]>();
-        for (const image of deletedImages) {
-            if (!image.directoryId) continue;
-            const group = deletedByDirectory.get(image.directoryId) ?? [];
-            group.push(image);
-            deletedByDirectory.set(image.directoryId, group);
-        }
-        await Promise.all(
-            Array.from(deletedByDirectory, ([directoryPath, imageGroup]) =>
-                cacheManager.deleteImageCaches(directoryPath, imageGroup),
-            ),
-        );
+        await cacheManager.deleteImageCachesFor(deletedImages);
 
         clearImageSelection();
     }, [selectedImages, images, removeImage, setError, clearImageSelection]);

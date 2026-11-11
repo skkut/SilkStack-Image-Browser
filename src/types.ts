@@ -542,11 +542,11 @@ export interface ElectronAPI {
   ) => Promise<{ success: boolean; windowId?: number; error?: string }>;
   stackWindowReady: () => void;
   stackWindowClose: () => void;
-  stackWindowAction: (action: { type: 'toggleFavorite'; imageId: string }) => void;
+  stackWindowAction: (action: StackWindowAction) => void;
   onStackWindowUpdate: (callback: (data: StackWindowPayload) => void) => () => void;
   /** Main-window side of `stackWindowAction`. */
   onStackWindowAction: (
-    callback: (action: { type: 'toggleFavorite'; imageId: string; windowId?: number }) => void,
+    callback: (action: StackWindowAction & { windowId?: number }) => void,
   ) => () => void;
   /**
    * Main-window side of the live refresh: hand an open stack window a
@@ -585,6 +585,24 @@ export interface StackWindowPayload {
    */
   directoryPaths: Record<string, string>;
 }
+
+/**
+ * An edit made in a popped-out stack window, forwarded to the window that owns
+ * the library (the child's image store is empty, so it can never write one).
+ *
+ * `toggleFavorite` carries the one image whose star was clicked; the bulk
+ * variant carries every id the selection bar flipped. `unmerge` carries the
+ * images whose group ids the owner must clear — the child has no store to
+ * write annotations into. `delete` carries every image the child already moved
+ * to the trash — it has the payload's directory paths and can report a failure
+ * in the window the user is looking at; the owner's remaining job is to forget
+ * them in the store and purge the caches derived from them.
+ */
+export type StackWindowAction =
+  | { type: 'toggleFavorite'; imageId: string }
+  | { type: 'toggleFavorites'; imageIds: string[] }
+  | { type: 'unmerge'; imageIds: string[] }
+  | { type: 'delete'; imageIds: string[] };
 
 declare global {
   interface Window {
