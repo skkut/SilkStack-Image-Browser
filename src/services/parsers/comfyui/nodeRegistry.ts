@@ -1384,11 +1384,18 @@ export const NodeRegistry: Record<string, NodeDefinition> = {
       conditioning: { type: 'CONDITIONING' }
     },
     outputs: { GUIDER: { type: 'GUIDER' } },
+    // BasicGuider has no negative input — it is the CFG-less Flux-style
+    // guider, where the single conditioning IS the prompt. Mapping
+    // `negativePrompt` to it as well made the negative prompt duplicate the
+    // positive on every BasicGuider workflow.
     param_mapping: {
       model: { source: 'trace', input: 'model' },
-      prompt: { source: 'trace', input: 'conditioning' },
-      negativePrompt: { source: 'trace', input: 'conditioning' }
+      prompt: { source: 'trace', input: 'conditioning' }
     },
+    // Explicit empty list: without it the generic TRANSFORM walk would still
+    // follow the CONDITIONING-typed `conditioning` input for a negativePrompt
+    // lookup and duplicate the positive prompt.
+    pass_through_rules: [],
     widget_order: []
   },
 

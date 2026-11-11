@@ -445,7 +445,11 @@ export const ImageCard: React.FC<ImageCardProps> = React.memo(({ image, onImageC
           }`}
           title={image.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
         >
-          <Star className={`h-4 w-4 ${image.isFavorite ? 'fill-current' : ''}`} />
+          {/* The filled (starred) glyph is deliberately smaller than the
+              outline: `fill-current` covers the whole silhouette, so at the
+              outline's size it reads heavier and bigger than the other card
+              controls. */}
+          <Star className={image.isFavorite ? 'h-3 w-3 fill-current' : 'h-3.5 w-3.5'} />
         </button>
 
         {isSemanticMatch && (

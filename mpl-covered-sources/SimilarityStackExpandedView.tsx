@@ -220,7 +220,12 @@ const SubGroupImageCard: React.FC<SubGroupImageCardProps> = React.memo(({
         }`}
         title={image.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       >
-        <Star className={`h-5 w-5 ${image.isFavorite ? 'fill-current' : ''}`} />
+        {/* The filled (starred) glyph is deliberately smaller than the
+            outline: `fill-current` covers the whole silhouette, so at the
+            outline's size it reads heavier and bigger than the other card
+            controls. Kept identical in the drill-down and the popped-out stack
+            window — same component. */}
+        <Star className={image.isFavorite ? 'h-3.5 w-3.5 fill-current' : 'h-4 w-4'} />
       </button>
 
       {/* Image content */}

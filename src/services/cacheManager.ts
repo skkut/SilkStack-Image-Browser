@@ -2,9 +2,14 @@ import { type IndexedImage } from '../types';
 
 /**
  * Parser version - increment when parser logic changes significantly
- * This ensures cache is invalidated when parsing rules change
+ * This ensures cache is invalidated when parsing rules change.
+ *
+ * NOTE: the effective cache gate lives in electron/main.mjs (`PARSER_VERSION`,
+ * checked when reading cached records). Keep this constant in sync with it;
+ * the two drifting apart is how a parser fix silently stays invisible for
+ * already-cached images.
  */
-export const PARSER_VERSION = 3; // v3: Improved CLIPTextEncode to trace String Literal links, added model to SamplerCustomAdvanced
+export const PARSER_VERSION = 5; // v5: A blank negative prompt no longer duplicates the positive (polarity-aware prompt walk, BasicGuider fix)
 
 // Simplified metadata structure for the JSON cache
 export interface CacheImageMetadata {

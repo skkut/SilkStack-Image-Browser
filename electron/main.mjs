@@ -134,7 +134,7 @@ protocol.registerSchemesAsPrivileged([
 
 // Parser version - increment when parser logic changes
 // This ensures cache is invalidated when parsing rules change
-const PARSER_VERSION = 4; // v4: Added Eff. Loader SDXL, DF_Text_Box, and Unpack SDXL Tuple nodes for better SDXL workflow support
+const PARSER_VERSION = 5; // v5: A blank negative prompt no longer duplicates the positive (polarity-aware prompt walk, BasicGuider fix)
 
 // Get platform-specific icon
 function getIconPath() {

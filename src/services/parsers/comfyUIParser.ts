@@ -1011,6 +1011,16 @@ function deepPromptReconstructor(
     negativePrompt: ['negative'],
   };
 
+  // Polarity guards. Once the walk is inside the conditioning chain, nodes
+  // that expose both sides (style selectors, CFG guiders, LTXVConditioning…)
+  // store the pending prompt behind the input matching the lookup. Following
+  // the opposite side is how a blank negative used to inherit the positive
+  // prompt — the walk reached a shared style-selector node and descended into
+  // its `positive` input.
+  const isNegativeLookup = param === 'negativePrompt';
+  const oppositePolarityRe = isNegativeLookup ? /positive/i : /negative/i;
+  const samePolarityRe = isNegativeLookup ? /negative/i : /positive/i;
+
   const targetInputs = CONDITIONING_INPUTS[param] || [];
   const collectedTexts: string[] = [];
   const visited = new Set<string>();
@@ -1039,8 +1049,21 @@ function deepPromptReconstructor(
     visited.add(nodeId);
 
     // Harvest text from this node's inputs
+    const hasPolarityInputs = !!node.inputs && Object.keys(node.inputs).some(
+      (name) => /positive|negative/i.test(name)
+    );
+
     if (node.inputs) {
       for (const [inputName, value] of Object.entries(node.inputs)) {
+        // Never cross to the opposite conditioning side: a positive lookup
+        // must not read `negative_*`, and a negative lookup must not read
+        // `positive*`. This is what keeps two mutually exclusive prompts apart.
+        if (oppositePolarityRe.test(inputName)) continue;
+        // On a node that distinguishes polarity, only the matching input is
+        // this prompt's path. Everything else on it (style names, templates,
+        // sampler settings) is configuration, not prompt text.
+        if (hasPolarityInputs && !samePolarityRe.test(inputName)) continue;
+
         if (typeof value === 'string' && value.length >= 5) {
           collectedTexts.push(value);
         } else if (Array.isArray(value) && value.length === 2) {
@@ -1053,8 +1076,10 @@ function deepPromptReconstructor(
       }
     }
 
-    // Harvest text from widget values
-    if (Array.isArray(node.widgets_values)) {
+    // Harvest text from widget values. Skipped for polarity-bearing nodes:
+    // their widgets are style/config lists (e.g. an OreX style selector's
+    // `select_styles`), never the prompt itself.
+    if (!hasPolarityInputs && Array.isArray(node.widgets_values)) {
       for (const w of node.widgets_values) {
         if (typeof w === 'string' && w.length >= 5) {
           collectedTexts.push(w);

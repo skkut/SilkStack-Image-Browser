@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **A blank negative prompt stays blank** — ComfyUI workflows with no negative prompt no longer show the positive prompt twice. The last-resort prompt walker now follows only the matching side of a shared positive/negative node (style selectors, guiders), and Flux-style `BasicGuider` no longer reports its single conditioning as both prompts.
 - **Deleted images can no longer reappear as thumbnails** — when a file was removed outside the app and that folder's rescan was skipped (an offline drive, an unreachable share, an empty listing from a failed read), the grid kept painting the image from its cached thumbnail on every launch. A cached thumbnail is now served only while its source file is confirmed present; a missing one drops the image, its thumbnail and its metadata-cache record on the spot.
 - **Deleted images take their cached data with them** — deleting an image now also removes its thumbnail and its metadata-cache entry immediately, whether the deletion happens in the grid, in the viewer, or outside the app with auto-watch on. Previously thumbnails were left on disk forever in most paths, and the metadata cache kept a ghost record until that folder was next rescanned.
 - **A popped-out stack window follows its stack live** — new images join it, deleted images leave it, and an emptied stack says so instead of showing images that no longer exist. The main window re-resolves the group and pushes a fresh snapshot as the library changes.
@@ -25,6 +26,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Smaller star badges on cards** — the favourite star is more compact in the grid and in stack views (in-app and in their own windows): the hover outline is a little smaller, and a starred (filled) star is smaller still, so it no longer outweighs the card's other controls.
 - **Copy every selected path at once** — with several images selected, right-clicking one of them and choosing **Copy Image Path** now copies all selected paths, one quoted path per line, ready to paste into a script or terminal. Right-clicking outside the selection still copies only the image you clicked.
 
 ## [2.5.0] - 2026-10-16

@@ -36,6 +36,9 @@ const RESOURCE_INPUT_RE =
 /** Names that read as a negative prompt, e.g. `negative`, `negative_prompt`. */
 const NEGATIVE_INPUT_RE = /negative|_neg$/i;
 
+/** Names that read as a positive prompt, e.g. `positive`, `positive_prompt`. */
+const POSITIVE_INPUT_RE = /positive/i;
+
 /**
  * Orders an unknown node's linked inputs by how likely each name is to carry
  * the value currently being looked for. Purely name-based and node-agnostic —
@@ -94,6 +97,14 @@ function traverse(
     // result. Resource inputs (model/clip/vae/image/...) are tried last so
     // they cannot shadow the conditioning link.
     for (const inputName of orderUnknownInputs(currentNode.inputs, state.targetParam)) {
+      // Never cross the polarity split on an untyped node: if its `negative`
+      // side resolves to nothing (the usual blank negative), continuing on to
+      // `positive` would hand the positive prompt to the negative lookup.
+      const oppositePolarity =
+        (state.targetParam === 'prompt' && NEGATIVE_INPUT_RE.test(inputName)) ||
+        (state.targetParam === 'negativePrompt' && POSITIVE_INPUT_RE.test(inputName));
+      if (oppositePolarity) continue;
+
       const link = currentNode.inputs?.[inputName];
       if (!Array.isArray(link) || link.length !== 2) continue;
       const value = traverseFromLink(link as NodeLink, state, graph, accumulator);
