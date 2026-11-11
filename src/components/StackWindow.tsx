@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layers, Star, Trash2, Unlink, X } from 'lucide-react';
 import { type IndexedImage, type StackWindowPayload } from '../types';
 import SimilarityStackExpandedViewWrapper from './SimilarityStackExpandedViewWrapper';
 import ImageContextMenu from './ImageContextMenu';
 import { useContextMenu } from '../hooks/useContextMenu';
+import { buildSubGroups } from '../hooks/useImageStacking';
 import { getImageMediaUrl } from '../utils/mediaUrl';
+import { computeRangeSelection } from '../utils/selectionRange';
 import { compactOpenHint } from '../hooks/useImageSelection';
 import { serializeStackImages } from '../services/stackWindowService';
 import { useAiFeaturesEnabled } from '../services/aiFeatureAccess';
@@ -124,9 +126,15 @@ const isTextEntryTarget = (target: EventTarget | null): boolean => {
 
 const StackWindow: React.FC = () => {
   const aiFeaturesEnabled = useAiFeaturesEnabled();
+  const displayStarredFirst = useSettingsStore(s => s.displayStarredFirst);
+  const stackGroupByDimensions = useSettingsStore(s => s.stackGroupByDimensions);
   const [payload, setPayload] = useState<StackWindowPayload | null>(null);
   const [images, setImages] = useState<IndexedImage[]>([]);
   const [selectedImages, setSelectedImages] = useState<Set<string>>(() => new Set());
+  // The last image picked, which a Shift+click measures a run from. The
+  // library store keeps the same field; this window keeps its own because its
+  // selection never touches that store (see `computeRangeSelection`).
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null);
   // True while a delete batch is running, so the bar's button cannot start a
   // second pass over the same files and says what it is doing.
   const [isDeleting, setIsDeleting] = useState(false);
@@ -151,6 +159,12 @@ const StackWindow: React.FC = () => {
   // Every blob URL this window creates, so they are all revoked on unmount and
   // when a new payload replaces the old one (a refreshed stack).
   const objectUrlsRef = useRef<string[]>([]);
+  // Modifiers of the click currently being dispatched. The stack view's
+  // checkbox calls `onToggleSelection(imageId)` without its event, so there is
+  // nothing on that callback to read; the capture-phase handler on the view's
+  // container (see the JSX) records them just before the package's handler
+  // runs. Every click overwrites it, so it cannot go stale between gestures.
+  const clickModifiersRef = useRef({ shiftKey: false, ctrlKey: false, metaKey: false });
 
   // ── Theme ────────────────────────────────────────────────────────────
   // Same contract as the viewer window: the OS decides, and later changes
@@ -345,11 +359,92 @@ const StackWindow: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleClose]);
 
+  // ── Selection ────────────────────────────────────────────────────────
+  // The order the cards are drawn in. The package renders each sub-group's
+  // `imageIds` in the order `buildSubGroups` sorted them (the wrapper builds
+  // its sub-groups from the same settings), so this flattening is what a
+  // Shift+click run must be measured over — the payload's own order is
+  // newest-first, not drawn order, and a run over it would select a different
+  // set of cards than the ones between the two clicks.
+  const displayOrder = useMemo(
+    () => buildSubGroups(images, displayStarredFirst, stackGroupByDimensions)
+      .flatMap((group) => group.imageIds),
+    [images, displayStarredFirst, stackGroupByDimensions],
+  );
+
+  const handleRangeSelection = useCallback((imageId: string) => {
+    const next = computeRangeSelection(
+      selectedImages,
+      selectionAnchorId,
+      imageId,
+      displayOrder,
+    );
+    // Not on screen: swallow the gesture rather than letting it fall through
+    // to the viewer (which would replace the selection).
+    if (!next) return;
+    setSelectedImages(next.selectedImages);
+    setSelectionAnchorId(next.selectionAnchorId);
+  }, [selectedImages, selectionAnchorId, displayOrder]);
+
+  // Runs before the package's own handlers, which is the point: the checkbox
+  // stops propagation and calls `onToggleSelection` with the id alone, so a
+  // Shift held over the box would otherwise be invisible to this window.
+  const captureClickModifiers = useCallback((event: React.MouseEvent) => {
+    clickModifiersRef.current = {
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    };
+  }, []);
+
+  /**
+   * Toggle one image, or extend the run when Shift is held.
+   *
+   * Shift+click on the checkbox is the same gesture as Shift+click on the
+   * card — and the same rule the image grid follows — so it selects the run
+   * between the near edge of the selection and the clicked image. The
+   * modifier comes from `clickModifiersRef` because the package hands this
+   * callback only the image id.
+   */
+  const handleToggleSelection = useCallback((imageId: string) => {
+    if (clickModifiersRef.current.shiftKey && selectedImages.size > 0) {
+      handleRangeSelection(imageId);
+      return;
+    }
+
+    const next = new Set(selectedImages);
+    if (next.has(imageId)) {
+      // Deselecting never moves the anchor: the rest of the selection keeps
+      // its own, and a removed anchor is re-derived on the next Shift+click
+      // (the store's `toggleImageSelection` follows the same rule).
+      next.delete(imageId);
+    } else {
+      next.add(imageId);
+      // Picking makes this the most recent selection — the Shift anchor.
+      setSelectionAnchorId(imageId);
+    }
+    setSelectedImages(next);
+  }, [handleRangeSelection, selectedImages]);
+
   // ── Opening an image ─────────────────────────────────────────────────
   // Self-contained, like the viewer's own navigation: this window already
   // holds the stack, so it can build the viewer payload without asking the
   // main window for anything.
-  const handleImageClick = useCallback((image: IndexedImage) => {
+  //
+  // The card click carries the event, so modifiers are handled here exactly
+  // as the library handles them (`useImageSelection.handleImageSelection`):
+  // Shift extends the selection over the drawn order, Ctrl/Cmd toggles one
+  // card, and only an unmodified click opens the viewer.
+  const handleImageClick = useCallback((image: IndexedImage, event?: React.MouseEvent) => {
+    if (event?.shiftKey && selectedImages.size > 0) {
+      handleRangeSelection(image.id);
+      return;
+    }
+    if (event?.ctrlKey || event?.metaKey) {
+      handleToggleSelection(image.id);
+      return;
+    }
+
     if (!window.electronAPI?.openImageViewer || !payload) return;
 
     const index = images.findIndex((candidate) => candidate.id === image.id);
@@ -367,7 +462,7 @@ const StackWindow: React.FC = () => {
       .catch(() => {
         // A refused viewer window is not worth interrupting the stack for.
       });
-  }, [images, payload]);
+  }, [handleRangeSelection, handleToggleSelection, images, payload, selectedImages]);
 
   // ── Context menu ─────────────────────────────────────────────────────
   // The package view forwards every card's right-click here (see its
@@ -409,18 +504,6 @@ const StackWindow: React.FC = () => {
     window.electronAPI?.stackWindowAction?.({ type: 'toggleFavorite', imageId });
   }, []);
 
-  const handleToggleSelection = useCallback((imageId: string) => {
-    setSelectedImages((previous) => {
-      const next = new Set(previous);
-      if (next.has(imageId)) {
-        next.delete(imageId);
-      } else {
-        next.add(imageId);
-      }
-      return next;
-    });
-  }, []);
-
   // This window's selection lives here, not in a store — so "select all" is a
   // local set of every member. Used by both the header control and the
   // right-click menu.
@@ -438,6 +521,7 @@ const StackWindow: React.FC = () => {
   // attached to the selection itself (see the JSX below).
   const handleClearSelection = useCallback(() => {
     setSelectedImages(new Set());
+    setSelectionAnchorId(null);
   }, []);
 
   /**
@@ -608,7 +692,10 @@ const StackWindow: React.FC = () => {
         </span>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col">
+      <div
+        className="flex-1 min-h-0 flex flex-col"
+        onClickCapture={captureClickModifiers}
+      >
         {/* A live refresh can empty the stack entirely: the group dissolved,
             or every member was deleted. Saying so is better than the spinner
             the loading state would otherwise show forever. */}

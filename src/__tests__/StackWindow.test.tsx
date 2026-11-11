@@ -65,7 +65,7 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
   // content of a window, and this window always is one — so the mock mirrors
   // that, which is what makes `data-standalone` an assertion about the flag
   // this component passes rather than about the mock's own rendering.
-  SimilarityStackExpandedView: ({ images, selectedImages, groupByToolbar, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection, onContextMenu }: any) => (
+  SimilarityStackExpandedView: ({ images, selectedImages, groupByToolbar, onBack, isStandaloneWindow, onToggleFavorite, onToggleSelection, onImageClick, onContextMenu }: any) => (
     <div
       data-testid="stack-view"
       data-standalone={String(!!isStandaloneWindow)}
@@ -83,16 +83,33 @@ vi.mock('@ai-images-browser/ai-intelligence', () => ({
           data-testid={`card-${img.id}`}
           data-thumbnail={img.thumbnailUrl ?? ''}
           data-status={img.thumbnailStatus ?? ''}
+          // The real card hands its click event through — that event is what
+          // carries Shift/Ctrl, and the component under test is expected to
+          // read it. A mock that dropped it would make the modifier tests
+          // below pass vacuously.
+          onClick={(event) => onImageClick?.(img, event)}
           onContextMenu={(event) => {
             event.preventDefault();
             onContextMenu?.(img, event);
           }}
         >
           <span>{img.isFavorite ? 'starred' : 'unstarred'}</span>
-          <button onClick={() => onToggleFavorite(img.id)} type="button">
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleFavorite(img.id);
+            }}
+            type="button"
+          >
             {`fav-${img.id}`}
           </button>
-          <button onClick={() => onToggleSelection(img.id)} type="button">
+          <button
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSelection(img.id);
+            }}
+            type="button"
+          >
             {`sel-${img.id}`}
           </button>
         </div>
@@ -784,5 +801,106 @@ describe('the popped-out stack window — selection bar', () => {
     // A failed trash leaves both the card and the library record in place.
     expect(screen.getByTestId('card-dir-1::img-1.png')).toBeTruthy();
     expect(api.stackWindowAction).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Card clicks carry the event, so this window handles the same modifiers as
+ * the library grid: Shift extends a run, Ctrl/Cmd toggles, plain opens the
+ * viewer. The view draws newest-first (a stack's own order), so the run in
+ * these tests is measured over [img-4, img-3, img-2, img-1] — not the payload's
+ * [img-1 … img-4]. That distinction is the whole reason the component derives
+ * `displayOrder` with `buildSubGroups` rather than using `images` directly.
+ */
+describe('the popped-out stack window — card selection gestures', () => {
+  const FOUR = (): StackWindowPayload => ({
+    ...PAYLOAD,
+    imageList: [
+      payloadImage(1),
+      payloadImage(2),
+      payloadImage(3),
+      payloadImage(4),
+    ] as any,
+  });
+  const selected = () => screen.getByTestId('stack-view').getAttribute('data-selected');
+
+  it('opens the viewer on a plain click and selects nothing', async () => {
+    await mountWithPayload();
+
+    fireEvent.click(screen.getByTestId('card-dir-1::img-2.png'));
+
+    expect(api.openImageViewer).toHaveBeenCalledTimes(1);
+    expect(api.openImageViewer.mock.calls[0][0].imageId).toBe('dir-1::img-2.png');
+    expect(selected()).toBe('');
+  });
+
+  it('toggles one card per Ctrl/Cmd+click without opening the viewer', async () => {
+    await mountWithPayload(FOUR());
+
+    fireEvent.click(screen.getByTestId('card-dir-1::img-1.png'), { ctrlKey: true });
+    expect(selected()).toBe('dir-1::img-1.png');
+
+    fireEvent.click(screen.getByTestId('card-dir-1::img-3.png'), { metaKey: true });
+    expect(selected()).toBe('dir-1::img-1.png,dir-1::img-3.png');
+
+    // Ctrl+clicking the same card again removes it.
+    fireEvent.click(screen.getByTestId('card-dir-1::img-1.png'), { ctrlKey: true });
+    expect(selected()).toBe('dir-1::img-3.png');
+
+    expect(api.openImageViewer).not.toHaveBeenCalled();
+  });
+
+  it('Shift+click selects the run between the near edge and the clicked card', async () => {
+    await mountWithPayload(FOUR());
+
+    // Anchor on img-3 (drawn between img-4 and img-2), then Shift+click img-1,
+    // which is drawn last. The run reaches the selection's near edge — img-3 —
+    // so img-2 is included without touching img-4.
+    fireEvent.click(screen.getByTestId('card-dir-1::img-3.png'), { ctrlKey: true });
+    fireEvent.click(screen.getByTestId('card-dir-1::img-1.png'), { shiftKey: true });
+
+    expect(selected()).toBe(
+      'dir-1::img-1.png,dir-1::img-2.png,dir-1::img-3.png',
+    );
+    expect(screen.getByText('3 selected')).toBeTruthy();
+    expect(api.openImageViewer).not.toHaveBeenCalled();
+  });
+
+  it('Shift+click with nothing selected falls through to the viewer', async () => {
+    // Same rule as the library: Shift only extends an EXISTING selection; with
+    // nothing to extend it is a plain click.
+    await mountWithPayload();
+
+    fireEvent.click(screen.getByTestId('card-dir-1::img-1.png'), { shiftKey: true });
+
+    expect(selected()).toBe('');
+    expect(api.openImageViewer).toHaveBeenCalledTimes(1);
+  });
+
+  it('Shift+click on a checkbox selects the run, like the image grid', async () => {
+    await mountWithPayload(FOUR());
+
+    // The checkbox handler in the package drops its event, so this is the
+    // gesture that proves the container's capture phase still sees Shift.
+    fireEvent.click(screen.getByText('sel-dir-1::img-3.png'));
+    expect(selected()).toBe('dir-1::img-3.png');
+
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'), { shiftKey: true });
+
+    expect(selected()).toBe(
+      'dir-1::img-1.png,dir-1::img-2.png,dir-1::img-3.png',
+    );
+    expect(api.openImageViewer).not.toHaveBeenCalled();
+  });
+
+  it('Shift+click on a checkbox with nothing selected is a plain toggle', async () => {
+    await mountWithPayload(FOUR());
+
+    fireEvent.click(screen.getByText('sel-dir-1::img-1.png'), { shiftKey: true });
+
+    // The grid's box does the same: with no selection there is no run to
+    // extend, so the click just selects the clicked image.
+    expect(selected()).toBe('dir-1::img-1.png');
+    expect(api.openImageViewer).not.toHaveBeenCalled();
   });
 });
