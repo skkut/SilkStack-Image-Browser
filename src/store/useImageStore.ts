@@ -17,6 +17,7 @@ import { getAspectRatio as getImageAspectRatio } from '../utils/imageUtils';
 import { getMegapixels } from '../utils/megapixels';
 import { applyTableSorting, type TableSortField, type TableSortDirection } from '../utils/tableSorting';
 import { collectGroupMembers } from '../utils/stackGroupKey';
+import { hasPrematureStackStamp, isCatalogStub, isManuallyUnstacked } from '../utils/stackingStamps';
 import { computeRangeSelection } from '../utils/selectionRange';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
@@ -473,6 +474,16 @@ export async function runPipelineRound(): Promise<void> {
         console.log('[Pipeline] Annotations not yet loaded — deferring (will retry on next trigger)');
         return;
     }
+
+    // Phase B results reach the store through debounced queues (batch adds and
+    // enrichment merges: 3 s, 15 s on very large libraries). A round fired by
+    // `phaseB.then()` therefore used to read the store while it still held
+    // Phase A catalog stubs — prompt-less images that every stacking pass then
+    // mistook for manual unmerges, which is how freshly indexed stacks were
+    // permanently unstacked. Pull both queues in first so the passes below
+    // judge the freshest state.
+    store.flushPendingImages();
+    store.flushPendingMerges();
 
     try {
         // Phase 1: Exact-prompt hash stacking (syncNewImagesToStacks)
@@ -1217,6 +1228,16 @@ interface ImageState {
   clearDerivedImageData: () => Promise<void>;
   importMetadataTags: (images: IndexedImage[]) => Promise<void>;
   flushPendingImages: () => void;
+  /**
+   * Apply queued Phase B enrichment results immediately.
+   *
+   * Enrichment reaches the store through a debounced merge queue (3 s, or
+   * 15 s on very large libraries), so after Phase B completes the store can
+   * still hold Phase A catalog stubs — no prompt yet. Every pipeline round
+   * flushes this before reading the image list; judging a stale stub is what
+   * used to permanently unstack freshly indexed images.
+   */
+  flushPendingMerges: () => void;
   setDirectoryRefreshing: (directoryId: string, isRefreshing: boolean) => void;
 
   // Navigation Actions
@@ -4510,6 +4531,10 @@ export const useImageStore = create<ImageState>((set, get) => {
             flushPendingImages();
         },
 
+        flushPendingMerges: () => {
+            flushPendingMerges();
+        },
+
         setDirectoryRefreshing: (directoryId, isRefreshing) => {
             set(state => {
                 const next = new Set(state.refreshingDirectories);
@@ -4824,6 +4849,15 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const newAnnotations = new Map(annotations);
 
                 for (const image of images) {
+                    // A Phase A catalog stub has no metadata yet, so it has no
+                    // prompt. Stamping it here would write "analyzed, no
+                    // group" — the exact shape of a manual unmerge — and the
+                    // image would then be skipped by every later pass, even
+                    // after its metadata arrived: it would never stack again.
+                    // Leave it unanalyzed; the round that runs after Phase B
+                    // (and prompt reconciliation) will stack it.
+                    if (isCatalogStub(image)) continue;
+
                     const existing = annotations.get(image.id);
 
                     // Skip already-analyzed images (same pattern as isAutoTagged)
@@ -4905,7 +4939,13 @@ export const useImageStore = create<ImageState>((set, get) => {
          * — the prompt is part of the index text, so the semantic stamp must
          * clear (stamp contract: only index-text writers clear it, and this
          * is one). The intentional-unstack guard is respected: manually
-         * unstacked images (isStackAnalyzed && !stackGroupId) are skipped.
+         * unstacked images (isStackAnalyzed, no stackGroupId, and the
+         * isSimilarityAnalyzed:false marker an unmerge writes) are skipped.
+         * A stamp with NO similarity flag was written before enrichment for a
+         * now-prompt-bearing image; that record is repaired here (see
+         * utils/stackingStamps.ts) instead of being skipped forever.
+         * Catalog stubs are never judged — they have no prompt yet, and doing
+         * so used to permanently unstack the newest images mid-index.
          * Processed in chunks with event-loop yields (100k images on the
          * main thread must not freeze the UI).
          */
@@ -4939,12 +4979,22 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const newAnnotations = new Map(state.annotations);
 
                 for (const image of state.images) {
+                    // An image whose metadata has not been read yet has no
+                    // prompt. Judging it here would clear (or refuse) a hash
+                    // that is about to become derivable — the permanent
+                    // unstacking this pass used to cause for images caught
+                    // mid-index. The next round runs after enrichment.
+                    if (isCatalogStub(image)) continue;
+
                     const ann = newAnnotations.get(image.id);
 
-                    // Intentional unmerge guard (same as
-                    // computeSimilarityGroups Step 0): do NOT re-assign a
-                    // hash the user deliberately removed.
-                    if (ann?.isStackAnalyzed && !ann?.stackGroupId) continue;
+                    // Intentional unmerge guard: do NOT re-assign a hash the
+                    // user deliberately removed. The isSimilarityAnalyzed
+                    // marker separates that decision from a stamp written
+                    // before enrichment (which has no flag at all); the
+                    // equality check below no-ops for genuinely prompt-less
+                    // images, so only a repairable stamp is rewritten.
+                    if (isManuallyUnstacked(ann)) continue;
 
                     const prompt = resolveImagePrompt(image);
                     const expected = prompt.trim()
@@ -5228,6 +5278,12 @@ export const useImageStore = create<ImageState>((set, get) => {
                     ...existing,
                     stackGroupId: undefined,
                     similarityGroupId: undefined,
+                    // Explicit marker of a MANUAL detach. The pipeline treats
+                    // this exact shape as the user's decision and never
+                    // re-assigns a hash; a record with NO isSimilarityAnalyzed
+                    // key is a stamp written before enrichment, which the
+                    // pipeline repairs once a prompt exists. See
+                    // utils/stackingStamps.ts — do not drop this field.
                     isSimilarityAnalyzed: false,
                     // Keep isStackAnalyzed true — prevents the image from
                     // being automatically re-grouped on the next sync.
@@ -5454,26 +5510,33 @@ export const useImageStore = create<ImageState>((set, get) => {
                 const missingStackIds: ImageAnnotations[] = [];
                 const newStackGroupIds = new Set<string>();
                 for (const img of images) {
+                    // A Phase A catalog stub has no metadata, hence no prompt.
+                    // Judging it here stamps "analyzed, no group" — the shape
+                    // of a manual unmerge — and permanently unstacks an image
+                    // that is about to become stackable. The round after
+                    // enrichment handles it.
+                    if (isCatalogStub(img)) continue;
+
                     const ann = currentAnnotations.get(img.id);
+                    const prompt = img.prompt
+                        || img.metadata?.normalizedMetadata?.prompt
+                        || img.metadata?.positive_prompt;
 
                     // ── Guard: respect intentional unmerging ─────────────────
-                    // When a user manually unmerges an image via
-                    // unmergeSelectedFromStack, stackGroupId is set to undefined
-                    // but isStackAnalyzed remains true. This signals "this image
-                    // was intentionally removed from its stack — do NOT re-assign
-                    // it automatically."  Without this guard, computeSimilarityGroups
-                    // would re-assign the same prompt-hash-based stackGroupId,
-                    // silently undoing the user's manual unmerge.
-                    if (ann?.isStackAnalyzed && !ann?.stackGroupId) {
-                        // Intentionally unstacked — skip this image entirely.
-                        continue;
-                    }
+                    // When a user manually unmerges an image, the group ids
+                    // are cleared but isStackAnalyzed stays true AND
+                    // isSimilarityAnalyzed is written as false. That flag is
+                    // the marker of a user decision — do NOT re-assign a hash
+                    // behind their back. A stamp with no similarity flag was
+                    // written before enrichment; it is repaired here once a
+                    // prompt exists (see utils/stackingStamps.ts), and left
+                    // alone otherwise so a genuinely prompt-less image does
+                    // not get rewritten every round.
+                    if (isManuallyUnstacked(ann)) continue;
+                    if (hasPrematureStackStamp(ann) && !(prompt && prompt.trim())) continue;
 
                     if (!ann?.stackGroupId) {
                         // Image was never analyzed — assign stackGroupId now
-                        const prompt = img.prompt
-                            || img.metadata?.normalizedMetadata?.prompt
-                            || img.metadata?.positive_prompt;
                         const stackGroupId = prompt && prompt.trim()
                             ? engine.generatePromptHash(prompt)
                             : undefined;
@@ -5854,6 +5917,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                 for (const image of images) {
                     const ann = currentAnnotations.get(image.id);
                     if (!ann?.stackGroupId) continue;
+                    // A catalog stub has no prompt yet — it can neither be a
+                    // representative (its prompt is empty) nor be judged as a
+                    // target. Skip it; the round after enrichment sees it.
+                    if (isCatalogStub(image)) continue;
                     const bucketId = ann.similarityGroupId ?? ann.stackGroupId;
                     const sgIds = stackGroupIdsBySimId.get(bucketId);
                     if (sgIds) sgIds.add(ann.stackGroupId);
@@ -5866,6 +5933,10 @@ export const useImageStore = create<ImageState>((set, get) => {
                 for (const image of images) {
                     const ann = currentAnnotations.get(image.id);
                     if (!ann?.stackGroupId) continue;
+                    // Same stub rule as the bucket loop: an unread image must
+                    // not claim the representative slot (empty prompt) and
+                    // hide its enriched siblings from this round.
+                    if (isCatalogStub(image)) continue;
 
                     // A source must be standalone whichever arm admits it: a
                     // group already sharing a bucket with siblings is a merge
