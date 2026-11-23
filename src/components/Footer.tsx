@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ImageSizeSlider from './ImageSizeSlider';
-import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, X, Unplug } from 'lucide-react';
+import { Grid3X3, List, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, EyeOff, Layers, Layers2, Sparkles, Star, X, Unplug } from 'lucide-react';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useImageStore } from '../store/useImageStore';
 import { useAiFeaturesEnabled, useAiModelFeaturesEnabled, useSemanticSearchEnabled } from '../services/aiFeatureAccess';
@@ -166,6 +166,15 @@ const Footer: React.FC<FooterProps> = ({
   const setEnableSafeMode = useSettingsStore((state) => state.setEnableSafeMode);
   const isStackingEnabled = useSettingsStore((state) => state.isStackingEnabled);
   const setStackingEnabled = useImageStore((state) => state.setStackingEnabled);
+  // Starred-first is a pure display preference (Settings → Display); the
+  // footer button mirrors that switch for quick access. The sorter reads it
+  // from the settings store, so flip the pref first, then re-sort.
+  const displayStarredFirst = useSettingsStore((state) => state.displayStarredFirst);
+  const setDisplayStarredFirst = useSettingsStore((state) => state.setDisplayStarredFirst);
+  const handleToggleStarredFirst = () => {
+    setDisplayStarredFirst(!displayStarredFirst);
+    useImageStore.getState().filterAndSortImages();
+  };
   const indexingProgress = useImageStore((state) => state.progress);
   const pipelinePhase = useImageStore((state) => state.pipelinePhase);
   const semanticIndexProgress = useImageStore((state) => state.semanticIndexProgress);
@@ -402,6 +411,21 @@ const Footer: React.FC<FooterProps> = ({
             unloading={isUnloading}
           />
         )}
+        {/* Starred-first toggle — quick access to Settings → Display; not an
+            AI feature, so it is not gated by the license/master switches. */}
+        <button
+          onClick={handleToggleStarredFirst}
+          className={`p-1.5 rounded-lg transition-all duration-200 ${
+            displayStarredFirst
+              ? 'text-yellow-400 bg-yellow-500/10'
+              : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+          }`}
+          title={displayStarredFirst ? 'Stop displaying starred images first' : 'Display starred images first'}
+          aria-label={displayStarredFirst ? 'Stop displaying starred images first' : 'Display starred images first'}
+          aria-pressed={displayStarredFirst}
+        >
+          <Star size={16} className={displayStarredFirst ? 'fill-current' : ''} />
+        </button>
         {/* Stacking Toggle */}
         {aiFeaturesEnabled && showStackingToggle && (
           <button

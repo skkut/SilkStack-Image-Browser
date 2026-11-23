@@ -446,6 +446,47 @@ describe('Footer model-loading pill (loadingModel flag)', () => {
   });
 });
 
+// ── Footer (starred-first toggle) ─────────────────────────────────────
+// The footer button mirrors Settings → Display. It must flip the pref and
+// re-run the sorter, and it must NOT be gated by the license/AI switches —
+// starred-first is a plain display preference.
+
+describe('Footer starred-first toggle', () => {
+  it('flips displayStarredFirst and re-runs filterAndSortImages', () => {
+    useSettingsStore.setState({ displayStarredFirst: false });
+    // Spy on the state object's action: the footer calls it through a fresh
+    // getState(), so it must live on the store state (not the component).
+    const sortSpy = vi.spyOn(useImageStore.getState(), 'filterAndSortImages');
+    render(<Footer viewMode="grid" onViewModeChange={vi.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Display starred images first' });
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+
+    fireEvent.click(button);
+
+    expect(useSettingsStore.getState().displayStarredFirst).toBe(true);
+    expect(sortSpy).toHaveBeenCalledTimes(1);
+    // The tooltip reflects the new state, so the same button now turns it off.
+    expect(screen.getByRole('button', { name: 'Stop displaying starred images first' }).getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop displaying starred images first' }));
+    expect(useSettingsStore.getState().displayStarredFirst).toBe(false);
+    expect(sortSpy).toHaveBeenCalledTimes(2);
+
+    sortSpy.mockRestore();
+  });
+
+  it('shows the active (filled) state from the persisted preference', () => {
+    useSettingsStore.setState({ displayStarredFirst: true });
+    const { container } = render(<Footer viewMode="grid" onViewModeChange={vi.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Stop displaying starred images first' });
+    expect(button.className).toContain('text-yellow-400');
+    // `fill-current` is the app-wide "starred" glyph convention.
+    expect(container.querySelector('svg.fill-current')).not.toBeNull();
+  });
+});
+
 // ── SettingsModal (premium section) ───────────────────────────────────
 
 describe('SettingsModal semantic section (Phase 6)', () => {
