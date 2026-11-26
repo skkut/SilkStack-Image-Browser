@@ -253,6 +253,12 @@ interface ModuleCoordinator {
   getPromptCenteringMean(extraVectors?: Float32Array[]): Promise<Float32Array | null>;
   /** Delete images from the vector stores + worker index (deletion hook). */
   removeImages(imageIds: string[]): Promise<void>;
+  /**
+   * One-time library backfill: copy every per-image vector matching the
+   * active model into the content-keyed prompt cache. Reads storage only —
+   * no worker, no model load. Idempotent.
+   */
+  warmEmbeddingCache(): Promise<{ textPromoted: number; promptPromoted: number }>;
   dispose(): void;
 }
 
@@ -504,6 +510,22 @@ export class SemanticSearchCoordinator {
    */
   removeImages(imageIds: string[]): Promise<void> {
     return this.withModule((coordinator) => coordinator.removeImages(imageIds));
+  }
+
+  /**
+   * One-time library backfill for the prompt cache — called by the app's
+   * upgrade warm-up. Fail-soft: without the module there are no per-image
+   * vectors to promote, so it reports zeros instead of throwing.
+   */
+  async warmEmbeddingCache(): Promise<{ textPromoted: number; promptPromoted: number }> {
+    const coordinator = await this.getModule();
+    if (!coordinator) return { textPromoted: 0, promptPromoted: 0 };
+    // An older module build has no backfill method — treat it as "nothing to
+    // promote" instead of failing the app's one-time warm-up.
+    if (typeof coordinator.warmEmbeddingCache !== 'function') {
+      return { textPromoted: 0, promptPromoted: 0 };
+    }
+    return coordinator.warmEmbeddingCache();
   }
 
   // ── Clear & dispose ────────────────────────────────────────────────

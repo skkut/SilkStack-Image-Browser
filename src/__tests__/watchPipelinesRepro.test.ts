@@ -81,6 +81,7 @@ vi.mock('../services/aiBridge', () => ({
     computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
   }),
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
   // Mirrored — full-replacement mock; see src/services/aiBridge.ts.
   SIMILARITY_MATCH_THRESHOLD: 0.8,
@@ -241,10 +242,14 @@ function semanticIndexedIds(): string[] {
 }
 
 describe('REAL watch flow: processFiles → addImages → flush → pipeline round', () => {
-  it('auto-tag worker and semantic coordinator both see the watched image', async () => {
+  it('auto-tag stamps the watched prompt-less image without a model call, and the semantic coordinator sees it', async () => {
     await runWatchRound('new-image.png');
 
-    expect(taggingImageIds()).toContain(IMAGE_ID);
+    // The 1×1 PNG carries no prompt. The prompt-keyed auto-tag path resolves
+    // it in the app (no LLM call, no worker) and stamps the annotation, which
+    // is the same "processed, no tags" outcome the worker used to produce.
+    expect(taggingImageIds()).not.toContain(IMAGE_ID);
+    expect(useImageStore.getState().annotations.get(IMAGE_ID)?.searchTagVersion).toBe(2);
     expect(semanticIndexedIds()).toContain(IMAGE_ID);
   });
 
@@ -280,7 +285,9 @@ describe('REAL watch flow: processFiles → addImages → flush → pipeline rou
     // Later the same path re-appears ('add') — full watch round, fresh gates.
     await runWatchRound('new-image.png');
 
-    expect(taggingImageIds()).toContain(IMAGE_ID);
+    // Prompt-less again: stamped app-side (no worker), still indexed.
+    expect(taggingImageIds()).not.toContain(IMAGE_ID);
+    expect(useImageStore.getState().annotations.get(IMAGE_ID)?.searchTagVersion).toBe(2);
     expect(semanticIndexedIds()).toContain(IMAGE_ID);
   });
 

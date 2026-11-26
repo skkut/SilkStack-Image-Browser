@@ -49,6 +49,7 @@ vi.mock('../services/aiBridge', () => ({
     computePromptSimilarity: vi.fn().mockResolvedValue(0.9),
   }),
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
   SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));

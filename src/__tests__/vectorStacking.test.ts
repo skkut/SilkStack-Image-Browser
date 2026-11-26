@@ -67,6 +67,7 @@ vi.mock('../services/aiBridge', () => ({
   // constant (src/services/aiBridge.ts). Pre-enriched test annotations carry
   // this version so the auto-tag phase no-ops (no worker spawn, no block).
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
   // Read by both similarity passes (lexical bar + the vector cluster request)
   // → a full-replacement mock MUST export it or the round throws.

@@ -19,6 +19,11 @@ To save time and compute resources, the auto-tagging process is highly optimized
 2. **"Processed" Flag:** Once an image passes through the engine, it receives a hidden `isAutoTagged` flag. This applies **even if the model yields 0 tags** for a specific prompt. Because of this, the engine won't needlessly retry parsing an empty or un-taggable prompt on every run.
 3. **Per-Image Incremental Persistence:** Each image's tags and `isAutoTagged` flag are committed to the local database (IndexedDB) **the moment that image finishes** — the engine doesn't wait for the whole run. The UI updates live, and an interrupted run (cancel, crash, app close) resumes from the first un-tagged image on the next run instead of restarting from the beginning. Persisted data survives app restarts perfectly.
 
+### Prompt-level reuse
+AI output depends on the prompt, not on the file. Auto-tagging therefore processes each **distinct prompt once**: one representative image per prompt is sent to the model, and its concepts and hidden search vocabulary are written to every image that shares the prompt. Results are kept in the local `silkstack-prompt-cache` database and survive **Reprocess Images** and **Re-index**, so a library of seed variations from a few prompts costs a few model calls — and a re-run over known prompts loads no model at all. On the first start after updating, the cache fills itself automatically from the annotations already in the library — the speed-up applies without re-running the model and without any user action.
+
+**Clear Auto-Tags** also drops the affected prompts from the cache, so the clear stays durable. **Settings → AI Intelligence → Processed prompts** shows what is stored and offers **Clear prompt cache**; everything stays on this device.
+
 ## Managing Auto-Tags
 
 ### Running Auto-Tagging

@@ -22,7 +22,18 @@ import { computeRangeSelection } from '../utils/selectionRange';
 import { useSettingsStore } from './useSettingsStore';
 import { isAiFeaturesEnabled, isAiModelFeaturesEnabled, isSemanticSearchEnabled } from '../services/aiFeatureAccess';
 import type { ISemanticSearchHit, DetectedGpuInfo, AiModelsStatus } from '../services/aiBridge';
-import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID, SIMILARITY_MATCH_THRESHOLD } from '../services/aiBridge';
+import { SEARCH_ENRICHMENT_VERSION, TAG_GENERATION_MODEL_ID, SIMILARITY_MATCH_THRESHOLD, MAX_TAGS_PER_IMAGE } from '../services/aiBridge';
+import type { TaggingImage } from '../services/autoTaggingEngine';
+import {
+    getPromptEnrichments,
+    savePromptEnrichments,
+    deletePromptEnrichmentsForPrompts,
+    getPromptCacheWarmup,
+    markPromptCacheWarmupComplete,
+    promptEnrichmentMapKey,
+    PROMPT_CACHE_WARMUP_VERSION,
+    type PromptEnrichmentRecord,
+} from '../services/promptCache';
 import type { GpuDeviceReport } from '../services/gpuPreference';
 import type { SemanticSearchCoordinator, SemanticIndexProgress } from '../services/semanticSearchEngine';
 import cacheManager from '../services/cacheManager';
@@ -132,6 +143,24 @@ const SIMILARITY_VERSION_KEY = 'similarityGroupVersion';
 // eslint-disable-next-line no-misleading-character-class
 const NON_LATIN_SCRIPT_RE = /[Ͱ-ϿЀ-ӿ֐-׿؀-ۿऀ-ॿ฀-๿぀-ヿ㐀-鿿가-힯豈-﫿]/;
 
+/**
+ * The tag model id a run will ACTUALLY use, for cache keying. The worker
+ * resolves the setting through the module's catalog (`resolveTagModel`);
+ * an unknown/empty setting falls back to the catalog default. Mirror that
+ * resolution here, or a stale setting would file the default model's output
+ * under a model id that never ran.
+ */
+async function resolveTagModelIdForCache(setting: string): Promise<string> {
+    try {
+        const { getTagModelOptions } = await import('../services/semanticSearchEngine');
+        const options = await getTagModelOptions();
+        if (options.some((option) => option.modelId === setting)) return setting;
+        return options[0]?.modelId ?? TAG_GENERATION_MODEL_ID;
+    } catch {
+        return setting || TAG_GENERATION_MODEL_ID;
+    }
+}
+
 /** Prompt resolution chain (same as useImageStacking.ts:122). */
 const resolveImagePrompt = (image: IndexedImage): string =>
     image.prompt
@@ -197,6 +226,11 @@ const SEMANTIC_INDEX_CHUNK_SIZE = 32;
 // semantic phase. Module-scoped for the same reason as the guards above.
 let __autoTagInFlight: Promise<void> | null = null;
 let __autoTagResolve: (() => void) | null = null;
+// Run token for cache hydration. Clear Auto-Tags cancels an in-flight run
+// before wiping annotations; a hydration batch that resolves after that wipe
+// must not write the old tags back (the worker path is terminated, but
+// hydration is plain async main-thread work with nothing to terminate).
+let __autoTagRunSeq = 0;
 let __semanticSearchTimer: ReturnType<typeof setTimeout> | null = null;
 // Monotonic sequence for latest-query-wins: results from a superseded
 // search (or a search invalidated by clearSemanticSearch) are discarded.
@@ -290,6 +324,110 @@ const getSemanticCoordinator = async (): Promise<SemanticSearchCoordinator> => {
     }
     return __semanticCoordinator;
 };
+
+// ── One-time prompt-cache warm-up (upgrade path) ─────────────────────
+// Runs once per PROMPT_CACHE_WARMUP_VERSION, on the first pipeline round
+// after the cache database is created/upgraded. Module-scoped so concurrent
+// rounds share one run.
+let __promptCacheWarmupInFlight: Promise<void> | null = null;
+// Set after a successful pass so environments where the marker cannot be
+// persisted (private mode / IndexedDB unavailable) do not redo the scan on
+// every pipeline round within one session.
+let __promptCacheWarmupCompletedThisSession = false;
+
+/**
+ * Seed the prompt cache from the EXISTING library.
+ *
+ * The cache would otherwise fill lazily, on the next AI trigger — but a
+ * library of thousands of already-tagged/embedded images is exactly the
+ * knowledge the cache exists to preserve, so the feature's first start
+ * backfills it in one pass:
+ *
+ *   1. one enrichment row per distinct prompt that any image was already
+ *      enriched for at the current SEARCH_ENRICHMENT_VERSION;
+ *   2. one vector row per distinct content identity, promoted from the
+ *      existing `semanticVectors` / `promptVectors` records (active model
+ *      only) by the module — storage reads, no worker and no model load.
+ *
+ * The marker is written only after both parts succeed; a failure leaves it
+ * unset so the next pipeline round retries. Every write is an idempotent
+ * upsert, so a partial run is harmless.
+ *
+ * A "Clear prompt cache" deliberately does NOT reset the marker: otherwise
+ * the next start would immediately refill the cache from the same per-image
+ * data and silently undo the clear.
+ */
+export async function warmPromptCacheFromLibrary(): Promise<void> {
+    if (__promptCacheWarmupInFlight) return __promptCacheWarmupInFlight;
+    if (__promptCacheWarmupCompletedThisSession) return;
+
+    __promptCacheWarmupInFlight = (async () => {
+        try {
+            const marker = await getPromptCacheWarmup();
+            if (marker && marker.version === PROMPT_CACHE_WARMUP_VERSION) {
+                __promptCacheWarmupCompletedThisSession = true;
+                return;
+            }
+
+            const { images, annotations, isAnnotationsLoaded } = useImageStore.getState();
+            // The app's startup pipeline fires only after annotations load;
+            // if images are not in memory yet, a later round retries.
+            if (!isAnnotationsLoaded || images.length === 0) return;
+
+            // ── 1. Auto-tag enrichment from existing annotations ────────
+            const tagModelId = await resolveTagModelIdForCache(
+                useSettingsStore.getState().aiTagModel,
+            );
+            const promptByImageId = new Map(images.map(img => [img.id, img.prompt || '']));
+            const byPrompt = new Map<string, { tags: string[]; synonyms: string[] }>();
+            for (const [imageId, annotation] of annotations) {
+                if (annotation.searchTagVersion !== SEARCH_ENRICHMENT_VERSION) continue;
+                const prompt = promptByImageId.get(imageId) || '';
+                if (!prompt.trim() || byPrompt.has(prompt)) continue;
+                const tags = annotation.autoTags ?? [];
+                const synonyms = annotation.synonymTags ?? [];
+                if (tags.length === 0 && synonyms.length === 0) continue;
+                byPrompt.set(prompt, { tags, synonyms });
+            }
+            const warmedAt = Date.now();
+            const rows: PromptEnrichmentRecord[] = [...byPrompt].map(([prompt, enrichment]) => ({
+                modelId: tagModelId,
+                enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                prompt,
+                concepts: enrichment.tags.slice(0, MAX_TAGS_PER_IMAGE),
+                synonyms: enrichment.synonyms,
+                source: 'llm' as const,
+                createdAt: warmedAt,
+                updatedAt: warmedAt,
+            }));
+            for (let i = 0; i < rows.length; i += 500) {
+                await savePromptEnrichments(rows.slice(i, i + 500));
+            }
+
+            // ── 2. Vectors from the existing per-image stores ──────────
+            const coordinator = await getSemanticCoordinator();
+            const promoted = await coordinator.warmEmbeddingCache();
+
+            await markPromptCacheWarmupComplete({
+                enrichmentCount: rows.length,
+                textPromoted: promoted.textPromoted,
+                promptPromoted: promoted.promptPromoted,
+            });
+            __promptCacheWarmupCompletedThisSession = true;
+            console.log(
+                `[PromptCache] One-time warm-up: ${rows.length} prompts, `
+                + `${promoted.textPromoted} search vectors, ${promoted.promptPromoted} prompt vectors`,
+            );
+        } catch (error) {
+            // Do not mark complete — the next pipeline round retries.
+            console.warn('[PromptCache] One-time warm-up failed (will retry):', error);
+        } finally {
+            __promptCacheWarmupInFlight = null;
+        }
+    })();
+
+    return __promptCacheWarmupInFlight;
+}
 
 /**
  * RAW semantic Δ-index run — the implementation behind the queue-wrapped
@@ -474,6 +612,12 @@ export async function runPipelineRound(): Promise<void> {
         console.log('[Pipeline] Annotations not yet loaded — deferring (will retry on next trigger)');
         return;
     }
+
+    // One-time upgrade backfill: seed the prompt cache from the existing
+    // library BEFORE the AI phases run (no-op once the marker is set). This
+    // is what lets thousands of already-tagged/embedded images contribute
+    // their results instead of waiting for the next AI trigger.
+    await warmPromptCacheFromLibrary();
 
     // Phase B results reach the store through debounced queues (batch adds and
     // enrichment merges: 3 s, 15 s on very large libraries). A round fired by
@@ -3417,15 +3561,230 @@ export const useImageStore = create<ImageState>((set, get) => {
             // Resolve the model this run would use. The default lives in
             // aiBridge (TAG_GENERATION_MODEL_ID); '' (fresh install) means
             // "the default" — compare the RESOLVED id so '' and the default
-            // id reuse each other's worker.
+            // id reuse each other's worker. The cache key must use the same
+            // resolved id the module will actually run.
             const aiTagModel = useSettingsStore.getState().aiTagModel;
-            const resolvedTagModelId = aiTagModel || TAG_GENERATION_MODEL_ID;
+            const resolvedTagModelId = await resolveTagModelIdForCache(aiTagModel);
+            // Cache the untruncated result (module cap) and apply the run's
+            // display cap at persistence time — otherwise a one-off topN
+            // would permanently truncate the cached concepts.
+            const topN = options?.topN ?? MAX_TAGS_PER_IMAGE;
 
-            // Worker reuse: the engine is designed to stay resident for the
-            // worker's lifetime, so a run with the SAME model keeps the
-            // existing worker — no model reload, the big per-run cost. Only
-            // a model switch (or a missing worker) spawns a new one; the old
-            // worker is terminated so its GPU memory is released.
+            // A run token makes cache hydration abortable: Clear Auto-Tags /
+            // Reprocess cancel an in-flight run before wiping annotations,
+            // and a hydration batch that resolves after that wipe must not
+            // write the old tags back.
+            const runSeq = ++__autoTagRunSeq;
+
+            // Resolve-on-complete: the returned promise settles when the run
+            // ends ('complete' / 'error' / cancel). The pipeline round awaits
+            // it before running the semantic phase so the fresh tags and
+            // synonyms land in the index — strictly sequenced. Created BEFORE
+            // any async work so a concurrent caller coalesces onto the run.
+            const runPromise = new Promise<void>((resolve) => {
+                __autoTagResolve = resolve;
+            });
+            __autoTagInFlight = runPromise;
+
+            set({
+                isAutoTagging: true,
+                autoTaggingProgress: { current: 0, total: taggingImages.length, message: 'Checking prompt cache...' },
+            });
+
+            const finishRun = (): void => {
+                const resolveAutoTag = __autoTagResolve;
+                __autoTagResolve = null;
+                __autoTagInFlight = null;
+                resolveAutoTag?.();
+            };
+
+            // ── Group by the EXACT prompt the worker would receive ────────
+            // The LLM sees `image.prompt` and nothing else (models/loras are
+            // unused on that path), so one representative per distinct prompt
+            // is enough — and prompt-less images need no model at all.
+            const promptGroups = new Map<string, TaggingImage[]>();
+            const emptyPromptImages: TaggingImage[] = [];
+            for (const image of taggingImages) {
+                const prompt = image.prompt || '';
+                if (!prompt.trim()) {
+                    emptyPromptImages.push(image);
+                    continue;
+                }
+                const group = promptGroups.get(prompt);
+                if (group) group.push(image);
+                else promptGroups.set(prompt, [image]);
+            }
+
+            // ── Batch persistence ─────────────────────────────────────────
+            // Hydration can land thousands of images at once; the streaming
+            // path's per-image `set` is O(n) per image (O(n²) per run). One
+            // annotation rewrite + one state patch per batch keeps a
+            // cache-served library fast. The record shape is the streaming
+            // path's (spread-first, stamp + semantic re-index included).
+            const persistEnrichmentBatch = (
+                items: Array<{ imageId: string; tags: string[]; synonyms?: string[] }>,
+                generatedAt: number,
+            ): void => {
+                if (items.length === 0) return;
+                const { annotations: currentAnnotations } = get();
+                const updated: ImageAnnotations[] = [];
+                for (const item of items) {
+                    const current = currentAnnotations.get(item.imageId);
+                    const existingAutoTags = current?.autoTags ?? [];
+                    updated.push({
+                        // Spread first — preserves stackGroupId /
+                        // similarityGroupId / isStackAnalyzed /
+                        // isSimilarityAnalyzed (see toggleFavorite).
+                        ...current,
+                        imageId: item.imageId,
+                        isFavorite: current?.isFavorite ?? false,
+                        tags: current?.tags ?? [],
+                        autoTags: [...new Set([...existingAutoTags, ...item.tags.slice(0, topN)])],
+                        metadataTags: current?.metadataTags ?? [],
+                        addedAt: current?.addedAt ?? generatedAt,
+                        updatedAt: generatedAt,
+                        isAutoTagged: true,
+                        // A fresh model list REPLACES prior-pass vocabulary —
+                        // the field is a per-run product of the model, never
+                        // user-edited. Absent (rule-based fallback) keeps the
+                        // previous vocabulary: clearing it would be permanent
+                        // because the stamp below closes the gate.
+                        synonymTags: item.synonyms ?? current?.synonymTags ?? [],
+                        searchTagVersion: SEARCH_ENRICHMENT_VERSION,
+                        // Fresh auto-tags feed the index text — clearing the
+                        // stamp re-queues the image for the semantic phase.
+                        isSemanticIndexed: false,
+                    });
+                }
+
+                // bulkSaveAnnotations updates its in-memory map synchronously
+                // and chunks the IndexedDB write; the state patch below is
+                // what the pipeline reads, so the write can be fire-and-forget.
+                void bulkSaveAnnotations(updated)
+                    .catch(error => console.warn('Failed to persist auto-tags as annotations:', error));
+
+                set(state => {
+                    const newAnnotations = new Map(state.annotations);
+                    for (const annotation of updated) newAnnotations.set(annotation.imageId, annotation);
+                    const byId = new Map(updated.map(annotation => [annotation.imageId, annotation]));
+                    const patchList = (list: IndexedImage[]) => list.map(img => {
+                        const annotation = byId.get(img.id);
+                        return annotation
+                            ? { ...img, tags: mergeAnnotationTags(annotation), autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged, synonymTags: annotation.synonymTags ?? [], searchTagVersion: annotation.searchTagVersion }
+                            : img;
+                    });
+                    return {
+                        ...state,
+                        annotations: newAnnotations,
+                        images: patchList(state.images),
+                        filteredImages: patchList(state.filteredImages),
+                    };
+                });
+            };
+
+            // ── Resolve the enrichment for every distinct prompt ──────────
+            const promptList = [...promptGroups.keys()];
+            let cacheHits = new Map<string, PromptEnrichmentRecord>();
+            try {
+                cacheHits = await getPromptEnrichments(promptList.map(prompt => ({
+                    modelId: resolvedTagModelId,
+                    enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                    prompt,
+                })));
+            } catch (error) {
+                console.warn('[AutoTag] Prompt cache read failed — continuing without it:', error);
+            }
+            if (__autoTagRunSeq !== runSeq) return runPromise;
+
+            // Upgrade bridge / partial-library bridge: an image whose
+            // annotation is already enriched at the current version carries
+            // this prompt's result even when the cache has no row yet. This
+            // is what makes the change free for existing libraries — their
+            // tags already exist, they were just never keyed by prompt.
+            const annotatedEnrichmentByPrompt = new Map<string, { tags: string[]; synonyms: string[] }>();
+            if (cacheHits.size < promptList.length) {
+                const promptByImageId = new Map(images.map(img => [img.id, img.prompt || '']));
+                for (const [imageId, annotation] of annotations) {
+                    if (annotation.searchTagVersion !== SEARCH_ENRICHMENT_VERSION) continue;
+                    const tags = annotation.autoTags ?? [];
+                    const synonyms = annotation.synonymTags ?? [];
+                    if (tags.length === 0 && synonyms.length === 0) continue;
+                    const prompt = promptByImageId.get(imageId) || '';
+                    if (!prompt.trim() || annotatedEnrichmentByPrompt.has(prompt)) continue;
+                    annotatedEnrichmentByPrompt.set(prompt, { tags, synonyms });
+                }
+            }
+
+            const hydratedItems: Array<{ imageId: string; tags: string[]; synonyms?: string[] }> = [];
+            const cacheWrites: PromptEnrichmentRecord[] = [];
+            const uncachedGroups: Array<{ prompt: string; images: TaggingImage[] }> = [];
+            const hydratedAt = Date.now();
+
+            for (const [prompt, groupImages] of promptGroups) {
+                const key = promptEnrichmentMapKey({
+                    modelId: resolvedTagModelId,
+                    enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                    prompt,
+                });
+                const hit = cacheHits.get(key);
+                if (hit) {
+                    for (const image of groupImages) {
+                        hydratedItems.push({ imageId: image.id, tags: hit.concepts, synonyms: hit.synonyms });
+                    }
+                    continue;
+                }
+                const fallback = annotatedEnrichmentByPrompt.get(prompt);
+                if (fallback) {
+                    for (const image of groupImages) {
+                        hydratedItems.push({ imageId: image.id, tags: fallback.tags, synonyms: fallback.synonyms });
+                    }
+                    // Warm the cache from what the library already knows.
+                    cacheWrites.push({
+                        modelId: resolvedTagModelId,
+                        enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                        prompt,
+                        concepts: fallback.tags.slice(0, MAX_TAGS_PER_IMAGE),
+                        synonyms: fallback.synonyms,
+                        source: 'llm',
+                        createdAt: hydratedAt,
+                        updatedAt: hydratedAt,
+                    });
+                    continue;
+                }
+                uncachedGroups.push({ prompt, images: groupImages });
+            }
+            // Prompt-less images get the "processed, no tags" stamp — the
+            // worker would produce exactly that, without any model call.
+            for (const image of emptyPromptImages) {
+                hydratedItems.push({ imageId: image.id, tags: [], synonyms: [] });
+            }
+
+            if (hydratedItems.length > 0 && __autoTagRunSeq === runSeq) {
+                persistEnrichmentBatch(hydratedItems, hydratedAt);
+            }
+            if (cacheWrites.length > 0) {
+                void savePromptEnrichments(cacheWrites).catch(error =>
+                    console.warn('[AutoTag] Failed to warm the prompt cache:', error));
+            }
+
+            let imagesDone = hydratedItems.length;
+            const setTagProgress = (message: string): void => {
+                set({ autoTaggingProgress: { current: imagesDone, total: taggingImages.length, message } });
+            };
+            if (hydratedItems.length > 0) {
+                console.log(`[AutoTag] Reused prompt results for ${hydratedItems.length} images`);
+            }
+
+            if (uncachedGroups.length === 0) {
+                // The biggest win: no chat model load at all.
+                set({ isAutoTagging: false, autoTaggingProgress: null });
+                console.log(`[AutoTag] All ${taggingImages.length} images resolved from the prompt cache — no model call needed`);
+                finishRun();
+                return runPromise;
+            }
+            if (__autoTagRunSeq !== runSeq) return runPromise;
+
+            // ── Worker setup (reuse the resident engine when possible) ────
             let activeWorker = existingWorker;
             if (existingWorker && get().autoTagWorkerModelId !== resolvedTagModelId) {
                 existingWorker.terminate();
@@ -3445,7 +3804,9 @@ export const useImageStore = create<ImageState>((set, get) => {
                 } catch { /* module absent */ }
                 if (!createAiWorker) {
                     console.warn('AI auto-tagging unavailable: ai-intelligence module not present');
-                    return;
+                    set({ isAutoTagging: false, autoTaggingProgress: null });
+                    finishRun();
+                    return runPromise;
                 }
                 // Chat-scoped worker: the auto-tag route never calls the
                 // embed pipeline, so the engine loads the chat record alone
@@ -3460,109 +3821,48 @@ export const useImageStore = create<ImageState>((set, get) => {
                 autoTaggingWorker: worker,
                 autoTagWorkerModelId: resolvedTagModelId,
                 isAutoTagging: true,
-                autoTaggingProgress: { current: 0, total: taggingImages.length, message: 'Initializing...' }
+                autoTaggingProgress: { current: imagesDone, total: taggingImages.length, message: 'Initializing...' }
             });
 
-            // Resolve-on-complete: the returned promise settles when the run
-            // ends ('complete' / 'error' / cancel). The pipeline round awaits
-            // it before running the semantic phase so the fresh tags and
-            // synonyms land in the index — strictly sequenced. Created BEFORE
-            // postMessage so a fast 'complete' can't race the resolver capture.
-            __autoTagInFlight = new Promise<void>((resolve) => {
-                __autoTagResolve = resolve;
-            });
+            // One representative per uncached prompt; the result is fanned
+            // out to every image that shares it.
+            const repGroups = new Map<string, { prompt: string; imageIds: string[] }>();
+            const workerImages: TaggingImage[] = [];
+            for (const group of uncachedGroups) {
+                const representative = group.images[0];
+                repGroups.set(representative.id, {
+                    prompt: group.prompt,
+                    imageIds: group.images.map(image => image.id),
+                });
+                workerImages.push(representative);
+            }
 
-            // ── Per-image incremental persistence ──────────────────────────
-            // Each finished image is merged into its annotation, written to
-            // IndexedDB immediately, and patched into the in-memory lists —
-            // so an interrupted run (cancel / crash / worker error) resumes
-            // from the first un-stamped image instead of restarting (the
-            // needsSearchEnrichment gate above skips stamped ones on the next
-            // start). `persistedIds` dedupes the trailing 'complete' map.
+            // ── Incremental persistence ────────────────────────────────────
+            // Each finished representative — and every sibling that shares
+            // its prompt — is persisted in one batch, so an interrupted run
+            // (cancel / crash / worker error) resumes from the first
+            // un-stamped image instead of restarting. `persistedIds` dedupes
+            // the trailing 'complete' map.
             const persistedIds = new Set<string>();
 
-            const persistImageTags = (
-                imageId: string,
+            const applyTagsForGroup = (
+                representativeId: string,
                 newTags: string[],
-                generatedAt: number,
                 synonyms?: string[],
             ): void => {
-                const { annotations } = get();
-                const current = annotations.get(imageId);
-                const existingAutoTags = current?.autoTags ?? [];
-                const mergedAutoTags = [...new Set([...existingAutoTags, ...newTags])];
-
-                // Add generated tags to autoTags (not manual tags). The
-                // worker streams concepts (the chips) and, on the LLM path,
-                // the hidden search-vocabulary list: the v4 structured
-                // response {"concepts":[…≤15], "synonyms":[…≤6],
-                // "categories":[…≤4]} — synonyms plus the main-subject
-                // categories (zebra → "animal"). The v2 flat merge starved
-                // synonyms, which is why synonymTags (search-only, feeds the
-                // index text) is reinstated here.
-                // When `synonyms` is ABSENT (rule-based fallback ran — no
-                // engine) existing synonyms are kept: clearing them would be
-                // permanent — the stamp below makes the image ineligible for
-                // another run, and its synonyms still describe its prompt.
-                const annotation: ImageAnnotations = {
-                    // Spread first — preserves stackGroupId / similarityGroupId /
-                    // isStackAnalyzed / isSimilarityAnalyzed (see toggleFavorite).
-                    // This writer REPLACES the record in the annotation map, so a
-                    // hardcoded rebuild silently dropped the image out of its
-                    // stack: the stack fields on the image object kept the old
-                    // values while the annotation lost them, and the next read
-                    // of either source disagreed with the other. Tags never
-                    // change the prompt, so grouping is not re-opened here.
-                    ...current,
-                    imageId,
-                    isFavorite: current?.isFavorite ?? false,
-                    tags: current?.tags ?? [],
-                    autoTags: mergedAutoTags,
-                    metadataTags: current?.metadataTags ?? [],
-                    addedAt: current?.addedAt ?? generatedAt,
-                    updatedAt: generatedAt,
-                    isAutoTagged: true,
-                    // Enrichment metadata: the version stamp makes
-                    // re-tagging idempotent across runs (see
-                    // needsSearchEnrichment). A fresh model list REPLACES
-                    // prior-pass vocabulary — the field is a per-run product
-                    // of the model (never user-edited), so unioning would
-                    // only stale the search text after a prompt edit.
-                    synonymTags: synonyms ?? current?.synonymTags ?? [],
-                    searchTagVersion: SEARCH_ENRICHMENT_VERSION,
-                    // Fresh auto-tags feed the index text — clearing the
-                    // stamp re-queues the image for the round's semantic
-                    // phase (phase 4).
-                    isSemanticIndexed: false,
-                };
-
-                // Persist this one image immediately (fire-and-forget — the
-                // next LLM call takes seconds, so the ~1ms put never blocks
-                // anything; the main thread writes concurrently with the
-                // worker's generation by design).
-                import('../services/imageAnnotationsStorage')
-                    .then(({ saveAnnotation }) => saveAnnotation(annotation))
-                    .catch(error => console.warn('Failed to persist auto-tags as annotations:', error));
-
-                set(state => {
-                    const newAnnotations = new Map(state.annotations);
-                    newAnnotations.set(annotation.imageId, annotation);
-
-                    // Surgical patch: only the tagged image's object is
-                    // recreated (the old full-list map spread every image on
-                    // every message — O(n) per image, O(n²) over a run).
-                    const patchList = (list: IndexedImage[]) => list.map(img =>
-                        img.id === annotation.imageId
-                            ? { ...img, tags: mergeAnnotationTags(annotation), autoTags: annotation.autoTags, metadataTags: annotation.metadataTags, isAutoTagged: annotation.isAutoTagged, synonymTags: annotation.synonymTags ?? [], searchTagVersion: annotation.searchTagVersion }
-                            : img);
-
-                    return {
-                        ...state,
-                        annotations: newAnnotations,
-                        images: patchList(state.images),
-                        filteredImages: patchList(state.filteredImages),
-                    };
-                });
+                const group = repGroups.get(representativeId);
+                if (!group) {
+                    // Unexpected / legacy id — still persist that one image.
+                    persistEnrichmentBatch([{ imageId: representativeId, tags: newTags, synonyms }], Date.now());
+                    imagesDone += 1;
+                    return;
+                }
+                persistEnrichmentBatch(
+                    group.imageIds.map(imageId => ({ imageId, tags: newTags, synonyms })),
+                    Date.now(),
+                );
+                imagesDone += group.imageIds.length;
+                setTagProgress('Generating AI tags...');
             };
 
             worker.onmessage = (e: MessageEvent) => {
@@ -3577,57 +3877,80 @@ export const useImageStore = create<ImageState>((set, get) => {
                             set({ autoTaggingProgress: null });
                             break;
                         }
-                        // `loadingModel` marks the GPU model-load phase, whose
-                        // report is on the percent scale (total 100) — the
-                        // footer labels it "Loading AI model: N%" instead of
-                        // counting images. The worker's payload may omit a
-                        // human-readable message — fall back to a stable
-                        // description so the pill always explains itself.
-                        set({
-                            autoTaggingProgress: {
-                                current: payload.current,
-                                total: payload.total,
-                                message: payload.message
-                                    || (payload.loadingModel ? 'Loading model…' : 'Generating tags…'),
-                                loadingModel: payload.loadingModel === true,
-                            },
-                        });
+                        // Only model-load reports use the worker's percent
+                        // scale. The run itself reports REPRESENTATIVES, so an
+                        // ordinary report is re-expressed in IMAGE space from
+                        // the app's own fan-out-aware counter — the footer
+                        // keeps reading "image n of N".
+                        if (payload.loadingModel) {
+                            set({
+                                autoTaggingProgress: {
+                                    current: payload.current,
+                                    total: payload.total,
+                                    message: payload.message || 'Loading model…',
+                                    loadingModel: true,
+                                },
+                            });
+                        } else {
+                            set({
+                                autoTaggingProgress: {
+                                    current: imagesDone,
+                                    total: taggingImages.length,
+                                    message: payload.message || 'Generating tags…',
+                                    loadingModel: false,
+                                },
+                            });
+                        }
                         break;
                     case 'image-tagged': {
-                        // One image finished in the worker — persist it NOW
-                        // (tags + synonyms + isAutoTagged + the enrichment
-                        // stamp), while the worker moves on to the next
-                        // image. This is what makes interrupted runs resume
-                        // instead of restarting.
+                        // One PROMPT finished in the worker (a representative
+                        // image). Persist the cache row first, then fan the
+                        // result out to every image that shares the prompt.
                         const streamedTags = (payload.tags || []) as AutoTag[];
+                        const newTags = [...new Set(streamedTags.map((tag) => tag.tag).filter(Boolean))];
+                        // Hidden search vocabulary (LLM path only — the
+                        // rule-based fallback has no engine and omits it).
+                        const synonyms = Array.isArray(payload.synonyms)
+                            ? payload.synonyms as string[]
+                            : undefined;
                         persistedIds.add(payload.id);
-                        persistImageTags(
-                            payload.id,
-                            [...new Set(streamedTags.map((tag) => tag.tag).filter(Boolean))],
-                            Date.now(),
-                            // Hidden search vocabulary (LLM path only — the
-                            // rule-based fallback has no engine and omits it).
-                            Array.isArray(payload.synonyms) ? payload.synonyms : undefined,
-                        );
+
+                        if (synonyms) {
+                            const group = repGroups.get(payload.id);
+                            if (group) {
+                                const cachedAt = Date.now();
+                                void savePromptEnrichments([{
+                                    modelId: resolvedTagModelId,
+                                    enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                                    prompt: group.prompt,
+                                    concepts: newTags.slice(0, MAX_TAGS_PER_IMAGE),
+                                    synonyms,
+                                    source: 'llm',
+                                    createdAt: cachedAt,
+                                    updatedAt: cachedAt,
+                                }]).catch(error =>
+                                    console.warn('[AutoTag] Failed to cache prompt enrichment:', error));
+                            }
+                        }
+
+                        applyTagsForGroup(payload.id, newTags, synonyms);
                         break;
                     }
                     case 'complete': {
-                        const generatedAt = Date.now();
                         const tagMap = new Map<string, string[]>();
                         Object.entries(payload.autoTags || {}).forEach(([id, tags]: [string, AutoTag[]]) => {
                             const normalizedTags = [...new Set((tags || []).map((tag) => tag.tag).filter(Boolean))];
                             tagMap.set(id, normalizedTags);
                         });
 
-                        // The worker streams every image via 'image-tagged'
-                        // (persisted incrementally as it lands) and 'complete'
-                        // carries the full map for backward compatibility —
-                        // only ids that did NOT stream in (legacy/other
-                        // hosts) are persisted here; everything else was
-                        // already committed per-image.
+                        // The worker streams every representative via
+                        // 'image-tagged' (cached + fanned out as it lands) and
+                        // 'complete' carries the full map for backward
+                        // compatibility — only ids that did NOT stream in
+                        // (legacy/other hosts) are applied here.
                         for (const [imageId, newTags] of tagMap) {
                             if (persistedIds.has(imageId)) continue;
-                            persistImageTags(imageId, newTags, generatedAt);
+                            applyTagsForGroup(imageId, newTags);
                         }
 
                         set({ autoTaggingProgress: null, isAutoTagging: false });
@@ -3637,21 +3960,14 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // and the next run with the same model reuses it (no
                         // reload). The footer chips keep reporting this source;
                         // only eject (unloadAiModels) releases it.
-                        console.log(`Auto-tagging complete: ${tagMap.size} images tagged`);
+                        console.log(`Auto-tagging complete: ${tagMap.size} prompts tagged`);
 
                         // NOTE: the semantic Δ re-index is NOT fired here
                         // anymore — the pipeline round awaits this run's
                         // promise and then runs its semantic phase
                         // (runSemanticIndexNow), so the fresh tags + synonyms
                         // land in the index strictly sequenced.
-
-                        if (payload.autoTags) {
-                            // clusterCacheManager removed — auto-tag cache save disabled
-                        }
-                        const resolveAutoTag = __autoTagResolve;
-                        __autoTagResolve = null;
-                        __autoTagInFlight = null;
-                        resolveAutoTag?.();
+                        finishRun();
                         break;
                     }
                     case 'gpu-info':
@@ -3677,10 +3993,7 @@ export const useImageStore = create<ImageState>((set, get) => {
                         // Resolve, not reject — the error is already surfaced
                         // in store.error; the round must still proceed to
                         // semantic with whatever was tagged before the failure.
-                        const resolveAutoTag = __autoTagResolve;
-                        __autoTagResolve = null;
-                        __autoTagInFlight = null;
-                        resolveAutoTag?.();
+                        finishRun();
                         break;
                     }
                 }
@@ -3692,14 +4005,14 @@ export const useImageStore = create<ImageState>((set, get) => {
             worker.postMessage({
                 type: 'start',
                 payload: {
-                    images: taggingImages,
-                    // Keep the ENTIRE concept list the module returns — the
-                    // module already bounds concepts at MAX_TAGS_PER_IMAGE
-                    // (15) and synonyms at their own cap (6), so a lower
-                    // default here silently drops chips the model emitted
-                    // (10→15 on 2026-09-03, matching the dev tester's
-                    // no-truncation display of the same shared call).
-                    topN: options?.topN ?? 15,
+                    // ONE representative per distinct prompt — the result is
+                    // fanned out to every image that shares it.
+                    images: workerImages,
+                    // Keep the ENTIRE concept list the module can return (the
+                    // module bounds concepts at MAX_TAGS_PER_IMAGE) so a cache
+                    // row is never truncated by a one-off topN. The caller's
+                    // cap is applied at persistence time.
+                    topN: MAX_TAGS_PER_IMAGE,
                     minScore: options?.minScore,
                     disableFallback: disableAiFallback,
                     devicePreference: aiDevicePreference,
@@ -3709,25 +4022,30 @@ export const useImageStore = create<ImageState>((set, get) => {
                     isPremium: isAiFeaturesEnabled(),
                 },
             });
-            return __autoTagInFlight;
+            return runPromise;
         },
 
         cancelAutoTagging: () => {
+            // Abort in-flight cache hydration as well: the worker dies with
+            // terminate(), but hydration is plain main-thread async work with
+            // nothing to terminate. Bumping the token makes it discard its
+            // batch instead of writing tags back after a wipe.
+            __autoTagRunSeq += 1;
             const { autoTaggingWorker } = get();
             if (autoTaggingWorker) {
                 autoTaggingWorker.postMessage({ type: 'cancel' });
                 autoTaggingWorker.terminate();
-                set({
-                    autoTaggingWorker: null,
-                    autoTagWorkerModelId: null,
-                    autoTaggingProgress: null,
-                    isAutoTagging: false,
-                });
                 // The worker's engine died with it — clear this source of the
                 // footer chips (the semantic worker, if loaded, still reports
                 // its own residency).
                 useImageStore.getState().setAutoTagModelsStatus(null);
             }
+            set({
+                autoTaggingWorker: null,
+                autoTagWorkerModelId: null,
+                autoTaggingProgress: null,
+                isAutoTagging: false,
+            });
             // Resolve any in-flight run's promise so a cancelled round phase
             // doesn't hang the queue job awaiting it (terminate() means the
             // worker's 'complete'/'error' handlers will never fire).
@@ -4392,6 +4710,25 @@ export const useImageStore = create<ImageState>((set, get) => {
                 console.log(`Cleared auto-tags from ${updatedAnnotations.length} images`);
             }
 
+            if (updatedAnnotations.length > 0) {
+                // Clear Auto-Tags is an explicit intent to discard the
+                // enriched result. Purge the affected prompts from the cache
+                // too — otherwise the next pipeline run would silently
+                // re-hydrate exactly what the user just cleared. Other
+                // prompts' cached results are untouched.
+                const clearedIds = new Set(updatedAnnotations.map(annotation => annotation.imageId));
+                const prompts = new Set<string>();
+                for (const image of get().images) {
+                    if (!clearedIds.has(image.id)) continue;
+                    const prompt = image.prompt || '';
+                    if (prompt.trim()) prompts.add(prompt);
+                }
+                if (prompts.size > 0) {
+                    void deletePromptEnrichmentsForPrompts([...prompts]).catch(error =>
+                        console.warn('[PromptCache] Failed to purge cleared prompts:', error));
+                }
+            }
+
             // Auto-tag text feeds the semantic index — Δ-re-index so the
             // cleared state is searchable immediately.
             void get().semanticIndexImages();
@@ -4422,6 +4759,46 @@ export const useImageStore = create<ImageState>((set, get) => {
             processingQueue.dropQueued('pipeline');
             processingQueue.dropQueued('semantic');
             __semanticIndexQueuedForce = false;
+
+            // ── 0. Promote per-image enrichment into the prompt cache BEFORE
+            //    anything is wiped. Reprocess is the operation that destroys
+            //    per-image derived data; promoting it makes the rebuild free —
+            //    the auto-tag phase re-hydrates from the cache instead of
+            //    calling the model again. (The semantic coordinator performs
+            //    the same promotion for its vectors inside clearIndex.)
+            try {
+                const promotionState = get();
+                const resolvedTagModelId = await resolveTagModelIdForCache(
+                    useSettingsStore.getState().aiTagModel,
+                );
+                const promptByImageId = new Map(promotionState.images.map(img => [img.id, img.prompt || '']));
+                const byPrompt = new Map<string, { tags: string[]; synonyms: string[] }>();
+                for (const [imageId, annotation] of promotionState.annotations) {
+                    if (annotation.searchTagVersion !== SEARCH_ENRICHMENT_VERSION) continue;
+                    const prompt = promptByImageId.get(imageId) || '';
+                    if (!prompt.trim() || byPrompt.has(prompt)) continue;
+                    const tags = annotation.autoTags ?? [];
+                    const synonyms = annotation.synonymTags ?? [];
+                    if (tags.length === 0 && synonyms.length === 0) continue;
+                    byPrompt.set(prompt, { tags, synonyms });
+                }
+                if (byPrompt.size > 0) {
+                    const promotedAt = Date.now();
+                    await savePromptEnrichments([...byPrompt].map(([prompt, enrichment]) => ({
+                        modelId: resolvedTagModelId,
+                        enrichmentVersion: SEARCH_ENRICHMENT_VERSION,
+                        prompt,
+                        concepts: enrichment.tags.slice(0, MAX_TAGS_PER_IMAGE),
+                        synonyms: enrichment.synonyms,
+                        source: 'llm' as const,
+                        createdAt: promotedAt,
+                        updatedAt: promotedAt,
+                    })));
+                    console.log(`[PromptCache] Promoted ${byPrompt.size} prompts before clearing derived data`);
+                }
+            } catch (error) {
+                console.warn('[PromptCache] Failed to promote prompts before clearing:', error);
+            }
 
             // ── 1. Disk caches: per-directory metadata (BOTH scan variants —
             //    main <cacheRoot>/<cacheId>.json + json_cache chunks) and the

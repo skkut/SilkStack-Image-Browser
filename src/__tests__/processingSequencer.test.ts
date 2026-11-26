@@ -77,6 +77,7 @@ vi.mock('../services/aiBridge', () => ({
   // constant (src/services/aiBridge.ts). Pre-enriched test annotations carry
   // this version so a second auto-tag pass no-ops.
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
   // Mirrored too — a full-replacement mock must export every constant the
   // store reads at runtime, or the similarity phase throws mid-round.

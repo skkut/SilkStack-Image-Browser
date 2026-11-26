@@ -85,6 +85,7 @@ vi.mock('../services/aiBridge', () => ({
   // (src/services/aiBridge.ts). A full-replacement mock must export every
   // constant the store reads at runtime, or the round throws mid-phase.
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
   SIMILARITY_MATCH_THRESHOLD: 0.8,
 }));

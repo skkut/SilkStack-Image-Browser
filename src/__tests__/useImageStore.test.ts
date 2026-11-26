@@ -14,7 +14,7 @@ vi.hoisted(() => {
 import { useImageStore, loadDetectedGpuInfo, loadDetectedGpuDevices, needsSearchEnrichment, needsSemanticIndexing } from '../store/useImageStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { type IndexedImage, type ImageAnnotations } from '../types';
-import { saveAnnotation, bulkSaveAnnotations } from '../services/imageAnnotationsStorage';
+import { bulkSaveAnnotations } from '../services/imageAnnotationsStorage';
 
 const createImage = (overrides: Partial<IndexedImage>): IndexedImage => ({
   id: overrides.id || 'id',
@@ -75,6 +75,7 @@ vi.mock('../services/aiBridge', () => ({
   // Mirrored by the store's enrichment gate — keep in sync with the real
   // constant (src/services/aiBridge.ts).
   SEARCH_ENRICHMENT_VERSION: 2,
+  MAX_TAGS_PER_IMAGE: 15,
   // Mirrored default tag model — the store resolves '' (fresh install) to
   // this id for worker-reuse comparison.
   TAG_GENERATION_MODEL_ID: 'Hermes-3-Llama-3.2-3B-q4f16_1-MLC',
@@ -1286,21 +1287,23 @@ describe('useImageStore auto-tagging incremental persistence (image-tagged)', ()
     expect(midRun.images.find(i => i.id === 'img2')?.autoTags).toBeUndefined();
     expect(midRun.images.find(i => i.id === 'img2')?.isAutoTagged).toBeUndefined();
 
-    // Persisted to IndexedDB via the single-annotation save — the store's
-    // dynamic import resolves to the mocked module.
+    // Persisted to IndexedDB via the batch annotation save (the prompt-cache
+    // fan-out writer) — one call carrying this representative's group.
     await flush();
-    expect(saveAnnotation).toHaveBeenCalledWith(expect.objectContaining({
-      imageId: 'img1',
-      autoTags: ['dragon', 'fire'],
-      isAutoTagged: true,
-      searchTagVersion: 2,
-    }));
+    expect(bulkSaveAnnotations).toHaveBeenCalledWith([
+      expect.objectContaining({
+        imageId: 'img1',
+        autoTags: ['dragon', 'fire'],
+        isAutoTagged: true,
+        searchTagVersion: 2,
+      }),
+    ]);
 
     // img2 finishes, then the run completes with BOTH ids in the map —
     // img1 must NOT be re-persisted (deduped), img2 goes through the
     // backward-compat leftover path.
-    const saveAnnotationMock = vi.mocked(saveAnnotation);
-    const savesBefore = saveAnnotationMock.mock.calls.length;
+    const bulkSaveMock = vi.mocked(bulkSaveAnnotations);
+    const savesBefore = bulkSaveMock.mock.calls.length;
     worker.onmessage?.({
       data: { type: 'image-tagged', payload: { id: 'img2', tags: [{ tag: 'castle', sourceType: 'prompt' }] } },
     } as MessageEvent);
@@ -1318,12 +1321,14 @@ describe('useImageStore auto-tagging incremental persistence (image-tagged)', ()
     await run;
     await flush();
 
-    expect(saveAnnotationMock.mock.calls).toHaveLength(savesBefore + 1); // only img2 was written
-    expect(saveAnnotationMock).toHaveBeenLastCalledWith(expect.objectContaining({
-      imageId: 'img2',
-      autoTags: ['castle'],
-      isAutoTagged: true,
-    }));
+    expect(bulkSaveMock.mock.calls).toHaveLength(savesBefore + 1); // only img2 was written
+    expect(bulkSaveMock).toHaveBeenLastCalledWith([
+      expect.objectContaining({
+        imageId: 'img2',
+        autoTags: ['castle'],
+        isAutoTagged: true,
+      }),
+    ]);
 
     // Final state: both images tagged, the run settled.
     expect(useImageStore.getState().isAutoTagging).toBe(false);

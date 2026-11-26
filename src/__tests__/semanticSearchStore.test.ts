@@ -61,6 +61,7 @@ vi.mock('../services/aiBridge', () => ({
   // Mirrored — this mock replaces the whole module, so the store's similarity
   // phase needs the constant present.
   SIMILARITY_MATCH_THRESHOLD: 0.8,
+  MAX_TAGS_PER_IMAGE: 15,
 }));
 
 vi.mock('../services/imageAnnotationsStorage', () => ({

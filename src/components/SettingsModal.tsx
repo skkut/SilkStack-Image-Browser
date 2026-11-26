@@ -4,6 +4,7 @@ import { X, Save, RefreshCw, CheckCircle, Cpu, AlertCircle, Trash2, FolderOpen, 
 import { resetAllCaches } from '../utils/cacheReset';
 import { HotkeySettings } from './HotkeySettings';
 import { AiModelCacheSection } from './AiModelCacheSection';
+import { PromptCacheSection } from './PromptCacheSection';
 import { CheckpointMappingSection } from './CheckpointMappingSection';
 import { useImageStore } from '../store/useImageStore';
 import { isBaseModelLookupAvailable } from '../services/baseModelTable';
@@ -927,6 +928,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   </section>
 
                   <AiModelCacheSection />
+                  <PromptCacheSection />
                   </>
                   )}
                 </div>
