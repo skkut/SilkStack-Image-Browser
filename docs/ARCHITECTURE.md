@@ -67,6 +67,15 @@
 - **Clustering Worker (`services/workers/clusteringWorker.ts`)** runs clustering off the main thread and streams progress updates for large datasets.
 - **Cluster Cache (`services/clusterCacheManager.ts`)** persists stack results with atomic writes and Electron `userData` fallbacks for crash-safe storage.
 
+### Albums (premium)
+
+- **Own database (`silkstack-albums`, v1)** — deliberately NOT a store in `image-metahub-preferences`: the open-source DB migration is a version-locked contract, and a premium feature must not force it to change. Albums are also immune to app-side cache resets, which is what lets a collection survive a re-index or a temporarily disconnected folder.
+- **Membership is a reference, not a copy** — `albumItems` rows hold `imageId` plus a small snapshot (`imageName`, `directoryId`). The files are never moved, copied or deleted. Missing images render as *unavailable* rather than being pruned, so a detached drive or a folder removed and re-added does not silently destroy a curated collection.
+- **Relocation-aware** — `relocateImages` calls the module's `rekeyAlbumItems` (fire-and-forget dynamic import) so in-app moves/renames carry membership and the stored name snapshot to the new path-derived id. Counts and the cover are recomputed in the same write; a move onto an id the album already contained merges instead of double-counting.
+- **UI in the module** — `ai-intelligence/src/components/AlbumsView.tsx` owns the tab surface, album CRUD, the in-album photo picker and local multi-select. The open tree supplies only the full (unfiltered) library list, thumbnail generation, the viewer's navigation list (so prev/next stay inside the album) and the shared context menu (`src/components/AlbumsViewWrapper.tsx`, `AddToAlbumDialogWrapper.tsx`). The **Albums** tab and the library's **Add to Album** action are gated on the premium license (`useAiFeaturesEnabled`), not the master AI-model toggle — no model is loaded.
+- **Disconnected drives** — the wrapper passes `directories.filter(d => d.isConnected === false)` as `unavailableDirectoryIds`. The picker excludes those images entirely, and album entries from them render no thumbnail and cannot be opened; the membership rows are kept, so reconnecting the drive restores the photos in place. This mirrors the library's folder-visibility rule without applying the sidebar's selection/exclusion filters (albums are library-wide collections).
+- **Storage API** — `ai-intelligence/src/albums/albumsStorage.ts`: album CRUD (`listAlbums`, `createAlbum`, `updateAlbum`, `deleteAlbum`, `setAlbumCover`), membership (`listAlbumItems`, `addImagesToAlbum`, `removeImagesFromAlbum`) and the relocation re-key (`rekeyAlbumItems`). All writes recount membership inside the transaction; album overview counts are denormalised on the album record.
+
 ### Auto-Tagging
 
 - **Auto-Tagging Engine (`services/autoTaggingEngine.ts`)** builds a TF-IDF model and emits suggested tags, persisted alongside indexed images.

@@ -19,6 +19,7 @@ It scans your folders, parses metadata from popular tools (ComfyUI, Automatic111
 - **Auto-Watch functionality** for real-time monitoring of output folders during generation.
 - **Powerful search & filters** by prompt text, model, base model, steps, CFG, megapixels, sampler, seed, etc.
 - **Smart Library** with clustering stacks and collections
+- **Albums (premium)** - manual photo collections for favourites, categories or LoRA training sets, viewable as one grid
 - **Auto-tags and manual tags** for faster organization and discovery (see [Auto-Tagging Documentation](docs/AUTO-TAGGING.md))
 - **Full image viewer** with zoom, a minimap, in-prompt search and a compact window mode
 - **Drag & Drop to ComfyUI** - Drag and drop images to ComfyUI to automatically load the prompt and workflow.
@@ -49,6 +50,17 @@ Everything under **AI Intelligence** runs on your own machine via WebGPU - no cl
 The AI features are the premium part of SilkStack. They are unlocked with a license key in **Settings → License** - either a **7-day free trial** that turns into a monthly subscription (cancel anytime, ends by itself if you cancel) or a **one-time lifetime license**. Both are sold on Gumroad and email you a key to paste in.
 
 ![Semantic search and AI features in SilkStack](docs/Semantic-Search-and-AI%20Features.jpg)
+
+### Albums - manual photo collections
+
+The **Albums** tab is for the collections search cannot make for you: the handful of favourites you keep coming back to, a themed category, or a clean, hand-picked batch of photos for LoRA training.
+
+- **Create an album, then add photos** from its own picker, or select images anywhere in the library and use **Add to Album** in the selection toolbar.
+- **View the album as one grid**, pick a sort order, and click any photo to open it in the viewer - previous/next stay inside the album.
+- **Remove photos one at a time or in bulk**. Rename, re-describe and delete albums whenever you like.
+- **Photos are referenced, never copied or moved.** Removing a photo from an album, or deleting the album, leaves every file exactly where it was on disk.
+- **Disconnected folders are respected.** Photos on a drive that is not currently connected are not offered when adding, and their album entries show no thumbnail until the drive is back — the membership itself is never dropped.
+- Albums are stored **locally**, survive restarts, and follow in-app moves and renames. No model is loaded for this feature - it runs entirely on your machine.
 
 ### Semantic search - search by meaning
 

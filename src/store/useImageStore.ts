@@ -79,6 +79,29 @@ export const needsSemanticIndexing = (annotation?: ImageAnnotations): boolean =>
 
 const RECENT_TAGS_STORAGE_KEY = 'image-metahub-recent-tags';
 const MAX_RECENT_TAGS = 12;
+
+/**
+ * Keep premium album membership attached to in-app moved/renamed images.
+ *
+ * The album store is owned by the optional ai-intelligence module, so this is
+ * a fire-and-forget dynamic import: the open build has no album code at all,
+ * and relocation never awaits (or fails on) a premium side-store. Missing
+ * album rows are soft — the photo shows as unavailable — so a failed sync
+ * degrades instead of blocking the move.
+ */
+function syncAlbumsAfterRelocation(moves: ImageRelocationMove[]): void {
+    if (!import.meta.env.VITE_AI_FEATURES_AVAILABLE || moves.length === 0) return;
+    void import('@ai-images-browser/ai-intelligence')
+        .then((module) => {
+            const rekey = (module as unknown as {
+                rekeyAlbumItems?: (items: ImageRelocationMove[]) => Promise<void>;
+            }).rekeyAlbumItems;
+            return rekey?.(moves);
+        })
+        .catch((error) => {
+            console.warn('[Relocation] Failed to re-key album membership:', error);
+        });
+}
 // The last WebGPU adapter detected by an AI worker — persisted so Settings
 // shows the GPU without waiting for the next model load.
 const DETECTED_GPU_STORAGE_KEY = 'image-metahub-detected-gpu';
@@ -995,7 +1018,7 @@ interface ImageState {
   scanSubfolders: boolean;
   libraryStackContext: LibraryStackContext | null;  // For Back to Stacks navigation (ID-based, preserves search bar)
   isFullscreenMode: boolean;
-  activeView: 'library' | 'smart' | 'model';
+  activeView: 'library' | 'smart' | 'albums' | 'model';
 
 
 
@@ -1404,7 +1427,7 @@ interface ImageState {
   // Scroll Positions
   folderScrollPositions: Record<string, number>;
   setFolderScrollPosition: (key: string, position: number) => void;
-  setActiveView: (view: 'library' | 'smart' | 'model') => void;
+  setActiveView: (view: 'library' | 'smart' | 'albums' | 'model') => void;
 
   // Reset Actions
   resetState: () => void;
@@ -3052,6 +3075,7 @@ export const useImageStore = create<ImageState>((set, get) => {
             try {
                 await rekeyAnnotations(moves);
                 await rekeyImageVectors(moves);
+                syncAlbumsAfterRelocation(moves);
                 // Persist the un-stamp as well as setting it in memory: if the
                 // app closes before the follow-up round, the surviving DB
                 // record must still carry the open gate (a stamped record with

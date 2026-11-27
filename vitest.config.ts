@@ -19,6 +19,11 @@ export default defineConfig({
     environment: 'jsdom',
   },
   resolve: {
+    // Force single copies of React and friends — the ai-intelligence package
+    // ships a nested node_modules copy, and a test that imports its source (or
+    // a bundled component) directly would otherwise get a second React with no
+    // hooks dispatcher. Mirrors vite.config.ts.
+    dedupe: ['react', 'react-dom', 'lucide-react'],
     alias: {
       // ALWAYS alias the module path — Vite's transform resolves every
       // `import('@ai-images-browser/ai-intelligence')` in app source at

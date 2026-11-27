@@ -38,8 +38,13 @@ class FakeTaggingWorker {
   postMessage(): void { /* no-op */ }
 }
 
+const albumMocks = vi.hoisted(() => ({
+  rekeyAlbumItems: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@ai-images-browser/ai-intelligence', () => ({
   createAiWorker: () => new FakeTaggingWorker(),
+  rekeyAlbumItems: albumMocks.rekeyAlbumItems,
 }));
 
 vi.mock('../services/aiBridge', () => ({
@@ -222,6 +227,7 @@ describe('relocateImages — store-level invariants', () => {
     await clearAllAnnotations();
     await clearSemanticVectorsStore();
     resetRelocationRegistryForTests();
+    albumMocks.rekeyAlbumItems.mockClear();
     relocateDerivedFilesMock.mockReset();
     relocateDerivedFilesMock.mockImplementation(async ({ moves }: { moves: ImageRelocationMove[] }) => ({
       success: true,
@@ -276,6 +282,13 @@ describe('relocateImages — store-level invariants', () => {
 
     const renameSpy = vi.spyOn(thumbnailManager, 'renameEntry');
     await useImageStore.getState().relocateImages([MOVE]);
+
+    // Premium album membership follows the move too. The call is a
+    // fire-and-forget dynamic import so relocation never waits on the
+    // module, hence the wait rather than a same-tick assertion.
+    await vi.waitFor(() => {
+      expect(albumMocks.rekeyAlbumItems).toHaveBeenCalledWith([MOVE]);
+    });
 
     const state = useImageStore.getState();
     expect(state.images).toHaveLength(1);

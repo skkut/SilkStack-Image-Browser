@@ -4,7 +4,8 @@ import {
   Trash2,
   X,
   Merge,
-  Unlink
+  Unlink,
+  Images
 } from 'lucide-react';
 import { useImageStore } from '../store/useImageStore';
 import { type IndexedImage } from '../types';
@@ -23,6 +24,12 @@ interface GridToolbarProps {
   onMergeSelected?: () => void;
   isInStackView?: boolean;
   onUnmergeSelected?: () => void;
+  /**
+   * Premium "Add to Album" action. Absent when the module is unavailable or
+   * no valid license is active — the button renders only when App can honor
+   * it.
+   */
+  onAddToAlbum?: () => void;
 }
 
 const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
@@ -46,6 +53,7 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
   onMergeSelected,
   isInStackView = false,
   onUnmergeSelected,
+  onAddToAlbum,
 }) => {
   const toggleFavorite = useImageStore((state) => state.toggleFavorite);
   const aiFeaturesEnabled = useAiFeaturesEnabled();
@@ -148,6 +156,19 @@ const GridToolbar: React.FC<GridToolbarProps> = ({
               </button>
 
 
+
+              {/* Add to Album — premium, so the handler is only supplied when
+                  the module and license are both present. */}
+              {onAddToAlbum && (
+                <button
+                  onClick={onAddToAlbum}
+                  className="p-1.5 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded transition-colors"
+                  title="Add selected images to an album"
+                  aria-label="Add selected images to an album"
+                >
+                  <Images className="w-4 h-4" />
+                </button>
+              )}
 
               {/* Divider */}
               <div className="w-px h-4 bg-gray-700 mx-1" />

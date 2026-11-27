@@ -25,6 +25,8 @@ import DirectoryList from './components/DirectoryList';
 import CommandPalette from './components/CommandPalette';
 import HotkeyHelp from './components/HotkeyHelp';
 import Stacks from './components/SmartLibrary';
+import AlbumsViewWrapper from './components/AlbumsViewWrapper';
+import AddToAlbumDialogWrapper from './components/AddToAlbumDialogWrapper';
 import { ModelView } from './components/ModelView';
 import GridToolbar from './components/GridToolbar';
 import TopMenuBar from './components/TopMenuBar';
@@ -249,6 +251,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isHotkeyHelpOpen, setIsHotkeyHelpOpen] = useState(false);
+  const [isAddToAlbumOpen, setIsAddToAlbumOpen] = useState(false);
   const [newImagesToast, setNewImagesToast] = useState<{ count: number; directoryName: string } | null>(null);
 
   // --- Hotkeys Hook ---
@@ -452,13 +455,14 @@ export default function App() {
 
   // If premium is deactivated while inside a stack view (e.g. license
   // revoked or expired mid-session), exit the stack context and leave the
-  // Stacks view so the user isn't stranded on a locked feature.
+  // Stacks / Albums views so the user isn't stranded on a locked feature.
   useEffect(() => {
     if (aiFeaturesEnabled) return;
     const { libraryStackContext, activeView, setLibraryStackContext, setActiveView } =
       useImageStore.getState();
     if (libraryStackContext) setLibraryStackContext(null);
-    if (activeView === 'smart') setActiveView('library');
+    if (activeView === 'smart' || activeView === 'albums') setActiveView('library');
+    setIsAddToAlbumOpen(false);
   }, [aiFeaturesEnabled]);
 
   // Close the drill-down when its group stops being a stack — fewer than two
@@ -1532,6 +1536,8 @@ export default function App() {
                 <div className="h-full">
                   {activeView === 'smart' ? (
                     aiFeaturesEnabled ? <Stacks /> : null
+                  ) : activeView === 'albums' ? (
+                    aiFeaturesEnabled ? <AlbumsViewWrapper /> : null
                   ) : activeView === 'model' ? (
                     <ModelView
                       onModelSelect={(modelName) => {
@@ -1609,6 +1615,9 @@ export default function App() {
                   onMergeSelected={mergeSelectedToStack}
                   isInStackView={!!libraryStackContext}
                   onUnmergeSelected={unmergeSelectedFromStack}
+                  onAddToAlbum={
+                    aiFeaturesEnabled ? () => setIsAddToAlbumOpen(true) : undefined
+                  }
                 />
               )}
             </Footer>
@@ -1632,6 +1641,22 @@ export default function App() {
           isIndexing={indexingState === 'indexing'}
           nextImage={navigationImages[(getCurrentImageIndex() + 1) % navigationImages.length]}
           previousImage={navigationImages[(getCurrentImageIndex() - 1 + navigationImages.length) % navigationImages.length]}
+        />
+      )}
+
+      {/* "Add to Album" from the library selection — premium-only. The album
+          storage and dialog live in the ai-intelligence module; App supplies
+          only the selected images. */}
+      {isAddToAlbumOpen && aiFeaturesEnabled && (
+        <AddToAlbumDialogWrapper
+          images={images.filter((image) => safeSelectedImages.has(image.id))}
+          onClose={() => setIsAddToAlbumOpen(false)}
+          onAdded={(albumName, addedCount) => {
+            setIsAddToAlbumOpen(false);
+            setSuccess(
+              `${addedCount} ${addedCount === 1 ? 'photo' : 'photos'} added to “${albumName}”.`,
+            );
+          }}
         />
       )}
 

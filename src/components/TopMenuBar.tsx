@@ -13,8 +13,8 @@ interface TopMenuBarProps {
     onToggleView: () => void;
     onUndo?: () => void;
     hasUndo?: boolean;
-    activeView?: 'library' | 'smart' | 'model';
-    onLibraryViewChange?: (view: 'library' | 'smart' | 'model') => void;
+    activeView?: 'library' | 'smart' | 'albums' | 'model';
+    onLibraryViewChange?: (view: 'library' | 'smart' | 'albums' | 'model') => void;
     searchQuery: string;
     setSearchQuery: (query: string) => void;
     isSidebarCollapsed?: boolean;
@@ -28,12 +28,13 @@ interface TopMenuBarProps {
     semanticActive?: boolean;
 }
 
-/** The three main views, in display order. `smart` (Stacks) is premium-gated
- *  and filtered out at render time. */
+/** The main views, in display order. `premium` tabs (Stacks, Albums) are
+ *  filtered out at render time unless a valid license is active. */
 const VIEW_TABS = [
-    { id: 'library', label: 'Library' },
-    { id: 'smart', label: 'Stacks' },
-    { id: 'model', label: 'Models' },
+    { id: 'library', label: 'Library', premium: false },
+    { id: 'smart', label: 'Stacks', premium: true },
+    { id: 'albums', label: 'Albums', premium: true },
+    { id: 'model', label: 'Models', premium: false },
 ] as const;
 
 /** One tab button. Deliberately colourless: the active tab is a raised gray
@@ -169,7 +170,7 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                     className="flex items-center gap-1.5 shrink-0 ml-2 pl-3 border-l border-gray-700/40"
                     style={{ WebkitAppRegion: 'no-drag' } as any}
                 >
-                    {VIEW_TABS.filter((tab) => tab.id !== 'smart' || aiFeaturesEnabled).map((tab) => {
+                    {VIEW_TABS.filter((tab) => !tab.premium || aiFeaturesEnabled).map((tab) => {
                         const isActive = activeView === tab.id;
                         return (
                             <button
@@ -187,8 +188,10 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
 
             {/* Right Side - Actions (Search & Settings) */}
             <div className="flex items-center gap-2 min-w-0 pr-1 ml-auto">
-                {/* Search Bar */}
-                {activeView && (
+                {/* Search Bar — hidden in Albums: the tab shows a manual
+                    collection, not the filtered library, so a search box here
+                    would silently do nothing. */}
+                {activeView && activeView !== 'albums' && (
                     <div className="flex items-center h-full mr-1 min-w-0 flex-1 justify-end" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <SearchBar
                             value={searchQuery}
@@ -203,8 +206,9 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                 
                 {/* Sort Order — was in the sidebar; lives here so it stays
                     visible even when the sidebar is collapsed. Rendered only
-                    when App wires the handlers (kept optional for tests). */}
-                {activeView && onSortOrderChange && (
+                    when App wires the handlers (kept optional for tests), and
+                    not in Albums, which has its own album-local sort. */}
+                {activeView && activeView !== 'albums' && onSortOrderChange && (
                     <div className="flex items-center gap-1.5 h-full shrink-0" style={{ WebkitAppRegion: 'no-drag' } as any}>
                         <label
                             htmlFor="topbar-sort"
