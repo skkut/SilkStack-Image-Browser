@@ -28,6 +28,26 @@ interface TopMenuBarProps {
     semanticActive?: boolean;
 }
 
+/** The three main views, in display order. `smart` (Stacks) is premium-gated
+ *  and filtered out at render time. */
+const VIEW_TABS = [
+    { id: 'library', label: 'Library' },
+    { id: 'smart', label: 'Stacks' },
+    { id: 'model', label: 'Models' },
+] as const;
+
+/** One tab button. Deliberately colourless: the active tab is a raised gray
+ *  surface with brighter text, not a brand fill, so the header stays calm and
+ *  the three views never compete with the actual signals (AI badge, semantic
+ *  glow). Gray tokens are theme-inverted, so this reads correctly in both
+ *  themes — never pair these with a fixed `text-white`. */
+const tabButtonClass = (isActive: boolean): string =>
+    `h-7 px-3 text-[13px] font-medium rounded-md border transition-colors duration-150 focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-400/40 ${
+        isActive
+            ? 'bg-gray-700/80 border-gray-600/60 text-gray-100 shadow-sm'
+            : 'border-gray-700/50 text-gray-400 hover:bg-gray-800/60 hover:border-gray-600/50 hover:text-gray-200'
+    }`;
+
 const TopMenuBar: React.FC<TopMenuBarProps> = ({
     onOpenSettings,
     onAddFolder,
@@ -141,43 +161,27 @@ const TopMenuBar: React.FC<TopMenuBarProps> = ({
                 />
             </div>
 
-            {/* Center Side - View Controls */}
+            {/* View tabs — left-aligned beside the menu so the three main
+                views read as primary navigation, not a floating switcher.
+                Each tab is its own rounded rectangle; no shared pill. */}
             {activeView && onLibraryViewChange && (
-                <div className="flex-1 flex justify-center pointer-events-none">
-                    <div className="flex items-center bg-gray-800/50 rounded-full p-0.5 border border-gray-700/50 overflow-hidden pointer-events-auto" style={{ WebkitAppRegion: 'no-drag' } as any}>
-                        <button
-                            onClick={() => onLibraryViewChange('library')}
-                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                activeView === 'library'
-                                ? 'bg-blue-600 text-white shadow-md shadow-blue-900/20'
-                                : 'text-gray-400 hover:text-gray-200 dark:hover:text-white hover:bg-gray-300/20 dark:hover:bg-white/5'
-                            }`}
-                        >
-                            Library
-                        </button>
-                        {aiFeaturesEnabled && (
-                        <button
-                            onClick={() => onLibraryViewChange('smart')}
-                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                activeView === 'smart'
-                                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/20'
-                                : 'text-gray-400 hover:text-gray-200 dark:hover:text-white hover:bg-gray-300/20 dark:hover:bg-white/5'
-                            }`}
-                        >
-                            Stacks
-                        </button>
-                        )}
-                        <button
-                            onClick={() => onLibraryViewChange('model')}
-                            className={`px-3.5 py-1 text-[13.5px] font-semibold rounded-full transition-all duration-200 ${
-                                activeView === 'model'
-                                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/20'
-                                : 'text-gray-400 hover:text-gray-200 dark:hover:text-white hover:bg-gray-300/20 dark:hover:bg-white/5'
-                            }`}
-                        >
-                            Models
-                        </button>
-                    </div>
+                <div
+                    className="flex items-center gap-1.5 shrink-0 ml-2 pl-3 border-l border-gray-700/40"
+                    style={{ WebkitAppRegion: 'no-drag' } as any}
+                >
+                    {VIEW_TABS.filter((tab) => tab.id !== 'smart' || aiFeaturesEnabled).map((tab) => {
+                        const isActive = activeView === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => onLibraryViewChange(tab.id)}
+                                className={tabButtonClass(isActive)}
+                                aria-pressed={isActive}
+                            >
+                                {tab.label}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 

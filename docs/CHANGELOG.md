@@ -31,6 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **A calmer, left-aligned main header** — the **Library / Stacks / Models** tabs now sit directly beside the menu instead of floating in the centre, each drawn as its own rounded rectangle rather than a pill inside one shared capsule. The three competing blue, purple and emerald fills are gone: the active view is a neutral raised gray with brighter text, so the header no longer competes with search, badges and status. Behavior is unchanged.
 - **Smaller star badges on cards** — the favourite star is more compact in the grid and in stack views (in-app and in their own windows): the hover outline is a little smaller, and a starred (filled) star is smaller still, so it no longer outweighs the card's other controls.
 - **Copy every selected path at once** — with several images selected, right-clicking one of them and choosing **Copy Image Path** now copies all selected paths, one quoted path per line, ready to paste into a script or terminal. Right-clicking outside the selection still copies only the image you clicked.
 
